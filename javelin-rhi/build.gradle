@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+
+dependencies {
+    implementation "org.slf4j:slf4j-api:$slf4jVersion"
+
+    // LWJGL 3 - Vulkan
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl-vulkan"
+    implementation "org.lwjgl:lwjgl::$lwjglNatives"
+}
+
+// 配置发布到本地 Maven 仓库
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        mavenLocal()
+    }
+}

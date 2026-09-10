@@ -1,0 +1,85 @@
+plugins {
+    id 'java'
+    id 'maven-publish' // 核心：Maven 发布插件
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// 显式配置 compileJava 任务
+compileJava {
+    options.compilerArgs += [
+            "--add-exports", "jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+            "--add-exports", "jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+            "--add-exports", "jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+            "--add-exports", "jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
+            "--add-exports", "jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED"
+    ]
+    options.encoding = 'UTF-8'
+    // 启用 fork 以隔离编译器进程
+    options.fork = true
+
+    // 设置 Java 版本
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+compileTestJava {
+    options.compilerArgs += ["--enable-preview"]
+    options.fork = true
+}
+
+tasks.withType(Test).configureEach {
+    jvmArgs("--enable-preview")
+    systemProperty "file.encoding", "UTF-8"
+}
+
+tasks.withType(JavaExec).configureEach {
+    executable = null
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    })
+    systemProperty "file.encoding", "UTF-8"
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // 注解处理器使用 javac 内部 API
+}
+
+// 配置注解处理器 JAR
+tasks.jar {
+    manifest {
+        attributes(
+                'Automatic-Module-Name': 'com.javelin.ast'
+        )
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+
+// 配置发布到本地 Maven 仓库
+publishing {
+    publications {
+        // 定义发布内容：Java 组件（jar 包）
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        // 本地 Maven 仓库地址（默认路径）
+        mavenLocal()
+    }
+}

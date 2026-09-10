@@ -1,0 +1,347 @@
+package com.javelin.core;
+
+import com.javelin.core.assets.AssetLibManager;
+import com.javelin.core.assets.AssetManager;
+import com.javelin.core.render.RenderingPipeline;
+import com.javelin.core.scene.SceneManager;
+import com.javelin.core.subsystem.SubsystemManager;
+import com.javelin.core.window.GlfwWindow;
+import com.javelin.core.window.Window;
+import com.javelin.rhi.RHIFactory;
+import com.javelin.rhi.RHIFactory.RHIConfig;
+import com.javelin.rhi.RHIFactory.RHIContext;
+import com.javelin.rhi.Renderer;
+import com.javelin.rhi.api.Device;
+import com.javelin.rhi.api.GPUResource;
+import com.javelin.rhi.api.SwapChain;
+import com.javelin.rhi.desc.SwapChainDesc;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+
+
+/**
+ * 引擎主类，管理窗口、RHI 初始化和主循环。
+ * <p>
+ * 使用方式：
+ * <pre>
+ *   var engine = new JavelinEngine("My Game", 1280, 720);
+ *   engine.start();
+ * </pre>
+ * 子类可重写 {@link #initialize()} 和 {@link #update()} 来扩展引擎行为。
+ */
+public class JavelinEngine {
+
+    private static final Logger log = LoggerFactory.getLogger(JavelinEngine.class);
+    static {
+        org.lwjgl.system.Configuration.STACK_SIZE.set(1024);
+    }
+    protected final String appName;
+    protected final int width;
+    protected final int height;
+    protected final boolean validation;
+    protected final int framesInFlight;
+
+    private long lastFrameTime;
+    protected Window window;
+    protected RHIContext rhiContext;
+    protected Device device;
+    protected SwapChain swapChain;
+    protected Renderer renderer;
+
+    protected AssetManager assetManager;
+    protected SubsystemManager subsystemManager;
+    protected SceneManager sceneManager;
+
+    // 执行队列：用于多线程向主线程提交任务，避免多线程访问 RHI 资源的问题
+    private final ConcurrentLinkedQueue<Runnable> executeQueue = new ConcurrentLinkedQueue<>();
+
+    public JavelinEngine(String appName, int width, int height) {
+        this(appName, width, height, true, 2);
+    }
+
+    public JavelinEngine(String appName, int width, int height, boolean validation, int framesInFlight) {
+        this.appName = appName;
+        this.width = width;
+        this.height = height;
+        this.validation = validation;
+        this.framesInFlight = framesInFlight;
+    }
+
+    /**
+     * 启动引擎：初始化 -> 主循环 -> 清理。
+     */
+    public void start() {
+        try {
+            initializeCore();
+            initialize();
+            mainLoop();
+        } catch (Exception e) {
+            log.error("Engine error", e);
+            throw e;
+        } finally {
+            shutdown();
+        }
+    }
+
+    /**
+     * 请求停止引擎主循环。
+     * 统一走窗口关闭逻辑，确保清理流程一致。
+     */
+    public void stop() {
+        if (window != null) {
+            window.requestClose();
+        }
+    }
+
+    /**
+     * 提交一个任务到引擎主线程执行队列。
+     * <p>
+     * 所有涉及 RHI 资源（Device、Buffer、Texture、CommandBuffer 等）的操作
+     * 都必须在主线程执行。其他线程通过此方法将任务投递到主线程，
+     * 由主循环在帧开始时统一执行，避免多线程竞争问题。
+     *
+     * @param task 要在主线程执行的任务
+     */
+    public void submitToExecuteQueue(Runnable task) {
+        if (task != null) {
+            executeQueue.offer(task);
+        }
+    }
+
+    /**
+     * 提交一个任务到引擎主线程执行队列，并等待其执行完成。
+     * <p>
+     * 注意：此方法会阻塞调用线程，直到任务在主线程执行完毕。
+     * 切勿在主线程调用此方法，否则会导致死锁。
+     *
+     * @param task 要在主线程执行的任务
+     */
+    public void submitToExecuteQueueAndWait(Runnable task) {
+        if (task == null) return;
+
+        var latch = new CountDownLatch(1);
+        executeQueue.offer(() -> {
+            try {
+                task.run();
+            } finally {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for execute queue task", e);
+        }
+    }
+
+    /**
+     * 执行队列中所有待处理的任务。
+     */
+    private void flushExecuteQueue() {
+        Runnable task;
+        while ((task = executeQueue.poll()) != null) {
+            try {
+                task.run();
+            } catch (Exception e) {
+                log.error("Execute queue task failed", e);
+            }
+        }
+    }
+
+    /**
+     * 初始化核心子系统（窗口、RHI、渲染器）。
+     */
+    private void initializeCore() {
+        log.info("Initializing Javelin Engine: {} ({}x{})", appName, width, height);
+
+        assetManager = createAssetManager();
+        subsystemManager = new SubsystemManager();
+        registerSubsystem(subsystemManager);
+        subsystemManager.initAll(this);
+        sceneManager = new SceneManager();
+        // 创建窗口
+        window = createWindow();
+        window.create();
+        window.show();
+
+        // 初始化 RHI
+        RHIConfig config = new RHIConfig(appName, validation, framesInFlight, true);
+        rhiContext = RHIFactory.initialize(config, window);
+        device = rhiContext.device();
+
+        // 创建交换链
+        SwapChainDesc swapChainDesc = new SwapChainDesc(width, height);
+        swapChain = device.createSwapChain(window, swapChainDesc);
+
+        // 创建渲染器
+        renderer = new Renderer(device, swapChain, framesInFlight);
+
+        log.info("Engine initialized successfully");
+    }
+
+    /**
+     * 子类重写：在核心初始化完成后执行自定义初始化。
+     */
+    protected void initialize() {
+        // 子类可重写
+    }
+
+    /**
+     * 子类重写：每帧更新逻辑。
+     */
+    protected void update() {
+        // 子类可重写
+    }
+
+    protected void registerSubsystem(SubsystemManager subsystemManager) {
+
+    }
+
+    /**
+     * 子类重写：每帧渲染逻辑。
+     * <p>
+     * 默认实现只清屏为暗色。子类应在 super.render() 之前或之后添加自己的绘制命令。
+     */
+    protected void render() {
+        // 默认空渲染，子类重写
+    }
+
+    /**
+     * 主循环。
+     */
+    private void mainLoop() {
+        log.info("Entering main loop");
+        Time.init();
+        lastFrameTime = System.nanoTime();
+        while (!window.shouldClose()) {
+            window.pollEvent();
+            // 3. 计算 deltaTime
+            long currentTime = System.nanoTime();
+            float deltaTime = (currentTime - lastFrameTime) / 1_000_000_000.0f;
+            lastFrameTime = currentTime;
+
+            // 更新全局时间系统
+            Time.update(deltaTime);
+
+            // 先执行队列中的所有任务（确保 RHI 操作在主线程完成）
+            flushExecuteQueue();
+
+            // 子系统早期更新（物理步进、动画采样、输入预处理）
+            subsystemManager.earlyUpdate(deltaTime);
+
+            // 更新场景（组件 onUpdate 与帧末销毁处理）
+            if (sceneManager != null) {
+                sceneManager.update(deltaTime);
+            }
+
+            update();
+
+            // 子系统正常更新（AI、游戏逻辑）与晚期更新（物理同步、相机跟随）
+            subsystemManager.update(deltaTime);
+            subsystemManager.lateUpdate(deltaTime);
+
+            // 开始帧
+            if (!renderer.beginFrame()) {
+                // 交换链需要重建，跳过当前帧
+                continue;
+            }
+
+            // 渲染：preRender → 渲染 → render → postRender
+            subsystemManager.preRender();
+            render();
+            subsystemManager.render();
+            subsystemManager.postRender();
+
+            // 结束帧并呈现
+            renderer.endFrame();
+        }
+
+        log.info("Exiting main loop");
+    }
+
+    protected Window createWindow() {
+        return new GlfwWindow(width, height, appName);
+    }
+
+    private AssetManager createAssetManager() {
+        return new AssetLibManager(new File(Env.getRunDir(), "Library"));
+    }
+
+    /**
+     * 清理所有资源。
+     */
+    private void shutdown() {
+        log.info("Shutting down engine");
+
+        // 确保队列中剩余任务执行完毕
+        flushExecuteQueue();
+
+        // 先销毁场景（组件可能持有 GPU 资源引用）
+        if (sceneManager != null) {
+            sceneManager.shutdown();
+            sceneManager = null;
+        }
+
+        // 子系统关闭同样需要在 GPU 资源销毁之前（子系统可能持有 GPU 对象）
+        if (subsystemManager != null) {
+            subsystemManager.shutdownAll();
+            subsystemManager = null;
+        }
+
+        if (renderer != null) {
+            renderer.dispose();
+            renderer = null;
+        }
+
+        if (swapChain != null) {
+            swapChain.dispose();
+            swapChain = null;
+        }
+
+        if (rhiContext != null) {
+            rhiContext.dispose();
+            rhiContext = null;
+        }
+
+        // 真正销毁所有待延迟资源（帧资源 → 交换链 → 设备 → 实例 的顺序已按入队先后保证）
+        GPUResource.flushDisposals();
+
+        if (window != null) {
+            window = null;
+        }
+
+        log.info("Engine shutdown complete");
+    }
+
+    // ========== 访问器 ==========
+
+    public Window window() {
+        return window;
+    }
+
+    public Device device() {
+        return device;
+    }
+
+    public SwapChain swapChain() {
+        return swapChain;
+    }
+
+    public Renderer renderer() {
+        return renderer;
+    }
+
+    public SceneManager sceneManager() {
+        return sceneManager;
+    }
+
+    public boolean isRunning() {
+        return window != null && !window.shouldClose();
+    }
+}

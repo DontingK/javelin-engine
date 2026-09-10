@@ -1,0 +1,31 @@
+plugins {
+    id("java")
+    id 'maven-publish' // 核心：Maven 发布插件
+
+}
+version = "1.0-SNAPSHOT"
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+
+    implementation 'ch.qos.logback:logback-classic:1.5.13'
+}
+
+// 配置发布到本地 Maven 仓库
+publishing {
+    publications {
+        // 定义发布内容：Java 组件（jar 包）
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        // 本地 Maven 仓库地址（默认路径）
+        mavenLocal()
+    }
+}
+

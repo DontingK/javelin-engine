@@ -1,0 +1,25 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+
+project.ext.lwjglVersion = "3.4.2"
+project.ext.lwjglNatives = "natives-windows"
+project.ext.slf4jVersion = "2.0.18"
+project.ext.logbackVersion = "1.5.38"
+project.ext.jomlVersion = "1.10.8"
+project.ext.lombokVersion = "1.18.38"
+
+allprojects {
+    repositories {
+//        maven { url 'https://maven.aliyun.com/repository/public' }
+//        maven { url 'https://maven.aliyun.com/repository/google' }
+//        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+        maven { url "https://central.sonatype.com/repository/maven-snapshots" }
+        mavenCentral()
+    }
+}
+

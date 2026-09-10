@@ -1,0 +1,19 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+
+dependencies {
+    // 从根项目继承平台版本管理
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    implementation "org.lwjgl:lwjgl-shaderc"
+    implementation "org.lwjgl:lwjgl-shaderc::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl::$lwjglNatives"
+}
+
+test {
+    useJUnitPlatform()
+}

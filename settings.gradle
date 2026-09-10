@@ -1,0 +1,8 @@
+rootProject.name = 'javelin-engine5'
+include 'javelin-ast'
+include 'javelin-log'
+include 'javelin-tool'
+include 'javelin-core'
+include 'javelin-rhi'
+
+include 'javelin-editor'

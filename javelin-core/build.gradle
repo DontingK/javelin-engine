@@ -1,0 +1,145 @@
+plugins {
+    id 'java'
+    id 'java-library'
+    id 'application'
+    id 'org.graalvm.buildtools.native' version '1.1.0'
+    id 'maven-publish' // 核心：Maven 发布插件
+
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+application {
+    mainClass = 'com.javelin.core.JavelinEngine'
+    applicationName = project.name
+}
+compileJava {
+    options.release = 25
+    options.encoding = 'UTF-8'
+    options.compilerArgs+="-Areflective.type=core"
+}
+
+dependencies {
+    implementation project(":javelin-rhi")
+    implementation project(":javelin-log")
+
+    annotationProcessor project(':javelin-ast')
+    compileOnly project(':javelin-ast')
+
+    implementation "org.slf4j:slf4j-api:$slf4jVersion"
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl-glfw"
+    implementation "org.lwjgl:lwjgl-yoga"
+    implementation "org.lwjgl:lwjgl::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-glfw::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-yoga::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-vulkan"
+    implementation "org.lwjgl:lwjgl-stb"
+    implementation "org.lwjgl:lwjgl-stb::$lwjglNatives"
+
+
+    implementation "org.joml:joml:$jomlVersion"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation project(':javelin-tool')  // 测试用 ShaderCompiler
+    // 测试代码：也能看到注解 + 注册处理器
+    testCompileOnly project(':javelin-ast')
+    testAnnotationProcessor project(':javelin-ast')
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// 运行测试类（UI 集成测试等）
+tasks.register('runTest', JavaExec) {
+    group = 'application'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = System.getProperty('mainClass', 'com.javelin.core.ui.UIPanelEngineTest')
+    jvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+
+// 配置发布到本地 Maven 仓库
+publishing {
+    publications {
+        // 定义发布内容：Java 组件（jar 包）
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+    repositories {
+        // 本地 Maven 仓库地址（默认路径）
+        mavenLocal()
+    }
+}
+
+
+graalvmNative {
+    binaries {
+        main {
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(25)
+                vendor = JvmVendorSpec.matching("Oracle Corporation")
+            }
+            imageName = 'javelin'
+            mainClass = 'com.javelin.core.JavelinEngine'
+            debug = false
+            verbose = false
+            fallback = false
+            sharedLibrary = false
+            quickBuild = false
+            richOutput = false
+            useFatJar = true
+            buildArgs.add("--enable-native-access=ALL-UNNAMED")
+        }
+    }
+}
+
+// 从 LWJGL natives JAR 中提取 DLL 到 native image 输出目录的 lib/ 文件夹
+task extractLwjglNatives {
+    def outputDir = layout.buildDirectory.dir("native/nativeCompile/lib").get().asFile
+    outputs.dir(outputDir)
+
+    doLast {
+        outputDir.mkdirs()
+
+        // 遍历所有配置，查找 lwjgl natives JAR
+        project.configurations.each { cfg ->
+            try {
+                cfg.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+                    def jarFile = artifact.file
+                    if (jarFile.name.endsWith(".jar") && jarFile.name.contains("natives-windows")) {
+                        println "提取 natives JAR: ${jarFile.name}"
+                        copy {
+                            from zipTree(jarFile)
+                            include "**/*.dll"
+                            into outputDir
+                            eachFile { fileCopyDetails ->
+                                // 展平目录结构，直接把 dll 放到 lib/ 下
+                                fileCopyDetails.path = fileCopyDetails.name
+                            }
+                            includeEmptyDirs = false
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // 忽略未解析的配置
+            }
+        }
+
+        println "提取 LWJGL natives 到: ${outputDir.absolutePath}"
+        outputDir.listFiles()?.each { println "  - ${it.name}" }
+    }
+}
+
+// 在 nativeCompile 完成后执行提取任务
+tasks.named('nativeCompile') {
+    finalizedBy extractLwjglNatives
+}

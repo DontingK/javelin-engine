@@ -1,0 +1,18 @@
+package com.javelin.rhi.types;
+
+/**
+ * 描述符类型。
+ */
+public enum DescriptorType {
+    SAMPLER,
+    COMBINED_IMAGE_SAMPLER,
+    SAMPLED_IMAGE,
+    STORAGE_IMAGE,
+    UNIFORM_TEXEL_BUFFER,
+    STORAGE_TEXEL_BUFFER,
+    UNIFORM_BUFFER,
+    STORAGE_BUFFER,
+    UNIFORM_BUFFER_DYNAMIC,
+    STORAGE_BUFFER_DYNAMIC,
+    INPUT_ATTACHMENT
+}

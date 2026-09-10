@@ -1,0 +1,80 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+
+    implementation project(":javelin-core")
+    implementation project(":javelin-tool")
+    implementation project(":javelin-rhi")
+    implementation project(":javelin-log")
+
+
+    annotationProcessor project(':javelin-ast')
+    compileOnly project(':javelin-ast')
+
+
+    implementation "org.slf4j:slf4j-api:$slf4jVersion"
+    implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    implementation "org.lwjgl:lwjgl"
+    implementation "org.lwjgl:lwjgl::$lwjglNatives"
+    implementation "org.lwjgl:lwjgl-vulkan"
+    implementation "org.lwjgl:lwjgl-jawt"
+    implementation "org.lwjgl:lwjgl-tinyfd"
+    implementation "org.lwjgl:lwjgl-tinyfd::$lwjglNatives"
+    // JSVG - Swing SVG 渲染
+    implementation 'com.github.weisj:jsvg:2.1.0'
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
+    implementation 'org.gradle:gradle-tooling-api:8.14.3'
+
+    implementation 'me.friwi:jcefmaven:146.0.10'
+
+    implementation "org.joml:joml:${jomlVersion}"
+
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+
+
+
+// 生成内置资源索引文件
+task generateBuiltinAssetIndex {
+    def outputDir = file("${buildDir}/generated/resources")
+    def indexFile = file("${outputDir}/builtin-asset.index")
+    inputs.dir 'src/main/resources/builtin-asset-core'
+    inputs.dir 'src/main/resources/builtin-asset-editor'
+    outputs.file indexFile
+
+    doLast {
+        outputDir.mkdirs()
+        def lines = []
+        ['builtin-asset-core', 'builtin-asset-editor'].each { dirName ->
+            def assetDir = file("src/main/resources/${dirName}")
+            if (assetDir.exists()) {
+                assetDir.eachFileRecurse { f ->
+                    if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader'))) {
+                        lines.add(dirName + '/' + assetDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
+                    }
+                }
+            }
+        }
+        indexFile.text = lines.join('\n') + (lines ? '\n' : '')
+    }
+}
+
+sourceSets.main.resources.srcDir "${buildDir}/generated/resources"
+processResources.dependsOn generateBuiltinAssetIndex
