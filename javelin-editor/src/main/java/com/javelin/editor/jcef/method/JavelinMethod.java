@@ -3,7 +3,7 @@ package com.javelin.editor.jcef.method;
 
 import com.javelin.editor.jcef.bridge.BridgeMethod;
 import com.javelin.editor.jcef.domain.par.RectPar;
-import com.javelin.editor.window.MainWindow;
+import com.javelin.editor.window.cef.MainWindow;
 
 
 /**

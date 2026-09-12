@@ -107,6 +107,148 @@ public class ShaderCompiler implements AutoCloseable {
     }
 
     /**
+     * 编译 GLSL 源码为 SPIR-V（带编译选项）。
+     *
+     * <p>根据 {@link Options} 生成临时 shaderc 编译选项：
+     * 调试信息、优化级别、目标 Vulkan 版本；options 为 null 时行为与
+     * {@link #compile(String, ShaderStage, String, String)} 相同。</p>
+     *
+     * @param source     GLSL 源码字符串
+     * @param stage      着色器阶段
+     * @param sourceName 源文件名称（用于错误日志定位）
+     * @param options    编译选项，可为 null
+     * @return SPIR-V 二进制字节数组
+     * @throws ShaderCompileException 编译失败时抛出
+     */
+    public byte[] compile(String source, ShaderStage stage, String sourceName, Options options) {
+        long compileOptions = 0L;
+        if (options != null) {
+            compileOptions = Shaderc.shaderc_compile_options_initialize();
+            if (compileOptions == 0L) {
+                throw new ShaderCompileException("无法初始化 shaderc 编译选项");
+            }
+            if (options.generateDebugInfo) {
+                Shaderc.shaderc_compile_options_set_generate_debug_info(compileOptions);
+            }
+            Shaderc.shaderc_compile_options_set_optimization_level(compileOptions, options.optimization.shadercLevel);
+            Shaderc.shaderc_compile_options_set_target_env(compileOptions,
+                Shaderc.shaderc_target_env_vulkan, options.targetVulkanVersion);
+        }
+
+        long result;
+        try {
+            result = Shaderc.shaderc_compile_into_spv(
+                compiler,
+                source,
+                stage.getShadercKind(),
+                sourceName,
+                "main",
+                compileOptions
+            );
+        } finally {
+            if (compileOptions != 0L) {
+                Shaderc.shaderc_compile_options_release(compileOptions);
+            }
+        }
+
+        try {
+            if (Shaderc.shaderc_result_get_compilation_status(result)
+                != Shaderc.shaderc_compilation_status_success) {
+                String error = Shaderc.shaderc_result_get_error_message(result);
+                throw new ShaderCompileException(
+                    "着色器编译失败 [" + sourceName + "]: " + error
+                );
+            }
+
+            ByteBuffer spirvBuffer = Shaderc.shaderc_result_get_bytes(result);
+            if (spirvBuffer == null) {
+                throw new ShaderCompileException(
+                    "着色器编译结果为空 [" + sourceName + "]"
+                );
+            }
+
+            byte[] spirv = new byte[spirvBuffer.remaining()];
+            spirvBuffer.get(spirv);
+            return spirv;
+        } finally {
+            Shaderc.shaderc_result_release(result);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  编译选项
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 优化级别（映射 shaderc 的三档优化）。
+     */
+    public enum Optimization {
+        /** 不优化（保留最多调试信息） */
+        NONE(Shaderc.shaderc_optimization_level_zero),
+        /** 体积优先优化 */
+        SIZE(Shaderc.shaderc_optimization_level_size),
+        /** 性能优先优化（默认） */
+        PERFORMANCE(Shaderc.shaderc_optimization_level_performance);
+
+        final int shadercLevel;
+
+        Optimization(int shadercLevel) {
+            this.shadercLevel = shadercLevel;
+        }
+    }
+
+    /**
+     * 编译选项。
+     *
+     * <p>链式 setter；{@link #targetVulkanVersion(String)} 接受
+     * {@code "vulkan1.0"} ~ {@code "vulkan1.4"}（大小写不敏感），默认 1.3。</p>
+     */
+    public static final class Options {
+        private boolean generateDebugInfo = false;
+        private Optimization optimization = Optimization.PERFORMANCE;
+        private int targetVulkanVersion = Shaderc.shaderc_env_version_vulkan_1_3;
+
+        public boolean isGenerateDebugInfo() {
+            return generateDebugInfo;
+        }
+
+        public Options generateDebugInfo(boolean generateDebugInfo) {
+            this.generateDebugInfo = generateDebugInfo;
+            return this;
+        }
+
+        public Optimization getOptimization() {
+            return optimization;
+        }
+
+        public Options optimization(Optimization optimization) {
+            this.optimization = optimization != null ? optimization : Optimization.PERFORMANCE;
+            return this;
+        }
+
+        public int getTargetVulkanVersion() {
+            return targetVulkanVersion;
+        }
+
+        /** 接受 "vulkan1.0" ~ "vulkan1.4"（大小写不敏感），默认 1.3 */
+        public Options targetVulkanVersion(String version) {
+            if (version == null || version.isBlank()) {
+                this.targetVulkanVersion = Shaderc.shaderc_env_version_vulkan_1_3;
+                return this;
+            }
+            this.targetVulkanVersion = switch (version.trim().toLowerCase()) {
+                case "vulkan1.0" -> Shaderc.shaderc_env_version_vulkan_1_0;
+                case "vulkan1.1" -> Shaderc.shaderc_env_version_vulkan_1_1;
+                case "vulkan1.2" -> Shaderc.shaderc_env_version_vulkan_1_2;
+                case "vulkan1.3" -> Shaderc.shaderc_env_version_vulkan_1_3;
+                case "vulkan1.4" -> Shaderc.shaderc_env_version_vulkan_1_4;
+                default -> throw new IllegalArgumentException("不支持的目标 Vulkan 版本: " + version);
+            };
+            return this;
+        }
+    }
+
+    /**
      * 释放 shaderc 编译器资源。
      *
      * <p>调用后该实例不可再使用。</p>

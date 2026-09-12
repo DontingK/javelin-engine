@@ -2,6 +2,9 @@ package com.javelin.core.scene;
 
 import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.core.serialize.Serializable;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,7 +32,7 @@ import java.util.List;
  * @author Javelin Engine Team
  * @since 1.0.0
  */
-public class GameScene implements Scene {
+public class GameScene implements Scene, Serializable {
 
     private final String name;
 
@@ -302,5 +305,15 @@ public class GameScene implements Scene {
         for (Node child : childSnapshot) {
             findNode(child, name, out);
         }
+    }
+
+    @Override
+    public void write(OutputCapsule output) {
+
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+
     }
 }

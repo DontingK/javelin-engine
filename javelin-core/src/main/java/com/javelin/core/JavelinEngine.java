@@ -4,6 +4,7 @@ import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.render.RenderingPipeline;
 import com.javelin.core.scene.SceneManager;
+import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.subsystem.SubsystemManager;
 import com.javelin.core.window.GlfwWindow;
 import com.javelin.core.window.Window;
@@ -36,16 +37,14 @@ import java.util.concurrent.CountDownLatch;
 public class JavelinEngine {
 
     private static final Logger log = LoggerFactory.getLogger(JavelinEngine.class);
+
     static {
         org.lwjgl.system.Configuration.STACK_SIZE.set(1024);
     }
-    protected final String appName;
-    protected final int width;
-    protected final int height;
-    protected final boolean validation;
-    protected final int framesInFlight;
 
-    private long lastFrameTime;
+    protected final JavelinSetting setting;
+    protected boolean validation;
+
     protected Window window;
     protected RHIContext rhiContext;
     protected Device device;
@@ -59,17 +58,10 @@ public class JavelinEngine {
     // 执行队列：用于多线程向主线程提交任务，避免多线程访问 RHI 资源的问题
     private final ConcurrentLinkedQueue<Runnable> executeQueue = new ConcurrentLinkedQueue<>();
 
-    public JavelinEngine(String appName, int width, int height) {
-        this(appName, width, height, true, 2);
+    public JavelinEngine(JavelinSetting setting) {
+        this.setting = setting;
     }
 
-    public JavelinEngine(String appName, int width, int height, boolean validation, int framesInFlight) {
-        this.appName = appName;
-        this.width = width;
-        this.height = height;
-        this.validation = validation;
-        this.framesInFlight = framesInFlight;
-    }
 
     /**
      * 启动引擎：初始化 -> 主循环 -> 清理。
@@ -158,7 +150,7 @@ public class JavelinEngine {
      * 初始化核心子系统（窗口、RHI、渲染器）。
      */
     private void initializeCore() {
-        log.info("Initializing Javelin Engine: {} ({}x{})", appName, width, height);
+        log.info("Initializing Javelin Engine: {} ({}x{})", setting.getTitle(), setting.getWidth(), setting.getHeight());
 
         assetManager = createAssetManager();
         subsystemManager = new SubsystemManager();
@@ -171,16 +163,16 @@ public class JavelinEngine {
         window.show();
 
         // 初始化 RHI
-        RHIConfig config = new RHIConfig(appName, validation, framesInFlight, true);
+        RHIConfig config = new RHIConfig(setting.getTitle(), validation, 2, true);
         rhiContext = RHIFactory.initialize(config, window);
         device = rhiContext.device();
 
         // 创建交换链
-        SwapChainDesc swapChainDesc = new SwapChainDesc(width, height);
+        SwapChainDesc swapChainDesc = new SwapChainDesc(setting.getWidth(), setting.getHeight());
         swapChain = device.createSwapChain(window, swapChainDesc);
 
         // 创建渲染器
-        renderer = new Renderer(device, swapChain, framesInFlight);
+        renderer = new Renderer(device, swapChain, 2);
 
         log.info("Engine initialized successfully");
     }
@@ -218,7 +210,7 @@ public class JavelinEngine {
     private void mainLoop() {
         log.info("Entering main loop");
         Time.init();
-        lastFrameTime = System.nanoTime();
+        long lastFrameTime = System.nanoTime();
         while (!window.shouldClose()) {
             window.pollEvent();
             // 3. 计算 deltaTime
@@ -266,10 +258,10 @@ public class JavelinEngine {
     }
 
     protected Window createWindow() {
-        return new GlfwWindow(width, height, appName);
+        return new GlfwWindow(setting.getHeight(), setting.getHeight(), setting.getTitle());
     }
 
-    private AssetManager createAssetManager() {
+    protected AssetManager createAssetManager() {
         return new AssetLibManager(new File(Env.getRunDir(), "Library"));
     }
 
@@ -313,6 +305,7 @@ public class JavelinEngine {
         GPUResource.flushDisposals();
 
         if (window != null) {
+            window.enginClose();
             window = null;
         }
 

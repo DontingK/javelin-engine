@@ -120,8 +120,8 @@ public class VulkanSwapChain extends SwapChain {
                 extent.width(Math.clamp(width, capabilities.minImageExtent().width(), capabilities.maxImageExtent().width()));
                 extent.height(Math.clamp(height, capabilities.minImageExtent().height(), capabilities.maxImageExtent().height()));
             }
-            this.width = extent.width();
-            this.height = extent.height();
+//            this.width = extent.width();
+//            this.height = extent.height();
 
             // 创建交换链
             VkSwapchainCreateInfoKHR createInfo = VkSwapchainCreateInfoKHR.calloc(stack)
@@ -209,6 +209,7 @@ public class VulkanSwapChain extends SwapChain {
         int windowWidth = window.width();
         int windowHeight = window.height();
         if (windowWidth != width || windowHeight != height) {
+            log.info("recreate:{}x{} != {}x{}",windowWidth,windowHeight,width,height);
             recreate(windowWidth, windowHeight);
             return -1;
         }

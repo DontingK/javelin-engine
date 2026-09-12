@@ -13,7 +13,7 @@ public class JavelinSetting implements Serializable {
 
     private int width=1080;
     private int height=720;
-    private String title="Javelin Engine 4";
+    private String title="Javelin Engine 5";
     /**
      * 是否启用垂直同步。
      */

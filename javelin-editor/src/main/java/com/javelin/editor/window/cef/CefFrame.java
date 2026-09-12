@@ -1,9 +1,7 @@
-package com.javelin.editor.window;
+package com.javelin.editor.window.cef;
 
 
-import com.javelin.core.window.Window;
 import com.javelin.editor.jcef.JcefCreator;
-import com.javelin.rhi.api.RHIWindow;
 import org.cef.browser.CefBrowser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

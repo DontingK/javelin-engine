@@ -64,7 +64,7 @@ public class GlfwWindow extends Window {
             @Override
             public void invoke(long window, int newWidth, int newHeight) {
                 if (window == windowHandle) {
-                    eventQueue.offer(() -> onResize(newWidth, newHeight));
+                    eventQueue.offer(() -> onResize(newWidth, newHeight,1));
                 }
             }
         };
@@ -224,5 +224,10 @@ public class GlfwWindow extends Window {
             glfwInitialized = false;
             log.info("GLFW terminated");
         }
+    }
+
+    @Override
+    public float dpi() {
+        return 1;
     }
 }

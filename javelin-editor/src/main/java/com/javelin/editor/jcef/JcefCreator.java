@@ -20,6 +20,7 @@ import java.io.File;
 public class JcefCreator {
 
     private static CefApp cefApp;
+    private static JsJavaBridgeHandler jsJavaBridgeHandler;
     static {
         try {
             init();
@@ -40,12 +41,14 @@ public class JcefCreator {
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {
         });
         cefApp = builder.build();
+        jsJavaBridgeHandler = new JsJavaBridgeHandler();
+
     }
 
     private static void initClient(CefClient client) {
         // 注册 JS -> Java 桥接消息路由
         CefMessageRouter router = CefMessageRouter.create();
-        router.addHandler(new JsJavaBridgeHandler(), true);
+        router.addHandler(jsJavaBridgeHandler, true);
         client.addMessageRouter(router);
 //        client.addContextMenuHandler(new JcefContextMenuHandler());
     }

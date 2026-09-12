@@ -7,8 +7,8 @@ import com.javelin.editor.jcef.domain.par.FilePathPar;
 import com.javelin.editor.jcef.domain.vo.FileVo;
 import com.javelin.editor.project.GradleProject;
 import com.javelin.editor.project.RecentProjectManager;
-import com.javelin.editor.window.ProjectLoadingFrame;
-import com.javelin.editor.window.ProjectWindow;
+import com.javelin.editor.window.cef.ProjectLoadingFrame;
+import com.javelin.editor.window.cef.ProjectWindow;
 
 import javax.swing.*;
 import java.io.File;

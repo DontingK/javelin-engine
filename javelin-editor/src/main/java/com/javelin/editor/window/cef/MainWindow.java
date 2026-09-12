@@ -1,9 +1,7 @@
-package com.javelin.editor.window;
+package com.javelin.editor.window.cef;
 
 import com.javelin.core.settings.JavelinSetting;
-import com.javelin.core.window.Window;
 import com.javelin.editor.jcef.domain.par.RectPar;
-import com.javelin.rhi.api.RHIWindow;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.jawt.JAWT;
 import org.lwjgl.system.jawt.JAWTDrawingSurface;
@@ -34,10 +32,10 @@ public class MainWindow extends CefFrame {
     private VkCanvas canvas;
     private final JavelinSetting setting;
     private static MainWindow instance;
-
-    public MainWindow(JavelinSetting setting){
-        this.setting=setting;
-        instance=this;
+    private float dpi=1f;
+    public MainWindow(JavelinSetting setting) {
+        this.setting = setting;
+        instance = this;
 
     }
 
@@ -46,22 +44,20 @@ public class MainWindow extends CefFrame {
     }
 
     public void create() {
-        canvas=new VkCanvas();
+        canvas = new VkCanvas();
 //        getContentPane().add(canvas, BorderLayout.CENTER);
         getContentPane().setLayout(null);
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                close=true;
-            }
-        });
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setTitle(setting.getTitle());
-        setSize(setting.getWidth(),setting.getHeight());
+        setSize(setting.getWidth(), setting.getHeight());
         getContentPane().add(canvas);
-        canvas.setBounds(0,0,200,200);
+        canvas.setBounds(0, 0, 200, 200);
         setLocationRelativeTo(null);
         loadURL("http://localhost:5173/page/main.html");
+    }
+
+    public VkCanvas getCanvas() {
+        return canvas;
     }
 
     @Override
@@ -99,7 +95,13 @@ public class MainWindow extends CefFrame {
     }
 
     public void rectChange(RectPar rectPar) throws Exception {
-        SwingUtilities.invokeAndWait((Runnable) () -> canvas.setBounds(rectPar.x,rectPar.y,rectPar.width,rectPar.height));
+        logger.info("rectChange:{}x{}  {}-{}", rectPar.width, rectPar.height, rectPar.x, rectPar.y);
+        dpi=rectPar.dpi;
+        SwingUtilities.invokeAndWait((Runnable) () -> canvas.setBounds(rectPar.x, rectPar.y, rectPar.width, rectPar.height));
+    }
+
+    public float getDpi() {
+        return dpi;
     }
 
     public static class VkCanvas extends Canvas {
@@ -157,4 +159,5 @@ public class MainWindow extends CefFrame {
             }
         }
     }
+
 }

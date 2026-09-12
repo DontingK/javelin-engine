@@ -41,4 +41,6 @@ public interface RHIWindow {
      * @return 扩展名称数组
      */
     String[] requiredInstanceExtensions();
+
+    float dpi();
 }

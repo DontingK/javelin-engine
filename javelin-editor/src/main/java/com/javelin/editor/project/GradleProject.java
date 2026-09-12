@@ -1,6 +1,7 @@
 package com.javelin.editor.project;
 
 
+import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.settings.*;
@@ -158,13 +159,13 @@ public class GradleProject extends Project {
         FileUtil.createFileByPath(projectDirFile, "Library").mkdirs();
         FileUtil.createFileByPath(projectDirFile, "Game").mkdirs();
     }
-
+    
     private static void createDefaultScene(File projectDirFile) {
         try {
             File scenesDir = new File(projectDirFile, "Assets/scenes");
             scenesDir.mkdirs();
             File sceneFile = new File(scenesDir, "default.scene");
-            Scene scene = new Scene("Default Scene");
+            GameScene scene = new GameScene("Default Scene");
             new TextExporter(sceneFile).export(scene);
         } catch (Exception e) {
             LOGGER.error("创建默认场景文件失败", e);
