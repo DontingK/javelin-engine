@@ -28,6 +28,11 @@
 │    BinaryArrayOutput / BinaryArrayListOutput │
 │    BinaryStreamOutput / BinaryStreamInput    │
 ├─────────────────────────────────────────────┤
+│  文本后端（javelin-editor.serializable）      │
+│    TextExporter / TextImporter — 文本格式     │
+│    TextOutputCapsule / TextInputCapsule      │
+│    （用于编辑器场景文件等人类可读格式）         │
+├─────────────────────────────────────────────┤
 │  实例化支撑                                   │
 │    ReflectiveFactory（@Reflective 编译时注册）│
 │    AssetManager（Asset GUID 解析）            │
@@ -206,3 +211,4 @@ public class PlayerData implements Serializable {
 | `javelin-ast` | `@Reflective` 注解 + 编译期生成 `ReflectiveRegistration`，为零反射实例化提供注册表 |
 | `javelin-core/assets` | `Asset` GUID 引用的写出与 `AssetManager.loadGuid` 解析 |
 | `javelin-core/scene` | 组件可实现 `Serializable` 参与场景序列化（场景级序列化器为后续迭代） |
+| `javelin-editor/serializable` | 文本序列化后端（TextExporter/TextImporter），用于编辑器场景文件等人类可读格式 |

@@ -143,7 +143,12 @@ public class TextExporter implements Exporter {
     }
 
     private void writeArrayList(Appendable out, ArrayList<?> list, int id) throws IOException {
-        out.append("[").append(String.valueOf(id)).append(":").append("java.util.ArrayList").append("]\n");
+        String elementClassName = getArrayListElementClassName(list);
+        out.append("[").append(String.valueOf(id)).append(":").append("java.util.ArrayList");
+        if (elementClassName != null) {
+            out.append("<").append(elementClassName).append(">");
+        }
+        out.append("]\n");
         out.append("[");
         for (int i = 0; i < list.size(); i++) {
             if (i > 0) {
@@ -153,6 +158,27 @@ public class TextExporter implements Exporter {
             out.append(serializeArrayListElement(element));
         }
         out.append("]\n");
+    }
+
+    private String getArrayListElementClassName(ArrayList<?> list) {
+        for (Object element : list) {
+            if (element == null) {
+                continue;
+            }
+            if (element instanceof Enum<?> e) {
+                return e.getClass().getName();
+            }
+            if (element instanceof Asset) {
+                return Asset.class.getName();
+            }
+            if (element instanceof Serializable s) {
+                return s.getClass().getName();
+            }
+            if (element instanceof String) {
+                return String.class.getName();
+            }
+        }
+        return null;
     }
 
     String serializeArrayElement(Object element, Class<?> elementClass) {

@@ -176,8 +176,9 @@ public class TextInputCapsule implements InputCapsule {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <T extends Enum<T>> ArrayList<T> readEnumList(String key, Class<T> type) {
-        return null;
+        return (ArrayList<T>) getArrayByRef(entries.get(key));
     }
 
     private Object getArrayByRef(String v) {

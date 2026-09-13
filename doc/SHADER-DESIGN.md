@@ -43,6 +43,7 @@
 | `editor.importer.shader` | `ShaderAST` | 纯字段节点树 + 工具方法（提取纹理槽、查属性/Pass） |
 | `editor.importer.shader` | `ShaderPreprocessor` | GLSL 生成：默认全局 uniform 块、Properties → 材质块、#include 展开 |
 | `editor.importer.shader` | `ShaderImporter` / `ShaderImportSettings` | 导入器与导入设置 |
+| `editor.importer.shader` | `ShaderParseException` | DSL 解析异常（含行列号信息） |
 
 `render/mesh`、`render/pass` 占位目录分别预留给 Mesh/MeshRenderer 与渲染 Pass 实现，不属于本文档范围。
 

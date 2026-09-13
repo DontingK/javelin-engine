@@ -95,7 +95,92 @@ javelin-engine5/
 
 ├── javelin-editor/              # 桌面编辑器（Java Swing + JCEF + Vue 前端）
 │   └── src/main/java/com/javelin/editor/
-│   └── src/main/resources/builtin-asset-core/  # 内置资源
+│       ├── EditorApp.java           # 编辑器入口
+│       ├── EditorEnv.java           # 编辑器环境（isRelease/getEditorRuntimeDir）
+│       ├── EditorJavelinEngine.java # 引擎子类（注入 Project/MetaManager/AssetImportPipeline）
+│       │
+│       ├── asset/                   # 内置资源管理
+│       │   ├── BuiltinAssetReleaser.java    # 释放 classpath 内置资源到 .javelin/assets/
+│       │   └── ProjectAssetLibManager.java  # AssetLibManager 子类，容错加载索引
+│       │
+│       ├── exception/               # 编辑器异常体系
+│       │   ├── AssetException.java          # 资源操作异常
+│       │   ├── BuildException.java          # 构建异常（Gradle/Native 编译）
+│       │   ├── ProjectException.java        # 项目操作异常
+│       │   ├── SceneException.java          # 场景操作异常
+│       │   ├── SettingsException.java       # 设置操作异常
+│       │   ├── TipException.java            # 业务提示异常
+│       │   └── ValidationException.java     # 参数校验异常
+│       │
+│       ├── importer/                # 资产导入管线
+│       │   ├── AssetImportPipeline.java     # 导入管线（线程池 + 任务队列 + 监听器）
+│       │   ├── AssetImporter.java           # 导入器接口
+│       │   ├── ImportSettings.java          # 导入设置基类（@Reflective）
+│       │   ├── ImportTask.java              # 导入任务（状态机）
+│       │   └── shader/                      # 着色器导入
+│       │       ├── ShaderAST.java           # AST 节点树
+│       │       ├── ShaderParser.java        # DSL 解析器
+│       │       ├── ShaderPreprocessor.java  # GLSL 预处理器
+│       │       ├── ShaderImporter.java      # .shader 导入器
+│       │       ├── ShaderImportSettings.java# 导入设置
+│       │       └── ShaderParseException.java# 解析异常
+│       │
+│       ├── jcef/                    # JCEF 集成
+│       │   ├── JcefCreator.java           # JCEF 初始化
+│       │   ├── bridge/                    # JS <-> Java 桥接
+│       │   │   ├── BridgeMethod.java        # 桥接方法注解
+│       │   │   ├── JavaBridgeMethod.java    # 方法封装
+│       │   │   ├── JavaScriptBridge.java    # Java -> JS 推送
+│       │   │   └── JsJavaBridgeHandler.java # JS -> Java 路由
+│       │   ├── domain/                    # 请求参数与视图对象
+│       │   │   ├── par/                     # CreateProjectPar/FilePathPar/IdPar/RectPar
+│       │   │   └── vo/                      # FileVo
+│       │   └── method/                    # 桥接方法实现
+│       │       ├── FileSystemMethod.java    # 文件系统桥接
+│       │       ├── JavelinMethod.java       # 引擎桥接（render/rce）
+│       │       └── ProjectMethod.java       # 项目桥接（recent/open/create）
+│       │
+│       ├── meta/                    # 资源元数据管理
+│       │   ├── AssetMeta.java               # 资源元数据（guid/type/importSettings/lastModified）
+│       │   ├── GuidHeaderManager.java       # 文件头 GUID 提取/注入
+│       │   └── MetaManager.java             # .meta 伴生文件管理 + Library 索引
+│       │
+│       ├── project/                 # 项目管理
+│       │   ├── Project.java                 # 抽象项目（rootDir/compile/nativeBuild）
+│       │   ├── GradleProject.java           # Gradle 项目实现（Tooling API）
+│       │   └── RecentProjectManager.java    # 最近项目（~/.javelin/recent.properties）
+│       │
+│       ├── serializable/            # 文本序列化后端
+│       │   ├── TextExporter.java            # 文本序列化导出器
+│       │   ├── TextImporter.java            # 文本序列化导入器
+│       │   ├── TextInputCapsule.java        # 文本输入胶囊
+│       │   └── TextOutputCapsule.java       # 文本输出胶囊
+│       │
+│       ├── settings/                # 设置管理
+│       │   ├── EditorSettings.java          # 编辑器全局设置
+│       │   ├── ProjectSettings.java         # 项目设置（defaultOpenScene）
+│       │   └── SettingsManager.java         # 设置管理器
+│       │
+│       ├── util/                    # 工具类
+│       │   ├── ClassUtil.java               # 类扫描（文件系统+JAR）
+│       │   ├── EditorExecutor.java          # 线程执行工具
+│       │   ├── FileUtil.java                # 文件工具
+│       │   ├── JSONUtil.java                # Jackson 封装
+│       │   ├── ReflectUtil.java             # 反射工具
+│       │   ├── StringUtil.java              # 字符串工具
+│       │   ├── ThreadUtil.java              # 线程工具
+│       │   └── TimeUtil.java                # 时间工具
+│       │
+│       └── window/                  # 窗口系统
+│           ├── SwingWindow.java             # AWT Window 实现（Vulkan Surface）
+│           └── cef/                         # JCEF 窗口
+│               ├── CefFrame.java            # JCEF 基类
+│               ├── MainWindow.java          # 主窗口（VkCanvas + JCEF）
+│               ├── ProjectLoadingFrame.java # 项目加载窗口（初始化管线）
+│               └── ProjectWindow.java       # 项目选择窗口
+│
+│   └── src/main/resources/builtin-asset-core/  # 内置资源（shader/default.shader 等）
+│   └── src/test/resources/shader/              # 测试着色器 DSL 源码
 │
 └── engine-editor-web/           # Web 端编辑器前端
     ├── package.json
@@ -169,7 +254,7 @@ engine-editor-web (独立前端，通过 JCEF 桥接与 javelin-editor 通信)
 
 ## 测试策略
 
-- **单元测试**：JUnit Jupiter 5（`javelin-editor` 的 `ShaderParserTest`、`javelin-core` 的 `ShaderSerializeTest` 为典型示例）
+- **单元测试**：JUnit Jupiter 5（`javelin-editor` 的 `ShaderParserTest`、`ShaderPreprocessorTest`，`javelin-core` 的 `ShaderSerializeTest` 为典型示例）
 - **集成/渲染测试**：通过 `runTest` Gradle 任务运行，继承 `JavelinEngine` 的测试类
 - **测试资源**：着色器 DSL 源码放在 `javelin-editor/src/test/resources/shader/` 下
 - **运行要求**：渲染测试需要 Vulkan 兼容 GPU 和显示环境
@@ -215,6 +300,8 @@ public abstract class GPUResource {
 
 - **请求**：前端 `window.cefQuery` 发送 `url::json` 格式请求
 - **推送**：后端 `window.__javelinBridge.onMessage(type, data)` 推送事件
+- **路由**：`JsJavaBridgeHandler` 根据 URL 路由到 `@BridgeMethod` 注解的方法
+- **桥接方法**：`ProjectMethod`（项目管理）、`FileSystemMethod`（文件系统）、`JavelinMethod`（引擎渲染）
 - **透明色约定**：视口背景使用 `rgb(255, 0, 0)`，与 Java 端 BGR 蓝色对应
 - **运行环境**：前端必须在 JCEF 内嵌浏览器中运行，`window.cefQuery` 在普通浏览器中不可用
 
@@ -243,4 +330,4 @@ public abstract class GPUResource {
 
 ---
 
-*本文档基于项目实际内容生成，最后更新：2026-09-09*
+*本文档基于项目实际内容生成，最后更新：2026-09-13*

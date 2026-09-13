@@ -6,7 +6,7 @@
 
 ## 项目概述
 
-`engine-editor-web` 是 **Javelin Engine** 的 Web 端编辑器前端，运行在 **JCEF（Java Chromium Embedded Framework）** 内嵌浏览器中，通过 JCEF JS -> Java 桥接与 Java 后端（`engine-editor-jcef`）通信。
+`engine-editor-web` 是 **Javelin Engine** 的 Web 端编辑器前端，运行在 **JCEF（Java Chromium Embedded Framework）** 内嵌浏览器中，通过 JCEF JS -> Java 桥接与 Java 后端（`javelin-editor`）通信。
 
 核心职责：
 - 项目管理（新建/打开/最近项目）
@@ -238,7 +238,7 @@ App.vue
 - **全局快捷键**：F5 刷新页面，Ctrl+S 保存场景
 - **焦点管理**：3D 视口透明区域交互时，通过 JCEF JS -> Java 桥接锁定/解锁焦点防止事件穿透
 - **光标管理**：拖拽分隔条时通过 JCEF JS -> Java 桥接通知后端设置对应光标样式
-- **JCEF 透明穿透**：视口背景使用纯色（RGB 红 = BGR 蓝），与 Java 端 JcefBgfxBridge 的透明色对应
+- **JCEF 透明穿透**：视口背景使用纯色（RGB 红 = BGR 蓝），与 Java 端 Vulkan 渲染的透明色对应
 
 ### 6. 组件设计原则
 
@@ -271,15 +271,15 @@ npm run preview
 
 前端通过两层与后端交互：
 
-1. **`engine-editor-jcef`（Java 后端）**
+1. **`javelin-editor`（Java 后端）**
    - 提供 JCEF JS -> Java 桥接（`com.javelin.editor.jcef` 包下的 `@BridgeMethod` 方法）
    - 负责项目管理、场景操作、实体操作、Inspector 数据、光标/焦点控制
    - 通过 `JavaScriptBridge` 主动推送事件到前端 `window.__javelinBridge.onMessage`
 
-2. **`engine-core`（引擎核心）**
-   - JCEF 后端依赖 engine-core
-   - 通过 BGFX 进行渲染
-   - 前端视口区域是透明的，BGFX 渲染画面穿透显示
+2. **`javelin-core`（引擎核心）**
+   - JCEF 后端依赖 javelin-core
+   - 通过 **Vulkan** 进行渲染（LWJGL 绑定）
+   - 前端视口区域是透明的，Vulkan 渲染画面穿透显示
 
 ---
 
@@ -296,7 +296,6 @@ npm run preview
 
 ## 参考资源
 
-- **Web 编辑器架构**：`../doc/EDITOR_WEB_ARCHITECTURE.md` — 全栈架构设计（JCEF JS Bridge 通信）
-- **JCEF JS Bridge 协议**：`../doc/JCEF_BRIDGE_PROTOCOL.md` — JS Bridge 消息协议定义
-- **JCEF 集成文档**：`../doc/JCEF_BGFX_INTEGRATION.md` — 技术验证与踩坑记录
-- **JCEF 后端模块**：`../engine-editor-jcef/AGENTS.md` — Java 后端 API
+- **根项目指南**：`../AGENTS.md` — 项目全景、模块划分、代码规范
+- **RHI 设计文档**：`../doc/RHI-DESIGN.md` — Vulkan RHI 架构
+- **着色器设计文档**：`../doc/SHADER-DESIGN.md` — ShaderLab DSL 与导入管线

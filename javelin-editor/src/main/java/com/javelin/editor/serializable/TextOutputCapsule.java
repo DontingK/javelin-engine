@@ -184,7 +184,12 @@ public class TextOutputCapsule implements OutputCapsule {
 
     @Override
     public void writeEnumList(String key, ArrayList<? extends Enum<?>> values) {
-
+        if (values == null) {
+            entries.put(key, "@null");
+            return;
+        }
+        int id = exporter.getObjectId(values);
+        entries.put(key, "@ref:" + id);
     }
 
     private void writeArray(String key, Object array) {

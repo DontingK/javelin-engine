@@ -24,6 +24,7 @@ public class TextImporter implements Importer {
     private final Map<Integer, String> arrayData = new HashMap<>();
     private final Set<Integer> arrayIds = new HashSet<>();
     private final Set<Integer> arrayListIds = new HashSet<>();
+    private final Map<Integer, String> arrayListElementClasses = new HashMap<>();
 
     public TextImporter(File inputFile) {
         this(inputFile, null);
@@ -42,6 +43,7 @@ public class TextImporter implements Importer {
         arrayData.clear();
         arrayIds.clear();
         arrayListIds.clear();
+        arrayListElementClasses.clear();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(inputFile), StandardCharsets.UTF_8))) {
             parseFile(reader);
@@ -81,6 +83,7 @@ public class TextImporter implements Importer {
                 }
             } else if (obj instanceof ArrayList) {
                 ArrayList list = (ArrayList) obj;
+                Class<?> elementClass = getArrayListElementClass(id);
                 for (String part : parts) {
                     if (part.equals("@null")) {
                         list.add(null);
@@ -90,6 +93,8 @@ public class TextImporter implements Importer {
                     } else if (part.startsWith("@guid:")) {
                         String guid = part.substring(6);
                         list.add(assetManager != null ? assetManager.loadGuid(guid, Asset.class) : null);
+                    } else if (elementClass != null && elementClass.isEnum()) {
+                        list.add(Enum.valueOf((Class<? extends Enum>) elementClass, part));
                     } else {
                         list.add(unescape(part));
                     }
@@ -105,8 +110,8 @@ public class TextImporter implements Importer {
         }
 
         Object value = objectCache.get(0);
-        if (value == null && !objectCache.isEmpty()) {
-            value = objectCache.values().iterator().next();
+        if (value == null) {
+            throw new IOException("文本序列化文件缺少根对象（id=0）");
         }
         return (T) value;
     }
@@ -124,6 +129,18 @@ public class TextImporter implements Importer {
 
     AssetManager getAssetManager() {
         return assetManager;
+    }
+
+    private Class<?> getArrayListElementClass(int id) {
+        String className = arrayListElementClasses.get(id);
+        if (className == null) {
+            return null;
+        }
+        try {
+            return Class.forName(className);
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
     }
 
     private void parseFile(BufferedReader reader) throws IOException {
@@ -155,6 +172,14 @@ public class TextImporter implements Importer {
                 }
                 int id = Integer.parseInt(line.substring(1, colon));
                 String className = line.substring(colon + 1, closeBracket);
+
+                // 解析 ArrayList 泛型参数: java.util.ArrayList<com.example.MyEnum>
+                String arrayListElementClass = null;
+                if (className.startsWith("java.util.ArrayList<") && className.endsWith(">")) {
+                    arrayListElementClass = className.substring("java.util.ArrayList<".length(), className.length() - 1);
+                    className = "java.util.ArrayList";
+                }
+
                 boolean isArray = className.endsWith("[]");
                 boolean isArrayList = className.equals("java.util.ArrayList");
                 if (isArray) {
@@ -162,6 +187,9 @@ public class TextImporter implements Importer {
                     arrayIds.add(id);
                 } else if (isArrayList) {
                     arrayListIds.add(id);
+                    if (arrayListElementClass != null) {
+                        arrayListElementClasses.put(id, arrayListElementClass);
+                    }
                 }
                 classNames.put(id, className);
 
