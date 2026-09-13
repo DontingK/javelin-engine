@@ -14,4 +14,6 @@ public interface Scene {
     void collectRenderables(List<Renderable> out);
 
     void collectCameras(List<Camera> out);
+
+    void dispose();
 }

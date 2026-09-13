@@ -1,9 +1,12 @@
 package com.javelin.core;
 
+import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.render.RenderingPipeline;
+import com.javelin.core.render.pass.ForwardRenderPass;
 import com.javelin.core.scene.SceneManager;
+import com.javelin.core.scene.component.Camera;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.subsystem.SubsystemManager;
 import com.javelin.core.window.GlfwWindow;
@@ -20,6 +23,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
@@ -54,6 +59,7 @@ public class JavelinEngine {
     protected AssetManager assetManager;
     protected SubsystemManager subsystemManager;
     protected SceneManager sceneManager;
+    protected RenderingPipeline renderingPipeline;
 
     // 执行队列：用于多线程向主线程提交任务，避免多线程访问 RHI 资源的问题
     private final ConcurrentLinkedQueue<Runnable> executeQueue = new ConcurrentLinkedQueue<>();
@@ -174,6 +180,9 @@ public class JavelinEngine {
         // 创建渲染器
         renderer = new Renderer(device, swapChain, 2);
 
+        // 创建渲染管线并添加前向渲染 Pass
+        renderingPipeline = new RenderingPipeline();
+        renderingPipeline.addPass(new ForwardRenderPass());
         log.info("Engine initialized successfully");
     }
 
@@ -192,16 +201,53 @@ public class JavelinEngine {
     }
 
     protected void registerSubsystem(SubsystemManager subsystemManager) {
-
+        AppStateSubsystem appStateSubsystem = new AppStateSubsystem();
+        subsystemManager.register(appStateSubsystem);
     }
 
     /**
      * 子类重写：每帧渲染逻辑。
      * <p>
-     * 默认实现只清屏为暗色。子类应在 super.render() 之前或之后添加自己的绘制命令。
+     * 默认实现收集场景中的所有相机进行多相机渲染。子类可重写以自定义渲染流程。
      */
     protected void render() {
-        // 默认空渲染，子类重写
+        if (sceneManager == null || renderingPipeline == null) {
+            return;
+        }
+
+        // 收集场景中的相机和可渲染对象
+        List<Camera> cameras = new ArrayList<>();
+        sceneManager.collectCameras(cameras);
+
+        // 没有相机则跳过渲染
+        if (cameras.isEmpty()) {
+            return;
+        }
+
+        List<com.javelin.core.render.Renderable> renderables = new ArrayList<>();
+        sceneManager.collectRenderables(renderables);
+
+        // 多相机渲染（每个相机使用自己的视口配置）
+        int windowWidth = window != null ? window.width() : setting.getWidth();
+        int windowHeight = window != null ? window.height() : setting.getHeight();
+
+        // 获取当前帧的交换链图像视图
+        com.javelin.rhi.api.Texture currentImage = renderer.currentImage();
+        com.javelin.rhi.api.TextureView swapChainImageView = null;
+        if (currentImage != null) {
+            swapChainImageView = currentImage.createView(new com.javelin.rhi.desc.TextureViewDesc(
+                    com.javelin.rhi.api.TextureView.TextureViewType.TEXTURE_2D,
+                    currentImage.format(),
+                    new com.javelin.rhi.desc.TextureViewDesc.TextureSubresourceRange(
+                            com.javelin.rhi.desc.TextureViewDesc.AspectFlags.COLOR,
+                            0, 1, 0, 1
+                    )
+            ));
+        }
+
+        renderingPipeline.render(renderables, cameras,
+                                  Time.getDeltaTime(), windowWidth, windowHeight,
+                                  renderer.commandBuffer(), swapChainImageView);
     }
 
     /**
@@ -258,7 +304,7 @@ public class JavelinEngine {
     }
 
     protected Window createWindow() {
-        return new GlfwWindow(setting.getHeight(), setting.getHeight(), setting.getTitle());
+        return new GlfwWindow(setting.getWidth(), setting.getHeight(), setting.getTitle());
     }
 
     protected AssetManager createAssetManager() {
@@ -337,4 +383,5 @@ public class JavelinEngine {
     public boolean isRunning() {
         return window != null && !window.shouldClose();
     }
+
 }

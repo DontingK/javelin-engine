@@ -29,7 +29,7 @@ import java.util.List;
 public class SceneManager {
 
     /** 当前活动场景 */
-    private GameScene activeScene;
+    private Scene activeScene;
 
     /**
      * 创建一个新场景（不会自动设为活动场景）。
@@ -38,11 +38,11 @@ public class SceneManager {
         return new GameScene(name);
     }
 
-    public GameScene getActiveScene() {
+    public Scene getActiveScene() {
         return activeScene;
     }
 
-    public void setActiveScene(GameScene scene) {
+    public void setActiveScene(Scene scene) {
         this.activeScene = scene;
     }
 

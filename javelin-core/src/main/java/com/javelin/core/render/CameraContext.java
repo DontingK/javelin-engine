@@ -29,11 +29,21 @@ public class CameraContext {
     /** 视口高度 */
     private int viewportHeight = 720;
 
+    /** 视口在屏幕上的位置（像素坐标） */
+    private int viewportX = 0;
+    private int viewportY = 0;
+
+    /** 宽高比 */
+    private float aspectRatio = 16.0f / 9.0f;
+
     /** 该相机的渲染列表 */
     private RenderList renderList;
 
     /** 当前 Pass 名称 */
     private String passName;
+
+    /** 清屏颜色（RGBA，null 表示不清屏） */
+    private float[] clearColor;
 
     /**
      * 设置视图矩阵。
@@ -69,11 +79,23 @@ public class CameraContext {
     }
 
     /**
-     * 设置视口尺寸。
+     * 设置视口位置和尺寸（像素坐标）。
+     * <p>宽高比自动从视口尺寸计算。</p>
      */
-    public void setViewportSize(int width, int height) {
+    public void setViewport(int x, int y, int width, int height) {
+        this.viewportX = x;
+        this.viewportY = y;
         this.viewportWidth = width;
         this.viewportHeight = height;
+        this.aspectRatio = width > 0 && height > 0 ? (float) width / height : 16.0f / 9.0f;
+    }
+
+    public int getViewportX() {
+        return viewportX;
+    }
+
+    public int getViewportY() {
+        return viewportY;
     }
 
     public int getViewportWidth() {
@@ -82,6 +104,10 @@ public class CameraContext {
 
     public int getViewportHeight() {
         return viewportHeight;
+    }
+
+    public float getAspectRatio() {
+        return aspectRatio;
     }
 
     /**
@@ -104,5 +130,41 @@ public class CameraContext {
 
     public String getPassName() {
         return passName;
+    }
+
+    /**
+     * 设置清屏颜色（RGBA，0-1 范围）。
+     * <p>设为 null 表示该相机渲染时不执行清屏。</p>
+     */
+    public void setClearColor(float r, float g, float b, float a) {
+        if (clearColor == null) {
+            clearColor = new float[4];
+        }
+        clearColor[0] = r;
+        clearColor[1] = g;
+        clearColor[2] = b;
+        clearColor[3] = a;
+    }
+
+    /**
+     * 清除已设置的清屏颜色（该相机渲染时不执行清屏）。
+     */
+    public void clearClearColor() {
+        clearColor = null;
+    }
+
+    /**
+     * 获取清屏颜色。
+     * @return RGBA 数组，null 表示不清屏
+     */
+    public float[] getClearColor() {
+        return clearColor;
+    }
+
+    /**
+     * 是否设置了清屏颜色。
+     */
+    public boolean hasClearColor() {
+        return clearColor != null;
     }
 }
