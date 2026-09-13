@@ -7,7 +7,7 @@
 
 - 单文件着色器源码（`.shader`），Properties / Pass / 内嵌 GLSL，进版本库、可 diff
 - 纯导入期编译：GLSL → SPIR-V 只发生在编辑器导入管线，运行时只加载 `.asset` 二进制
-- `javelin-core` 不依赖 `javelin-tool`（shaderc 只存在于编辑器侧）
+- `javelin-core` 不依赖 `javelin-tool`（shaderc 只存在于编辑器侧）；DSL 解析器/预处理器同样位于 `javelin-editor`，core 只保留资产层与渲染状态枚举
 - 材质参数（uniform / 纹理）声明式定义，编辑器 Inspector 可直接从属性表生成
 - 补齐 engine4 遗留缺口：多纹理槽、MaterialParams UBO 运行时填充、blend 声明生效、#include 接线
 
@@ -22,18 +22,27 @@
          → RenderCommand 进 RenderList → RenderingPipeline 调度
 ```
 
-包布局（`javelin-core`）：
+包布局：
+
+`javelin-core`（运行时资产层，不接触 DSL）：
 
 | 包 | 类 | 职责 |
-|----|----|----|
-| `core.render.shader` | `ShaderParser` | DSL 文本 → AST（手写 tokenizer + 递归下降），行列号报错 |
-| `core.render.shader` | `ShaderAST` | 纯字段节点树 + 工具方法（提取纹理槽、查属性/Pass） |
-| `core.render.shader` | `ShaderPreprocessor` | GLSL 生成：默认全局 uniform 块、Properties → 材质块、#include 展开 |
+|----|----|------|
 | `core.render.material` | `Shader` | Shader 资产：ShaderPass 模板列表 + ShaderProperty 定义 |
 | `core.render.material` | `ShaderPass` | Pass 模板：SPIR-V 字节码 + 渲染状态 + 纹理槽 + 路径/层 |
 | `core.render.material` | `Material` | 材质资产：Shader GUID 引用 + 参数覆盖 Map |
 | `core.render.material` | `Pass` | ShaderPass 的运行时不可变实例（paramBuffer + DescriptorSet，不持 pipeline） |
 | `core.render.material` | `ShaderProperty` / `ShaderPropertyType` | 可暴露属性定义（名/显示名/类型/默认值/Range 上下限） |
+| `core.render.material` | `RenderPath` / `RenderLayer` / `CullMode` / `CompareFunction` / `BlendFactor` | 渲染状态枚举（与 DSL 取值一一对应，随资产序列化） |
+
+`javelin-editor`（纯导入期编译前端）：
+
+| 包 | 类 | 职责 |
+|----|----|------|
+| `editor.importer.shader` | `ShaderParser` | DSL 文本 → AST（手写 tokenizer + 递归下降），行列号报错 |
+| `editor.importer.shader` | `ShaderAST` | 纯字段节点树 + 工具方法（提取纹理槽、查属性/Pass） |
+| `editor.importer.shader` | `ShaderPreprocessor` | GLSL 生成：默认全局 uniform 块、Properties → 材质块、#include 展开 |
+| `editor.importer.shader` | `ShaderImporter` / `ShaderImportSettings` | 导入器与导入设置 |
 
 `render/mesh`、`render/pass` 占位目录分别预留给 Mesh/MeshRenderer 与渲染 Pass 实现，不属于本文档范围。
 
@@ -213,9 +222,10 @@ RenderingPipeline.render
 
 ## 单元测试
 
-- `ShaderParserTest`：DSL 语法解析（属性类型/默认值/向量字面量/状态声明/代码块配平/GUID 提取/报错行列号）
-- `ShaderPreprocessorTest`：默认块注入、MaterialParams/sampler 生成、#include 展开
-- 测试资源：`src/test/resources/shader/*.shader` 示例文件
+- `ShaderParserTest`（`javelin-editor`）：DSL 语法解析（属性类型/默认值/向量字面量/状态声明/代码块配平/GUID 提取/报错行列号）
+- `ShaderPreprocessorTest`（`javelin-editor`）：默认块注入、MaterialParams/sampler 生成、#include 展开
+- `ShaderSerializeTest` / `MaterialSerializeTest`（`javelin-core`）：资产二进制序列化往返
+- 测试资源：`javelin-editor/src/test/resources/shader/*.shader` 示例文件
 - 导入端到端测试在 `javelin-editor` 侧
 
 ## MVP 边界

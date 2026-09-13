@@ -1,5 +1,10 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
 
+import com.javelin.core.render.material.BlendFactor;
+import com.javelin.core.render.material.CompareFunction;
+import com.javelin.core.render.material.CullMode;
+import com.javelin.core.render.material.RenderLayer;
+import com.javelin.core.render.material.RenderPath;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -55,11 +60,11 @@ class ShaderParserTest {
 
         ShaderAST.PassNode pass = shader.passes.get(0);
         assertEquals("Forward", pass.name);
-        assertEquals(ShaderAST.RenderPath.Forward, pass.renderPath);
-        assertEquals(ShaderAST.RenderLayer.Opaque, pass.renderLayer);
+        assertEquals(RenderPath.Forward, pass.renderPath);
+        assertEquals(RenderLayer.Opaque, pass.renderLayer);
         assertTrue(pass.zWrite);
-        assertEquals(ShaderAST.CompareFunction.LessEqual, pass.zTest);
-        assertEquals(ShaderAST.CullMode.Back, pass.cullMode);
+        assertEquals(CompareFunction.LessEqual, pass.zTest);
+        assertEquals(CullMode.Back, pass.cullMode);
         assertFalse(pass.blend.enabled);
         assertFalse(pass.blendDeclared);
         assertNotNull(pass.vertexShader);
@@ -156,14 +161,14 @@ class ShaderParserTest {
         ShaderAST.ShaderNode shader = parser.parse(source);
         ShaderAST.PassNode pass = shader.passes.get(0);
 
-        assertEquals(ShaderAST.RenderPath.Forward, pass.renderPath);
-        assertEquals(ShaderAST.RenderLayer.Transparent, pass.renderLayer);
+        assertEquals(RenderPath.Forward, pass.renderPath);
+        assertEquals(RenderLayer.Transparent, pass.renderLayer);
         assertFalse(pass.zWrite);
-        assertEquals(ShaderAST.CompareFunction.Less, pass.zTest);
-        assertEquals(ShaderAST.CullMode.None, pass.cullMode);
+        assertEquals(CompareFunction.Less, pass.zTest);
+        assertEquals(CullMode.None, pass.cullMode);
         assertTrue(pass.blend.enabled);
-        assertEquals(ShaderAST.BlendFactor.SrcAlpha, pass.blend.srcFactor);
-        assertEquals(ShaderAST.BlendFactor.OneMinusSrcAlpha, pass.blend.dstFactor);
+        assertEquals(BlendFactor.SrcAlpha, pass.blend.srcFactor);
+        assertEquals(BlendFactor.OneMinusSrcAlpha, pass.blend.dstFactor);
     }
 
     @Test
@@ -182,8 +187,8 @@ class ShaderParserTest {
         ShaderAST.PassNode pass = parser.parse(source).passes.get(0);
         assertFalse(pass.blend.enabled);
         assertTrue(pass.blendDeclared);
-        assertEquals(ShaderAST.BlendFactor.One, pass.blend.srcFactor);
-        assertEquals(ShaderAST.BlendFactor.Zero, pass.blend.dstFactor);
+        assertEquals(BlendFactor.One, pass.blend.srcFactor);
+        assertEquals(BlendFactor.Zero, pass.blend.dstFactor);
     }
 
     @Test
@@ -237,10 +242,10 @@ class ShaderParserTest {
         ShaderAST.ShaderNode shader = parser.parse(loadResource("default.shader"));
 
         assertEquals(4, shader.properties.properties.size());
-        assertEquals(ShaderAST.RenderPath.Forward, shader.passes.get(0).renderPath);
-        assertEquals(ShaderAST.RenderLayer.Opaque, shader.passes.get(0).renderLayer);
-        assertEquals(ShaderAST.CompareFunction.LessEqual, shader.passes.get(0).zTest);
-        assertEquals(ShaderAST.CullMode.Back, shader.passes.get(0).cullMode);
+        assertEquals(RenderPath.Forward, shader.passes.get(0).renderPath);
+        assertEquals(RenderLayer.Opaque, shader.passes.get(0).renderLayer);
+        assertEquals(CompareFunction.LessEqual, shader.passes.get(0).zTest);
+        assertEquals(CullMode.Back, shader.passes.get(0).cullMode);
 
         // GlobalUniforms 声明覆盖默认 PerFrame 块
         assertNotNull(shader.globalUniforms);
@@ -281,11 +286,11 @@ class ShaderParserTest {
 
         ShaderAST.PassNode gbuffer = ShaderAST.findPass(shader, "GBuffer");
         assertNotNull(gbuffer);
-        assertEquals(ShaderAST.RenderPath.Deferred, gbuffer.renderPath);
+        assertEquals(RenderPath.Deferred, gbuffer.renderPath);
 
         ShaderAST.PassNode shadow = ShaderAST.findPass(shader, "ShadowCaster");
         assertNotNull(shadow);
-        assertEquals(ShaderAST.RenderPath.Shadow, shadow.renderPath);
+        assertEquals(RenderPath.Shadow, shadow.renderPath);
         // 仅声明 vs 的 Pass 合法
         assertNull(shadow.fragmentShader);
     }

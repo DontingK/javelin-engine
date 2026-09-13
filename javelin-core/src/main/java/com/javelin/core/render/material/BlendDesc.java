@@ -1,7 +1,6 @@
 package com.javelin.core.render.material;
 
 import com.javelin.ast.annotation.Reflective;
-import com.javelin.core.render.shader.ShaderAST.BlendFactor;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;

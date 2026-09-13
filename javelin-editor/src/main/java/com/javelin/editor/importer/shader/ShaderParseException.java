@@ -1,4 +1,4 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
 
 /**
  * Shader DSL 解析与预处理异常。

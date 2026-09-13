@@ -1,4 +1,4 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
 
 import org.junit.jupiter.api.Test;
 

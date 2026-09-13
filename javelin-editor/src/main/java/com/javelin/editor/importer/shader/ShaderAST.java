@@ -1,4 +1,10 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
+
+import com.javelin.core.render.material.BlendFactor;
+import com.javelin.core.render.material.CompareFunction;
+import com.javelin.core.render.material.CullMode;
+import com.javelin.core.render.material.RenderLayer;
+import com.javelin.core.render.material.RenderPath;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -9,64 +15,14 @@ import java.util.Set;
  * Shader DSL AST（抽象语法树）节点定义。
  *
  * <p>由 {@link ShaderParser} 解析 .shader 源文件后生成，
- * 供编辑器导入管线遍历并编译为 SPIR-V。节点为纯字段的 POJO，
- * 渲染状态使用本包内自包含的枚举，不依赖 RHI 类型。</p>
+ * 供编辑器导入管线遍历并编译为 SPIR-V。节点为纯字段的 POJO。
+ * 渲染状态枚举与运行时 {@code ShaderPass}/{@code BlendDesc} 序列化共用，
+ * 定义在 core 的 {@code render.material} 包，不依赖 RHI 类型。</p>
  */
 public final class ShaderAST {
 
     private ShaderAST() {
         // 工具类，禁止实例化
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  自包含枚举（与 DSL 文本取值一一对应）
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /** 渲染路径 */
-    public enum RenderPath {
-        Forward,
-        Deferred,
-        Shadow
-    }
-
-    /** 渲染层 */
-    public enum RenderLayer {
-        Opaque,
-        Transparent,
-        Overlay
-    }
-
-    /** 面剔除模式 */
-    public enum CullMode {
-        Back,
-        Front,
-        None
-    }
-
-    /** 深度比较函数，Off 表示关闭深度测试 */
-    public enum CompareFunction {
-        Off,
-        Never,
-        Less,
-        LessEqual,
-        Equal,
-        Greater,
-        GreaterEqual,
-        Always
-    }
-
-    /** 混合因子（自包含，不依赖 RHI 的 BlendFactor） */
-    public enum BlendFactor {
-        Zero,
-        One,
-        SrcColor,
-        OneMinusSrcColor,
-        DstColor,
-        OneMinusDstColor,
-        SrcAlpha,
-        OneMinusSrcAlpha,
-        DstAlpha,
-        OneMinusDstAlpha
     }
 
     /** 着色器阶段类型 */

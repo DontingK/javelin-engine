@@ -1,6 +1,5 @@
 package com.javelin.core.render.material;
 
-import com.javelin.core.render.shader.ShaderAST;
 import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.serialize.binary.BinaryImporter;
 import org.junit.jupiter.api.Test;
@@ -115,11 +114,11 @@ class ShaderSerializeTest {
         pass.setVertexBytecode(new byte[]{0x03, 0x02, 0x23, 0x07, (byte) 0xFF});
         pass.setFragmentBytecode(new byte[]{0x03, 0x02, 0x23, 0x07, 0x11, 0x22});
         pass.setZWrite(false);
-        pass.setZTest(ShaderAST.CompareFunction.Less);
-        pass.setCullMode(ShaderAST.CullMode.None);
-        pass.setRenderPath(ShaderAST.RenderPath.Forward);
-        pass.setRenderLayer(ShaderAST.RenderLayer.Transparent);
-        pass.setBlend(new BlendDesc(true, ShaderAST.BlendFactor.SrcAlpha, ShaderAST.BlendFactor.OneMinusSrcAlpha));
+        pass.setZTest(CompareFunction.Less);
+        pass.setCullMode(CullMode.None);
+        pass.setRenderPath(RenderPath.Forward);
+        pass.setRenderLayer(RenderLayer.Transparent);
+        pass.setBlend(new BlendDesc(true, BlendFactor.SrcAlpha, BlendFactor.OneMinusSrcAlpha));
         pass.addTextureSlot("_MainTex");
         pass.addTextureSlot("_NormalMap");
         pass.addTextureSlot("_MainTex"); // 重复追加应被忽略
@@ -134,14 +133,14 @@ class ShaderSerializeTest {
         assertArrayEquals(new byte[]{0x03, 0x02, 0x23, 0x07, (byte) 0xFF}, p.getVertexBytecode());
         assertArrayEquals(new byte[]{0x03, 0x02, 0x23, 0x07, 0x11, 0x22}, p.getFragmentBytecode());
         assertFalse(p.isZWrite());
-        assertEquals(ShaderAST.CompareFunction.Less, p.getZTest());
-        assertEquals(ShaderAST.CullMode.None, p.getCullMode());
-        assertEquals(ShaderAST.RenderPath.Forward, p.getRenderPath());
-        assertEquals(ShaderAST.RenderLayer.Transparent, p.getRenderLayer());
+        assertEquals(CompareFunction.Less, p.getZTest());
+        assertEquals(CullMode.None, p.getCullMode());
+        assertEquals(RenderPath.Forward, p.getRenderPath());
+        assertEquals(RenderLayer.Transparent, p.getRenderLayer());
         assertNotNull(p.getBlend());
         assertTrue(p.getBlend().isEnabled());
-        assertEquals(ShaderAST.BlendFactor.SrcAlpha, p.getBlend().getSrcFactor());
-        assertEquals(ShaderAST.BlendFactor.OneMinusSrcAlpha, p.getBlend().getDstFactor());
+        assertEquals(BlendFactor.SrcAlpha, p.getBlend().getSrcFactor());
+        assertEquals(BlendFactor.OneMinusSrcAlpha, p.getBlend().getDstFactor());
         assertEquals(java.util.List.of("_MainTex", "_NormalMap"), p.getTextureSlots());
     }
 
@@ -158,10 +157,10 @@ class ShaderSerializeTest {
         ShaderPass p = r.getPasses().get(0);
         // 未显式声明时保持 DSL 默认值
         assertTrue(p.isZWrite());
-        assertEquals(ShaderAST.CompareFunction.LessEqual, p.getZTest());
-        assertEquals(ShaderAST.CullMode.Back, p.getCullMode());
-        assertEquals(ShaderAST.RenderPath.Deferred, p.getRenderPath());
-        assertEquals(ShaderAST.RenderLayer.Opaque, p.getRenderLayer());
+        assertEquals(CompareFunction.LessEqual, p.getZTest());
+        assertEquals(CullMode.Back, p.getCullMode());
+        assertEquals(RenderPath.Deferred, p.getRenderPath());
+        assertEquals(RenderLayer.Opaque, p.getRenderLayer());
         assertNull(p.getBlend());
         assertTrue(p.getTextureSlots().isEmpty());
     }
@@ -185,8 +184,8 @@ class ShaderSerializeTest {
 
         ShaderPass forward = new ShaderPass();
         forward.setName("Forward");
-        forward.setRenderPath(ShaderAST.RenderPath.Forward);
-        forward.setRenderLayer(ShaderAST.RenderLayer.Opaque);
+        forward.setRenderPath(RenderPath.Forward);
+        forward.setRenderLayer(RenderLayer.Opaque);
         forward.setVertexBytecode(new byte[]{1, 2, 3});
         forward.setFragmentBytecode(new byte[]{4, 5, 6});
         forward.setBlend(BlendDesc.off());
@@ -195,8 +194,8 @@ class ShaderSerializeTest {
 
         ShaderPass shadow = new ShaderPass();
         shadow.setName("ShadowCaster");
-        shadow.setRenderPath(ShaderAST.RenderPath.Shadow);
-        shadow.setZTest(ShaderAST.CompareFunction.Less);
+        shadow.setRenderPath(RenderPath.Shadow);
+        shadow.setZTest(CompareFunction.Less);
         shader.addPass(shadow);
 
         Shader r = writeAndRead(shader, "shader.dat");
@@ -207,7 +206,7 @@ class ShaderSerializeTest {
         assertEquals(2, r.getPasses().size());
         assertEquals("Forward", r.getPasses().get(0).getName());
         assertEquals("ShadowCaster", r.getPasses().get(1).getName());
-        assertEquals(ShaderAST.RenderPath.Shadow, r.getPasses().get(1).getRenderPath());
+        assertEquals(RenderPath.Shadow, r.getPasses().get(1).getRenderPath());
         assertEquals(0.0f, r.getProperty("_Metallic").getRangeMin());
         assertEquals(1.0f, r.getProperty("_Metallic").getRangeMax());
         assertNotNull(r.getPasses().get(0).getBlend());

@@ -1,10 +1,6 @@
 package com.javelin.core.render.material;
 
 import com.javelin.ast.annotation.Reflective;
-import com.javelin.core.render.shader.ShaderAST.CompareFunction;
-import com.javelin.core.render.shader.ShaderAST.CullMode;
-import com.javelin.core.render.shader.ShaderAST.RenderLayer;
-import com.javelin.core.render.shader.ShaderAST.RenderPath;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;

@@ -1,4 +1,10 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
+
+import com.javelin.core.render.material.BlendFactor;
+import com.javelin.core.render.material.CompareFunction;
+import com.javelin.core.render.material.CullMode;
+import com.javelin.core.render.material.RenderLayer;
+import com.javelin.core.render.material.RenderPath;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -82,6 +88,7 @@ public class ShaderParser {
         // 特殊
         VECTOR_LITERAL,   // (1.0, 0.0, 0.0, 1.0)
         PP_DIRECTIVE,     // #version / #include 等预处理指令整行
+        CODE_BLOCK,       // vs/fs 的 GLSL 代码块（原始文本，大括号配平）
         EOF
     }
 
@@ -171,6 +178,9 @@ public class ShaderParser {
                         addToken(TokenType.LPAREN, "(");
                         advance();
                     }
+                } else if (c == '{' && isShaderStageBrace()) {
+                    // vs / fs 的 GLSL 代码块：原始文本提取，避免 tokenizer 解析 GLSL 运算符
+                    readCodeBlock();
                 } else {
                     readSymbol();
                 }
@@ -178,6 +188,70 @@ public class ShaderParser {
 
             tokens.add(new Token(TokenType.EOF, "", line, column));
             return tokens;
+        }
+
+        /**
+         * 判断当前 '{' 是否是 vs / fs 代码块的起始大括号。
+         *
+         * <p>从当前位置向前扫描 token 列表，跳过空白和注释 token，
+         * 若前一个有效 token 是 VS 或 FS 关键字则返回 true。</p>
+         */
+        private boolean isShaderStageBrace() {
+            for (int i = tokens.size() - 1; i >= 0; i--) {
+                Token t = tokens.get(i);
+                if (t.type == TokenType.VS || t.type == TokenType.FS) {
+                    return true;
+                }
+                // 空白/注释不产生 token，其他 token 说明不是 vs/fs 的 '{'
+                return false;
+            }
+            return false;
+        }
+
+        /**
+         * 读取 vs / fs 的 GLSL 代码块：从当前 '{' 开始，大括号配平提取原始文本。
+         *
+         * <p>GLSL 代码不经过 tokenizer，直接保留原始文本（含运算符、注释等），
+         * 直到与起始 '{' 配平的 '}' 为止。行号/列号同步更新。</p>
+         */
+        private void readCodeBlock() {
+            int startLine = line;
+            int startCol = column;
+
+            StringBuilder sb = new StringBuilder();
+            int braceDepth = 0;
+
+            while (pos < source.length()) {
+                char c = source.charAt(pos);
+                if (c == '{') {
+                    braceDepth++;
+                    sb.append(c);
+                    advance();
+                } else if (c == '}') {
+                    braceDepth--;
+                    if (braceDepth == 0) {
+                        advance(); // 消费闭合的 '}'
+                        break;
+                    }
+                    sb.append(c);
+                    advance();
+                } else {
+                    if (c == '\n') {
+                        line++;
+                        column = 1;
+                    }
+                    sb.append(c);
+                    advance();
+                }
+            }
+
+            if (braceDepth != 0) {
+                throw new ShaderParseException("着色器代码块未闭合", startLine, startCol);
+            }
+
+            // 去掉首尾大括号，保留内部 GLSL 源码
+            String code = sb.substring(1, sb.length() - 1);
+            tokens.add(new Token(TokenType.CODE_BLOCK, code, startLine, startCol));
         }
 
         private void skipWhitespace() {
@@ -309,6 +383,15 @@ public class ShaderParser {
         private boolean tryReadVectorLiteral() {
             // 预检查：当前是 '('，内部含逗号且本行闭合，视为向量字面量
             if (source.charAt(pos) != '(') return false;
+
+            // 排除属性声明的 "(\"显示名\", Type)" 形态：跳过空白后若以 '"' 开头则不是向量
+            int probe = pos + 1;
+            while (probe < source.length() && (source.charAt(probe) == ' ' || source.charAt(probe) == '\t')) {
+                probe++;
+            }
+            if (probe < source.length() && source.charAt(probe) == '"') {
+                return false;
+            }
 
             int scanPos = pos + 1;
             int parenDepth = 1;
@@ -614,21 +697,21 @@ public class ShaderParser {
             return pass;
         }
 
-        private ShaderAST.RenderPath parseRenderPath() {
+        private RenderPath parseRenderPath() {
             consume(TokenType.RENDER_PATH, "");
             String value = consumeIdentifier("期望渲染路径值 (Forward/Deferred/Shadow)");
             try {
-                return ShaderAST.RenderPath.valueOf(value);
+                return RenderPath.valueOf(value);
             } catch (IllegalArgumentException e) {
                 throw error("未知的渲染路径: " + value);
             }
         }
 
-        private ShaderAST.RenderLayer parseRenderLayer() {
+        private RenderLayer parseRenderLayer() {
             consume(TokenType.RENDER_LAYER, "");
             String value = consumeIdentifier("期望渲染层值 (Opaque/Transparent/Overlay)");
             try {
-                return ShaderAST.RenderLayer.valueOf(value);
+                return RenderLayer.valueOf(value);
             } catch (IllegalArgumentException e) {
                 throw error("未知的渲染层: " + value);
             }
@@ -643,21 +726,21 @@ public class ShaderParser {
             return value.equals("On");
         }
 
-        private ShaderAST.CompareFunction parseZTest() {
+        private CompareFunction parseZTest() {
             consume(TokenType.ZTEST, "");
             String value = consumeIdentifier("期望 zTest 值 (Off/Never/Less/LessEqual/Equal/Greater/GreaterEqual/Always)");
             try {
-                return ShaderAST.CompareFunction.valueOf(value);
+                return CompareFunction.valueOf(value);
             } catch (IllegalArgumentException e) {
                 throw error("未知的 zTest 值: " + value);
             }
         }
 
-        private ShaderAST.CullMode parseCullMode() {
+        private CullMode parseCullMode() {
             consume(TokenType.CULL_MODE, "");
             String value = consumeIdentifier("期望 cullMode 值 (Back/Front/None)");
             try {
-                return ShaderAST.CullMode.valueOf(value);
+                return CullMode.valueOf(value);
             } catch (IllegalArgumentException e) {
                 throw error("未知的 cullMode 值: " + value);
             }
@@ -670,8 +753,8 @@ public class ShaderParser {
             String value = consumeIdentifier("期望 blend 值 (Off 或 <srcFactor> <dstFactor>)");
             if (value.equals("Off")) {
                 blend.enabled = false;
-                blend.srcFactor = ShaderAST.BlendFactor.One;
-                blend.dstFactor = ShaderAST.BlendFactor.Zero;
+                blend.srcFactor = BlendFactor.One;
+                blend.dstFactor = BlendFactor.Zero;
             } else {
                 blend.enabled = true;
                 blend.srcFactor = parseBlendFactor(value);
@@ -681,9 +764,9 @@ public class ShaderParser {
             return blend;
         }
 
-        private ShaderAST.BlendFactor parseBlendFactor(String value) {
+        private BlendFactor parseBlendFactor(String value) {
             try {
-                return ShaderAST.BlendFactor.valueOf(value);
+                return BlendFactor.valueOf(value);
             } catch (IllegalArgumentException e) {
                 throw error("未知的混合因子: " + value);
             }
@@ -691,55 +774,11 @@ public class ShaderParser {
 
         private ShaderAST.ShaderStageNode parseShaderStage(ShaderAST.StageType type) {
             consume(type == ShaderAST.StageType.VERTEX ? TokenType.VS : TokenType.FS, "");
-            consume(TokenType.LBRACE, "期望着色器代码块的 '{'");
+            Token codeToken = consume(TokenType.CODE_BLOCK, "期望着色器代码块");
 
             ShaderAST.ShaderStageNode stage = new ShaderAST.ShaderStageNode(type);
-            stage.source = extractCodeBlock();
+            stage.source = codeToken.text.trim();
             return stage;
-        }
-
-        /** 大括号配平提取 GLSL 代码块（GLSL 内部允许任意嵌套大括号） */
-        private String extractCodeBlock() {
-            StringBuilder sb = new StringBuilder();
-            int braceDepth = 1;
-
-            while (pos < tokens.size()) {
-                Token token = tokens.get(pos);
-                if (token.type == TokenType.LBRACE) {
-                    braceDepth++;
-                    sb.append(token.text);
-                    pos++;
-                } else if (token.type == TokenType.RBRACE) {
-                    braceDepth--;
-                    if (braceDepth == 0) {
-                        pos++; // 消费闭合的 }
-                        break;
-                    }
-                    sb.append(token.text);
-                    pos++;
-                } else if (token.type == TokenType.EOF) {
-                    throw error("着色器代码块未闭合");
-                } else if (token.type == TokenType.PP_DIRECTIVE) {
-                    sb.append('\n').append(token.text).append('\n');
-                    pos++;
-                } else {
-                    if (sb.length() > 0 && needsSpace(sb, token)) {
-                        sb.append(' ');
-                    }
-                    sb.append(token.text);
-                    pos++;
-                }
-            }
-
-            return sb.toString().trim();
-        }
-
-        private boolean needsSpace(StringBuilder sb, Token token) {
-            char last = sb.charAt(sb.length() - 1);
-            char first = token.text.charAt(0);
-            // 标识符/数字后面跟标识符/数字需要空格
-            return (Character.isLetterOrDigit(last) || last == '_') &&
-                   (Character.isLetterOrDigit(first) || first == '_');
         }
 
         // ═════════════════════════════════════════════════════════════════

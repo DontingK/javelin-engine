@@ -11,6 +11,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -90,7 +91,8 @@ public class BinaryImporter implements Importer {
                 }
             }
 
-            // 读取对象数据
+            // 读取对象数据（先全部读入，再统一 populate，避免前向引用未填充）
+            List<BinaryInputCapsule> capsules = new ArrayList<>();
             for (int i = 0; i < objectCount; i++) {
                 int id = binaryStreamInput.readInt();
                 Object object = objectCache.get(id);
@@ -102,8 +104,13 @@ public class BinaryImporter implements Importer {
                 } else {
                     BinaryInputCapsule capsule = new BinaryInputCapsule(id, (Serializable) object, this);
                     capsule.read(binaryStreamInput);
-                    capsule.populate();
+                    capsules.add(capsule);
                 }
+            }
+
+            // 统一填充对象字段（此时所有引用的数组/列表数据已就绪）
+            for (BinaryInputCapsule capsule : capsules) {
+                capsule.populate();
             }
 
             return (T) objectCache.get(0);

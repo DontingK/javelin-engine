@@ -1,4 +1,4 @@
-package com.javelin.core.render.shader;
+package com.javelin.editor.importer.shader;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,11 +35,11 @@ public class ShaderPreprocessor {
         };
         """;
 
-    /** 默认的 Push Constants 声明（仅 MVP，64B，不受 GlobalUniforms 覆盖） */
+    /** 默认的 Push Constants 声明（仅 MVP，64B，不受 GlobalUniforms 覆盖；无实例名，u_mvp 直接可见） */
     public static final String DEFAULT_PUSH_CONSTANTS = """
         layout(push_constant) uniform JavelinPushConstants {
             mat4 u_mvp;
-        } pc;
+        };
         """;
 
     /** 默认的 JavelinPerObject Uniform 块声明（动态偏移寻址） */

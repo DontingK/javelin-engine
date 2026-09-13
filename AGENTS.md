@@ -169,9 +169,9 @@ engine-editor-web (独立前端，通过 JCEF 桥接与 javelin-editor 通信)
 
 ## 测试策略
 
-- **单元测试**：JUnit Jupiter 5（`javelin-core` 的 `ShaderParserTest` 为典型示例）
+- **单元测试**：JUnit Jupiter 5（`javelin-editor` 的 `ShaderParserTest`、`javelin-core` 的 `ShaderSerializeTest` 为典型示例）
 - **集成/渲染测试**：通过 `runTest` Gradle 任务运行，继承 `JavelinEngine` 的测试类
-- **测试资源**：着色器源码放在 `src/test/resources/shader/` 下
+- **测试资源**：着色器 DSL 源码放在 `javelin-editor/src/test/resources/shader/` 下
 - **运行要求**：渲染测试需要 Vulkan 兼容 GPU 和显示环境
 
 ---
