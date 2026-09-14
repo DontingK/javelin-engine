@@ -29,7 +29,5 @@ public class EditorEnv {
         return FileUtil.createFileByPath(getEditorRuntimeDir(), "shader", "include");
     }
 
-    public static void main(String[] args) {
-        System.out.println(getShaderIncludeDir().getAbsolutePath());
-    }
+
 }

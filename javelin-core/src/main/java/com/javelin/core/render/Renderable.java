@@ -1,5 +1,7 @@
 package com.javelin.core.render;
 
+import com.javelin.rhi.api.Device;
+
 import java.util.List;
 
 /**
@@ -28,4 +30,15 @@ public interface Renderable {
      * @param outCommands 输出命令列表
      */
     void collect(List<RenderCommand> outCommands);
+
+    /**
+     * 渲染前准备 —— 传入 Device 和 DescriptorPoolManager，供实现类按需构建 GPU 资源。
+     *
+     * <p>在 {@link #collect} 之前由渲染管线调用，实现类可在此方法中构建 Pipeline、
+     * 创建 Buffer、分配 DescriptorSet 等。</p>
+     *
+     * @param device                逻辑设备
+     * @param descriptorPoolManager 描述符池管理器
+     */
+    void prepare(Device device, com.javelin.core.render.DescriptorPoolManager descriptorPoolManager);
 }

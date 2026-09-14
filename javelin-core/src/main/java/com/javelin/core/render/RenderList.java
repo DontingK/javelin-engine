@@ -99,8 +99,11 @@ public class RenderList {
         allCommands.clear();
         culledCount = 0;
 
+        org.slf4j.LoggerFactory.getLogger(RenderList.class).info("RenderList.collectFrom: collecting from {} renderables", renderables.size());
         for (Renderable renderable : renderables) {
+            int before = allCommands.size();
             renderable.collect(allCommands);
+            org.slf4j.LoggerFactory.getLogger(RenderList.class).info("RenderList.collectFrom: renderable {} generated {} commands", renderable.getClass().getSimpleName(), allCommands.size() - before);
         }
     }
 

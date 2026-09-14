@@ -3,6 +3,7 @@ package com.javelin.core;
 import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.render.DescriptorPoolManager;
 import com.javelin.core.render.RenderingPipeline;
 import com.javelin.core.render.pass.ForwardRenderPass;
 import com.javelin.core.scene.SceneManager;
@@ -60,6 +61,7 @@ public class JavelinEngine {
     protected SubsystemManager subsystemManager;
     protected SceneManager sceneManager;
     protected RenderingPipeline renderingPipeline;
+    protected DescriptorPoolManager descriptorPoolManager;
 
     // 执行队列：用于多线程向主线程提交任务，避免多线程访问 RHI 资源的问题
     private final ConcurrentLinkedQueue<Runnable> executeQueue = new ConcurrentLinkedQueue<>();
@@ -183,6 +185,10 @@ public class JavelinEngine {
         // 创建渲染管线并添加前向渲染 Pass
         renderingPipeline = new RenderingPipeline();
         renderingPipeline.addPass(new ForwardRenderPass());
+
+        // 创建全局 DescriptorPool 管理器（供 MeshRenderer 等组件使用）
+        descriptorPoolManager = new DescriptorPoolManager(device);
+
         log.info("Engine initialized successfully");
     }
 
@@ -212,20 +218,30 @@ public class JavelinEngine {
      */
     protected void render() {
         if (sceneManager == null || renderingPipeline == null) {
+            log.warn("JavelinEngine.render: sceneManager or renderingPipeline is null");
             return;
         }
 
         // 收集场景中的相机和可渲染对象
         List<Camera> cameras = new ArrayList<>();
         sceneManager.collectCameras(cameras);
+        log.info("JavelinEngine.render: collected {} cameras", cameras.size());
 
         // 没有相机则跳过渲染
         if (cameras.isEmpty()) {
+            log.warn("JavelinEngine.render: no cameras, skipping render");
             return;
         }
 
         List<com.javelin.core.render.Renderable> renderables = new ArrayList<>();
         sceneManager.collectRenderables(renderables);
+        log.info("JavelinEngine.render: collected {} renderables", renderables.size());
+
+        // 渲染前准备：传入 Device 和 DescriptorPoolManager
+        for (com.javelin.core.render.Renderable r : renderables) {
+            log.info("JavelinEngine.render: preparing renderable {}", r.getClass().getSimpleName());
+            r.prepare(device, descriptorPoolManager);
+        }
 
         // 多相机渲染（每个相机使用自己的视口配置）
         int windowWidth = window != null ? window.width() : setting.getWidth();
@@ -332,6 +348,11 @@ public class JavelinEngine {
             subsystemManager = null;
         }
 
+        if (descriptorPoolManager != null) {
+            descriptorPoolManager.dispose();
+            descriptorPoolManager = null;
+        }
+
         if (renderer != null) {
             renderer.dispose();
             renderer = null;
@@ -382,6 +403,10 @@ public class JavelinEngine {
 
     public boolean isRunning() {
         return window != null && !window.shouldClose();
+    }
+
+    public DescriptorPoolManager descriptorPoolManager() {
+        return descriptorPoolManager;
     }
 
 }

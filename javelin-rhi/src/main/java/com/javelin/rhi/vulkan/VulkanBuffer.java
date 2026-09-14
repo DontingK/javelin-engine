@@ -187,23 +187,21 @@ public class VulkanBuffer extends Buffer {
     public void upload(byte[] data) {
         ByteBuffer mapped = map();
         mapped.put(data);
-        mapped.flip();
+        unmap();
     }
 
     @Override
     public void upload(ByteBuffer data) {
         ByteBuffer mapped = map();
         mapped.put(data);
-        data.flip();
-        mapped.flip();
+        unmap();
     }
 
     @Override
     public void upload(long offset, ByteBuffer data) {
         ByteBuffer mapped = map(offset, data.remaining());
         mapped.put(data);
-        data.flip();
-        mapped.flip();
+        unmap();
     }
 
     long memory() {

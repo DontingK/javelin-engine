@@ -23,55 +23,77 @@ public class VulkanGraphicsPipeline extends GraphicsPipeline {
     private final long handle;
     private final PipelineLayout layout;
 
+    private final com.javelin.rhi.api.Shader vertexShader;
+    private final com.javelin.rhi.api.Shader fragmentShader;
+    private final com.javelin.rhi.api.Shader geometryShader;
+    private final com.javelin.rhi.api.Shader tessellationControlShader;
+    private final com.javelin.rhi.api.Shader tessellationEvaluationShader;
+
+    private static final org.slf4j.Logger pipelineLog = org.slf4j.LoggerFactory.getLogger(VulkanGraphicsPipeline.class);
+
     public VulkanGraphicsPipeline(VulkanDevice device, GraphicsPipelineDesc desc) {
         this.device = device.vkDevice();
         this.layout = device.createPipelineLayout(desc.layout());
 
+        // 创建并保存 Shader 引用，防止 GC 过早销毁 Shader Module
+        this.vertexShader = desc.vertexShader() != null ? device.createShader(desc.vertexShader()) : null;
+        this.fragmentShader = desc.fragmentShader() != null ? device.createShader(desc.fragmentShader()) : null;
+        this.geometryShader = desc.geometryShader() != null ? device.createShader(desc.geometryShader()) : null;
+        this.tessellationControlShader = desc.tessellationControlShader() != null ? device.createShader(desc.tessellationControlShader()) : null;
+        this.tessellationEvaluationShader = desc.tessellationEvaluationShader() != null ? device.createShader(desc.tessellationEvaluationShader()) : null;
+
+        if (desc.vertexShader() != null) {
+            pipelineLog.info("VulkanGraphicsPipeline: vertexShader SPIR-V size={} bytes", desc.vertexShader().spirvBytecode().length);
+        }
+        if (desc.fragmentShader() != null) {
+            pipelineLog.info("VulkanGraphicsPipeline: fragmentShader SPIR-V size={} bytes", desc.fragmentShader().spirvBytecode().length);
+        }
+
         try (MemoryStack stack = MemoryStack.stackPush()) {
             // 着色器阶段
             int shaderStageCount = 0;
-            if (desc.vertexShader() != null) shaderStageCount++;
-            if (desc.fragmentShader() != null) shaderStageCount++;
-            if (desc.geometryShader() != null) shaderStageCount++;
-            if (desc.tessellationControlShader() != null) shaderStageCount++;
-            if (desc.tessellationEvaluationShader() != null) shaderStageCount++;
+            if (vertexShader != null) shaderStageCount++;
+            if (fragmentShader != null) shaderStageCount++;
+            if (geometryShader != null) shaderStageCount++;
+            if (tessellationControlShader != null) shaderStageCount++;
+            if (tessellationEvaluationShader != null) shaderStageCount++;
 
             VkPipelineShaderStageCreateInfo.Buffer stages = VkPipelineShaderStageCreateInfo.calloc(shaderStageCount, stack);
             int stageIdx = 0;
 
-            if (desc.vertexShader() != null) {
+            if (vertexShader != null) {
                 stages.get(stageIdx++)
                     .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
                     .stage(VK_SHADER_STAGE_VERTEX_BIT)
-                    .module(device.createShader(desc.vertexShader()).handle())
+                    .module(vertexShader.handle())
                     .pName(stack.UTF8(desc.vertexShader().entryPoint()));
             }
-            if (desc.tessellationControlShader() != null) {
+            if (tessellationControlShader != null) {
                 stages.get(stageIdx++)
                     .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
                     .stage(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
-                    .module(device.createShader(desc.tessellationControlShader()).handle())
+                    .module(tessellationControlShader.handle())
                     .pName(stack.UTF8(desc.tessellationControlShader().entryPoint()));
             }
-            if (desc.tessellationEvaluationShader() != null) {
+            if (tessellationEvaluationShader != null) {
                 stages.get(stageIdx++)
                     .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
                     .stage(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
-                    .module(device.createShader(desc.tessellationEvaluationShader()).handle())
+                    .module(tessellationEvaluationShader.handle())
                     .pName(stack.UTF8(desc.tessellationEvaluationShader().entryPoint()));
             }
-            if (desc.geometryShader() != null) {
+            if (geometryShader != null) {
                 stages.get(stageIdx++)
                     .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
                     .stage(VK_SHADER_STAGE_GEOMETRY_BIT)
-                    .module(device.createShader(desc.geometryShader()).handle())
+                    .module(geometryShader.handle())
                     .pName(stack.UTF8(desc.geometryShader().entryPoint()));
             }
-            if (desc.fragmentShader() != null) {
+            if (fragmentShader != null) {
                 stages.get(stageIdx++)
                     .sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO)
                     .stage(VK_SHADER_STAGE_FRAGMENT_BIT)
-                    .module(device.createShader(desc.fragmentShader()).handle())
+                    .module(fragmentShader.handle())
                     .pName(stack.UTF8(desc.fragmentShader().entryPoint()));
             }
 
@@ -235,19 +257,25 @@ public class VulkanGraphicsPipeline extends GraphicsPipeline {
             }
 
             // 动态渲染管线创建需VkPipelineRenderingCreateInfo
-            if (desc.depthStencil() == null || !desc.depthStencil().depthTestEnable()) {
-                // 无深度
-              VkPipelineRenderingCreateInfo renderingInfo = VkPipelineRenderingCreateInfo.calloc(stack)
-                    .sType(VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO)
-                    .colorAttachmentCount(1)
-                    .pColorAttachmentFormats(stack.ints(VK_FORMAT_B8G8R8A8_UNORM));
-                pipelineInfo.pNext(renderingInfo.address());
+            VkPipelineRenderingCreateInfo renderingInfo = VkPipelineRenderingCreateInfo.calloc(stack)
+                .sType(VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO)
+                .colorAttachmentCount(1)
+                .pColorAttachmentFormats(stack.ints(VK_FORMAT_B8G8R8A8_UNORM));
+
+            if (desc.depthStencil() != null && desc.depthStencil().depthTestEnable()) {
+                renderingInfo.depthAttachmentFormat(VK_FORMAT_D32_SFLOAT);
             }
 
+            pipelineInfo.pNext(renderingInfo.address());
+
             LongBuffer pPipeline = stack.mallocLong(1);
-            VulkanChecks.check(vkCreateGraphicsPipelines(device.vkDevice(), VK_NULL_HANDLE, pipelineInfo, null, pPipeline),
-                "vkCreateGraphicsPipelines");
+            int result = vkCreateGraphicsPipelines(device.vkDevice(), VK_NULL_HANDLE, pipelineInfo, null, pPipeline);
+            if (result != VK_SUCCESS) {
+                pipelineLog.error("vkCreateGraphicsPipelines FAILED with result={}", result);
+                throw new RuntimeException("vkCreateGraphicsPipelines failed: " + result);
+            }
             this.handle = pPipeline.get(0);
+            pipelineLog.info("VulkanGraphicsPipeline: Pipeline created successfully, handle={}", this.handle);
         }
     }
 
@@ -289,6 +317,11 @@ public class VulkanGraphicsPipeline extends GraphicsPipeline {
     protected void doDispose() {
         vkDestroyPipeline(device, handle, null);
         layout.dispose();
+        if (vertexShader != null) vertexShader.dispose();
+        if (fragmentShader != null) fragmentShader.dispose();
+        if (geometryShader != null) geometryShader.dispose();
+        if (tessellationControlShader != null) tessellationControlShader.dispose();
+        if (tessellationEvaluationShader != null) tessellationEvaluationShader.dispose();
     }
 
     @Override

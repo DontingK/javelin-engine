@@ -2,6 +2,13 @@ package com.javelin.editor;
 
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.mesh.Mesh;
+import com.javelin.core.scene.GameScene;
+import com.javelin.core.scene.Node;
+import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.ProjectAssetLibManager;
@@ -50,5 +57,34 @@ public class EditorJavelinEngine extends JavelinEngine {
 
     public MetaManager getMetaManager() {
         return metaManager;
+    }
+
+
+    @Override
+    protected void initialize() {
+        Shader shader = assetManager.loadAsset("core/shader/default.shader", Shader.class);
+        Mesh mesh = assetManager.loadAsset("core/mesh/plane.smesh", Mesh.class);
+
+        GameScene scene = sceneManager.createScene("scene");
+        sceneManager.setActiveScene(scene);
+
+        // ---- 相机 ----
+        Node cameraNode = new Node("Camera");
+        cameraNode.transform().setLocalPosition(0, 1, 0);
+        // 默认朝向 -Z，看向原点
+        Camera camera = new Camera();
+        camera.setClearColor(0.3f,0.3f,0.3f,1);
+        camera.setPerspective(60f, 0.1f, 1000f);
+        cameraNode.addComponent(camera);
+        scene.addRoot(cameraNode);
+
+        // ---- 地面 Mesh ----
+        Node meshNode = new Node("PlaneMesh");
+        MeshRenderer meshRenderer = new MeshRenderer();
+        meshRenderer.setMesh(mesh);
+        Material material = new Material(shader);
+        meshRenderer.setMaterial(material);
+        meshNode.addComponent(meshRenderer);
+        scene.addRoot(meshNode);
     }
 }

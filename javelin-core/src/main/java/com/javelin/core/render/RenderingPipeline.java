@@ -108,9 +108,11 @@ public class RenderingPipeline {
                 windowWidth, windowHeight);
         for (Camera camera : cameras) {
             if (camera == null || !camera.isActivated()) {
+                log.warn("RenderingPipeline.render: skipping inactive/null camera");
                 continue;
             }
 
+            log.info("RenderingPipeline.render: building camera context for camera={}", camera);
             CameraContext cameraCtx = buildCameraContext(renderables, camera, windowWidth, windowHeight);
             executePasses(cameraCtx, frameCtx, cmd, swapChainImageView);
         }
@@ -178,6 +180,26 @@ public class RenderingPipeline {
                     ? new CommandBuffer.ClearValue(cc[0], cc[1], cc[2], cc[3])
                     : new CommandBuffer.ClearValue(0.0f, 0.0f, 0.0f, 1.0f);
 
+            // 转换交换链图像布局从 UNDEFINED 到 COLOR_ATTACHMENT_OPTIMAL
+            cmd.pipelineBarrier(
+                PipelineStage.TOP_OF_PIPE, PipelineStage.COLOR_ATTACHMENT_OUTPUT,
+                DependencyFlags.NONE,
+                null, null,
+                new CommandBuffer.TextureMemoryBarrier[]{
+                    new CommandBuffer.TextureMemoryBarrier(
+                        PipelineStage.TOP_OF_PIPE, PipelineStage.COLOR_ATTACHMENT_OUTPUT,
+                        AccessFlags.NONE, AccessFlags.COLOR_ATTACHMENT_WRITE,
+                        TextureLayout.UNDEFINED, TextureLayout.COLOR_ATTACHMENT_OPTIMAL,
+                        -1, -1,
+                        swapChainImageView.texture(),
+                        new CommandBuffer.TextureSubresourceRange(
+                            com.javelin.rhi.desc.TextureViewDesc.AspectFlags.COLOR,
+                            0, 1, 0, 1
+                        )
+                    )
+                }
+            );
+
             CommandBuffer.RenderingAttachmentInfo colorAttachment = new CommandBuffer.RenderingAttachmentInfo(
                     swapChainImageView,
                     TextureLayout.COLOR_ATTACHMENT_OPTIMAL,
@@ -213,6 +235,25 @@ public class RenderingPipeline {
         } finally {
             if (renderingStarted) {
                 cmd.endRendering();
+                // 转换交换链图像布局从 COLOR_ATTACHMENT_OPTIMAL 到 PRESENT_SRC
+                cmd.pipelineBarrier(
+                    PipelineStage.COLOR_ATTACHMENT_OUTPUT, PipelineStage.BOTTOM_OF_PIPE,
+                    DependencyFlags.NONE,
+                    null, null,
+                    new CommandBuffer.TextureMemoryBarrier[]{
+                        new CommandBuffer.TextureMemoryBarrier(
+                            PipelineStage.COLOR_ATTACHMENT_OUTPUT, PipelineStage.BOTTOM_OF_PIPE,
+                            AccessFlags.COLOR_ATTACHMENT_WRITE, AccessFlags.NONE,
+                            TextureLayout.COLOR_ATTACHMENT_OPTIMAL, TextureLayout.PRESENT_SRC,
+                            -1, -1,
+                            swapChainImageView.texture(),
+                            new CommandBuffer.TextureSubresourceRange(
+                                com.javelin.rhi.desc.TextureViewDesc.AspectFlags.COLOR,
+                                0, 1, 0, 1
+                            )
+                        )
+                    }
+                );
             }
         }
     }

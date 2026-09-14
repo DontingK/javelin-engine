@@ -147,6 +147,8 @@ public class Camera extends Component {
         } else {
             m.ortho(orthoLeft, orthoRight, orthoBottom, orthoTop, nearClip, farClip);
         }
+        // Vulkan NDC: Y 向下为正，翻转投影矩阵的 Y
+//        m.scale(1.0f, -1.0f, 1.0f);
         return m;
     }
 

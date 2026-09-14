@@ -4,6 +4,7 @@ package com.javelin.rhi.types;
  * 依赖标志。
  */
 public enum DependencyFlags {
+    NONE(0),
     BY_REGION(0x00000001),
     DEVICE_GROUP(0x00000004),
     VIEW_LOCAL(0x00000002);

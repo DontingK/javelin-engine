@@ -64,6 +64,9 @@ public class RenderCommand {
     /** 额外绑定的纹理（用于简单场景，不通过 DescriptorSet） */
     public Texture[] textures;
 
+    /** PipelineLayout，用于 push constants（临时方案） */
+    public com.javelin.rhi.api.PipelineLayout pipelineLayout;
+
     public RenderCommand() {
     }
 
