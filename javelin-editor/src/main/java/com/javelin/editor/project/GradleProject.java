@@ -2,7 +2,6 @@ package com.javelin.editor.project;
 
 
 import com.javelin.core.scene.GameScene;
-import com.javelin.core.scene.Scene;
 import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.settings.*;
 import com.javelin.editor.EditorEnv;

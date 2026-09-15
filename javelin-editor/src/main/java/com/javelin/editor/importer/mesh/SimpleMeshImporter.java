@@ -1,9 +1,5 @@
 package com.javelin.editor.importer.mesh;
 
-import com.javelin.core.render.mesh.Mesh;
-import com.javelin.core.render.mesh.MeshBuilder;
-import com.javelin.core.render.mesh.Vertex;
-import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
@@ -122,31 +118,6 @@ public class SimpleMeshImporter implements AssetImporter {
                 return false;
             }
 
-            // 使用 MeshBuilder 构建 Mesh（位置 + 法线 + UV）
-            MeshBuilder builder = new MeshBuilder()
-                    .withPositions()
-                    .withNormals()
-                    .withUVs();
-
-            for (int i = 0; i < vertexCount; i++) {
-                builder.vertex(
-                                positions.data[i * 3],
-                                positions.data[i * 3 + 1],
-                                positions.data[i * 3 + 2])
-                        .normal(
-                                normals.size > 0 ? normals.data[i * 3] : 0,
-                                normals.size > 0 ? normals.data[i * 3 + 1] : 0,
-                                normals.size > 0 ? normals.data[i * 3 + 2] : 1)
-                        .uv(
-                                uvs.size > 0 ? uvs.data[i * 2] : 0,
-                                uvs.size > 0 ? uvs.data[i * 2 + 1] : 0);
-            }
-
-            if (indices.size > 0) {
-                builder.indices(indices.toArray());
-            }
-
-            Mesh mesh = builder.build();
 
             // 输出到 Library
             File libraryDir = project.getLibrary();
@@ -155,8 +126,8 @@ public class SimpleMeshImporter implements AssetImporter {
             }
             File outputFile = new File(libraryDir, task.getMeta().getGuid() + EXTENSION);
 
-            BinaryExporter exporter = new BinaryExporter(outputFile);
-            exporter.export(mesh);
+//            BinaryExporter exporter = new BinaryExporter(outputFile);
+//            exporter.export(mesh);
 
             LOGGER.info("简单网格导入成功: {} -> {} (顶点数={})",
                     sourceFile.getName(), outputFile.getName(), vertexCount);

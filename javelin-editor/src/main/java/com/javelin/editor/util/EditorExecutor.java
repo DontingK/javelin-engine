@@ -1,7 +1,5 @@
 package com.javelin.editor.util;
 
-import com.javelin.core.JavelinEngine;
-
 /**
  * 编辑器线程执行工具类。
  *
