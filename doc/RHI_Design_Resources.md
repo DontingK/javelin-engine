@@ -265,8 +265,8 @@ Debug 模式默认开启 `VK_EXT_validation` + 上述比对，错误信息含管
 - RHI 资源 = **Java 对象**（`RHITexture` / `RHIBuffer` / `RHIPipeline`），对象内部持有 `long handle`；
 - 句柄是 RHI 内部 `ResourceTable` 的索引：handle → impl（VkBuffer/VkImage/VkPipeline...）；
 - **不使用引用计数**：生命周期由 Java 对象可达性决定。对象不可达 → `Cleaner` 回调触发 → 资源句柄进入**延迟销毁队列**；
-- 引擎层持有对象引用即"资源存活"，丢弃引用即"希望销毁"（由 Cleaner 兜底）；
-- 显式 `close()` 可选：长生命周期 / 大显存资源建议主动调用，销毁时机确定（立即入延迟队列）。
+- **显式释放为主，Cleaner 兜底**：上层应主动调用 `close()` 进行确定性释放，销毁时机明确（立即入延迟队列）；未显式释放时，对象不可达后由 Cleaner 兜底，防止泄漏；
+- 引擎层持有对象引用即"资源存活"，丢弃引用即"希望销毁"（由 Cleaner 兜底）。
 
 ```java
 public abstract class RHIResource implements AutoCloseable {
