@@ -1,6 +1,13 @@
 package com.javelin.rhi.impl;
 
 import com.javelin.rhi.*;
+import org.lwjgl.vulkan.VkDevice;
+import org.lwjgl.vulkan.VkInstance;
+import org.lwjgl.vulkan.VkPhysicalDevice;
+import org.lwjgl.vulkan.VkQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.ref.Cleaner;
 
 /**
@@ -11,9 +18,23 @@ import java.lang.ref.Cleaner;
  */
 public class VulkanRHI implements RHI {
 
-    // TODO: VkInstance vkInstance; — initialized in constructor
-    // TODO: VkDevice vkDevice;
-    // TODO: VkPhysicalDevice vkPhysicalDevice;
+    private static final Logger logger = LoggerFactory.getLogger(VulkanRHI.class);
+
+    /** Vulkan 实例 */
+    private final VkInstance vkInstance;
+    /** 物理设备（GPU） */
+    private final VkPhysicalDevice vkPhysicalDevice;
+    /** 逻辑设备 */
+    private final VkDevice vkDevice;
+    /** 图形队列 */
+    private final VkQueue graphicsQueue;
+    /** 图形队列族索引 */
+    private final int graphicsFamily;
+
+    /** 渲染表面（由上层传入，RHI 内部创建 VkSurfaceKHR + Swapchain） */
+    private final RHISurface surface;
+    /** Vulkan Surface 句柄 */
+    private final long vkSurfaceKHR;
 
     /** Java Cleaner，用于自动清理原生资源 */
     private final Cleaner cleaner = Cleaner.create();
@@ -31,11 +52,38 @@ public class VulkanRHI implements RHI {
     private final VkQueueScheduler queueScheduler = new VkQueueScheduler();
 
     /**
-     * 创建 VulkanRHI 实例，初始化 Vulkan 环境。
-     * 包括创建 VkInstance、选择物理设备、创建逻辑设备等步骤。
+     * 创建 VulkanRHI 实例，初始化完整的 Vulkan 环境。
+     * <p>
+     * 初始化流程：
+     * <ol>
+     *   <li>创建 VkInstance</li>
+     *   <li>选择物理设备</li>
+     *   <li>创建逻辑设备</li>
+     *   <li>获取图形队列</li>
+     *   <li>调用 {@code surface.createVulkanSurface(vkInstance)} 创建 VkSurfaceKHR</li>
+     * </ol>
+     *
+     * @param surface 渲染表面（已由上层创建好窗口）
      */
-    public VulkanRHI() {
-        // TODO: Create VkInstance, select physical device, create logical device
+    public VulkanRHI(RHISurface surface) {
+        this.surface = surface;
+
+        VulkanInit.Context ctx = VulkanInit.init(surface);
+        this.vkInstance = ctx.instance;
+        this.vkPhysicalDevice = ctx.physicalDevice;
+        this.vkDevice = ctx.device;
+        this.graphicsQueue = ctx.graphicsQueue;
+        this.graphicsFamily = ctx.graphicsFamily;
+
+        this.vkSurfaceKHR = surface.createVulkanSurface(vkInstance);
+        if (vkSurfaceKHR == 0) {
+            throw new RHIException("创建 VkSurfaceKHR 失败");
+        }
+        logger.info("VkSurfaceKHR 创建成功: {}", vkSurfaceKHR);
+
+        // TODO: 查询 Surface 能力，创建 Swapchain
+
+        logger.info("VulkanRHI 初始化完成");
     }
 
     /**
@@ -191,56 +239,71 @@ public class VulkanRHI implements RHI {
         return cleaner;
     }
 
-    /**
-     * 获取资源映射表。
-     *
-     * @return 资源表实例
-     */
+    // ------------------------------------------------------------------------
+    // 内部访问器（供 impl 包内其他类使用）
+    // ------------------------------------------------------------------------
+
+    /** @return Vulkan 实例 */
+    VkInstance vkInstance() {
+        return vkInstance;
+    }
+
+    /** @return 物理设备 */
+    VkPhysicalDevice vkPhysicalDevice() {
+        return vkPhysicalDevice;
+    }
+
+    /** @return 逻辑设备 */
+    VkDevice vkDevice() {
+        return vkDevice;
+    }
+
+    /** @return 图形队列 */
+    VkQueue graphicsQueue() {
+        return graphicsQueue;
+    }
+
+    /** @return 图形队列族索引 */
+    int graphicsFamily() {
+        return graphicsFamily;
+    }
+
+    /** @return 渲染表面 */
+    RHISurface surface() {
+        return surface;
+    }
+
+    /** @return Vulkan Surface 句柄 */
+    long vkSurfaceKHR() {
+        return vkSurfaceKHR;
+    }
+
+    /** @return 资源表 */
     public VkResourceImpl resourceTable() {
         return resourceTable;
     }
 
-    /**
-     * 获取延迟销毁队列。
-     *
-     * @return 延迟销毁队列实例
-     */
+    /** @return 延迟销毁队列 */
     public DeferredDestroyQueue destroyQueue() {
         return destroyQueue;
     }
 
-    /**
-     * 获取帧内存分配器。
-     *
-     * @return 帧内存分配器实例
-     */
+    /** @return 帧内存分配器 */
     public FrameArena frameArena() {
         return frameArena;
     }
 
-    /**
-     * 获取管线缓存。
-     *
-     * @return 管线缓存实例
-     */
+    /** @return 管线缓存 */
     public PipelineCache pipelineCache() {
         return pipelineCache;
     }
 
-    /**
-     * 获取命令池管理器。
-     *
-     * @return 命令池管理器实例
-     */
+    /** @return 命令池管理器 */
     public VkCommandPoolManager commandPoolManager() {
         return commandPoolManager;
     }
 
-    /**
-     * 获取队列调度器。
-     *
-     * @return 队列调度器实例
-     */
+    /** @return 队列调度器 */
     public VkQueueScheduler queueScheduler() {
         return queueScheduler;
     }

@@ -10,6 +10,8 @@ import org.lwjgl.vulkan.VkInstance;
  */
 public interface RHISurface extends AutoCloseable {
 
+    void creat();
+
     /** 渲染表面宽度（像素），对应 Swapchain 图像宽度。窗口 resize 后自动更新。 */
     int width();
 
@@ -18,6 +20,18 @@ public interface RHISurface extends AutoCloseable {
 
     /** 注册窗口尺寸变化回调。 */
     void onResize(OnResize callback);
+    /**
+     * 获取 Vulkan Instance 所需的扩展名称列表。
+     * <p>
+     * 各平台需要不同的 Instance 扩展来创建 Surface：
+     * <ul>
+     *   <li><b>GLFW</b>：{@code VK_KHR_surface} + 平台特定（如 {@code VK_KHR_win32_surface}）</li>
+     *   <li><b>Win32 + Swing</b>：{@code VK_KHR_surface} + {@code VK_KHR_win32_surface}</li>
+     * </ul>
+     *
+     * @return 扩展名称数组
+     */
+    String[] getRequiredInstanceExtensions();
 
     /**
      * 创建 Vulkan Surface。

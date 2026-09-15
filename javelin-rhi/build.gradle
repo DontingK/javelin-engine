@@ -14,6 +14,9 @@ dependencies {
     implementation "org.lwjgl:lwjgl"
     implementation "org.lwjgl:lwjgl-vulkan"
     implementation "org.lwjgl:lwjgl::$lwjglNatives"
+
+    testImplementation "org.lwjgl:lwjgl-glfw"
+    testImplementation "org.lwjgl:lwjgl-glfw::$lwjglNatives"
 }
 
 // 配置发布到本地 Maven 仓库
