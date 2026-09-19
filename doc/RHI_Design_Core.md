@@ -1,206 +1,638 @@
-# RHI 设计 · 分卷一：核心概念与接口
+# RHI 设计・分卷一：核心概念与接口
 
-> 总纲：`RHI_Design.md`（含 1 概述 / 2 设计原则 / 11 架构取舍与坑点 + 完整章节索引）
+> 总纲：
+> `RHI_Design.md`
+> （含 1 概述 / 2 设计原则 / 11 架构取舍与坑点 + 完整章节索引）
 > 本卷包含：第 3 包结构 / 4 核心数据类型 / 5 相机与视口模型 / 6 清屏（LoadOp）机制 / 9 RenderView 上层封装 / 10 接口定义补充
 > 章节编号全局唯一（1~21），跨卷引用按编号查找，完整索引见总纲。
 
----
 
+
+***
 
 ## 3. 包结构
 
-```Plain Text
-com.javelin.rhi                // 上层可访问API
-├─ RHI.java
-├─ RHIResource.java
-├─ RHIBuffer.java
-├─ RHITexture.java
-├─ RHISampler.java
-├─ RHIPipeline.java
-├─ RHIRenderGraph.java
-├─ RHIGraphicsPass.java
-├─ RHIComputePass.java
-├─ RHICmd.java
-├─ RHIConstants.java
+> v0.23：命名统一为 26 节 API 清单体系（入口 RHI/Instance/Device + 资源简洁名 + data/ + render/），废除 RHI 前缀冗余命名。
+
+```
+com.javelin.rhi               // API 层（26 节规格）
+
+├─ RHI.java                   // 入口：createInstance（23.4a 阶段1）
+├─ Instance.java              // createDevice / createSurface（23.4a 阶段2/4）
+├─ PhysicalDevice.java        // 队列族查询（graphics / present）
+├─ Device.java                // 资源创建 + 队列 + FrameArena + PipelineCache（26.1）
+├─ Queue.java                 // submit / waitIdle（24.4）
+├─ CommandBuffer.java         // RHICmd 录制接口（15 / 24.3）
+├─ GPUResource.java           // 资源基类（17.1 Cleaner 所有权）
+├─ Texture.java / Buffer.java / Sampler.java
+├─ ShaderModule.java          // SPIR-V（16.2，javelin-tool shaderc）
+├─ GraphicsPipeline.java / ComputePipeline.java
+├─ PipelineLayout.java / PipelineCache.java
+├─ DescriptorSetLayout.java / DescriptorSet.java（15.8）
+├─ RenderGraphBuilder.java / CompiledGraph.java
+├─ GraphicsPassBuilder.java / ComputePassBuilder.java / PassDef.java（22.3）
+├─ Fence.java / Semaphore.java / FrameArena.java（24 / 17.3）
+├─ UploadData.java / MemoryPreference.java（25）
 ├─ RHIException.java
-└─ data/
-   ├─ RHIViewport.java
-   ├─ RHIScissor.java
-   ├─ RHILoadOp.java
-   ├─ RHIClearValue.java
-   ├─ RHIClearColor.java
-   └─ RHIClearDepthStencil.java
+├─ data/                      // 值类型（保留 RHI 前缀，表意清晰）
+│  ├─ RHIViewport.java
+│  ├─ RHIScissor.java
+│  ├─ RHILoadOp.java
+│  ├─ RHIClearValue.java
+│  ├─ RHIClearColor.java
+│  └─ RHIClearDepthStencil.java
+└─ render/                    // 呈现模型（第 23 节）
+   ├─ RenderSurface.java      // 呈现目标契约（上层实现：GLFW / Swing）
+   ├─ Platform.java           // 平台枚举（决定 surface 扩展）
+   ├─ Surface.java            // VkSurfaceKHR 封装（RHI 消费 RenderSurface）
+   ├─ SwapChain.java          // acquire / present / recreate（23.3）
+   ├─ SwapChainDesc.java      // PresentMode / ColorSpace
+   ├─ GLFWRenderSurface.java  // 上层实现：GLFW 窗口
+   └─ SwingRenderSurface.java // 上层实现：Swing Canvas
 
 com.javelin.rhi.impl           // 内部实现，上层不可访问
+
 ├─ VulkanRHI.java
-├─ VkResourceImpl.java
-├─ VkRenderGraphImpl.java
-├─ VkCommandPoolManager.java
-├─ VkBarrierGenerator.java
-└─ VkQueueScheduler.java
+├─ VkInstance.java / VkDevice.java / VkQueue.java
+├─ VkBuffer.java / VkTexture.java / VkSampler.java
+├─ VkShaderModule.java / VkGraphicsPipeline.java / VkComputePipeline.java
+├─ VkPipelineLayout.java / VkPipelineCache.java
+├─ VkDescriptorSetLayout.java / VkDescriptorSet.java
+├─ VkCommandBuffer.java / VkCommandPoolManager.java
+├─ VkRenderGraphImpl.java / VkBarrierGenerator.java / VkQueueScheduler.java
+├─ VkSurface.java / VkSwapChain.java
+├─ VkFence.java / VkSemaphore.java / VkFrameArena.java
+└─ CleanerRegistry.java       // 17 节延迟销毁队列
 ```
 
 
----
+
+
+***
 
 ## 4. 核心数据类型
 
-```java
+
+
+```
 // RHIViewport 视口
+
 public record RHIViewport(float x, float y, float width, float height, float minDepth, float maxDepth) {}
 
 // RHIScissor 裁剪矩形
+
 public record RHIScissor(int x, int y, int width, int height) {}
 
 // 附件加载操作枚举
+
 public enum RHILoadOp {
+
     LOAD,        // 保留附件原有内容
+
     CLEAR,       // Pass启动自动清屏
+
     DONT_CARE    // 丢弃原有内容，驱动优化
+
 }
 
 // 清屏值密封接口
+
 public sealed interface RHIClearValue permits RHIClearColor, RHIClearDepthStencil{}
+
 public record RHIClearColor(float r, float g, float b, float a) implements RHIClearValue {}
+
 public record RHIClearDepthStencil(float depth, int stencil) implements RHIClearValue {}
 ```
 
 
----
+
+***
 
 ## 5. 相机与视口模型
 
 > 相机不属于 RHI 资源，完全由上层引擎维护。
 > 相机输出：view、proj、viewProj 矩阵、viewport、scissor。
-> 每个 GraphicsPass 可以绑定独立`RHIViewport`和`RHIScissor`。
-> RHI 内部录制 CommandBuffer 时自动调用`vkCmdSetViewport`/`vkCmdSetScissor`。
+> 每个 GraphicsPass 可以绑定独立
+> `RHIViewport`
+> 和
+> `RHIScissor`
+> 。
+> RHI 内部录制 CommandBuffer 时自动调用
+> `vkCmdSetViewport`
+> /
+> `vkCmdSetScissor`
+> 。
 
 ### 注入方式（推荐）
 
 在 Pass 构建阶段绑定视口、裁剪与 Uniform 矩阵：
 
-```java
+
+
+```
 pass.setViewport(viewport);
+
 pass.setScissor(scissor);
+
 pass.setUniform("Camera.viewProj", viewProjFloatArray);
 ```
 
-- 同一相机的多个 Pass，共用同一套相机参数
-- 多相机场景：每个 RenderView 的全部 Pass 使用各自独立 Viewport/Scissor/ 相机矩阵
+
+
+* 同一相机的多个 Pass，共用同一套相机参数
+
+* 多相机场景：每个 RenderView 的全部 Pass 使用各自独立 Viewport/Scissor/ 相机矩阵
 
 > 不推荐：在 RHICmd 回调内动态切换视口，仅用于特殊硬件多视口 Forward 场景。
 
+### 坐标约定（Vulkan NDC：Y 向下）
 
----
+> 关键差异：Vulkan 的 NDC 与 OpenGL 不同——**Y 轴向下**、**深度范围 [0,1]**。引擎所有投影矩阵、顶点数据、UV 必须按此约定。
+
+| 项 | Vulkan | OpenGL（对比） |
+|---|---|---|
+| NDC Y | **向下**（y=+1 顶部，y=-1 底部） | 向上（y=+1 顶部） |
+| NDC Z（深度） | **[0, 1]** | [-1, 1] |
+| 窗口 / 帧缓冲坐标 | 原点**左上**，y 向下 | 原点左下，y 向上 |
+| 纹理 UV（采样） | 原点左上，v 向下 | 原点左下，v 向上 |
+
+**对引擎的要求：**
+
+1. **投影矩阵必须 y 翻转**：标准右手系投影矩阵（如 glm::perspective，按 OpenGL 约定）用于 Vulkan 时需翻转 NDC Y（投影矩阵第二行取负，或乘翻转矩阵），否则画面上下颠倒；正交投影同理；
+2. **深度范围映射**：投影矩阵需把深度映射到 [0,1]（Vulkan）而非 [-1,1]；Reverse-Z（近处 1、远处 0，配合 [0,1]）可提高深度精度（P2 可选）；
+3. **顶点 / 世界坐标**：引擎约定 **y-up 右手系**（建模工具 / 引擎世界一致）；NDC 翻转发生在投影矩阵，不在顶点数据；
+4. **UV**：Vulkan 采样 v 向下（原点左上）；美术资产若按 OpenGL 惯例（原点左下）需在导入时翻转 v（或采样器配置）；
+5. **viewport**：vkCmdSetViewport 的 y 由 Vulkan 约定（左上原点），RHI 直接透传即可，无需额外翻转。
+6. **绕序（winding）**：y 翻转是镜像变换（行列式 < 0），会把所有三角形的**屏幕绕序 CCW ↔ CW 互换**——屏幕绕序只看投影后 2D (x,y) 的带符号面积（z 不参与、x 不变），因此 x/z 无额外影响。**适配方案（推荐 A）**：投影矩阵 y 翻转 + 管线 `frontFace = VK_FRONT_FACE_CLOCKWISE`，顶点资产 / 索引完全不动；备选 B：导入时反转三角形索引顺序（front face 保持 CCW，跨 API 资产统一标准）。**front face 约定引擎全局一致**（不得 Pass 间混用）。
+   - **澄清**：y 翻转只作用于 clip / NDC / 屏幕空间——顶点位置与法线在模型 / 世界 / 视图空间不变（M、V 不翻 y），光照与法线贴图不受影响；z 不参与绕序判定，深度 [0,1] 单独约定（见第 2 条）。
+   - **默认约定（记住这一句）**：资产 / 索引缓冲 = **逆时针（CCW，front）**——建模工具惯例，资产不动；管线 frontFace = **顺时针（CW）**——显式设置，补偿 y 翻转镜像；Vulkan API 默认 frontFace 为 CCW，**不使用默认值**。二者成对出现，是 y 翻转方案的固定搭配。
+
+
+**归属**：本约定是 RHI 全局基线，引擎侧（Camera 投影矩阵生成、资产导入）必须遵守——见 `Engine_Scene_Design.md` 5.2。
+
+
+
+
+
+***
 
 ## 6. 清屏（LoadOp）机制
 
 清屏**不是 RHICmd 手动调用指令**，而是附件属性声明，在 Pass 添加颜色 / 深度输出时指定。
+
 底层依赖 Vulkan Dynamic Rendering，`vkCmdBeginRendering`携带 ClearValue。
 
 重载接口：
 
-```java
+
+
+```
 void addColorOutput(RHITexture tex);
+
 void addColorOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 
 void addDepthOutput(RHITexture tex);
+
 void addDepthOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 ```
 
-- `RHILoadOp.CLEAR`：Pass 启动自动清空附件
-- `RHILoadOp.LOAD`：保留上一次写入内容，用于叠加渲染（分屏多相机场景）
 
 
----
+* `RHILoadOp.CLEAR`：Pass 启动自动清空附件
+
+* `RHILoadOp.LOAD`：保留上一次写入内容，用于叠加渲染（分屏多相机场景）
+
+
+
+***
 
 ## 9. RenderView 上层封装（推荐）
 
 > 目的：消除重复手写大量 Pass 代码，一个 RenderView 代表一个视口 / 相机。
 
-```java
+
+
+```
 public class RenderView {
+
     public Camera camera;
+
     public RHIViewport viewport;
+
     public RHIScissor scissor;
 
     // 每个视口独立GBuffer资源
+
     public RHITexture gbufferAlbedo;
+
     public RHITexture gbufferNormal;
+
     public RHITexture gbufferWorldPos;
+
     public RHITexture depthTex;
 
     public void buildRenderGraph(RHIRenderGraph graph, Scene scene){
+
         // 内部自动添加GBufferPass / LightingPass / TransparentPass
+
         // 自动绑定viewport、scissor、相机uniform矩阵
+
     }
+
 }
 ```
 
 使用示例：
 
-```java
+
+
+```
 RenderView viewA = new RenderView(camA, new RHIViewport(0,0,960,1080,0,1));
+
 RenderView viewB = new RenderView(camB, new RHIViewport(1400,720,400,360,0,1));
 
 RHIRenderGraph graph = rhi.beginRenderGraph();
+
 viewA.buildRenderGraph(graph, scene);
+
 viewB.buildRenderGraph(graph, scene);
+
 graph.submit();
 ```
 
 
----
+
+***
 
 ## 10. 接口定义补充
 
-```java
+
+
+```
 public interface RHIGraphicsPass {
+
     void setPipeline(RHIPipeline pipeline);
 
     void addColorOutput(RHITexture tex);
+
     void addColorOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clear);
+
     void addDepthOutput(RHITexture tex);
+
     void addDepthOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clear);
 
     void addTextureRead(RHITexture tex);
+
     void addBufferRead(RHIBuffer buf);
 
     void setViewport(RHIViewport viewport);
+
     void setScissor(RHIScissor scissor);
+
     void setUniform(String name, float[] data);
 
     void setRenderCallback(Consumer<RHICmd> callback);
+
 }
 
 public interface RHICmd {
+
     void bindPipeline(RHIPipeline pipeline);   // 显式绑定PSO，一个Pass内可切换多次（与12.6节示例对齐）
 
     void bindVertexBuffer(RHIBuffer buffer, long offset);
+
     void bindIndexBuffer(RHIBuffer buffer, RHIIndexType type, long offset);
 
     // 描述符集绑定；dynamicOffsets 用于动态UBO（每物体矩阵切换，见第15节）
+
     void bindDescriptorSet(int set, RHIDescriptorSet descriptorSet,
+
                            int dynamicOffsetCount, int[] dynamicOffsets);
+
     // 便捷绑定：set+binding 指定单个资源（内部走描述符集或bindless索引）
+
     void bindUniformBuffer(int set, int binding, RHIBuffer buffer, long offset, long range);
+
     void bindTexture(int set, int binding, RHITexture tex, RHISampler sampler);
+
     void pushConstants(int stageFlags, int offset, int size, byte[] data);
 
     void draw(int vertexCount, int instanceCount);
+
     void drawIndexed(int indexCount, int instanceCount);
+
     void dispatch(int groupX, int groupY, int groupZ);
+
 }
 ```
 
 > 接口修正说明（v0.2，P0）：
-> - `RHICmd` 补充 `bindPipeline`，消除与第 12.6 节示例 `cmd.bindPipeline(obj.material.pipeline)` 的不一致；
-> - `setUniform(String, float[])` 仅允许在 Pass **构建期**声明，RHI 编译为帧级 UBO 写入（见第 15.4 节）；回调内禁止字符串查找；
-> - `RHIDescriptorSet`、`RHIPipelineDesc.descriptorLayouts` 在第 15 节定义。
+> `RHICmd`
+> 补充
+> `bindPipeline`
+> ，消除与第 12.6 节示例
+> `cmd.bindPipeline(obj.material.pipeline)`
+> 的不一致；
+> `setUniform(String, float[])`
+> 仅允许在 Pass
+> **构建期**
+> 声明，RHI 编译为帧级 UBO 写入（见第 15.4 节）；回调内禁止字符串查找；
+> `RHIDescriptorSet`
+> 、
+> `RHIPipelineDesc.descriptorLayouts`
+> 在第 15 节定义。
 
 
----
 
----
+***
+
+
+
+***
+
+## 26. API 全貌清单（v0.20）
+
+> **用途**
+> ：实现规格书 —— 把散落在 10 / 15 / 17 / 18 / 23 / 24 / 25 节的公开接口收拢为完整签名清单，实现时对照逐项落地。所有资源接口继承
+> `GPUResource`
+> （17.1 Cleaner 所有权）；
+> `handle()`
+> 返回 Vulkan 句柄（RHI 内部使用）；record / 枚举出处已注明。
+
+### 26.1 入口（RHI / Instance / Device）
+
+
+
+```
+interface RHI {
+
+    Instance createInstance(RHIInstanceConfig config, RenderSurface.Platform platform);
+
+    // platform 决定 surface 扩展（23.4a 阶段1）
+
+}
+
+interface Instance extends GPUResource {
+
+    Device createDevice(RHIDevicePrefs prefs, RenderSurface surface);
+
+    // 选物理设备：graphics 族 + present 族检查（23.4a 阶段2）
+
+    Surface createSurface(RenderSurface renderSurface);   // vkCreateXXXSurfaceKHR（23.3）
+
+    long handle();   // VkInstance
+
+}
+
+interface Device extends GPUResource {
+
+    Texture createTexture(TextureDesc desc, UploadData data);        // 25.4
+
+    Buffer  createBuffer(BufferDesc desc, UploadData data);
+
+    GraphicsPipeline createGraphicsPipeline(GraphicsPipelineDesc desc);
+
+    ComputePipeline  createComputePipeline(ComputePipelineDesc desc);
+
+    PipelineLayout   createPipelineLayout(PipelineLayoutDesc desc);
+
+    DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc);
+
+    ShaderModule     createShaderModule(byte[] spirv);               // 16.2
+
+    Queue graphicsQueue(); Queue computeQueue(); Queue transferQueue(); // 24.4
+
+    CommandBuffer allocateCommandBuffer(boolean secondary);          // 24.3
+
+    FrameArena frameArena();                                         // 17.3
+
+    PipelineCache pipelineCache();                                   // 16.4
+
+    void submit(SubmitInfo info);                                    // 24.4 统一入口
+
+    void waitIdle();
+
+    long handle();   // VkDevice
+
+}
+```
+
+### 26.2 资源（GPUResource / Texture / Buffer）
+
+
+
+```
+interface GPUResource {          // 所有资源基类（17.1）
+
+    void dispose();              // 唯一手动销毁入口；不可达时 Cleaner 兜底
+
+}
+
+interface Texture extends GPUResource {
+
+    TextureDesc desc();
+
+    void update(TextureRegion region, ByteBuffer data);   // 25.4（staging 池）
+
+    ByteBuffer readback();                                // P2（HOST_CACHED）
+
+    long handle();   // VkImage
+
+}
+
+interface Buffer extends GPUResource {
+
+    BufferDesc desc();
+
+    int writeAligned(int offset, FloatBuffer data);       // 返回实际偏移，256B 对齐（25.4 / 15.7-1）
+
+    void update(int offset, ByteBuffer data);             // 运行期更新（staging 池）
+
+    long handle();   // VkBuffer
+
+}
+```
+
+### 26.3 描述符与管线
+
+
+
+```
+interface DescriptorSetLayout extends GPUResource { long handle(); }  // VkDescriptorSetLayout
+
+interface DescriptorSet extends GPUResource {
+
+    void update(DescriptorUpdate... updates);   // 材质创建/修改时，多帧复用（15.8-4）
+
+    long handle();   // VkDescriptorSet
+
+}
+
+interface GraphicsPipeline extends GPUResource { long handle(); }     // VkPipeline
+
+interface ComputePipeline  extends GPUResource { long handle(); }
+
+interface PipelineLayout   extends GPUResource { long handle(); }
+
+interface ShaderModule     extends GPUResource { long handle(); }     // VkShaderModule
+
+interface PipelineCache    extends GPUResource {                      // 16.4
+
+    void saveToFile(Path path);
+
+    void loadFromFile(Path path);
+
+    long handle();   // VkPipelineCache
+
+}
+```
+
+### 26.4 队列与命令缓冲
+
+
+
+```
+interface Queue {
+
+    void submit(CommandBuffer cmd, SubmitInfo info);  // wait/signal semaphore + fence（24.1）
+
+    void waitIdle();
+
+}
+
+interface CommandBuffer {   // RHICmd（15 节 / 24.3）
+
+    void begin(); void end();
+
+    void bindPipeline(GraphicsPipeline p);
+
+    void bindDescriptorSet(int setIndex, DescriptorSet set, int dynamicOffsetCount, int[] dynamicOffsets);
+
+    void bindVertexBuffer(Buffer vb, int binding);
+
+    void bindIndexBuffer(Buffer ib, IndexType type, int offset);
+
+    void draw(int vertexCount, int instanceCount);
+
+    void drawIndexed(int indexCount, int instanceCount);
+
+    void dispatch(int x, int y, int z);
+
+    void setViewport(RHIViewport vp);
+
+    void setScissor(RHIScissor sc);
+
+}
+```
+
+### 26.5 RenderGraph（声明 + 执行）
+
+
+
+```
+interface RenderGraphBuilder {
+
+    GraphicsPassBuilder addGraphicsPass(String name, Consumer<PassDef> def);
+
+    ComputePassBuilder  addComputePass(String name, Consumer<PassDef> def);
+
+    CompiledGraph compile();                          // 18 节：拓扑 + 屏障计划 + structureHash
+
+    void execute(CommandBuffer cmd, Texture backbuffer);  // 24.3 执行器
+
+}
+
+interface PassDef {   // 声明式：读写意图 + 回调（22.3 ResourceUsage）
+
+    void setPipeline(GraphicsPipeline p);
+
+    void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c);  // 写：Attachment.Color
+
+    void addDepthOutput(Texture t, RHILoadOp op, RHIClearDepthStencil c);
+
+    void addTextureRead(Texture t);                                  // 读：Sampled
+
+    void setViewport(RHIViewport v);
+
+    void setScissor(RHIScissor s);
+
+    void setUniform(String name, float[] data);       // 仅构建期（15.4）
+
+    void setRenderCallback(Consumer<CommandBuffer> cb);  // 回调只做绘制（24.3）
+
+}
+```
+
+### 26.6 呈现与帧同步（23 / 24）
+
+
+
+```
+interface Surface extends GPUResource {
+
+    long handle();                       // VkSurfaceKHR
+
+    RenderSurface renderSurface();       // 来源（23.2）
+
+    Capabilities capabilities();
+
+    SwapChain createSwapChain(SwapChainDesc desc);
+
+}
+
+interface SwapChain extends GPUResource {
+
+    int acquireNextImage(long timeoutNanos, Semaphore signal);  // <0 = 需重建
+
+    Texture image(int index);            // backbuffer，图终点
+
+    int imageCount(); int width(); int height();
+
+    SwapChainDesc.PresentMode presentMode();
+
+    void present(int imageIndex, Semaphore wait);
+
+    void recreate(SwapChainDesc desc);
+
+}
+
+interface Fence { void wait(); void reset(); }       // 24.1
+
+interface Semaphore { }                              // 24.2 归属表
+
+interface FrameArena {                               // 17.3 / 24.5
+
+    int allocate(int size);
+
+    int writeAligned(int offset, FloatBuffer data);
+
+    void reset();                                    // 帧末，fence 闸门后
+
+}
+
+record UploadData(ByteBuffer data, int mipLevels) { static UploadData of(ByteBuffer, int); }  // 25.4
+
+record MemoryPreference(Set<MemoryUsage> required, Set<MemoryUsage> preferred) {}             // 25.2
+```
+
+### 26.7 覆盖清单与出处
+
+
+
+| 接口                                  | 出处               | 备注           |
+| ----------------------------------- | ---------------- | ------------ |
+| RenderSurface / Platform            | 23.2             | 上层实现         |
+| Instance / Device / Queue           | 23.4a / 24.4     | 初始化 + 提交     |
+| Texture / Buffer / GPUResource      | 17.1 / 25.4      | Cleaner + 上传 |
+| DescriptorSet(Layout) / Pipeline(×) | 15 / 16          | 绑定 + 管线      |
+| CommandBuffer（RHICmd）               | 15.2             | 绘制命令集        |
+| RenderGraphBuilder / PassDef        | 18 / 22.3 / 24.3 | 声明 + 执行      |
+| Surface / SwapChain                 | 23.3             | 呈现           |
+| Fence / Semaphore / FrameArena      | 24.1 / 17.3      | 帧同步          |
+| UploadData / MemoryPreference       | 25               | 上传 + 内存      |
+
+
+
+***
 
 > （注：部分内容可能由 AI 生成）

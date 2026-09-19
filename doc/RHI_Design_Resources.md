@@ -153,6 +153,43 @@ pass.setRenderCallback(cmd -> {
 4. **String uniform 禁令**：`setUniform` 只允许构建期；回调内字符串调用 Debug 模式直接抛异常。
 5. **Bindless 迁移点**：`RHIDescriptorSet` 接口已抽象，v0.2 只需把内部实现换成描述符堆 + 索引表，shader 侧改为数组下标访问。
 
+
+### 15.8 描述符池管理（v0.19）
+
+> **决策**：描述符池按「set 布局类型 × 帧数」预算环形复用；更新集中在帧首（录制期不写描述符）；set1 动态 UBO 用动态 offset 绑定，避免每物体建 set；接口隔离在 RHIDescriptorSet 后，Bindless 迁移只换池层。
+
+**池预算与环形复用**
+
+- 池按 set 布局类型分组：每布局一个 VkDescriptorPool（set0 camera / set1 obj / set2 material）；
+- 预算 = 布局容量 × maxFramesInFlight × 每帧使用量。示例：set0 2 × 512、set1 2 × 4096、set2 2 × 1024；
+- 帧索引版本化：帧 N 用池内第 [N × 预算, (N+1) × 预算) 段，复用前确保该段所在帧 fence 已完成（24.5 闸门）；
+- 防失控：池满则新建池，旧池延迟销毁；Debug 模式记录告警（使用率 > 80% 即提示调预算）。
+
+**每帧更新时序（固定三步）**
+
+1. **构建期（CPU）**：setUniform / bindTexture 只记录意图（String → UBO 偏移映射，15.4），不碰 GPU；
+2. **帧首（录制前）**：FrameArena 写入 UBO 数据（writeAligned，25.4）——每帧变化数据全部在这一步落内存；
+3. **录制期**：Pass 回调内只 bindDescriptorSet（含动态 offset），**禁止回调内写描述符 / 更新 UBO**（15.7-4 禁令的落实）；
+4. set2（材质）变化不频繁：材质创建 / 修改时更新一次，多帧复用（对应 20.5 材质实例模型）。
+
+**动态 offset 绑定**
+
+- set1（obj）用动态 UBO：`bindDescriptorSet(1, objSet, 1, new int[]{objOffset})`——同一 set 不同 offset 切换物体，避免每物体建 set；
+- set0（camera）每相机一个 offset（第 19 节多相机）；
+- 上限：maxDescriptorSetUniformBuffersDynamic；动态 offset 必须满足 minUniformBufferOffsetAlignment（常见 256B，15.7-1）。
+
+**Bindless 预留（15.7-5）**
+
+- 池层全部封装在 RHIDescriptorSet 接口后；将来换描述符堆 + 索引表时，只替换池层，set 布局与 shader 访问方式不变（shader 改数组下标）。
+
+**Debug 审计**
+
+- 池分配 / 回收计数；每帧 set 使用率；泄漏检测（存活 set 数 > 预算 → 抛异常）。
+
+---
+
+
+
 ---
 
 
@@ -265,8 +302,8 @@ Debug 模式默认开启 `VK_EXT_validation` + 上述比对，错误信息含管
 - RHI 资源 = **Java 对象**（`RHITexture` / `RHIBuffer` / `RHIPipeline`），对象内部持有 `long handle`；
 - 句柄是 RHI 内部 `ResourceTable` 的索引：handle → impl（VkBuffer/VkImage/VkPipeline...）；
 - **不使用引用计数**：生命周期由 Java 对象可达性决定。对象不可达 → `Cleaner` 回调触发 → 资源句柄进入**延迟销毁队列**；
-- **显式释放为主，Cleaner 兜底**：上层应主动调用 `close()` 进行确定性释放，销毁时机明确（立即入延迟队列）；未显式释放时，对象不可达后由 Cleaner 兜底，防止泄漏；
-- 引擎层持有对象引用即"资源存活"，丢弃引用即"希望销毁"（由 Cleaner 兜底）。
+- 引擎层持有对象引用即"资源存活"，丢弃引用即"希望销毁"（由 Cleaner 兜底）；
+- 显式 `close()` 可选：长生命周期 / 大显存资源建议主动调用，销毁时机确定（立即入延迟队列）。
 
 ```java
 public abstract class RHIResource implements AutoCloseable {

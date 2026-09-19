@@ -1,6 +1,6 @@
 # RHI设计文档（Java + LWJGL Vulkan，声明式渲染图）
 
-> 版本：v0.14
+> 版本：v0.22
 > 目标：上层引擎完全屏蔽 Vulkan 底层细节，上层只描述资源读写与 Pass 声明，RHI 内部自动处理屏障、队列、命令录制、同步。
 > 模型：被动式渲染图（RenderGraph），适配单相机 / 多相机分屏场景
 
@@ -24,6 +24,14 @@
 > 说明：第 12 节原文档暂缺，章节编号保留原文档编号。
 > 拆分（v0.13）：本文档降级为**总纲**，正文仅保留第 1 / 2 / 11 节；其余章节按领域拆入 4 个分卷（见下方索引）。章节编号全局唯一，跨卷引用保持「第 X 节」写法即可。
 > v0.14（设计决策存档）：新增第 22 节《RenderGraph 职责分层》——图核心（依赖推导 / 屏障生成 / 调度）属于 RHI，引擎只提供声明；ResourceUsage 语义契约；迁移纪律（业务代码不碰 CommandBuffer）。
+> v0.15（新增章节）：新增第 23 节《渲染表面与呈现模型》——RenderSurface 是呈现目标（不一定是窗口：GLFW / Swing Canvas），由上层实现、RHI 消费；Surface / SwapChain 归 RHI；backbuffer 作为图终点。
+> v0.16（补充）：第 23.4a 节新增初始化流程详解（阶段 0~5：呈现目标 / Instance / 物理设备选择（present 队列族检查）/ 逻辑设备 / Surface / SwapChain），含 resize 与 device lost 恢复路径。
+> v0.17（新增章节）：新增第 24 节《帧执行与同步模型》——多帧在飞（maxFramesInFlight=2~3）；RenderGraph 执行器（LayoutTracker + 屏障插入算法 + 命令缓冲分配 + Pass 回调时机）；同步原语归属；提交模型（单命令缓冲 / 双队列 / 异步计算留 P1）；帧时序。
+> v0.18（新增章节）：新增第 25 节《数据上传路径》——三类数据入口（一次性加载 / 每帧动态 / 运行期小更新）；内存类型两级选择（required/preferred）；Staging 池策略；上传 API；上传不走 RenderGraph 的衔接规则。
+> v0.19（补充）：第 15.8 节新增《描述符池管理》——池按 set 布局类型 × 帧数预算环形复用；更新时序固定三步（构建期声明 / 帧首写入 / 录制期只绑定）；set1 动态 UBO 动态 offset 绑定；Bindless 预留。
+> v0.20（新增章节）：新增第 26 节《API 全貌清单》——收拢 RHI 全部公开接口签名（入口 / 资源 / 描述符管线 / 队列命令 / RenderGraph / 呈现同步），作为实现规格书，每条注明出处。
+> v0.21（修正）：第 3 节包结构补 render/ 子树（RenderSurface / Platform / Surface / SwapChain / SwapChainDesc / GLFWRenderSurface / SwingRenderSurface），对齐第 23 节呈现模型；修复编辑器转义乱码（`&#x20;`、`\_`）。
+> v0.22（新增章节）：新增第 27 节《线程模型》——双线程起步（逻辑线程构建图声明 / 渲染线程 compile+execute+提交）；帧描述双缓冲交接；资源线程安全规则（销毁只走 Cleaner）；输入延迟预算；并行录制与异步加载留 P2。
 
 ## 章节索引（拆分后）
 
@@ -51,6 +59,11 @@
 |20|Shader 多 Pass 与 Material 实例模型（对齐 Unity，v0.6）|`RHI_Design_Shader.md`|
 |21|着色器文件语法（.shader，v0.8）|`RHI_Design_Shader.md`|
 |22|RenderGraph 职责分层（设计决策存档，v0.14）|`RHI_Design_Pipeline.md`|
+|23|渲染表面与呈现模型（v0.15）|`RHI_Design_Pipeline.md`|
+|24|帧执行与同步模型（v0.17）|`RHI_Design_Pipeline.md`|
+|25|数据上传路径（v0.18）|`RHI_Design_Pipeline.md`|
+|26|API 全貌清单（v0.20）|`RHI_Design_Core.md`|
+|27|线程模型（逻辑线程 + 渲染线程，v0.22）|`RHI_Design_Pipeline.md`|
 
 ---
 
@@ -92,7 +105,6 @@ RHI 内部职责：
 4. **资源复用**：渲染图支持临时 RT 内存别名，减少显存占用
 5. **多线程友好**：渲染图构建阶段支持多线程 AddPass；提交阶段内部串行拓扑排序
 6. **可扩展**：支持 Forward / Deferred，支持多相机、编辑器多视口、分屏渲染
-7. **显式释放为主，GC/Cleaner 兜底**：GPU 资源（纹理、缓冲、管线等）允许并推荐上层显式调用 `close()` 进行确定性释放；未显式释放时由 `Cleaner` 在对象不可达后触发延迟销毁，防止泄漏。上层不应依赖 GC 及时回收显存（见第 17 节）
 
 
 ---
@@ -117,7 +129,7 @@ RHI 内部职责：
 2. 同一张纹理被多个 Pass 写入，RHI 自动插入屏障强制串行执行
 3. Vulkan 视口 Y 轴翻转由 RHI 内部封装转换，上层不需要处理 Y 翻转
 4. RHICmd 对象不能被上层缓存，仅在回调执行期间有效
-5. RHI 资源应优先显式 `close()` 释放 GPU 资源，GC/Cleaner 仅作兜底：上层丢弃引用后由 Cleaner 触发入延迟销毁队列，防止泄漏，但不应依赖 GC 及时回收显存（见第 17 节）
+5. RHI 资源不能只靠 Java GC 释放 GPU 资源：上层丢弃引用后由 Cleaner 触发入延迟销毁队列，防止 GPU 资源泄漏（见第 17 节）
 
 ---
 
