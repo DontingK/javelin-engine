@@ -1,0 +1,83 @@
+package com.javelin.rhi.types;
+
+/**
+ * 像素格式。
+ * 对照 VkFormat，仅包含引擎起步所需格式，按需扩展。
+ */
+public enum Format {
+    // 未定义
+    UNDEFINED,              // VK_FORMAT_UNDEFINED
+
+    // 8-bit 单通道
+    R8_UNORM,               // VK_FORMAT_R8_UNORM
+    R8_SNORM,               // VK_FORMAT_R8_SNORM
+    R8_UINT,                // VK_FORMAT_R8_UINT
+    R8_SINT,                // VK_FORMAT_R8_SINT
+
+    // 8-bit 双通道
+    R8G8_UNORM,             // VK_FORMAT_R8G8_UNORM
+    R8G8_SNORM,             // VK_FORMAT_R8G8_SNORM
+    R8G8_UINT,              // VK_FORMAT_R8G8_UINT
+    R8G8_SINT,              // VK_FORMAT_R8G8_SINT
+
+    // 8-bit 四通道
+    R8G8B8A8_UNORM,         // VK_FORMAT_R8G8B8A8_UNORM
+    R8G8B8A8_SNORM,         // VK_FORMAT_R8G8B8A8_SNORM
+    R8G8B8A8_UINT,          // VK_FORMAT_R8G8B8A8_UINT
+    R8G8B8A8_SINT,          // VK_FORMAT_R8G8B8A8_SINT
+    R8G8B8A8_SRGB,          // VK_FORMAT_R8G8B8A8_SRGB
+    B8G8R8A8_UNORM,         // VK_FORMAT_B8G8R8A8_UNORM
+    B8G8R8A8_SRGB,          // VK_FORMAT_B8G8R8A8_SRGB
+
+    // 16-bit 浮点
+    R16_SFLOAT,             // VK_FORMAT_R16_SFLOAT
+    R16G16_SFLOAT,          // VK_FORMAT_R16G16_SFLOAT
+    R16G16B16A16_SFLOAT,    // VK_FORMAT_R16G16B16A16_SFLOAT
+
+    // 16-bit 整型
+    R16_UINT,               // VK_FORMAT_R16_UINT
+    R16_SINT,               // VK_FORMAT_R16_SINT
+    R16G16_UINT,            // VK_FORMAT_R16G16_UINT
+    R16G16_SINT,            // VK_FORMAT_R16G16_SINT
+    R16G16B16A16_UINT,      // VK_FORMAT_R16G16B16A16_UINT
+    R16G16B16A16_SINT,      // VK_FORMAT_R16G16B16A16_SINT
+
+    // 32-bit 浮点
+    R32_SFLOAT,             // VK_FORMAT_R32_SFLOAT
+    R32G32_SFLOAT,          // VK_FORMAT_R32G32_SFLOAT
+    R32G32B32_SFLOAT,       // VK_FORMAT_R32G32B32_SFLOAT
+    R32G32B32A32_SFLOAT,    // VK_FORMAT_R32G32B32A32_SFLOAT
+
+    // 32-bit 整型
+    R32_UINT,               // VK_FORMAT_R32_UINT
+    R32_SINT,               // VK_FORMAT_R32_SINT
+    R32G32_UINT,            // VK_FORMAT_R32G32_UINT
+    R32G32_SINT,            // VK_FORMAT_R32G32_SINT
+    R32G32B32A32_UINT,      // VK_FORMAT_R32G32B32A32_UINT
+    R32G32B32A32_SINT,      // VK_FORMAT_R32G32B32A32_SINT
+
+    // 深度 / 模板
+    D16_UNORM,              // VK_FORMAT_D16_UNORM
+    D32_SFLOAT,             // VK_FORMAT_D32_SFLOAT
+    D24_UNORM_S8_UINT,      // VK_FORMAT_D24_UNORM_S8_UINT
+    D32_SFLOAT_S8_UINT,     // VK_FORMAT_D32_SFLOAT_S8_UINT
+    S8_UINT,                // VK_FORMAT_S8_UINT
+
+    // BC 压缩（可选，P2）
+    BC1_RGB_UNORM,          // VK_FORMAT_BC1_RGB_UNORM_BLOCK
+    BC1_RGB_SRGB,           // VK_FORMAT_BC1_RGB_SRGB_BLOCK
+    BC1_RGBA_UNORM,         // VK_FORMAT_BC1_RGBA_UNORM_BLOCK
+    BC1_RGBA_SRGB,          // VK_FORMAT_BC1_RGBA_SRGB_BLOCK
+    BC2_UNORM,              // VK_FORMAT_BC2_UNORM_BLOCK
+    BC2_SRGB,               // VK_FORMAT_BC2_SRGB_BLOCK
+    BC3_UNORM,              // VK_FORMAT_BC3_UNORM_BLOCK
+    BC3_SRGB,               // VK_FORMAT_BC3_SRGB_BLOCK
+    BC4_UNORM,              // VK_FORMAT_BC4_UNORM_BLOCK
+    BC4_SNORM,              // VK_FORMAT_BC4_SNORM_BLOCK
+    BC5_UNORM,              // VK_FORMAT_BC5_UNORM_BLOCK
+    BC5_SNORM,              // VK_FORMAT_BC5_SNORM_BLOCK
+    BC6H_UFLOAT,            // VK_FORMAT_BC6H_UFLOAT_BLOCK
+    BC6H_SFLOAT,            // VK_FORMAT_BC6H_SFLOAT_BLOCK
+    BC7_UNORM,              // VK_FORMAT_BC7_UNORM_BLOCK
+    BC7_SRGB;               // VK_FORMAT_BC7_SRGB_BLOCK
+}

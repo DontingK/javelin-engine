@@ -26,7 +26,7 @@ mainCam.recalculateMatrices();
 
 Matrix4f viewProj = mainCam.getViewProjMatrix();
 
-RHIRenderGraph graph = rhi.beginRenderGraph();
+RenderGraphBuilder graph = rhi.beginRenderGraph();
 
 // GBuffer几何Pass
 
@@ -152,7 +152,7 @@ camA.recalculateMatrices();
 
 camB.recalculateMatrices();
 
-RHIRenderGraph graph = rhi.beginRenderGraph();
+RenderGraphBuilder graph = rhi.beginRenderGraph();
 
 // ========== 相机A整套Deferred ==========
 
@@ -361,7 +361,7 @@ graph.submit();
 
 ### 12.1 概念区分
 
-#### RHI 管线（`RHIPipeline`）
+#### RHI 管线（`GraphicsPipeline`）
 
 对应 Vulkan `VkPipeline` / DX12 `ID3D12PipelineState`，也就是**PSO（Pipeline State Object）**
 
@@ -409,7 +409,7 @@ graph.submit();
 
 3. 交给 RHI 的 RenderGraph 做依赖分析、拓扑排序、自动屏障
 
-4. 在 Pass 回调中，绑定 RHIPipeline，发起 DrawCall
+4. 在 Pass 回调中，绑定 GraphicsPipeline，发起 DrawCall
 
 ### 12.2 层级关系
 
@@ -420,9 +420,9 @@ graph.submit();
 
         ↓（生成多个Graphics/Compute Pass）
 
-【RHI层】RHIRenderGraph、RHIGraphicsPass
+【RHI层】RenderGraphBuilder、GraphicsPassBuilder
 
-        ↓（Pass回调内绑定RHIPipeline，录制RHICmd命令）
+        ↓（Pass回调内绑定GraphicsPipeline，录制RHICmd命令）
 
 【RHI底层实现】Vulkan（VkPipeline、CommandBuffer、Barrier）
 
@@ -434,15 +434,15 @@ GPU硬件执行管线
 > 重点：
 > **引擎管线 ≠ RHI 管线**
 > 一套引擎 Deferred 管线，会
-> **复用多个 RHIPipeline**
+> **复用多个 GraphicsPipeline**
 > ：GBuffer PSO、光照 PSO、透明物体 PSO、后处理 PSO。
-> 同一个 RHIPipeline，可以被多个 Pass、多个相机复用。
+> 同一个 GraphicsPipeline，可以被多个 Pass、多个相机复用。
 
 ### 12.3 对比表格
 
 
 
-| 项目   | RHI 管线 RHIPipeline         | 引擎侧渲染管线（Deferred/Forward） |
+| 项目   | RHI 管线 GraphicsPipeline         | 引擎侧渲染管线（Deferred/Forward） |
 | ---- | -------------------------- | ------------------------- |
 | 所属层级 | RHI 底层抽象层                  | 引擎上层（RHI 之上）              |
 | 对应硬件 | GPU PSO（VkPipeline）        | 无硬件对象，纯 CPU 任务编排          |
@@ -456,7 +456,7 @@ GPU硬件执行管线
 
 
 
-* bgfx 里的 `Program` ≈ RHIPipeline（shader 组合），但 bgfx**没有独立 PSO 对象**，混合 / 深度状态是 bitflag 动态拼接，内部隐式缓存 PSO。
+* bgfx 里的 `Program` ≈ GraphicsPipeline（shader 组合），但 bgfx**没有独立 PSO 对象**，混合 / 深度状态是 bitflag 动态拼接，内部隐式缓存 PSO。
 
 * bgfx 的整套帧渲染流程（多个 View）≈ 引擎侧渲染管线。
 
@@ -466,30 +466,30 @@ GPU硬件执行管线
 
 
 
-1. ❌ 不要把引擎渲染 Pass 和 RHIPipeline 绑定死
+1. ❌ 不要把引擎渲染 Pass 和 GraphicsPipeline 绑定死
 
-   同一个 Pass（例如 GBufferPass）可以切换不同 RHIPipeline（不同材质），一个 Pass 内部可以绑定多个 PSO，循环 DrawCall。
+   同一个 Pass（例如 GBufferPass）可以切换不同 GraphicsPipeline（不同材质），一个 Pass 内部可以绑定多个 PSO，循环 DrawCall。
 
-2. ❌ 不要每帧新建 RHIPipeline
+2. ❌ 不要每帧新建 GraphicsPipeline
 
    PSO 创建是重量级操作，RHI 必须维护`PipelineCache`，支持查找、预编译、异步加载。
 
 3. ❌ 混淆 "管线状态" 和 "渲染任务顺序"
 
-   RHIPipeline 只定义**怎么画**；引擎渲染管线定义**画哪些、先后顺序、读写哪些 RT**。
+   GraphicsPipeline 只定义**怎么画**；引擎渲染管线定义**画哪些、先后顺序、读写哪些 RT**。
 
-4. 多相机场景：**同一套 RHIPipeline 可以被多个 RenderView/Pass 共享**，不需要每个相机单独创建 PSO。
+4. 多相机场景：**同一套 GraphicsPipeline 可以被多个 RenderView/Pass 共享**，不需要每个相机单独创建 PSO。
 
 ### 12.6 代码示例（Java，直观区分）
 
-#### RHIPipeline（RHI 层，一次性创建，全局缓存）
+#### GraphicsPipeline（RHI 层，一次性创建，全局缓存）
 
 
 
 ```
 // 启动/加载阶段创建，只创建一次
 
-RHIPipelineDesc gbufferPipelineDesc = new RHIPipelineDesc();
+GraphicsPipelineDesc gbufferPipelineDesc = new GraphicsPipelineDesc();
 
 gbufferPipelineDesc.vertexShader = loadSPIRV("gbuffer.vert.spv");
 
@@ -503,7 +503,7 @@ gbufferPipelineDesc.blendState = BlendState.NO_BLEND;
 
 gbufferPipelineDesc.renderTargetFormats = List.of(RGBA8, RGBA16F, RGBA16F, D32_SFLOAT);
 
-RHIPipeline gbufferPipeline = rhi.createGraphicsPipeline(gbufferPipelineDesc);
+GraphicsPipeline gbufferPipeline = rhi.createGraphicsPipeline(gbufferPipelineDesc);
 
 // 存入全局PipelineCache，后续复用
 
@@ -519,7 +519,7 @@ pipelineCache.put("gbuffer_opaque", gbufferPipeline);
 
 public void renderFrame(Scene scene, List<RenderView> views) {
 
-    RHIRenderGraph graph = rhi.beginRenderGraph();
+    RenderGraphBuilder graph = rhi.beginRenderGraph();
 
     // 引擎管线：遍历所有相机视口，生成整套Pass链
 
@@ -545,7 +545,7 @@ graph.addGraphicsPass("GBufferPass", pass -> {
 
     pass.setRenderCallback(cmd -> {
 
-        // 在回调内，多次绑定不同RHIPipeline，绘制物体
+        // 在回调内，多次绑定不同GraphicsPipeline，绘制物体
 
         for(RenderObject obj : scene.opaqueObjects) {
 
@@ -574,7 +574,7 @@ graph.addGraphicsPass("GBufferPass", pass -> {
 
 * **变体属于引擎侧管理**，引擎维护变体列表；
 
-* 最终每个变体，对应一条独立`RHIPipeline`，交给 RHI 缓存。
+* 最终每个变体，对应一条独立`GraphicsPipeline`，交给 RHI 缓存。
 
 
 
@@ -611,7 +611,7 @@ RenderGraph 在 CPU 侧保存了**每帧完整资源读写关系、Pass 清单�
 
 #### 2. 资源生命周期可追踪
 
-RHI 层所有资源（RHITexture/RHIBuffer/RHIPipeline）都用句柄 + 内部资源表，可埋调试信息：
+RHI 层所有资源（Texture/Buffer/GraphicsPipeline）都用句柄 + 内部资源表，可埋调试信息：
 
 
 
@@ -631,7 +631,7 @@ Vulkan 原生`VK_EXT_debug_utils`可以和 RHI 调试名打通，RenderDoc 抓�
 
 1. 引擎层：RenderGraph 导出 JSON，检查 Pass 顺序、资源读写声明是否写错（**纯 CPU 逻辑，不用抓 GPU 帧**）
 
-2. RHI 层：检查 RHIPipeline 创建是否成功、描述符 / 附件格式是否匹配
+2. RHI 层：检查 GraphicsPipeline 创建是否成功、描述符 / 附件格式是否匹配
 
 3. 底层 Vulkan：RenderDoc 捕获，看 CommandBuffer、图像屏障、Layout 转换
 
@@ -709,7 +709,7 @@ Vulkan 原生`VK_EXT_debug_utils`可以和 RHI 调试名打通，RenderDoc 抓�
 void setDebugName(RHIResource res, String name);
 ```
 
-对接 Vulkan DebugUtils，所有 RHITexture/RHIBuffer/RHIPipeline 都支持命名。
+对接 Vulkan DebugUtils，所有 Texture/Buffer/GraphicsPipeline 都支持命名。
 
 
 
@@ -739,11 +739,11 @@ renderGraph.setDebugSinglePass(String passName);
 
 1. 自动插入 DebugMarker
 
-   RHI 在 RHIGraphicsPass 开始 / 结束时，自动注入`vkCmdBeginDebugUtilsLabelEXT`，RenderDoc 捕获时，CommandBuffer 里直接按 Pass 分组。
+   RHI 在 GraphicsPassBuilder 开始 / 结束时，自动注入`vkCmdBeginDebugUtilsLabelEXT`，RenderDoc 捕获时，CommandBuffer 里直接按 Pass 分组。
 
 2. Pipeline 校验调试
 
-   RHIPipeline 创建时 Debug 模式开启严格校验：附件格式、输入布局、shader 接口匹配校验，提前抛出异常，而不是等到 DrawCall 才黑屏。
+   GraphicsPipeline 创建时 Debug 模式开启严格校验：附件格式、输入布局、shader 接口匹配校验，提前抛出异常，而不是等到 DrawCall 才黑屏。
 
 3. 帧捕获钩子
 
@@ -804,7 +804,7 @@ renderGraph.setDebugSinglePass(String passName);
 
 
 
-1. **RHIRenderGraph（RHI 层）：只做通用 Pass 编排框架，不内置任何渲染管线逻辑**
+1. **RenderGraphBuilder（RHI 层）：只做通用 Pass 编排框架，不内置任何渲染管线逻辑**
 
    RenderGraph 只提供能力：
 
@@ -1070,7 +1070,7 @@ public class RenderGraphCache {
 
     private CompiledGraph compiled;   // 复用对象：拓扑序 + 屏障计划 + Pass 执行列表
 
-    public CompiledGraph compile(RHIRenderGraph graph) {
+    public CompiledGraph compile(RenderGraphBuilder graph) {
 
         long hash = graph.structureHash();   // Pass 类型 / 资源声明 / 依赖 的哈希
 
@@ -1113,7 +1113,7 @@ public class RenderGraphCache {
 
 
 
-* Pass 构建对象池：`RHIGraphicsPass` 构建器对象循环复用（ArrayDeque 池），避免每帧 new；
+* Pass 构建对象池：`GraphicsPassBuilder` 构建器对象循环复用（ArrayDeque 池），避免每帧 new；
 
 * 边 / 依赖记录用 `int[]` 数组而非 `List<Edge>`，减少对象头开销；
 
@@ -1224,7 +1224,7 @@ public void renderFrame(Scene scene, List<RenderView> views) {
 
     // 1. 帧级 UBO（FrameArena 分配，见第 17.3 节）：每个相机独占一段，写入各自 viewProj
 
-    RHIBuffer frameUbo = rhi.allocateFrameUbo(views.size() * CAM_UNIFORM_STRIDE);
+    Buffer frameUbo = rhi.allocateFrameUbo(views.size() * CAM_UNIFORM_STRIDE);
 
     int offset = 0;
 
@@ -1238,7 +1238,7 @@ public void renderFrame(Scene scene, List<RenderView> views) {
 
     // 2. 构建渲染图：每个 RenderView 生成整套 Pass 链
 
-    RHIRenderGraph graph = rhi.beginRenderGraph();
+    RenderGraphBuilder graph = rhi.beginRenderGraph();
 
     for (RenderView view : views) {
 
@@ -1252,9 +1252,9 @@ public void renderFrame(Scene scene, List<RenderView> views) {
 
 // ===== 单个相机视角：完整 Deferred Pass 链 =====
 
-void buildViewPasses(RHIRenderGraph graph, RenderView view, Scene scene,
+void buildViewPasses(RenderGraphBuilder graph, RenderView view, Scene scene,
 
-                     RHIBuffer frameUbo, RHIDescriptorSet frameSet) {
+                     Buffer frameUbo, DescriptorSet frameSet) {
 
     final int camOffset = view.camUniformOffset;
 
@@ -1290,7 +1290,7 @@ void buildViewPasses(RHIRenderGraph graph, RenderView view, Scene scene,
 
                 cmd.bindVertexBuffer(obj.vertexBuffer, 0);
 
-                cmd.bindIndexBuffer(obj.indexBuffer, RHIIndexType.UINT32, 0);
+                cmd.bindIndexBuffer(obj.indexBuffer, IndexType.UINT32, 0);
 
                 cmd.drawIndexed(obj.indexCount, 1);
 

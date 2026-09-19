@@ -34,9 +34,9 @@
 // Pass：Shader 内的一个渲染阶段（对应 Unity 的 Pass 块）
 public class ShaderPass {
     public final String name;          // "GBuffer" / "ShadowCaster" / "Transparent" / "DepthOnly"
-    public final RHIPipelineDesc desc; // 该 Pass 的 shader + 状态（0 变体，见第 16.3 节）
+    public final GraphicsPipelineDesc desc; // 该 Pass 的 shader + 状态（0 变体，见第 16.3 节）
 
-    public RHIPipeline pipeline() {    // 经 PipelineCache 取 PSO（第 16.4 节）
+    public GraphicsPipeline pipeline() {    // 经 PipelineCache 取 PSO（第 16.4 节）
         return pipelineCache.getOrCreate(desc);
     }
 }
@@ -45,7 +45,7 @@ public class ShaderPass {
 public class Shader {
     public final String name;
     public final List<ShaderPass> passes;               // 多个 Pass
-    public final RHIDescriptorSetLayout materialLayout; // set 2 布局（材质参数接口）
+    public final DescriptorSetLayout materialLayout; // set 2 布局（材质参数接口）
 
     public ShaderPass pass(String passName) { /* 按名查找 */ }
 }
@@ -53,10 +53,10 @@ public class Shader {
 // Material：Shader 的实例
 public class Material {
     public final Shader shader;               // 引用模板
-    private final RHIBuffer materialUbo;      // 参数值（Cleaner 管理，第 17.1 节）
-    private final RHIDescriptorSet materialSet; // set 2（布局来自 shader.materialLayout）
+    private final Buffer materialUbo;      // 参数值（Cleaner 管理，第 17.1 节）
+    private final DescriptorSet materialSet; // set 2（布局来自 shader.materialLayout）
 
-    public RHIPipeline pipelineFor(String passName) {
+    public GraphicsPipeline pipelineFor(String passName) {
         return shader.pass(passName).pipeline();  // 按渲染阶段取 PSO
     }
 }
@@ -230,7 +230,7 @@ Shader "PBR_Standard"
 |---|---|---|
 |`Properties`|set 2 materialLayout（第 15.3 节）|生成 GLSL 声明文本（MaterialBlock + sampler）+ 布局元数据（std140）|
 |`Pass GBuffer`|ShaderPass("GBuffer")（第 20.2 节）|`pipelineFor("GBuffer")` 的查找键|
-|`Cull / ZWrite / ZTest / Blend / ColorMask`|RHIPipelineDesc 固定状态|光栅 / 深度模板 / 混合状态|
+|`Cull / ZWrite / ZTest / Blend / ColorMask`|GraphicsPipelineDesc 固定状态|光栅 / 深度模板 / 混合状态|
 |`vs { }` / `fs { }`（内嵌，`//@auto` 注入声明）|离线编译 .vert.spv / .frag.spv（第 16.1/16.2 节）|入口统一 main()，无需 #pragma|
 
 ### 21.4 Properties 类型集（v0.1）
@@ -252,7 +252,7 @@ Shader "PBR_Standard"
 StandardMetal.shader
    ├─ Properties ──→ 生成 GLSL 声明文本（MaterialBlock + sampler，std140 自动排布）
    │              └─→ 生成 materialLayout 元数据（RHI / 编辑器用）
-   └─ 每个 Pass：vs/fs 块 + 注入声明（//@auto）──→ glslc ──→ .spv ──→ RHIPipeline（PipelineCache，第 16.4 节）
+   └─ 每个 Pass：vs/fs 块 + 注入声明（//@auto）──→ glslc ──→ .spv ──→ GraphicsPipeline（PipelineCache，第 16.4 节）
 ```
 
 - 生成材质声明保证 **GLSL / RHI / CPU 三方布局一致**（消灭 std140 对齐与参数名拼写 bug，第 15.7 节坑点 1）；

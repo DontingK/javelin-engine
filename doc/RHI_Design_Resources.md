@@ -10,7 +10,7 @@
 ## 15. 资源描述符与绑定模型（P0 补齐）
 
 > 目标：让第 10 节的 `setUniform` / `bindTexture` / `bindUniformBuffer` 全部可落地。
-> 原则：上层不接触 `VkDescriptorSet`；所有绑定经 `RHIDescriptorSet` 抽象；String 名称只出现在构建期，运行期零字符串操作。
+> 原则：上层不接触 `VkDescriptorSet`；所有绑定经 `DescriptorSet` 抽象；String 名称只出现在构建期，运行期零字符串操作。
 > 对应 Vulkan 概念：Descriptor Set / Descriptor Set Layout / Descriptor Pool / Dynamic Uniform Buffer。
 
 ### 15.1 绑定模型选型
@@ -20,7 +20,7 @@
 |A. 传统 Descriptor Set + 动态 UBO|每帧一个大 UBO，相机/物体矩阵按偏移写入；Descriptor Set 按材质/资源组合复用|实现简单、错误好排查、驱动兼容性最好|绑定粒度粗，切换成本略高|**v0.1 采用**|
 |B. Bindless（VK_EXT_descriptor_indexing）|资源进全局索引表，shader 用数组下标访问|绑定开销最低、现代引擎主流（UE5/Unity HDRP 方向）|需要描述符堆管理 + 索引表，调试复杂|**v0.2 预留**，接口已兼容|
 
-设计约束：**两种方案共用同一套上层 API**（`RHIDescriptorSet` + `bindDescriptorSet`），v0.2 切换 Bindless 时只换 RHI 内部实现，不改引擎层代码。
+设计约束：**两种方案共用同一套上层 API**（`DescriptorSet` + `bindDescriptorSet`），v0.2 切换 Bindless 时只换 RHI 内部实现，不改引擎层代码。
 
 ### 15.2 核心类型定义
 
@@ -45,27 +45,27 @@ public record RHIBinding(
 ) {}
 
 // 描述符集布局：由一组 RHIBinding 构建，绑定到管线创建
-public class RHIDescriptorSetLayout {
-    public static RHIDescriptorSetLayout create(List<RHIBinding> bindings);
+public class DescriptorSetLayout {
+    public static DescriptorSetLayout create(List<RHIBinding> bindings);
 }
 
 // 描述符集实例：运行时填充真实资源
-public interface RHIDescriptorSet {
-    void bindUniformBuffer(int binding, RHIBuffer buffer, long offset, long range);
-    void bindTexture(int binding, RHITexture tex, RHISampler sampler);
-    void bindSampler(int binding, RHISampler sampler);
-    void bindStorageBuffer(int binding, RHIBuffer buffer);
+public interface DescriptorSet {
+    void bindUniformBuffer(int binding, Buffer buffer, long offset, long range);
+    void bindTexture(int binding, Texture tex, Sampler sampler);
+    void bindSampler(int binding, Sampler sampler);
+    void bindStorageBuffer(int binding, Buffer buffer);
     // 延迟到提交前统一更新，避免回调内频繁 vkUpdateDescriptorSets
     void update();
 }
 ```
 
-`RHIPipelineDesc` 增加描述符布局（第 12.6 节创建管线的入口不变）：
+`GraphicsPipelineDesc` 增加描述符布局（第 12.6 节创建管线的入口不变）：
 
 ```java
-public class RHIPipelineDesc {
+public class GraphicsPipelineDesc {
     // ... 原有 shader / inputLayout / 状态字段 ...
-    public List<RHIDescriptorSetLayout> descriptorLayouts;  // 新增：管线使用的描述符集布局
+    public List<DescriptorSetLayout> descriptorLayouts;  // 新增：管线使用的描述符集布局
     public int pushConstantSize;                             // 新增：Push Constant 总字节数（通常 ≤ 128B）
 }
 ```
@@ -109,17 +109,17 @@ public final class PassUniformLayout {
 
 ```java
 // ===== 构建期 =====
-RHIDescriptorSetLayout frameLayout = RHIDescriptorSetLayout.create(List.of(
+DescriptorSetLayout frameLayout = DescriptorSetLayout.create(List.of(
     new RHIBinding(0, 0, RHIDescriptorType.DYNAMIC_UNIFORM_BUFFER, 1, STAGE_VERTEX)
 ));
-RHIPipelineDesc desc = new RHIPipelineDesc();
+GraphicsPipelineDesc desc = new GraphicsPipelineDesc();
 desc.descriptorLayouts = List.of(frameLayout, objLayout, materialLayout);
-RHIPipeline pipeline = rhi.createGraphicsPipeline(desc);
+GraphicsPipeline pipeline = rhi.createGraphicsPipeline(desc);
 
 // ===== 每帧 =====
-RHIBuffer frameUbo = rhi.createUniformBuffer(64 * 1024);
+Buffer frameUbo = rhi.createUniformBuffer(64 * 1024);
 int camOffset = frameUbo.writeAligned(0, camA.viewProj);          // 帧级：相机矩阵
-RHIDescriptorSet frameSet = rhi.createDescriptorSet(frameLayout);
+DescriptorSet frameSet = rhi.createDescriptorSet(frameLayout);
 frameSet.bindUniformBuffer(0, frameUbo, 0, 64 * 1024);
 frameSet.update();
 
@@ -151,12 +151,12 @@ pass.setRenderCallback(cmd -> {
 2. **布局一致**：管线创建的 `descriptorLayouts` 必须与运行期绑定的 Descriptor Set 布局一致，否则 `vkCreatePipeline` 失败——RHI 创建管线时做布局比对并抛异常（Debug 模式）。
 3. **描述符池**：帧级描述符池环形复用（如 3 帧 × 每帧 512 set），帧延迟销毁，防止池增长失控。
 4. **String uniform 禁令**：`setUniform` 只允许构建期；回调内字符串调用 Debug 模式直接抛异常。
-5. **Bindless 迁移点**：`RHIDescriptorSet` 接口已抽象，v0.2 只需把内部实现换成描述符堆 + 索引表，shader 侧改为数组下标访问。
+5. **Bindless 迁移点**：`DescriptorSet` 接口已抽象，v0.2 只需把内部实现换成描述符堆 + 索引表，shader 侧改为数组下标访问。
 
 
 ### 15.8 描述符池管理（v0.19）
 
-> **决策**：描述符池按「set 布局类型 × 帧数」预算环形复用；更新集中在帧首（录制期不写描述符）；set1 动态 UBO 用动态 offset 绑定，避免每物体建 set；接口隔离在 RHIDescriptorSet 后，Bindless 迁移只换池层。
+> **决策**：描述符池按「set 布局类型 × 帧数」预算环形复用；更新集中在帧首（录制期不写描述符）；set1 动态 UBO 用动态 offset 绑定，避免每物体建 set；接口隔离在 DescriptorSet 后，Bindless 迁移只换池层。
 
 **池预算与环形复用**
 
@@ -180,7 +180,7 @@ pass.setRenderCallback(cmd -> {
 
 **Bindless 预留（15.7-5）**
 
-- 池层全部封装在 RHIDescriptorSet 接口后；将来换描述符堆 + 索引表时，只替换池层，set 布局与 shader 访问方式不变（shader 改数组下标）。
+- 池层全部封装在 DescriptorSet 接口后；将来换描述符堆 + 索引表时，只替换池层，set 布局与 shader 访问方式不变（shader 改数组下标）。
 
 **Debug 审计**
 
@@ -197,7 +197,7 @@ pass.setRenderCallback(cmd -> {
 
 ## 16. Shader SPIR-V 加载与 PipelineCache（P1 补齐）
 
-> 目标：RHIPipeline 创建是重量级操作（编译 + 优化可达几十~几百 ms），必须做到「创建一次、缓存复用、异步预热、支持热重载」。
+> 目标：GraphicsPipeline 创建是重量级操作（编译 + 优化可达几十~几百 ms），必须做到「创建一次、缓存复用、异步预热、支持热重载」。
 > 对应 Vulkan 概念：VkShaderModule、VkPipelineCache、SPIR-V 离线编译。
 
 ### 16.1 总体流程
@@ -207,7 +207,7 @@ GLSL 源码（引擎资源）
    ↓ 离线编译（glslc / shaderc，构建期或资源打包期）
 SPIR-V 字节码（.spv 文件）
    ↓ 运行时加载（LWJGL 读字节 → VkShaderModule）
-RHIPipeline 创建（desc + descriptorLayouts + PipelineCache）
+GraphicsPipeline 创建（desc + descriptorLayouts + PipelineCache）
    ↓ 缓存
 PipelineCache（内存 LRU + 磁盘持久化）
 ```
@@ -220,7 +220,7 @@ public class ShaderLoader {
     public static byte[] loadSpv(String path) { /* ... */ }
 
     // 创建 VkShaderModule（内部实现；上层不接触 Vk* 句柄）
-    public RHIShaderModule createShaderModule(byte[] spirv) {
+    public ShaderModule createShaderModule(byte[] spirv) {
         // 校验：字节头 0x07230203（SPIR-V magic number）
         // 失败抛 RHIException，带文件名与错误信息
     }
@@ -228,7 +228,7 @@ public class ShaderLoader {
 ```
 
 - 离线编译是硬约束：**运行时禁止调 glslang 编译**，只加载已编译字节码，启动更快、无编译工具依赖；
-- shader 与管线的关联：`RHIPipelineDesc` 中 `vertexShader` / `fragmentShader` 为 `RHIShaderModule`；
+- shader 与管线的关联：`GraphicsPipelineDesc` 中 `vertexShader` / `fragmentShader` 为 `ShaderModule`；
 - 校验失败处理：Debug 模式打印 SPIR-V 反汇编（可选 spv-dis），直接定位问题。
 
 ### 16.3 Shader 策略：0 变体 + uniform 分支（决策 v0.7）
@@ -239,23 +239,23 @@ public class ShaderLoader {
 2. **功能开关**（阴影采样、AO、细节贴图）→ uniform 分支，值来自材质 UBO；
 3. **渲染阶段差异** → Shader 多 Pass（第 20 节），不是变体：GBuffer / ShadowCaster / Transparent 是不同 Pass，天然分开。
 
-- 缓存 key = `RHIPipelineDesc 哈希 + descriptorLayouts 哈希`（不含变体维度），幂等查找；
+- 缓存 key = `GraphicsPipelineDesc 哈希 + descriptorLayouts 哈希`（不含变体维度），幂等查找；
 - 代价：指令略多、寄存器略高（通常 <5% 性能差），可接受；
 - 未来若 profile 出真实瓶颈（如 AlphaTest 指令流分叉、GBuffer 输出格式差异），再按第 12.7 节思路引入**手动变体**，只开 2~4 个关键组合，不搞自动 multi_compile。
 
 ### 16.4 PipelineCache 设计
 
 ```java
-public class RHIPipelineCache {
+public class GraphicsPipelineCache {
     // 线程安全：加载期预热 + 运行期查找
-    public RHIPipeline getOrCreate(RHIPipelineDesc desc);
+    public GraphicsPipeline getOrCreate(GraphicsPipelineDesc desc);
 
     // 磁盘持久化：VkPipelineCache 二进制序列化
     public void saveToDisk(Path path);
     public void loadFromDisk(Path path);   // 首次启动秒开
 
     // 异步预编译：后台线程批量创建常用管线
-    public void prewarm(List<RHIPipelineDesc> descs);
+    public void prewarm(List<GraphicsPipelineDesc> descs);
 
     // 热重载（仅 Debug）：shader 文件 mtime 变化时重建
     public void reloadIfChanged(String shaderPath);
@@ -267,7 +267,7 @@ public class RHIPipelineCache {
 1. **内存 LRU**：容量上限（如 512 条），超限淘汰最久未用管线（引擎侧仍持引用则走延迟销毁，见第 17 节）；
 2. **磁盘缓存**：`vkCreatePipelineCache` 时传入上次保存的二进制，PSO 编译时间从"几百 ms"降到"几 ms"；在退出 / 存档点保存；
 3. **异步预编译**：加载界面后台线程预热 GBuffer / 光照 / 后处理常用 PSO，避免进入场景时卡顿；
-4. **热重载**：Debug 模式监听 shader 源文件 mtime，变化时重建对应 RHIPipeline 并替换缓存（用于迭代材质 / 光照调试）。
+4. **热重载**：Debug 模式监听 shader 源文件 mtime，变化时重建对应 GraphicsPipeline 并替换缓存（用于迭代材质 / 光照调试）。
 
 ### 16.5 创建管线失败校验（Debug）
 
@@ -299,7 +299,7 @@ Debug 模式默认开启 `VK_EXT_validation` + 上述比对，错误信息含管
 
 ### 17.1 资源所有权模型（Cleaner 方案）
 
-- RHI 资源 = **Java 对象**（`RHITexture` / `RHIBuffer` / `RHIPipeline`），对象内部持有 `long handle`；
+- RHI 资源 = **Java 对象**（`Texture` / `Buffer` / `GraphicsPipeline`），对象内部持有 `long handle`；
 - 句柄是 RHI 内部 `ResourceTable` 的索引：handle → impl（VkBuffer/VkImage/VkPipeline...）；
 - **不使用引用计数**：生命周期由 Java 对象可达性决定。对象不可达 → `Cleaner` 回调触发 → 资源句柄进入**延迟销毁队列**；
 - 引擎层持有对象引用即"资源存活"，丢弃引用即"希望销毁"（由 Cleaner 兜底）；
@@ -330,8 +330,8 @@ final class DestroyTask implements Runnable {
 ```
 
 > 设计边界（Cleaner 职责范围，用户决策）：
-> - **Cleaner 只负责上层引擎需要并持有的资源对象**：`RHITexture`（纹理）、`RHIShaderModule`（着色器）、`RHIBuffer`（缓冲）等引擎侧资源——对象不可达 → Cleaner 触发 → 入延迟销毁队列；
-> - **管线（RHIPipeline）** 同样是引擎侧资源，纳入 Cleaner 模型：PipelineCache（第 16 节）作为持有者，`getOrCreate` 持强引用，LRU 淘汰时移除引用，无外部引用时由 Cleaner 兜底回收；引擎需要确定性销毁时显式 `close()`；
+> - **Cleaner 只负责上层引擎需要并持有的资源对象**：`Texture`（纹理）、`ShaderModule`（着色器）、`Buffer`（缓冲）等引擎侧资源——对象不可达 → Cleaner 触发 → 入延迟销毁队列；
+> - **管线（GraphicsPipeline）** 同样是引擎侧资源，纳入 Cleaner 模型：PipelineCache（第 16 节）作为持有者，`getOrCreate` 持强引用，LRU 淘汰时移除引用，无外部引用时由 Cleaner 兜底回收；引擎需要确定性销毁时显式 `close()`；
 > - **RHI 内部资源**（RenderGraph 临时 RT、Frame Arena、描述符池、CommandBuffer）由 RHI 确定性管理（图缓存复用 + 帧调度），**不经过 Cleaner**——避免每帧临时对象触发 GC + Cleaner 风暴。
 
 ### 17.2 Cleaner 触发 → 延迟销毁（两帧规则）

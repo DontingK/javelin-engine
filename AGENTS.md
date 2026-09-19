@@ -13,38 +13,27 @@
 5. 不允许自己瞎猜，不确定都要询问用户
 6. 无法找到问题时，第一优先级应该是添加日志让用户运行后看日志。
 7. **Edit 工具必须验证唯一性**：使用 `Edit` 前，确保 `old_string` 在目标文件中唯一。若存在多处匹配，必须用更长的上下文定位到具体位置，或改用 `Write` 整文件重写。每次 `Edit` 后必须 `Read` 验证文件状态，禁止连续多个 `Edit` 不做验证。
+8. 禁止使用record类
 
 ---
 
-## 项目概述
+## 文档索引
 
-**Javelin Engine 5** 是一个基于 Java 25 + Vulkan 的跨平台游戏引擎，采用模块化 Gradle 多项目结构。核心特性包括：
+### 设计文档（doc/）
 
-- **Java 25** 作为开发语言，启用 GraalVM Native Image 支持
-- **Vulkan 1.3** 图形 API，通过 LWJGL 3 绑定
-- **自研 RHI**（Rendering Hardware Interface）类型安全的 GPU 抽象层
-- **自研 Web 编辑器前端**，基于 Vue 3 + Vite，零第三方 UI 框架
-- **JCEF 内嵌浏览器** 作为编辑器 UI 容器，JS <-> Java 桥接通信
-- **编译时代码生成**：`javelin-ast` 模块提供注解处理器，替代运行时反射
+| 文档 | 内容 |
+|------|------|
+| `RHI_Design.md` | RHI 总纲（v0.22）：概述、设计原则、架构取舍、章节索引 |
+| `RHI_Design_Core.md` | 分卷一：包结构、核心数据类型、相机与视口、RenderView、API 全貌清单（第 26 节） |
+| `RHI_Design_Pipeline.md` | 分卷二：渲染管线、多相机、RenderGraph 职责分层、呈现模型、帧执行与同步、线程模型 |
+| `RHI_Design_Resources.md` | 分卷三：资源描述符与绑定、Shader SPIR-V 加载与 PipelineCache、资源生命周期 |
+| `RHI_Design_Shader.md` | 分卷四：Shader 多 Pass 与 Material 实例模型、着色器文件语法（.shader） |
+| `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
+| `Engine_Assets_Design.md` | 引擎资产设计（v0.2）：Mesh 类、VertexAttribute、VertexLayout |
+| `Engine_Scene_Design.md` | 引擎场景设计（v0.1）：组件模型、Node/Component/Scene、RenderingSystem |
 
----
+### 实现进度文档
 
-## 技术栈
-
-| 层级 | 技术 | 版本 | 说明 |
-|------|------|------|------|
-| 语言 | Java | 25 | 目标/源码兼容性均为 Java 25 |
-| 构建工具 | Gradle | 9.2.0 | 多项目构建 |
-| 图形 API | Vulkan | 1.3 | 通过 LWJGL 3.4.2 绑定 |
-| 窗口/输入 | GLFW | 3.4.2 | LWJGL 绑定 |
-| 数学库 | JOML | 1.10.8 | 3D 数学（向量/矩阵/四元数） |
-| 着色器编译 | shaderc | LWJGL 绑定 | GLSL -> SPIR-V 运行时编译 |
-| 日志 | SLF4J + Logback | 2.0.18 / 1.5.38 | 彩色日志输出 |
-| 原生编译 | GraalVM Native Image | 1.1.0 | `javelin-core` 支持打包为原生可执行文件 |
-| 前端框架 | Vue.js | 3.5.38 | 编辑器 Web UI |
-| 前端构建 | Vite | 8.1.0 | 多页面构建 |
-| 前端语言 | TypeScript | 6.0.2 | 严格模式 |
-| 内嵌浏览器 | JCEF | 146.0.10 | Java Chromium Embedded Framework |
-
----
-
+| 文档 | 内容 |
+|------|------|
+| `RHI_Implementation_Progress.md` | RHI 实现进度记录：各阶段完成状态、文件清单、已知问题、API 签名确认记录 |

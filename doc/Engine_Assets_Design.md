@@ -39,8 +39,8 @@ class Mesh {
     private VertexLayout layout;                    // 规范化自动排布（2.4）
 
     // —— GPU（lazy 上传后冻结）——
-    private RHIBuffer vertexBuffer;   // VERTEX 用途（RHI 26.2）
-    private RHIBuffer indexBuffer;    // INDEX 用途
+    private Buffer vertexBuffer;   // VERTEX 用途（RHI 26.2）
+    private Buffer indexBuffer;    // INDEX 用途
     private boolean uploaded;
 
     // —— API（Unity 式）——
@@ -55,8 +55,8 @@ class Mesh {
     void recalculateNormals();                       // 缺失时生成（角度阈值平滑）
 
     void upload(RHI rhi, UploadData uploader);       // 首次上传后冻结（再 set 抛异常）
-    RHIBuffer vertexBuffer();                        // 未上传时触发 lazy 上传
-    RHIBuffer indexBuffer();
+    Buffer vertexBuffer();                        // 未上传时触发 lazy 上传
+    Buffer indexBuffer();
 }
 ```
 

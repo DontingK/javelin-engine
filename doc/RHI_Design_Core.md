@@ -187,13 +187,13 @@ pass.setUniform("Camera.viewProj", viewProjFloatArray);
 
 
 ```
-void addColorOutput(RHITexture tex);
+void addColorOutput(Texture tex);
 
-void addColorOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clearValue);
+void addColorOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 
-void addDepthOutput(RHITexture tex);
+void addDepthOutput(Texture tex);
 
-void addDepthOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clearValue);
+void addDepthOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 ```
 
 
@@ -223,15 +223,15 @@ public class RenderView {
 
     // 每个视口独立GBuffer资源
 
-    public RHITexture gbufferAlbedo;
+    public Texture gbufferAlbedo;
 
-    public RHITexture gbufferNormal;
+    public Texture gbufferNormal;
 
-    public RHITexture gbufferWorldPos;
+    public Texture gbufferWorldPos;
 
-    public RHITexture depthTex;
+    public Texture depthTex;
 
-    public void buildRenderGraph(RHIRenderGraph graph, Scene scene){
+    public void buildRenderGraph(RenderGraphBuilder graph, Scene scene){
 
         // 内部自动添加GBufferPass / LightingPass / TransparentPass
 
@@ -251,7 +251,7 @@ RenderView viewA = new RenderView(camA, new RHIViewport(0,0,960,1080,0,1));
 
 RenderView viewB = new RenderView(camB, new RHIViewport(1400,720,400,360,0,1));
 
-RHIRenderGraph graph = rhi.beginRenderGraph();
+RenderGraphBuilder graph = rhi.beginRenderGraph();
 
 viewA.buildRenderGraph(graph, scene);
 
@@ -266,24 +266,24 @@ graph.submit();
 
 ## 10. 接口定义补充
 
-
+> **命名说明（v0.24）**：本节早期使用 `RHI` 前缀命名（`RHIGraphicsPass` / `RHICmd` / `RHITexture` 等），**已全部废弃**。统一以第 26 节 API 清单为准：接口名无 `RHI` 前缀（`GraphicsPassBuilder` / `CommandBuffer` / `Texture`），值类型保留 `RHI` 前缀（`RHIViewport` / `RHIScissor` / `RHILoadOp` / `RHIClearValue` 等，位于 `data/` 包）。下文代码块已按新命名修订。
 
 ```
-public interface RHIGraphicsPass {
+public interface GraphicsPassBuilder {
 
-    void setPipeline(RHIPipeline pipeline);
+    void setPipeline(GraphicsPipeline pipeline);
 
-    void addColorOutput(RHITexture tex);
+    void addColorOutput(Texture tex);
 
-    void addColorOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clear);
+    void addColorOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clear);
 
-    void addDepthOutput(RHITexture tex);
+    void addDepthOutput(Texture tex);
 
-    void addDepthOutput(RHITexture tex, RHILoadOp loadOp, RHIClearValue clear);
+    void addDepthOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clear);
 
-    void addTextureRead(RHITexture tex);
+    void addTextureRead(Texture tex);
 
-    void addBufferRead(RHIBuffer buf);
+    void addBufferRead(Buffer buf);
 
     void setViewport(RHIViewport viewport);
 
@@ -291,29 +291,28 @@ public interface RHIGraphicsPass {
 
     void setUniform(String name, float[] data);
 
-    void setRenderCallback(Consumer<RHICmd> callback);
+    void setRenderCallback(Consumer<CommandBuffer> callback);
 
 }
 
-public interface RHICmd {
+public interface CommandBuffer {   // 即 RHICmd，26.4 节正式名称
 
-    void bindPipeline(RHIPipeline pipeline);   // 显式绑定PSO，一个Pass内可切换多次（与12.6节示例对齐）
+    void bindPipeline(GraphicsPipeline pipeline);   // 显式绑定PSO，一个Pass内可切换多次（与12.6节示例对齐）
 
-    void bindVertexBuffer(RHIBuffer buffer, long offset);
+    void bindVertexBuffer(Buffer buffer, long offset);
 
-    void bindIndexBuffer(RHIBuffer buffer, RHIIndexType type, long offset);
+    void bindIndexBuffer(Buffer buffer, IndexType type, long offset);
 
     // 描述符集绑定；dynamicOffsets 用于动态UBO（每物体矩阵切换，见第15节）
 
-    void bindDescriptorSet(int set, RHIDescriptorSet descriptorSet,
-
+    void bindDescriptorSet(int set, DescriptorSet descriptorSet,
                            int dynamicOffsetCount, int[] dynamicOffsets);
 
     // 便捷绑定：set+binding 指定单个资源（内部走描述符集或bindless索引）
 
-    void bindUniformBuffer(int set, int binding, RHIBuffer buffer, long offset, long range);
+    void bindUniformBuffer(int set, int binding, Buffer buffer, long offset, long range);
 
-    void bindTexture(int set, int binding, RHITexture tex, RHISampler sampler);
+    void bindTexture(int set, int binding, Texture tex, Sampler sampler);
 
     void pushConstants(int stageFlags, int offset, int size, byte[] data);
 
@@ -327,7 +326,7 @@ public interface RHICmd {
 ```
 
 > 接口修正说明（v0.2，P0）：
-> `RHICmd`
+> `CommandBuffer`（原 `RHICmd`）
 > 补充
 > `bindPipeline`
 > ，消除与第 12.6 节示例
@@ -337,9 +336,9 @@ public interface RHICmd {
 > 仅允许在 Pass
 > **构建期**
 > 声明，RHI 编译为帧级 UBO 写入（见第 15.4 节）；回调内禁止字符串查找；
-> `RHIDescriptorSet`
+> `DescriptorSet`
 > 、
-> `RHIPipelineDesc.descriptorLayouts`
+> `GraphicsPipelineDesc.descriptorLayouts`
 > 在第 15 节定义。
 
 
