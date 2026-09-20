@@ -22,6 +22,7 @@ final class VulkanTexture implements Texture {
     private final TextureDesc desc;
     private final long imageHandle;
     private final long memoryHandle;
+    private volatile long imageViewHandle = VK_NULL_HANDLE;
     private volatile boolean disposed;
 
     VulkanTexture(VulkanDevice device, TextureDesc desc) {
@@ -104,10 +105,67 @@ final class VulkanTexture implements Texture {
         return memoryHandle;
     }
 
+    /**
+     * 获取或创建默认的 VkImageView（全尺寸、全 mip、全 layer）。
+     * dynamic rendering 的附件需要 VkImageView 而非 VkImage。
+     */
+    long ensureView() {
+        if (imageViewHandle == VK_NULL_HANDLE) {
+            synchronized (this) {
+                if (imageViewHandle == VK_NULL_HANDLE) {
+                    imageViewHandle = createDefaultView();
+                    CleanerRegistry.register(device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
+                }
+            }
+        }
+        return imageViewHandle;
+    }
+
+    private long createDefaultView() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkImageViewCreateInfo viewInfo = VkImageViewCreateInfo.calloc(stack);
+            viewInfo.sType$Default();
+            viewInfo.image(imageHandle);
+            viewInfo.viewType(switch (desc.type()) {
+                case TYPE_1D -> VK_IMAGE_VIEW_TYPE_1D;
+                case TYPE_2D -> VK_IMAGE_VIEW_TYPE_2D;
+                case TYPE_3D -> VK_IMAGE_VIEW_TYPE_3D;
+                case CUBE -> VK_IMAGE_VIEW_TYPE_CUBE;
+                case CUBE_ARRAY -> VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+            });
+            viewInfo.format(toVkFormat(desc.format()));
+            viewInfo.subresourceRange(VkImageSubresourceRange.calloc(stack)
+                    .aspectMask(aspectMaskOf(desc.format()))
+                    .baseMipLevel(0)
+                    .levelCount(desc.mipLevels())
+                    .baseArrayLayer(0)
+                    .layerCount(desc.arrayLayers()));
+
+            LongBuffer viewBuf = stack.mallocLong(1);
+            int result = vkCreateImageView(device.vkDevice(), viewInfo, null, viewBuf);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to create image view");
+            }
+            return viewBuf.get(0);
+        }
+    }
+
+    private static int aspectMaskOf(com.javelin.rhi.types.Format format) {
+        return switch (format) {
+            case D16_UNORM, D32_SFLOAT -> VK_IMAGE_ASPECT_DEPTH_BIT;
+            case D24_UNORM_S8_UINT, D32_SFLOAT_S8_UINT -> VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+            case S8_UINT -> VK_IMAGE_ASPECT_STENCIL_BIT;
+            default -> VK_IMAGE_ASPECT_COLOR_BIT;
+        };
+    }
+
     @Override
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        if (imageViewHandle != VK_NULL_HANDLE) {
+            vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
+        }
         VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyImage(device.vkDevice(), imageHandle, null);
     }

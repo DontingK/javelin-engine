@@ -17,6 +17,7 @@ final class VulkanComputePipeline implements ComputePipeline {
 
     private final VulkanDevice device;
     private final long pipelineHandle;
+    private final long pipelineLayoutHandle;
     private volatile boolean disposed;
 
     VulkanComputePipeline(VulkanDevice device, ComputePipelineDesc desc, long pipelineCache) {
@@ -31,14 +32,14 @@ final class VulkanComputePipeline implements ComputePipeline {
             stageInfo.pName(stack.UTF8("main"));
 
             // 管线布局
-            long pipelineLayout = createPipelineLayout(desc);
+            this.pipelineLayoutHandle = createPipelineLayout(desc);
 
             // 管线创建信息
             VkComputePipelineCreateInfo.Buffer pipelineInfos = VkComputePipelineCreateInfo.calloc(1, stack);
             VkComputePipelineCreateInfo pipelineInfo = pipelineInfos.get(0);
             pipelineInfo.sType$Default();
             pipelineInfo.stage(stageInfo);
-            pipelineInfo.layout(pipelineLayout);
+            pipelineInfo.layout(pipelineLayoutHandle);
 
             LongBuffer pipelineBuf = stack.mallocLong(1);
             int result = vkCreateComputePipelines(device.vkDevice(), pipelineCache,
@@ -56,6 +57,10 @@ final class VulkanComputePipeline implements ComputePipeline {
     @Override
     public long handle() {
         return pipelineHandle;
+    }
+
+    long layoutHandle() {
+        return pipelineLayoutHandle;
     }
 
     @Override

@@ -5,16 +5,32 @@ import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.types.IndexType;
 import com.javelin.rhi.types.TextureLayout;
 
+import java.nio.ByteBuffer;
+import java.util.List;
+
 /**
  * 命令缓冲接口（即 RHICmd）。
  * 对照设计文档第 26.4 节。
  *
  * 仅在回调执行期间有效，不能被上层缓存。
  */
-public interface CommandBuffer {
+public interface CommandBuffer extends GPUResource {
 
     void begin();
     void end();
+
+    /**
+     * 开始渲染通道（dynamic rendering，Vulkan 1.3 核心）。
+     * 由 RenderGraph 执行器根据 Pass 的附件声明自动调用（24.3），上层业务禁止直接调用。
+     *
+     * @param colorAttachments 颜色附件（可空 = 无颜色输出，如纯深度 / 计算）
+     * @param depthAttachment  深度附件（可空）
+     */
+    void beginRenderPass(List<CompiledGraph.Attachment> colorAttachments,
+                         CompiledGraph.Attachment depthAttachment);
+
+    /** 结束渲染通道（与 beginRenderPass 配对） */
+    void endRenderPass();
 
     void bindPipeline(GraphicsPipeline pipeline);
 
@@ -42,4 +58,17 @@ public interface CommandBuffer {
     void setViewport(RHIViewport viewport);
 
     void setScissor(RHIScissor scissor);
+
+    /**
+     * 设备本地缓冲拷贝（staging 上传用，25 节）。
+     * 由 RHI 内部上传路径调用，上层业务禁止直接调用。
+     */
+    void copyBuffer(Buffer src, Buffer dst, long size);
+
+    /**
+     * 缓冲 → 纹理拷贝（staging 上传用，25 节）。
+     * 由 RHI 内部上传路径调用，上层业务禁止直接调用。
+     * 调用方负责把纹理转换到 TRANSFER_DST 布局（本方法内不插屏障）。
+     */
+    void copyBufferToTexture(Buffer src, Texture dst, TextureRegion region);
 }

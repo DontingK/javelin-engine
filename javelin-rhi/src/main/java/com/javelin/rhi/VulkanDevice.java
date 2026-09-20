@@ -3,11 +3,13 @@ package com.javelin.rhi;
 import com.javelin.rhi.desc.*;
 import com.javelin.rhi.exception.VulkanException;
 import com.javelin.rhi.render.RenderSurface;
+import com.javelin.rhi.types.BufferUsage;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import java.nio.FloatBuffer;
+import java.nio.LongBuffer;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -25,15 +27,15 @@ final class VulkanDevice implements Device {
     private final Queue graphicsQueue;
     private final Queue computeQueue;
     private final Queue transferQueue;
+    private final long commandPoolHandle;
     private volatile boolean disposed;
 
     VulkanDevice(VulkanInstance instance, VkInstance vkInstance,
                  RHIDevicePrefs prefs, RenderSurface surface, boolean debug) {
         this.instance = instance;
 
-        // 选择物理设备
-        long surfaceHandle = 0;
-        // 注意：surface 可能还未创建，这里用 0 表示离屏模式
+        // 选择物理设备（surface 感知：若 surface 已创建则检查 present 支持）
+        long surfaceHandle = surface != null ? surface.nativeHandle() : 0;
         this.physicalDevice = VulkanPhysicalDevice.select(vkInstance, prefs, surfaceHandle);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -51,7 +53,6 @@ final class VulkanDevice implements Device {
                 VkDeviceQueueCreateInfo qci = queueCreateInfos.get(idx++);
                 qci.sType$Default();
                 qci.queueFamilyIndex(family);
-                // queueCount 由 pQueuePriorities.remaining() 自动设置
                 FloatBuffer priorities = stack.floats(1.0f);
                 qci.pQueuePriorities(priorities);
             }
@@ -91,14 +92,31 @@ final class VulkanDevice implements Device {
             // compute 和 transfer 队列（暂时复用 graphics 族，P1 再分离）
             this.computeQueue = this.graphicsQueue;
             this.transferQueue = this.graphicsQueue;
+
+            // 创建命令池
+            VkCommandPoolCreateInfo poolInfo = VkCommandPoolCreateInfo.calloc(stack);
+            poolInfo.sType$Default();
+            poolInfo.flags(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+            poolInfo.queueFamilyIndex(physicalDevice.graphicsFamily());
+
+            LongBuffer poolBuf = stack.mallocLong(1);
+            result = vkCreateCommandPool(this.device, poolInfo, null, poolBuf);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to create command pool");
+            }
+            this.commandPoolHandle = poolBuf.get(0);
         }
+
+        CleanerRegistry.register(this, commandPoolHandle, CleanerRegistry.ResourceType.COMMAND_POOL);
     }
 
     @Override
     public Texture createTexture(TextureDesc desc, UploadData data) {
         checkDisposed();
         VulkanTexture texture = new VulkanTexture(this, desc);
-        // TODO: Stage 5 处理 data 上传
+        if (data != null && data.data() != null) {
+            uploadTexture(texture, data);
+        }
         return texture;
     }
 
@@ -159,22 +177,55 @@ final class VulkanDevice implements Device {
 
     @Override
     public CommandBuffer allocateCommandBuffer(boolean secondary) {
-        throw new UnsupportedOperationException("Not yet implemented (Stage 4)");
+        checkDisposed();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkCommandBufferAllocateInfo allocInfo = VkCommandBufferAllocateInfo.calloc(stack);
+            allocInfo.sType$Default();
+            allocInfo.commandPool(commandPoolHandle);
+            allocInfo.level(secondary ? VK_COMMAND_BUFFER_LEVEL_SECONDARY : VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+            allocInfo.commandBufferCount(1);
+
+            PointerBuffer cmdBuf = stack.mallocPointer(1);
+            int result = vkAllocateCommandBuffers(device, allocInfo, cmdBuf);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to allocate command buffer");
+            }
+            return new VulkanCommandBuffer(this, new VkCommandBuffer(cmdBuf.get(0), device));
+        }
     }
 
     @Override
     public FrameArena frameArena() {
-        throw new UnsupportedOperationException("Not yet implemented (Stage 3)");
+        checkDisposed();
+        return new VulkanFrameArena(this);
     }
 
     @Override
     public PipelineCache pipelineCache() {
-        throw new UnsupportedOperationException("Not yet implemented (Stage 3)");
+        checkDisposed();
+        // Stage 5 简化：返回空缓存句柄
+        return new PipelineCache() {
+            @Override
+            public void saveToFile(java.nio.file.Path path) {}
+
+            @Override
+            public void loadFromFile(java.nio.file.Path path) {}
+
+            @Override
+            public long handle() { return VK_NULL_HANDLE; }
+
+            @Override
+            public void dispose() {}
+        };
     }
 
     @Override
     public void submit(SubmitInfo info) {
-        throw new UnsupportedOperationException("Not yet implemented (Stage 4)");
+        checkDisposed();
+        // 单命令缓冲提交：从 info 中提取命令缓冲并提交到 graphics queue
+        // 实际由 RenderGraph 执行器调用 queue.submit(cmd, info)
+        throw new UnsupportedOperationException(
+                "Use Queue.submit(cmd, info) directly. Device.submit is reserved for future batching.");
     }
 
     @Override
@@ -189,13 +240,68 @@ final class VulkanDevice implements Device {
 
     VkDevice vkDevice() { return device; }
     VulkanPhysicalDevice physicalDevice() { return physicalDevice; }
+    long commandPoolHandle() { return commandPoolHandle; }
 
     boolean isDisposed() { return disposed; }
+
+    // --- 工厂方法（包私有，FrameState / 上传路径使用） ---
+
+    Fence createFence() {
+        checkDisposed();
+        return new VulkanFence(this);
+    }
+
+    Fence createFence(boolean signaled) {
+        checkDisposed();
+        return new VulkanFence(this, signaled);
+    }
+
+    Semaphore createSemaphore() {
+        checkDisposed();
+        return new VulkanSemaphore(this);
+    }
+
+    /**
+     * 纹理上传（staging 路径，25 节）。
+     * 创建 staging buffer → 拷贝数据 → 命令缓冲转换布局 + 拷贝 → fence 等待。
+     */
+    private void uploadTexture(VulkanTexture texture, UploadData data) {
+        java.nio.ByteBuffer pixels = data.data();
+        long size = pixels.remaining();
+
+        // 创建 staging buffer（HOST_VISIBLE + COHERENT）
+        BufferDesc stagingDesc = new BufferDesc(size,
+                Set.of(BufferUsage.TRANSFER_SRC),
+                MemoryPreference.hostVisibleCoherent());
+        VulkanBuffer staging = new VulkanBuffer(this, stagingDesc);
+        staging.update(0, pixels);
+
+        // 录制：转换到 TRANSFER_DST → 拷贝
+        CommandBuffer cmd = allocateCommandBuffer(false);
+        cmd.begin();
+        cmd.pipelineBarrier(texture,
+                com.javelin.rhi.types.TextureLayout.UNDEFINED,
+                com.javelin.rhi.types.TextureLayout.TRANSFER_DST);
+        cmd.copyBufferToTexture(staging, texture,
+                TextureRegion.whole2D(texture.desc().width(), texture.desc().height()));
+        cmd.end();
+
+        // 提交并等待
+        Fence fence = createFence();
+        graphicsQueue.submit(cmd, SubmitInfo.of(fence));
+        fence.await();
+
+        // 清理
+        fence.dispose();
+        cmd.dispose();
+        staging.dispose();
+    }
 
     @Override
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        vkDestroyCommandPool(device, commandPoolHandle, null);
         vkDestroyDevice(device, null);
     }
 

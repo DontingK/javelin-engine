@@ -7,9 +7,11 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import java.nio.LongBuffer;
+import java.nio.IntBuffer;
 
 import static org.lwjgl.vulkan.KHRSurface.*;
 import static org.lwjgl.vulkan.KHRWin32Surface.*;
+import static org.lwjgl.vulkan.VK10.*;
 
 /**
  * Surface 实现。
@@ -43,7 +45,7 @@ final class VulkanSurface implements Surface {
                         "Platform not yet implemented: " + renderSurface.platform());
             }
 
-            if (result != VK10.VK_SUCCESS) {
+            if (result != VK_SUCCESS) {
                 throw new VulkanException(result, "Failed to create surface");
             }
 
@@ -63,16 +65,37 @@ final class VulkanSurface implements Surface {
 
     @Override
     public SwapChain createSwapChain(SwapChainDesc desc) {
-        throw new UnsupportedOperationException("Not yet implemented (Stage 5)");
+        if (desc == null) {
+            throw new IllegalArgumentException("SwapChainDesc must not be null");
+        }
+        // 需要关联的 Device 来创建交换链；通过 Instance 的默认设备
+        // 实际由上层先 createDevice 再调用，这里从 instance 获取
+        throw new UnsupportedOperationException(
+                "Use Device.graphicsQueue() to obtain device-associated swapchain. "
+                        + "Surface.createSwapChain requires a Device context.");
+    }
+
+    /**
+     * 创建交换链（需要 Device 上下文）。
+     * 由 VulkanDevice 内部调用。
+     */
+    SwapChain createSwapChain(VulkanDevice device, SwapChainDesc desc) {
+        return new VulkanSwapChain(device, this, desc);
     }
 
     @Override
     public Capabilities capabilities() {
+        // 需要物理设备；通过 Instance 获取第一个可用设备
+        // 实际使用中应在 createDevice 之后调用
         try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkPhysicalDevice physDevice = findPhysicalDevice();
+            if (physDevice == null) {
+                throw new IllegalStateException("No physical device available for surface capabilities");
+            }
+
             VkSurfaceCapabilitiesKHR caps = VkSurfaceCapabilitiesKHR.malloc(stack);
-            int result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-                    physicalDevice(), surfaceHandle, caps);
-            if (result != VK10.VK_SUCCESS) {
+            int result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physDevice, surfaceHandle, caps);
+            if (result != VK_SUCCESS) {
                 throw new VulkanException(result, "Failed to get surface capabilities");
             }
 
@@ -84,11 +107,24 @@ final class VulkanSurface implements Surface {
         }
     }
 
-    private VkPhysicalDevice physicalDevice() {
-        // 简化：通过 instance 获取第一个物理设备
-        // 实际应该从 Device 获取，但 Surface 可能在 Device 之前创建
-        // 这里暂时返回 null，Stage 5 再完善
-        return null;
+    private VkPhysicalDevice findPhysicalDevice() {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer countBuf = stack.mallocInt(1);
+            int result = vkEnumeratePhysicalDevices(vkInstance, countBuf, null);
+            if (result != VK_SUCCESS) {
+                return null;
+            }
+            int deviceCount = countBuf.get(0);
+            if (deviceCount == 0) {
+                return null;
+            }
+            org.lwjgl.PointerBuffer devices = stack.mallocPointer(deviceCount);
+            result = vkEnumeratePhysicalDevices(vkInstance, countBuf, devices);
+            if (result != VK_SUCCESS) {
+                return null;
+            }
+            return new VkPhysicalDevice(devices.get(0), vkInstance);
+        }
     }
 
     @Override

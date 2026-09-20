@@ -38,7 +38,10 @@ final class CleanerRegistry {
         PIPELINE,
         PIPELINE_LAYOUT,
         DESCRIPTOR_SET_LAYOUT,
-        IMAGE_VIEW
+        IMAGE_VIEW,
+        SEMAPHORE,
+        FENCE,
+        COMMAND_POOL
     }
 
     /** 延迟销毁队列条目 */
@@ -86,6 +89,9 @@ final class CleanerRegistry {
                 case PIPELINE_LAYOUT -> org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout(task.device.vkDevice(), task.handle, null);
                 case DESCRIPTOR_SET_LAYOUT -> org.lwjgl.vulkan.VK10.vkDestroyDescriptorSetLayout(task.device.vkDevice(), task.handle, null);
                 case IMAGE_VIEW -> org.lwjgl.vulkan.VK10.vkDestroyImageView(task.device.vkDevice(), task.handle, null);
+                case SEMAPHORE -> org.lwjgl.vulkan.VK10.vkDestroySemaphore(task.device.vkDevice(), task.handle, null);
+                case FENCE -> org.lwjgl.vulkan.VK10.vkDestroyFence(task.device.vkDevice(), task.handle, null);
+                case COMMAND_POOL -> org.lwjgl.vulkan.VK10.vkDestroyCommandPool(task.device.vkDevice(), task.handle, null);
             }
         }
     }

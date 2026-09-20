@@ -1,6 +1,6 @@
 # RHI 实现进度记录
 
-> 版本：v0.2
+> 版本：v0.3
 > 日期：2026-09-20
 > 对应实现计划：`doc/RHI_Implementation_Plan.md`
 
@@ -14,7 +14,7 @@
 | ② 入口与设备 | ✅ 完成 | Instance / PhysicalDevice / Device |
 | ③ 资源与描述符 + 管线 | ✅ 骨架完成 | 核心类已创建，部分方法待 Stage 4/5 完善 |
 | ④ RenderGraph 核心 | ✅ 完成 | 声明/编译/屏障计划/图缓存/执行器，编译链路可无 GPU 单测 |
-| ⑤ 呈现与帧执行 | ⬜ 未开始 | |
+| ⑤ 呈现与帧执行 | ✅ 骨架完成 | VulkanCommandBuffer/SwapChain/Fence/Semaphore/FrameArena 已创建，帧循环待 Stage 6 收口 |
 | ⑥ 验证与引擎接入 | ⬜ 未开始 | |
 
 ---
@@ -198,23 +198,69 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
 
 ---
 
-## 下一步（阶段 ⑤ 呈现与帧执行）
+## 阶段 ⑤ 呈现与帧执行（骨架完成，2026-09-20）
+
+### 创建文件
+
+**同步原语**
+- `VulkanFence.java` — Fence 实现（await/reset，可创建为已信号态）
+- `VulkanSemaphore.java` — Semaphore 实现
+
+**命令缓冲**
+- `VulkanCommandBuffer.java` — 完整实现（begin/end、dynamic rendering beginRenderPass/endRenderPass、bindPipeline、pipelineBarrier、bindDescriptorSet、draw/drawIndexed/dispatch、setViewport/setScissor、copyBuffer/copyBufferToTexture）
+
+**呈现**
+- `VulkanSwapChain.java` — SwapChain 实现（acquireNextImage/present/recreate，内部类 SwapChainTexture 包装 backbuffer）
+- `VulkanSurface.java` — 修复 capabilities()（原 physicalDevice() 返回 null），增加 createSwapChain(device, desc) 包私有方法
+
+**帧内存**
+- `VulkanFrameArena.java` — FrameArena 实现（单帧 HOST_VISIBLE 缓冲，allocate/writeAligned/reset）
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|------|---------|
+| `CommandBuffer.java` | 增加 beginRenderPass/endRenderPass（dynamic rendering）、copyBuffer、copyBufferToTexture |
+| `VulkanDevice.java` | 构造函数 surface 感知（传 surfaceHandle）、创建命令池、实现 allocateCommandBuffer/frameArena/pipelineCache、增加 createFence/createSemaphore 工厂、uploadTexture staging 路径 |
+| `VulkanQueue.java` | 实现 submit（VkSubmitInfo 组装 + vkQueueSubmit） |
+| `VulkanGraphicsPipeline.java` | 保存 pipelineLayoutHandle，暴露 layoutHandle() |
+| `VulkanComputePipeline.java` | 同上 |
+| `VulkanTexture.java` | 增加 ensureView()（创建默认 VkImageView）、aspectMaskOf() |
+| `CleanerRegistry.java` | ResourceType 增加 SEMAPHORE/FENCE/COMMAND_POOL |
+| `RenderGraphImpl.java` | 执行器包裹 renderPass 生命周期（图形 Pass 自动 beginRenderPass/endRenderPass） |
+
+### 关键设计
+
+- **dynamic rendering**：Vulkan 1.3 核心，无需 VkRenderPass/VkFramebuffer；附件信息从 CompiledGraph.Attachment 直接转 VkRenderingAttachmentInfo
+- **renderPass 包裹**：执行器在图形 Pass 前根据附件声明自动 beginRenderPass（含 loadOp/clearValue），回调后 endRenderPass；计算 Pass 不包裹
+- **staging 上传**：createTexture(data) → 创建 staging buffer → 录制转换 UNDEFINED→TRANSFER_DST + copyBufferToTexture → fence 等待
+- **管线布局跟踪**：bindPipeline 时缓存 layoutHandle，bindDescriptorSet 消费（解决描述符绑定需要 layout 的问题）
+
+### 已知待完善
+
+| 问题 | 说明 | 计划阶段 |
+|------|------|---------|
+| FrameState 环形复用 | 当前每帧新建 fence/semaphore/cmd，未实现 2~3 帧环形 + fence 闸门 | Stage 6 |
+| CleanerRegistry.onFrameEnd() 集成 | 帧循环未接入，延迟销毁队列未推进 | Stage 6 |
+| VulkanSurface.createSwapChain() 公开方法 | 抛异常，需通过 Device 内部调用；上层 API 待 Stage 6 定夺 | Stage 6 |
+| VulkanFrameArena 多帧环形 | 当前单帧缓冲，未实现 3 帧版本化 | Stage 6 |
+| VulkanTexture.update() 运行期更新 | 仍抛异常（staging 池未实现） | Stage 6/P1 |
+| VulkanBuffer.update() DEVICE_LOCAL | 直接 map 会失败，需 staging 路径 | Stage 6 |
+| pipelineBarrier computePass 参数 | CommandBuffer 签名无此参数，syncFor 只能传 false | Stage 6 |
+| RenderGraph 执行器提交/present | 当前只录制，提交和 present 由上层帧循环负责 | Stage 6 |
+
+---
+
+## 下一步（阶段 ⑥ 验证与引擎接入）
 
 ### 目标
 帧循环收口，出第一个画面。
 
-### 计划创建文件
-```
-VulkanCommandBuffer.java      // 消费 VulkanBarrierGenerator，落地 pipelineBarrier
-VulkanSwapChain.java          // acquire / present / recreate（23.3）
-FrameState.java               // fence / semaphore / cmd / arena 环形复用（24.1）
-```
-
 ### 关键挑战
 - FrameState 环形（maxFramesInFlight=2~3）+ fence 闸门
 - swapchain recreate → 图缓存失效咬合（23.6-3）
-- VulkanTexture.update() staging 路径（25 节）
 - CleanerRegistry.onFrameEnd() 帧推进集成（17 节两帧规则）
+- 首次引擎端对端验证（clear color 三角形）
 
 ---
 
@@ -248,3 +294,11 @@ FrameState.java               // fence / semaphore / cmd / arena 环形复用（
 | `VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE` 在 `VK12` 类 | 需 `import static VK12.VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE` |
 | `VkDeviceQueueCreateInfo.queueCount()` 是 getter | 由 `pQueuePriorities.remaining()` 自动设置 |
 | `vkCreateGraphicsPipelines` 需要 `Buffer` 而非单个对象 | 用 `calloc(1, stack)` 创建单元素 Buffer |
+| `vkBeginCommandBuffer` / `vkEndCommandBuffer` / 所有 `vkCmd*` | 第一个参数是 `VkCommandBuffer` 对象，不是 `long`；通过 `new VkCommandBuffer(address, device)` 构造 |
+| `VkSubmitInfo.pCommandBuffers` | 参数是 `PointerBuffer` 不是 `LongBuffer`；用 `stack.mallocPointer(1)` + `.put(0, address)` |
+| `VkSubmitInfo.signalSemaphoreCount(int)` | setter 不存在，由 `pSignalSemaphores.remaining()` 自动推断 |
+| `VkPresentInfoKHR.waitSemaphoreCount(int)` | setter 不存在，由 `pWaitSemaphores.remaining()` 自动推断 |
+| `VkRenderingInfo.colorAttachmentCount(int)` | setter 不存在，由 `pColorAttachments.remaining()` 自动推断 |
+| `VK_INDEX_TYPE_UINT8_EXT` | 在 `VK14` 类（`VK14.VK_INDEX_TYPE_UINT8`），不在 `VK10` |
+| `vkEnumeratePhysicalDevices` | 三参数：`(VkInstance, IntBuffer, PointerBuffer)`，无单参数版本 |
+| `vkCmdSetViewport` / `vkCmdSetScissor` | 需要 `VkViewport.Buffer` / `VkRect2D.Buffer`；单元素用 `nvkCmdSetViewport(cmd, 0, 1, vp.address())` |

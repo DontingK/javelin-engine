@@ -257,21 +257,47 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                         wroteBackbuffer = true;
                     }
                 }
-                if (pass.viewport() != null) {
-                    cmd.setViewport(pass.viewport());
-                }
-                if (pass.scissor() != null) {
-                    cmd.setScissor(pass.scissor());
-                }
-                if (pass.compute()) {
-                    if (pass.computePipeline() != null) {
-                        cmd.bindPipeline(pass.computePipeline());
+
+                // 渲染通道包裹（dynamic rendering）：图形 Pass 有附件时自动 begin/end
+                List<CompiledGraph.Attachment> colorAttachments = null;
+                CompiledGraph.Attachment depthAttachment = null;
+                if (!pass.compute()) {
+                    for (CompiledGraph.Attachment a : pass.attachments()) {
+                        if (a.kind() == CompiledGraph.Attachment.Kind.DEPTH) {
+                            depthAttachment = a;
+                        } else {
+                            if (colorAttachments == null) {
+                                colorAttachments = new ArrayList<>();
+                            }
+                            colorAttachments.add(a);
+                        }
                     }
-                } else if (pass.graphicsPipeline() != null) {
-                    cmd.bindPipeline(pass.graphicsPipeline());
+                    if (colorAttachments != null || depthAttachment != null) {
+                        cmd.beginRenderPass(colorAttachments, depthAttachment);
+                    }
                 }
-                if (pass.callback() != null) {
-                    pass.callback().accept(cmd);
+
+                try {
+                    if (pass.viewport() != null) {
+                        cmd.setViewport(pass.viewport());
+                    }
+                    if (pass.scissor() != null) {
+                        cmd.setScissor(pass.scissor());
+                    }
+                    if (pass.compute()) {
+                        if (pass.computePipeline() != null) {
+                            cmd.bindPipeline(pass.computePipeline());
+                        }
+                    } else if (pass.graphicsPipeline() != null) {
+                        cmd.bindPipeline(pass.graphicsPipeline());
+                    }
+                    if (pass.callback() != null) {
+                        pass.callback().accept(cmd);
+                    }
+                } finally {
+                    if (!pass.compute() && (colorAttachments != null || depthAttachment != null)) {
+                        cmd.endRenderPass();
+                    }
                 }
             }
 

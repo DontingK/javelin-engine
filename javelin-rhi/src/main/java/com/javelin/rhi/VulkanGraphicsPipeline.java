@@ -20,6 +20,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
 
     private final VulkanDevice device;
     private final long pipelineHandle;
+    private final long pipelineLayoutHandle;
     private volatile boolean disposed;
 
     VulkanGraphicsPipeline(VulkanDevice device, GraphicsPipelineDesc desc, long pipelineCache) {
@@ -136,7 +137,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             }
 
             // 管线布局
-            long pipelineLayout = createPipelineLayout(desc);
+            this.pipelineLayoutHandle = createPipelineLayout(desc);
 
             // 管线创建信息
             VkGraphicsPipelineCreateInfo.Buffer pipelineInfos = VkGraphicsPipelineCreateInfo.calloc(1, stack);
@@ -152,7 +153,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             pipelineInfo.pDepthStencilState(depthStencil);
             pipelineInfo.pColorBlendState(colorBlend);
             pipelineInfo.pDynamicState(dynamicState);
-            pipelineInfo.layout(pipelineLayout);
+            pipelineInfo.layout(pipelineLayoutHandle);
             pipelineInfo.renderPass(VK_NULL_HANDLE); // Dynamic Rendering
             pipelineInfo.subpass(0);
 
@@ -172,6 +173,10 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     @Override
     public long handle() {
         return pipelineHandle;
+    }
+
+    long layoutHandle() {
+        return pipelineLayoutHandle;
     }
 
     @Override

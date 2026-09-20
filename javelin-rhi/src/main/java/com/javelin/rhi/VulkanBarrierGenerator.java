@@ -114,7 +114,7 @@ public final class VulkanBarrierGenerator {
     }
 
     /** RHI 布局 → VkImageLayout（Vulkan 规范取值） */
-    public static long toVkImageLayout(TextureLayout layout) {
+    public static int toVkImageLayout(TextureLayout layout) {
         return switch (layout) {
             case UNDEFINED -> 0;                          // VK_IMAGE_LAYOUT_UNDEFINED
             case GENERAL -> 1;                            // VK_IMAGE_LAYOUT_GENERAL
@@ -124,56 +124,56 @@ public final class VulkanBarrierGenerator {
             case SHADER_READ_ONLY -> 5;                   // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             case TRANSFER_SRC -> 6;                       // VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
             case TRANSFER_DST -> 7;                       // VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-            case PRESENT_SRC -> 1000001002L;              // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            case PRESENT_SRC -> 1000001002;               // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
         };
     }
 
     /** RHI 管线阶段 → VkPipelineStageFlagBits（Vulkan 规范位值） */
-    public static long toVkStage(PipelineStage stage) {
+    public static int toVkStage(PipelineStage stage) {
         return switch (stage) {
-            case TOP_OF_PIPE -> 0x00000001L;
-            case DRAW_INDIRECT -> 0x00000002L;
-            case VERTEX_INPUT -> 0x00000004L;
-            case VERTEX_SHADER -> 0x00000008L;
-            case TESSELLATION_CONTROL_SHADER -> 0x00000010L;
-            case TESSELLATION_EVALUATION_SHADER -> 0x00000020L;
-            case GEOMETRY_SHADER -> 0x00000040L;
-            case FRAGMENT_SHADER -> 0x00000080L;
-            case EARLY_FRAGMENT_TESTS -> 0x00000100L;
-            case LATE_FRAGMENT_TESTS -> 0x00000200L;
-            case COLOR_ATTACHMENT_OUTPUT -> 0x00000400L;
-            case COMPUTE_SHADER -> 0x00000800L;
-            case TRANSFER -> 0x00001000L;
-            case BOTTOM_OF_PIPE -> 0x00002000L;
-            case HOST -> 0x00004000L;
-            case ALL_GRAPHICS -> 0x00008000L;
-            case ALL_COMMANDS -> 0x00010000L;
+            case TOP_OF_PIPE -> 0x00000001;
+            case DRAW_INDIRECT -> 0x00000002;
+            case VERTEX_INPUT -> 0x00000004;
+            case VERTEX_SHADER -> 0x00000008;
+            case TESSELLATION_CONTROL_SHADER -> 0x00000010;
+            case TESSELLATION_EVALUATION_SHADER -> 0x00000020;
+            case GEOMETRY_SHADER -> 0x00000040;
+            case FRAGMENT_SHADER -> 0x00000080;
+            case EARLY_FRAGMENT_TESTS -> 0x00000100;
+            case LATE_FRAGMENT_TESTS -> 0x00000200;
+            case COLOR_ATTACHMENT_OUTPUT -> 0x00000400;
+            case COMPUTE_SHADER -> 0x00000800;
+            case TRANSFER -> 0x00001000;
+            case BOTTOM_OF_PIPE -> 0x00002000;
+            case HOST -> 0x00004000;
+            case ALL_GRAPHICS -> 0x00008000;
+            case ALL_COMMANDS -> 0x00010000;
         };
     }
 
     /** RHI 访问标志 → VkAccessFlagBits（Vulkan 规范位值）；null → 0 */
-    public static long toVkAccess(AccessFlags access) {
+    public static int toVkAccess(AccessFlags access) {
         if (access == null) {
             return 0;
         }
         return switch (access) {
-            case INDIRECT_COMMAND_READ -> 0x00000001L;
-            case INDEX_READ -> 0x00000002L;
-            case VERTEX_ATTRIBUTE_READ -> 0x00000004L;
-            case UNIFORM_READ -> 0x00000008L;
-            case INPUT_ATTACHMENT_READ -> 0x00000010L;
-            case SHADER_READ -> 0x00000020L;
-            case SHADER_WRITE -> 0x00000040L;
-            case COLOR_ATTACHMENT_READ -> 0x00000080L;
-            case COLOR_ATTACHMENT_WRITE -> 0x00000100L;
-            case DEPTH_STENCIL_ATTACHMENT_READ -> 0x00000200L;
-            case DEPTH_STENCIL_ATTACHMENT_WRITE -> 0x00000400L;
-            case TRANSFER_READ -> 0x00000800L;
-            case TRANSFER_WRITE -> 0x00001000L;
-            case HOST_READ -> 0x00002000L;
-            case HOST_WRITE -> 0x00004000L;
-            case MEMORY_READ -> 0x00008000L;
-            case MEMORY_WRITE -> 0x00010000L;
+            case INDIRECT_COMMAND_READ -> 0x00000001;
+            case INDEX_READ -> 0x00000002;
+            case VERTEX_ATTRIBUTE_READ -> 0x00000004;
+            case UNIFORM_READ -> 0x00000008;
+            case INPUT_ATTACHMENT_READ -> 0x00000010;
+            case SHADER_READ -> 0x00000020;
+            case SHADER_WRITE -> 0x00000040;
+            case COLOR_ATTACHMENT_READ -> 0x00000080;
+            case COLOR_ATTACHMENT_WRITE -> 0x00000100;
+            case DEPTH_STENCIL_ATTACHMENT_READ -> 0x00000200;
+            case DEPTH_STENCIL_ATTACHMENT_WRITE -> 0x00000400;
+            case TRANSFER_READ -> 0x00000800;
+            case TRANSFER_WRITE -> 0x00001000;
+            case HOST_READ -> 0x00002000;
+            case HOST_WRITE -> 0x00004000;
+            case MEMORY_READ -> 0x00008000;
+            case MEMORY_WRITE -> 0x00010000;
         };
     }
 }
