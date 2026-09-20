@@ -3,6 +3,7 @@ package com.javelin.rhi;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.types.IndexType;
+import com.javelin.rhi.types.TextureLayout;
 
 /**
  * 命令缓冲接口（即 RHICmd）。
@@ -16,6 +17,14 @@ public interface CommandBuffer {
     void end();
 
     void bindPipeline(GraphicsPipeline pipeline);
+
+    void bindPipeline(ComputePipeline pipeline);
+
+    /**
+     * 资源屏障（布局转换）。
+     * 由 RenderGraph 执行器自动插入（24.3），上层业务禁止直接调用（22.4 迁移纪律）。
+     */
+    void pipelineBarrier(Texture texture, TextureLayout oldLayout, TextureLayout newLayout);
 
     void bindDescriptorSet(int setIndex, DescriptorSet set,
                            int dynamicOffsetCount, int[] dynamicOffsets);

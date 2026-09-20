@@ -23,6 +23,15 @@ public final class RHI {
     }
 
     /**
+     * 开始构建一帧的渲染图（7 / 12.6 节用法）。
+     * 图为纯 CPU 声明对象，构建与编译无 GPU 依赖；
+     * 编译产物经 {@link RenderGraphCache} 可跨帧复用（18 节）。
+     */
+    public static RenderGraphBuilder beginRenderGraph() {
+        return new RenderGraphImpl();
+    }
+
+    /**
      * 实例配置。
      */
     public static final class RHIInstanceConfig {

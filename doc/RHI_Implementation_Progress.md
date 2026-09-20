@@ -1,7 +1,7 @@
 # RHI 实现进度记录
 
-> 版本：v0.1
-> 日期：2026-09-19
+> 版本：v0.2
+> 日期：2026-09-20
 > 对应实现计划：`doc/RHI_Implementation_Plan.md`
 
 ---
@@ -13,7 +13,7 @@
 | ① 地基（types/desc/异常） | ✅ 完成 | 纯 Java，无 GPU 依赖 |
 | ② 入口与设备 | ✅ 完成 | Instance / PhysicalDevice / Device |
 | ③ 资源与描述符 + 管线 | ✅ 骨架完成 | 核心类已创建，部分方法待 Stage 4/5 完善 |
-| ④ RenderGraph 核心 | ⬜ 未开始 | |
+| ④ RenderGraph 核心 | ✅ 完成 | 声明/编译/屏障计划/图缓存/执行器，编译链路可无 GPU 单测 |
 | ⑤ 呈现与帧执行 | ⬜ 未开始 | |
 | ⑥ 验证与引擎接入 | ⬜ 未开始 | |
 
@@ -139,36 +139,82 @@
 | `VulkanTexture.update()` | 需要 staging buffer + 命令缓冲 | Stage 5 |
 | `VulkanDevice.frameArena()` / `pipelineCache()` | 未实现 | Stage 3 后续 |
 | `CleanerRegistry` 与帧循环集成 | 需要帧推进时调用 `onFrameEnd()` | Stage 5 |
-| `VulkanPipelineLayout` 中 `DescriptorSetLayoutDesc` 转 handle | 需要实际的 DescriptorSetLayout 对象 | Stage 4 |
+| `VulkanPipelineLayout` 中 `DescriptorSetLayoutDesc` 转 handle | 需要实际的 DescriptorSetLayout 对象 | Stage 4 后续（描述符落地时） |
+
+---
+
+## 阶段 ④ RenderGraph 核心（完成，2026-09-20）
+
+### 创建文件
+
+**公开 API（对照 26.5 节）**
+- `RenderGraphBuilder.java` — 声明 + 编译 + 执行接口（addGraphicsPass / addComputePass / structureHash / compile / execute）
+- `PassDef.java` — Pass 声明（读写意图 + 回调；22.3 ResourceUsage 语义）
+- `GraphicsPassBuilder.java` / `ComputePassBuilder.java` — Pass 图内句柄
+- `CompiledGraph.java` — 编译产物：拓扑序 + 屏障计划 + 结构哈希 + exportDot()/exportJson()（13.3）
+
+**实现**
+- `RenderGraphImpl.java` — 声明收集 + 编译（拓扑 / 屏障计划 / structureHash）+ 执行器（24.3）；编译链路纯 Java 无 GPU 调用
+- `LayoutTracker.java` — 布局跟踪表（帧内，屏障冗余消除依据）
+- `RenderGraphCache.java` — 图缓存（18.2）：哈希命中复用计划 + 每帧 rebind 运行时数据（18.7-3）
+- `VulkanBarrierGenerator.java` — RHI 布局/阶段/访问 → Vulkan 常量映射 + 同步参数推导表（录制侧 Stage 5 消费）
+
+**接口扩展**
+- `CommandBuffer` — 增加 `pipelineBarrier(texture, oldLayout, newLayout)`（执行器自动插入，上层禁用）与 `bindPipeline(ComputePipeline)`（26.4 遗漏，计算 Pass 必需）
+- `RHI.beginRenderGraph()` — 图构建入口
+
+### 关键设计
+
+- **依赖推导**：RAW / WAW / WAR 均建立声明序边；Kahn 拓扑（声明序入队，稳定排序）；循环依赖抛 `RHIException`
+- **屏障计划**：每 Pass 每纹理一条（同 Pass 合并、写优先于读）；目标布局语义化（COLOR_ATTACHMENT / DEPTH_STENCIL_ATTACHMENT / SHADER_READ_ONLY）
+- **structureHash**：Pass 名 / 类型 / 管线 handle / 附件（纹理 handle + kind + loadOp）/ 读声明；不含清屏值 / 视口 / uniform / 回调（18.2）
+- **执行器**：`cmd.begin → 逐 Pass 屏障插入（tracker 比较，冗余不插）→ 绑定管线 / 视口 → 回调录制 → cmd.end`；backbuffer 起始 PRESENT_SRC、图尾自动转回
+- **缓存失效**：swapchain recreate 换纹理句柄 → 哈希天然变化 → 自动失效（18.5 / 23.6-3）；`invalidate()` 显式失效
+
+### 与计划文件清单的差异
+
+| 计划 | 实际 | 原因 |
+|------|------|------|
+| `VulkanRenderGraphImpl` | `RenderGraphImpl` | 编译与执行只依赖 RHI 接口，后端无关，命名去 Vulkan 化 |
+| `VulkanQueueScheduler` | 未创建 | 单命令缓冲顺序录制 + 单队列，无可调度内容；留 Stage 5（24.4 提交模型） |
+
+### 已知待完善
+
+| 问题 | 说明 | 计划阶段 |
+|------|------|---------|
+| `setUniform(String, float[])` | 执行器不解析 name→binding（需 shader 反射）；多实例 uniform 走回调内 bindDescriptorSet（19.4） | Stage 5/6 |
+| `pipelineBarrier` 的 vkCmd 录制 | 需 VulkanCommandBuffer 实现消费 `VulkanBarrierGenerator` | Stage 5 |
+| RT 内存别名（17.4） | 未实现，所有附件独立分配 | P1 |
+| Debug 开关（单 Pass 执行 / 关别名，13.3） | 未实现 | Stage 6 |
+| 计算 Pass 写声明 | PassDef 仅读声明（addTextureRead），storage 写未声明 | 待用户拍板是否扩展 26.5 |
 
 ---
 
 ## 编译状态
 
 ```
-gradlew :javelin-rhi:compileJava  ✅ 通过
+gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
 ```
 
 ---
 
-## 下一步（阶段 ④ RenderGraph 核心）
+## 下一步（阶段 ⑤ 呈现与帧执行）
 
 ### 目标
-声明式图从声明到执行的完整链路。
+帧循环收口，出第一个画面。
 
 ### 计划创建文件
 ```
-RenderGraphBuilder.java / CompiledGraph.java
-PassDef.java / GraphicsPassBuilder.java / ComputePassBuilder.java
-VulkanRenderGraphImpl.java
-VulkanBarrierGenerator.java
-VulkanQueueScheduler.java
+VulkanCommandBuffer.java      // 消费 VulkanBarrierGenerator，落地 pipelineBarrier
+VulkanSwapChain.java          // acquire / present / recreate（23.3）
+FrameState.java               // fence / semaphore / cmd / arena 环形复用（24.1）
 ```
 
 ### 关键挑战
-- 无 GPU 图编译单测（拓扑排序、屏障生成、缓存命中）
-- `structureHash` 计算（Pass 类型 / 资源声明 / 依赖的哈希）
-- LayoutTracker + 屏障插入算法
+- FrameState 环形（maxFramesInFlight=2~3）+ fence 闸门
+- swapchain recreate → 图缓存失效咬合（23.6-3）
+- VulkanTexture.update() staging 路径（25 节）
+- CleanerRegistry.onFrameEnd() 帧推进集成（17 节两帧规则）
 
 ---
 
