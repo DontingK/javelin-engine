@@ -298,6 +298,13 @@ GENERAL 目标的精确同步参数（syncFor 细化）与 computePass 目标阶
 - CleanerRegistry.onFrameEnd() 帧推进集成（17 节两帧规则）
 - 首次引擎端对端验证（clear color 三角形）
 
+### 阶段⑥ 前置（已完成，2026-09-21）
+
+core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow` /
+`GLFWRenderSurface`（适配器，包私有）。Window 为 `JavelinEngine` 构造注入属性
+（用户拍板：不是子系统），Window 与 RenderSurface 分离设计，
+详见 `doc/Engine_Window_Design.md`（用户已拍板：分离 + 最小呈现集）。
+
 ---
 
 ## 附录：API 签名确认记录

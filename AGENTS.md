@@ -31,6 +31,7 @@
 | `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
 | `Engine_Assets_Design.md` | 引擎资产设计（v0.2）：Mesh 类、VertexAttribute、VertexLayout |
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.1）：组件模型、Node/Component/Scene、RenderingSystem |
+| `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
 
 ### 实现进度文档
 
