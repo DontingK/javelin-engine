@@ -13,7 +13,7 @@ import java.util.function.Consumer;
  * 对照设计文档第 26.5 节 / 22.3 节（ResourceUsage 语义契约）。
  *
  * 仅在 addGraphicsPass / addComputePass 的回调内有效，
- * 用语义化用途声明读写（Attachment.Color / Depth / Sampled），
+ * 用语义化用途声明读写（Attachment.Color / Depth / Sampled / Storage），
  * 不暴露 Vulkan 布局，屏障由 RHI 执行器统一生成（24.3）。
  */
 public interface PassDef {
@@ -40,8 +40,17 @@ public interface PassDef {
      */
     void addDepthOutput(Texture texture, RHILoadOp loadOp, RHIClearDepthStencil clearValue);
 
-    /** 声明纹理采样读取（读：Sampled） */
+    /** 声明纹理采样读取（读：Sampled → SHADER_READ_ONLY） */
     void addTextureRead(Texture texture);
+
+    /**
+     * 声明存储纹理读取（读：Storage，计算/片元着色器 storage image 读 → GENERAL）。
+     * 与采样读不同：storage image 要求 GENERAL 布局（22.3 ResourceUsage 语义）。
+     */
+    void addTextureStorageRead(Texture texture);
+
+    /** 声明存储纹理写入（写：Storage，计算着色器 storage image 写 → GENERAL） */
+    void addTextureStorageWrite(Texture texture);
 
     void setViewport(RHIViewport viewport);
 

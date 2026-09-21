@@ -1,7 +1,7 @@
 # RHI 实现进度记录
 
-> 版本：v0.3
-> 日期：2026-09-20
+> 版本：v0.4
+> 日期：2026-09-21
 > 对应实现计划：`doc/RHI_Implementation_Plan.md`
 
 ---
@@ -186,7 +186,7 @@
 | `pipelineBarrier` 的 vkCmd 录制 | 需 VulkanCommandBuffer 实现消费 `VulkanBarrierGenerator` | Stage 5 |
 | RT 内存别名（17.4） | 未实现，所有附件独立分配 | P1 |
 | Debug 开关（单 Pass 执行 / 关别名，13.3） | 未实现 | Stage 6 |
-| 计算 Pass 写声明 | PassDef 仅读声明（addTextureRead），storage 写未声明 | 待用户拍板是否扩展 26.5 |
+| ~~计算 Pass 写声明~~ | ✅ 已解决：26.5 扩展新增 addTextureStorageRead / addTextureStorageWrite（见下文「26.5 扩展」） | — |
 
 ---
 
@@ -247,7 +247,43 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
 | VulkanTexture.update() 运行期更新 | 仍抛异常（staging 池未实现） | Stage 6/P1 |
 | VulkanBuffer.update() DEVICE_LOCAL | 直接 map 会失败，需 staging 路径 | Stage 6 |
 | pipelineBarrier computePass 参数 | CommandBuffer 签名无此参数，syncFor 只能传 false | Stage 6 |
+| GENERAL 同步参数精化 | Storage 读写的屏障目标布局为 GENERAL，syncFor 现走 coarse() 粗粒度兜底（正确性优先）；精确参数（SHADER_READ/SHADER_WRITE + 目标阶段）依赖 CommandBuffer.pipelineBarrier 签名扩展（write / computePass 标志），与上行一并留 Stage 6 | Stage 6 |
 | RenderGraph 执行器提交/present | 当前只录制，提交和 present 由上层帧循环负责 | Stage 6 |
+
+---
+
+## 26.5 扩展（2026-09-21）
+
+背景：阶段④遗留问题「PassDef 仅读声明，storage 写未声明」。用户拍板扩展 26.5 节 API，
+形态为**显式 Storage 命名**（而非 ReadUsage 参数化）。
+
+### API 变化（设计文档 26.5 节同步更新）
+
+`PassDef` 新增两个声明方法：
+
+| 方法 | 语义 | 屏障目标布局 |
+|------|------|-------------|
+| `addTextureStorageRead(Texture)` | 读：Storage（storage image 读） | GENERAL |
+| `addTextureStorageWrite(Texture)` | 写：Storage（storage image 写） | GENERAL |
+
+`addTextureRead` 语义收窄为采样读（Sampled → SHADER_READ_ONLY），与 22.3 节的
+语义化用途（Attachment.Color / Depth / Sampled / Storage）一一对应。
+
+### 编译链路扩展（RenderGraphImpl）
+
+- **依赖推导**：storageWrite 按写参与 RAW / WAW / WAR 边推导；storageRead 按读参与（与 sampled 读同级）
+- **屏障计划**：storageWrite → GENERAL 写屏障；storageRead → GENERAL 读屏障；
+  合并规则统一为 `mergeBarrier`：写优先于读；同为写保持先声明者（附件 > Storage 写）；
+  同为读时 GENERAL 优先于 SHADER_READ_ONLY（GENERAL 可同时满足两种着色器读）
+- **structureHash**：storageRead / storageWrite 各自带独立标记混入哈希（0x5352 / 0x5357），
+  与 sampled 读标记（0x52AD）区分——声明集合变化必然导致图缓存失效
+- **CompiledGraph.Pass**：新增 `storageReads()` / `storageWrites()` 结构列表（rebind 按结构字段从缓存取），
+  JSON 导出同步增加两个数组
+
+### 留待阶段⑥
+
+GENERAL 目标的精确同步参数（syncFor 细化）与 computePass 目标阶段，均依赖
+`CommandBuffer.pipelineBarrier` 签名扩展，已记录于阶段⑤已知待完善表。
 
 ---
 

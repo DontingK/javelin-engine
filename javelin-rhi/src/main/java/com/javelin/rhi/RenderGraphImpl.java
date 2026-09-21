@@ -81,6 +81,14 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 h = mix(h, t.handle());
                 h = mix(h, 0x52ADL); // 读声明标记，与写声明区分
             }
+            for (Texture t : p.storageReads) {
+                h = mix(h, t.handle());
+                h = mix(h, 0x5352L); // Storage 读声明标记
+            }
+            for (Texture t : p.storageWrites) {
+                h = mix(h, t.handle());
+                h = mix(h, 0x5357L); // Storage 写声明标记
+            }
         }
         cachedHash = h;
         hashValid = true;
@@ -107,7 +115,13 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             for (CompiledGraph.Attachment a : p.attachments) {
                 usage.merge(a.texture().handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
             }
+            for (Texture t : p.storageWrites) {
+                usage.merge(t.handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
+            }
             for (Texture t : p.reads) {
+                usage.merge(t.handle(), Boolean.FALSE, (oldV, newV) -> oldV);
+            }
+            for (Texture t : p.storageReads) {
                 usage.merge(t.handle(), Boolean.FALSE, (oldV, newV) -> oldV);
             }
             for (Map.Entry<Long, Boolean> e : usage.entrySet()) {
@@ -178,16 +192,27 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 barriers.put(a.texture().handle(),
                         new CompiledGraph.Barrier(a.texture(), target, true));
             }
+            for (Texture t : p.storageWrites) {
+                barriers.merge(t.handle(),
+                        new CompiledGraph.Barrier(t, TextureLayout.GENERAL, true),
+                        RenderGraphImpl::mergeBarrier);
+            }
+            for (Texture t : p.storageReads) {
+                barriers.merge(t.handle(),
+                        new CompiledGraph.Barrier(t, TextureLayout.GENERAL, false),
+                        RenderGraphImpl::mergeBarrier);
+            }
             for (Texture t : p.reads) {
                 barriers.merge(t.handle(),
                         new CompiledGraph.Barrier(t, TextureLayout.SHADER_READ_ONLY, false),
-                        (existing, incoming) -> existing.isWrite() ? existing : incoming);
+                        RenderGraphImpl::mergeBarrier);
             }
             compiledPasses.add(new CompiledGraph.Pass(
                     idx, p.name, p.compute,
                     p.graphicsPipeline, p.computePipeline,
                     p.viewport, p.scissor,
-                    p.attachments, p.reads, new ArrayList<>(barriers.values()),
+                    p.attachments, p.reads, p.storageReads, p.storageWrites,
+                    new ArrayList<>(barriers.values()),
                     p.uniforms, p.callback));
         }
 
@@ -205,6 +230,20 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
     }
 
     /**
+     * 屏障合并：写优先于读；同为写时保持先声明者（附件 > Storage 写）；
+     * 同为读时 GENERAL（Storage 读）优先于 SHADER_READ_ONLY（采样读）——GENERAL 可同时满足两种着色器读。
+     */
+    private static CompiledGraph.Barrier mergeBarrier(CompiledGraph.Barrier existing, CompiledGraph.Barrier incoming) {
+        if (existing.isWrite()) {
+            return existing;
+        }
+        if (incoming.isWrite()) {
+            return incoming;
+        }
+        return incoming.targetLayout() == TextureLayout.GENERAL ? incoming : existing;
+    }
+
+    /**
      * 图缓存命中时的每帧重绑定（18.7-3：只缓存结构，回调闭包等运行时数据每帧更新）。
      * 结构字段（名称 / 声明 / 屏障计划）取自 cached，运行时字段（管线 / 视口 / uniform / 回调）取自当前声明。
      */
@@ -216,7 +255,7 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                     p.declarationIndex(), p.name(), p.compute(),
                     src.graphicsPipeline, src.computePipeline,
                     src.viewport, src.scissor,
-                    p.attachments(), p.reads(), p.barriers(),
+                    p.attachments(), p.reads(), p.storageReads(), p.storageWrites(), p.barriers(),
                     src.uniforms, src.callback));
         }
         return new CompiledGraph(cached.structureHash(), rebound, cached.edges());
@@ -325,6 +364,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
         RHIScissor scissor;
         final List<CompiledGraph.Attachment> attachments = new ArrayList<>();
         final List<Texture> reads = new ArrayList<>();
+        final List<Texture> storageReads = new ArrayList<>();
+        final List<Texture> storageWrites = new ArrayList<>();
         final Map<String, float[]> uniforms = new LinkedHashMap<>();
         Consumer<CommandBuffer> callback;
 
@@ -384,6 +425,22 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 throw new IllegalArgumentException("Read texture must not be null");
             }
             reads.add(texture);
+        }
+
+        @Override
+        public void addTextureStorageRead(Texture texture) {
+            if (texture == null) {
+                throw new IllegalArgumentException("Storage read texture must not be null");
+            }
+            storageReads.add(texture);
+        }
+
+        @Override
+        public void addTextureStorageWrite(Texture texture) {
+            if (texture == null) {
+                throw new IllegalArgumentException("Storage write texture must not be null");
+            }
+            storageWrites.add(texture);
         }
 
         @Override

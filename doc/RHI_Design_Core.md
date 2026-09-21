@@ -549,7 +549,11 @@ interface PassDef {   // 声明式：读写意图 + 回调（22.3 ResourceUsage�
 
     void addDepthOutput(Texture t, RHILoadOp op, RHIClearDepthStencil c);
 
-    void addTextureRead(Texture t);                                  // 读：Sampled
+    void addTextureRead(Texture t);                                  // 读：Sampled → SHADER_READ_ONLY
+
+    void addTextureStorageRead(Texture t);                           // 读：Storage → GENERAL
+
+    void addTextureStorageWrite(Texture t);                          // 写：Storage → GENERAL
 
     void setViewport(RHIViewport v);
 

@@ -86,6 +86,16 @@ public final class CompiledGraph {
                         .append(", \"kind\": \"").append(a.kind()).append("\"")
                         .append(", \"loadOp\": \"").append(a.loadOp()).append("\"}");
             }
+            sb.append("], \"storageReads\": [");
+            for (int j = 0; j < p.storageReads().size(); j++) {
+                if (j > 0) sb.append(", ");
+                sb.append(p.storageReads().get(j).handle());
+            }
+            sb.append("], \"storageWrites\": [");
+            for (int j = 0; j < p.storageWrites().size(); j++) {
+                if (j > 0) sb.append(", ");
+                sb.append(p.storageWrites().get(j).handle());
+            }
             sb.append("], \"reads\": [");
             for (int j = 0; j < p.reads().size(); j++) {
                 if (j > 0) sb.append(", ");
@@ -119,6 +129,8 @@ public final class CompiledGraph {
         private final RHIScissor scissor;
         private final List<Attachment> attachments;
         private final List<Texture> reads;
+        private final List<Texture> storageReads;
+        private final List<Texture> storageWrites;
         private final List<Barrier> barriers;
         private final Map<String, float[]> uniforms;
         private final Consumer<CommandBuffer> callback;
@@ -126,7 +138,9 @@ public final class CompiledGraph {
         Pass(int declarationIndex, String name, boolean compute,
              GraphicsPipeline graphicsPipeline, ComputePipeline computePipeline,
              RHIViewport viewport, RHIScissor scissor,
-             List<Attachment> attachments, List<Texture> reads, List<Barrier> barriers,
+             List<Attachment> attachments, List<Texture> reads,
+             List<Texture> storageReads, List<Texture> storageWrites,
+             List<Barrier> barriers,
              Map<String, float[]> uniforms, Consumer<CommandBuffer> callback) {
             this.declarationIndex = declarationIndex;
             this.name = name;
@@ -137,6 +151,8 @@ public final class CompiledGraph {
             this.scissor = scissor;
             this.attachments = List.copyOf(attachments);
             this.reads = List.copyOf(reads);
+            this.storageReads = List.copyOf(storageReads);
+            this.storageWrites = List.copyOf(storageWrites);
             this.barriers = List.copyOf(barriers);
             this.uniforms = Map.copyOf(uniforms);
             this.callback = callback;
@@ -175,9 +191,19 @@ public final class CompiledGraph {
             return attachments;
         }
 
-        /** 纹理采样读取（读声明） */
+        /** 纹理采样读取（读：Sampled） */
         public List<Texture> reads() {
             return reads;
+        }
+
+        /** 存储纹理读取（读：Storage） */
+        public List<Texture> storageReads() {
+            return storageReads;
+        }
+
+        /** 存储纹理写入（写：Storage） */
+        public List<Texture> storageWrites() {
+            return storageWrites;
         }
 
         /** 本 Pass 的屏障计划（按纹理去重、合并后的目标布局） */
