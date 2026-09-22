@@ -1712,6 +1712,10 @@ swapChain.present(idx, renderFinished);
 
 `vkCreateWin32SurfaceKHR(instance, surfaceTarget.nativeHandle())` → VkSurfaceKHR → Surface（23.3 封装）。
 
+> 落地修正（阶段⑥）：VkSurfaceKHR 在 **createDevice 时**创建并由 Device 持有
+> （present 族检查与交换链共用同一句柄，上层不再经 Instance.createSurface 重复创建）；
+> 交换链首次创建走 `Device.createSwapChain(desc)`。
+
 **阶段 5・SwapChain 首次创建**
 
 
@@ -1827,6 +1831,13 @@ frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 
 3. 提交后 present 等 renderFinished——backbuffer 写完成才呈现。
 
+> 落地（阶段⑥，用户决策：core 侧帧循环 + Device 扩展）：帧循环实现于
+> javelin-core `com.javelin.core.render.FrameLoop` / `FrameState`，单线程退化模式（27.1）。
+> 与上文伪代码的差异：① 图为每帧声明，backbuffer 在 acquire 之后经
+> `renderFrame(Function<Texture, RenderGraphBuilder> graphFactory)` 入参传入声明回调；
+> ② 图执行走 `graph.execute(cmd, backbuffer, compiled)` 三参重载（RenderGraphCache 产物，
+> 18 节）；③ CleanerRegistry.onFrameEnd（17 节两帧规则）在 present 后按单调帧号推进。
+
 ### 24.2 同步原语归属
 
 
@@ -1895,6 +1906,9 @@ frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 * 最小化：isVisible () = false → 跳过帧（不 acquire / 不提交）；
 
 * device lost：VK_ERROR_DEVICE_LOST → 停帧 → 全量重建（23.4a 恢复路径）→ 图缓存全清。
+
+> 落地（阶段⑥）：recreate 触发收在 FrameLoop 内部，双路径——渲染面 isResized() 轮询（主动）
+> 或 acquire 返回 <0（被动）→ swapChain.recreate + RenderGraphCache.invalidate() + acknowledgeResize()。
 
 ### 24.7 帧时序（两帧在飞）
 

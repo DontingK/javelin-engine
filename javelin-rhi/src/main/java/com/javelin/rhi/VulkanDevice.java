@@ -27,6 +27,7 @@ final class VulkanDevice implements Device {
     private final Queue graphicsQueue;
     private final Queue computeQueue;
     private final Queue transferQueue;
+    private final VulkanSurface surface;   // 设备持有的呈现 surface（createSwapChain 复用）
     private final long commandPoolHandle;
     private volatile boolean disposed;
 
@@ -34,8 +35,12 @@ final class VulkanDevice implements Device {
                  RHIDevicePrefs prefs, RenderSurface surface, boolean debug) {
         this.instance = instance;
 
-        // 选择物理设备（surface 感知：若 surface 已创建则检查 present 支持）
-        long surfaceHandle = surface != null ? surface.nativeHandle() : 0;
+        // 创建呈现 surface（若提供 RenderSurface）：VkSurfaceKHR 供 present 族检查，
+        // 并由本设备持有，createSwapChain 直接复用——上层无需重复创建 VkSurfaceKHR
+        this.surface = surface != null ? new VulkanSurface(instance, vkInstance, surface) : null;
+
+        // 选择物理设备（surface 感知：检查 present 队列族支持）
+        long surfaceHandle = this.surface != null ? this.surface.handle() : 0;
         this.physicalDevice = VulkanPhysicalDevice.select(vkInstance, prefs, surfaceHandle);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
@@ -107,7 +112,7 @@ final class VulkanDevice implements Device {
             this.commandPoolHandle = poolBuf.get(0);
         }
 
-        CleanerRegistry.register(this, commandPoolHandle, CleanerRegistry.ResourceType.COMMAND_POOL);
+        CleanerRegistry.register(this, this, commandPoolHandle, CleanerRegistry.ResourceType.COMMAND_POOL);
     }
 
     @Override
@@ -244,21 +249,39 @@ final class VulkanDevice implements Device {
 
     boolean isDisposed() { return disposed; }
 
-    // --- 工厂方法（包私有，FrameState / 上传路径使用） ---
+    // --- 帧同步原语 ---
 
-    Fence createFence() {
+    @Override
+    public Fence createFence() {
         checkDisposed();
         return new VulkanFence(this);
     }
 
-    Fence createFence(boolean signaled) {
+    @Override
+    public Fence createFence(boolean signaled) {
         checkDisposed();
         return new VulkanFence(this, signaled);
     }
 
-    Semaphore createSemaphore() {
+    @Override
+    public Semaphore createSemaphore() {
         checkDisposed();
         return new VulkanSemaphore(this);
+    }
+
+    // --- 交换链 ---
+
+    @Override
+    public SwapChain createSwapChain(SwapChainDesc desc) {
+        checkDisposed();
+        if (desc == null) {
+            throw new IllegalArgumentException("SwapChainDesc must not be null");
+        }
+        if (surface == null) {
+            throw new IllegalStateException(
+                    "Device was created without a RenderSurface; cannot create a swapchain");
+        }
+        return new VulkanSwapChain(this, surface, desc);
     }
 
     /**
@@ -301,8 +324,13 @@ final class VulkanDevice implements Device {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        CleanerRegistry.markDisposed(commandPoolHandle);
         vkDestroyCommandPool(device, commandPoolHandle, null);
         vkDestroyDevice(device, null);
+        // VkSurfaceKHR 由实例层创建，须在设备销毁后释放
+        if (surface != null) {
+            surface.dispose();
+        }
     }
 
     private void checkDisposed() {

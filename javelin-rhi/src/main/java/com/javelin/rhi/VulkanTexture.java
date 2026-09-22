@@ -76,7 +76,7 @@ final class VulkanTexture implements Texture {
         }
 
         // 注册 Cleaner
-        CleanerRegistry.register(device, imageHandle, CleanerRegistry.ResourceType.TEXTURE);
+        CleanerRegistry.register(this, device, imageHandle, CleanerRegistry.ResourceType.TEXTURE);
     }
 
     @Override
@@ -114,7 +114,7 @@ final class VulkanTexture implements Texture {
             synchronized (this) {
                 if (imageViewHandle == VK_NULL_HANDLE) {
                     imageViewHandle = createDefaultView();
-                    CleanerRegistry.register(device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
+                    CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
                 }
             }
         }
@@ -164,8 +164,10 @@ final class VulkanTexture implements Texture {
         if (disposed) return;
         disposed = true;
         if (imageViewHandle != VK_NULL_HANDLE) {
+            CleanerRegistry.markDisposed(imageViewHandle);
             vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
         }
+        CleanerRegistry.markDisposed(imageHandle);
         VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyImage(device.vkDevice(), imageHandle, null);
     }

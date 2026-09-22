@@ -407,6 +407,15 @@ interface Device extends GPUResource {
 
     PipelineCache pipelineCache();                                   // 16.4
 
+    // --- 帧同步原语（FrameState 装配，24.2） ---
+    Fence createFence();                                             // 未置位
+    Fence createFence(boolean signaled);                             // signaled=true：帧环形首帧闸门直接通过
+    Semaphore createSemaphore();                                     // acquire / renderFinished 衔接
+
+    // --- 交换链（VkSurfaceKHR 由 createDevice 创建并由设备持有，23.4a 阶段 4） ---
+    SwapChain createSwapChain(SwapChainDesc desc);   // ⚠ 不持有 Device 上下文，落地为抛异常；
+                                                     // 实际入口为 Device.createSwapChain（阶段⑥决策，23.4a 阶段 4）
+
     void submit(SubmitInfo info);                                    // 24.4 统一入口
 
     void waitIdle();
@@ -521,6 +530,11 @@ interface CommandBuffer {   // RHICmd（15 节 / 24.3）
 
     void setScissor(RHIScissor sc);
 
+    void pipelineBarrier(Texture t, TextureLayout oldLayout, TextureLayout newLayout);  // 3 参便捷式
+
+    void pipelineBarrier(Texture t, TextureLayout oldLayout, TextureLayout newLayout,
+                         boolean write, boolean computePass);        // 执行器专用：精确同步参数（24.3）
+
 }
 ```
 
@@ -538,6 +552,8 @@ interface RenderGraphBuilder {
     CompiledGraph compile();                          // 18 节：拓扑 + 屏障计划 + structureHash
 
     void execute(CommandBuffer cmd, Texture backbuffer);  // 24.3 执行器
+
+    void execute(CommandBuffer cmd, Texture backbuffer, CompiledGraph compiled);  // 图缓存产物执行（18 节命中路径）
 
 }
 

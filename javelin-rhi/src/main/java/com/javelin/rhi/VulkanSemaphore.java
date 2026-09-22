@@ -35,7 +35,7 @@ final class VulkanSemaphore implements Semaphore {
             this.semaphoreHandle = semBuf.get(0);
         }
 
-        CleanerRegistry.register(device, semaphoreHandle, CleanerRegistry.ResourceType.SEMAPHORE);
+        CleanerRegistry.register(this, device, semaphoreHandle, CleanerRegistry.ResourceType.SEMAPHORE);
     }
 
     @Override
@@ -47,6 +47,7 @@ final class VulkanSemaphore implements Semaphore {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        CleanerRegistry.markDisposed(semaphoreHandle);
         vkDestroySemaphore(device.vkDevice(), semaphoreHandle, null);
     }
 }

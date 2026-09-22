@@ -45,7 +45,7 @@ final class VulkanShaderModule implements ShaderModule {
             this.moduleHandle = moduleBuf.get(0);
         }
 
-        CleanerRegistry.register(device, moduleHandle, CleanerRegistry.ResourceType.SHADER_MODULE);
+        CleanerRegistry.register(this, device, moduleHandle, CleanerRegistry.ResourceType.SHADER_MODULE);
     }
 
     @Override
@@ -57,6 +57,7 @@ final class VulkanShaderModule implements ShaderModule {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        CleanerRegistry.markDisposed(moduleHandle);
         vkDestroyShaderModule(device.vkDevice(), moduleHandle, null);
     }
 }

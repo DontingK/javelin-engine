@@ -62,7 +62,7 @@ final class VulkanPipelineLayout implements PipelineLayout {
             this.layoutHandle = layoutBuf.get(0);
         }
 
-        CleanerRegistry.register(device, layoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
+        CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
     }
 
     @Override
@@ -74,6 +74,7 @@ final class VulkanPipelineLayout implements PipelineLayout {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        CleanerRegistry.markDisposed(layoutHandle);
         vkDestroyPipelineLayout(device.vkDevice(), layoutHandle, null);
     }
 }

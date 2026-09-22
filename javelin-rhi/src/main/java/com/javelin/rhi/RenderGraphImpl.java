@@ -268,10 +268,18 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
 
     @Override
     public void execute(CommandBuffer cmd, Texture backbuffer) {
+        CompiledGraph g = compiled != null ? compiled : compile();
+        execute(cmd, backbuffer, g);
+    }
+
+    @Override
+    public void execute(CommandBuffer cmd, Texture backbuffer, CompiledGraph compiled) {
         if (cmd == null) {
             throw new IllegalArgumentException("CommandBuffer must not be null");
         }
-        CompiledGraph g = compiled != null ? compiled : compile();
+        if (compiled == null) {
+            throw new IllegalArgumentException("CompiledGraph must not be null");
+        }
         boolean hasBackbuffer = backbuffer != null;
         long backbufferHandle = hasBackbuffer ? backbuffer.handle() : 0;
 
@@ -283,13 +291,14 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             }
             boolean wroteBackbuffer = false;
 
-            for (CompiledGraph.Pass pass : g.passes()) {
+            for (CompiledGraph.Pass pass : compiled.passes()) {
                 // 屏障插入：目标布局 ≠ 当前布局才插（冗余消除，24.3）
                 for (CompiledGraph.Barrier b : pass.barriers()) {
                     long handle = b.texture().handle();
                     TextureLayout current = tracker.get(handle);
                     if (current != b.targetLayout()) {
-                        cmd.pipelineBarrier(b.texture(), current, b.targetLayout());
+                        cmd.pipelineBarrier(b.texture(), current, b.targetLayout(),
+                                b.isWrite(), pass.compute());
                         tracker.set(handle, b.targetLayout());
                     }
                     if (hasBackbuffer && handle == backbufferHandle && b.isWrite()) {

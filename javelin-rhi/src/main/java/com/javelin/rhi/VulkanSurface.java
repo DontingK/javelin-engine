@@ -4,7 +4,10 @@ import com.javelin.rhi.desc.SwapChainDesc;
 import com.javelin.rhi.exception.VulkanException;
 import com.javelin.rhi.render.RenderSurface;
 import org.lwjgl.system.MemoryStack;
+import org.lwjgl.system.windows.WinBase;
 import org.lwjgl.vulkan.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.LongBuffer;
 import java.nio.IntBuffer;
@@ -18,6 +21,8 @@ import static org.lwjgl.vulkan.VK10.*;
  * 对照设计文档第 23.3 节。
  */
 final class VulkanSurface implements Surface {
+
+    private static final Logger log = LoggerFactory.getLogger(VulkanSurface.class);
 
     private final VulkanInstance instance;
     private final VkInstance vkInstance;
@@ -38,6 +43,9 @@ final class VulkanSurface implements Surface {
                 case WINDOWS -> {
                     VkWin32SurfaceCreateInfoKHR createInfo = VkWin32SurfaceCreateInfoKHR.calloc(stack);
                     createInfo.sType$Default();
+                    // LWJGL 3.4 的 validate() 对 hinstance/hwnd 都做非空检查（Vulkan 规范中
+                    // hinstance 本可选，但 LWJGL 生成代码不允许为 0）；取进程模块句柄传入
+                    createInfo.hinstance(WinBase.GetModuleHandle(null, (CharSequence) null));
                     createInfo.hwnd(renderSurface.nativeHandle());
                     result = vkCreateWin32SurfaceKHR(vkInstance, createInfo, null, surfaceBuf);
                 }
@@ -50,6 +58,9 @@ final class VulkanSurface implements Surface {
             }
 
             this.surfaceHandle = surfaceBuf.get(0);
+            log.info("VkSurfaceKHR created: surface=0x{} hwnd=0x{}",
+                    Long.toHexString(surfaceHandle),
+                    Long.toHexString(renderSurface.nativeHandle()));
         }
     }
 
@@ -65,14 +76,9 @@ final class VulkanSurface implements Surface {
 
     @Override
     public SwapChain createSwapChain(SwapChainDesc desc) {
-        if (desc == null) {
-            throw new IllegalArgumentException("SwapChainDesc must not be null");
-        }
-        // 需要关联的 Device 来创建交换链；通过 Instance 的默认设备
-        // 实际由上层先 createDevice 再调用，这里从 instance 获取
         throw new UnsupportedOperationException(
-                "Use Device.graphicsQueue() to obtain device-associated swapchain. "
-                        + "Surface.createSwapChain requires a Device context.");
+                "Surface does not own a Device context. Use Device.createSwapChain(desc) instead "
+                        + "(the Device holds the VkSurfaceKHR created with it).");
     }
 
     /**

@@ -51,7 +51,7 @@ final class VulkanComputePipeline implements ComputePipeline {
             this.pipelineHandle = pipelineBuf.get(0);
         }
 
-        CleanerRegistry.register(device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
     }
 
     @Override
@@ -67,6 +67,7 @@ final class VulkanComputePipeline implements ComputePipeline {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        CleanerRegistry.markDisposed(pipelineHandle);
         vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
     }
 

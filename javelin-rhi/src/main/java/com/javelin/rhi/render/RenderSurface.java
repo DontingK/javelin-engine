@@ -6,7 +6,7 @@ package com.javelin.rhi.render;
  */
 public interface RenderSurface {
 
-    /** GLFW window 指针 / Swing Canvas 的 HWND */
+    /** 平台原生窗口句柄：Win32 HWND / X11 Window / macOS NSView 指针（由实现侧翻译，勿直接传 GLFW 句柄） */
     long nativeHandle();
 
     /** 决定 RHI 加载哪个 surface 扩展 */

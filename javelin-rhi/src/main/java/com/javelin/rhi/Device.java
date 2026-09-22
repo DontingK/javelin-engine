@@ -32,6 +32,24 @@ public interface Device extends GPUResource {
     FrameArena frameArena();
     PipelineCache pipelineCache();
 
+    // --- 帧同步原语（FrameState 装配，24.2） ---
+    /** 创建未置位的栅栏 */
+    Fence createFence();
+
+    /** 创建栅栏；signaled=true 时初始已置位（帧环形首帧直接通过闸门） */
+    Fence createFence(boolean signaled);
+
+    /** 创建信号量（acquire / renderFinished 衔接，24.2） */
+    Semaphore createSemaphore();
+
+    // --- 交换链 ---
+    /**
+     * 创建交换链。
+     * 设备必须是以带 {@link com.javelin.rhi.render.RenderSurface} 的 createDevice 创建的
+     * （VkSurfaceKHR 由设备持有，上层无需再经 Instance.createSurface 重复创建）。
+     */
+    SwapChain createSwapChain(SwapChainDesc desc);
+
     // --- 提交 ---
     void submit(SubmitInfo info);
     void waitIdle();

@@ -6,8 +6,11 @@ import com.javelin.rhi.render.RenderSurface;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.nio.IntBuffer;
 import java.util.List;
 
 import static org.lwjgl.vulkan.VK10.*;
@@ -20,6 +23,10 @@ import static org.lwjgl.vulkan.EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
  * 对照设计文档第 23.4a 节阶段 1~2。
  */
 final class VulkanInstance implements Instance {
+
+    private static final String VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
+
+    private static final Logger log = LoggerFactory.getLogger(VulkanInstance.class);
 
     private final VkInstance vkInstance;
     private final boolean debug;
@@ -59,12 +66,17 @@ final class VulkanInstance implements Instance {
             extBuf.flip();
             createInfo.ppEnabledExtensionNames(extBuf);
 
-            // 校验层（仅 Debug）
+            // 校验层（仅 Debug；本机未安装时降级为无校验运行，避免 VK_ERROR_LAYER_NOT_PRESENT）
             if (debug) {
-                PointerBuffer layerBuf = stack.mallocPointer(1);
-                layerBuf.put(stack.UTF8("VK_LAYER_KHRONOS_validation"));
-                layerBuf.flip();
-                createInfo.ppEnabledLayerNames(layerBuf);
+                if (isLayerAvailable(stack, VALIDATION_LAYER)) {
+                    PointerBuffer layerBuf = stack.mallocPointer(1);
+                    layerBuf.put(stack.UTF8(VALIDATION_LAYER));
+                    layerBuf.flip();
+                    createInfo.ppEnabledLayerNames(layerBuf);
+                } else {
+                    log.warn("Validation layer {} not available; continuing without it "
+                            + "(install Vulkan SDK to enable validation)", VALIDATION_LAYER);
+                }
             }
 
             // 创建实例
@@ -114,5 +126,29 @@ final class VulkanInstance implements Instance {
         if (disposed) {
             throw new IllegalStateException("Instance has been disposed");
         }
+    }
+
+    /** 枚举实例层，检查指定层是否存在于本机 */
+    private static boolean isLayerAvailable(MemoryStack stack, String layerName) {
+        IntBuffer countBuf = stack.mallocInt(1);
+        int result = vkEnumerateInstanceLayerProperties(countBuf, null);
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+        int count = countBuf.get(0);
+        if (count == 0) {
+            return false;
+        }
+        VkLayerProperties.Buffer layers = VkLayerProperties.malloc(count, stack);
+        result = vkEnumerateInstanceLayerProperties(countBuf, layers);
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+        for (int i = 0; i < count; i++) {
+            if (layerName.equals(layers.get(i).layerNameString())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

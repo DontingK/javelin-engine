@@ -40,7 +40,19 @@ public interface CommandBuffer extends GPUResource {
      * 资源屏障（布局转换）。
      * 由 RenderGraph 执行器自动插入（24.3），上层业务禁止直接调用（22.4 迁移纪律）。
      */
-    void pipelineBarrier(Texture texture, TextureLayout oldLayout, TextureLayout newLayout);
+    default void pipelineBarrier(Texture texture, TextureLayout oldLayout, TextureLayout newLayout) {
+        pipelineBarrier(texture, oldLayout, newLayout, false, false);
+    }
+
+    /**
+     * 资源屏障（执行器专用：携带读写与目标 Pass 语义，用于推导精确同步参数）。
+     * 由 RenderGraph 执行器自动插入（24.3），上层业务禁止直接调用（22.4 迁移纪律）。
+     *
+     * @param write       目标访问是否含写（附件输出 / Storage 写）
+     * @param computePass 屏障服务的目标 Pass 是否为计算 Pass
+     */
+    void pipelineBarrier(Texture texture, TextureLayout oldLayout, TextureLayout newLayout,
+                         boolean write, boolean computePass);
 
     void bindDescriptorSet(int setIndex, DescriptorSet set,
                            int dynamicOffsetCount, int[] dynamicOffsets);

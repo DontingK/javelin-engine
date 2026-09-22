@@ -42,8 +42,24 @@ public final class VulkanBarrierGenerator {
      * @param computePass 目标读布局为 SHADER_READ_ONLY 且用于计算 Pass 时为 true（同步域用 COMPUTE_SHADER）
      */
     public static BarrierSync syncFor(TextureLayout oldLayout, TextureLayout newLayout, boolean computePass) {
+        return syncFor(oldLayout, newLayout, false, computePass);
+    }
+
+    /**
+     * 推导布局转换的同步参数（旧布局 → 新布局，含读写语义）。
+     * oldLayout == newLayout 时返回 null（调用方应先做冗余消除）。
+     *
+     * @param write       目标访问是否含写（附件输出 / Storage 写）
+     * @param computePass 屏障服务的目标 Pass 是否为计算 Pass（同步域用 COMPUTE_SHADER）
+     */
+    public static BarrierSync syncFor(TextureLayout oldLayout, TextureLayout newLayout,
+                                      boolean write, boolean computePass) {
         if (oldLayout == newLayout) {
             return null;
+        }
+        if (newLayout == TextureLayout.GENERAL) {
+            // Storage 读写（22.3）：目标为着色器访问
+            return toGeneral(oldLayout, write, computePass);
         }
         if (oldLayout == TextureLayout.UNDEFINED || oldLayout == TextureLayout.TRANSFER_DST) {
             // 首次使用 / 上传后首用：无需等待先前访问（上传同步由上传 fence 保证，25.5）
@@ -87,6 +103,27 @@ public final class VulkanBarrierGenerator {
                 };
             }
             default -> coarse(oldLayout, newLayout);
+        };
+    }
+
+    /** → GENERAL（Storage 读写，22.3）：目标为着色器通用访问 */
+    private static BarrierSync toGeneral(TextureLayout oldLayout, boolean write, boolean computePass) {
+        PipelineStage dstStage = computePass ? PipelineStage.COMPUTE_SHADER : PipelineStage.FRAGMENT_SHADER;
+        AccessFlags dstAccess = write ? AccessFlags.SHADER_WRITE : AccessFlags.SHADER_READ;
+        if (oldLayout == TextureLayout.UNDEFINED || oldLayout == TextureLayout.TRANSFER_DST) {
+            // 首次使用 / 上传后首用：无需等待先前访问
+            return new BarrierSync(PipelineStage.TOP_OF_PIPE, null, dstStage, dstAccess);
+        }
+        return switch (oldLayout) {
+            case SHADER_READ_ONLY -> new BarrierSync(
+                    computePass ? PipelineStage.COMPUTE_SHADER : PipelineStage.FRAGMENT_SHADER,
+                    AccessFlags.SHADER_READ, dstStage, dstAccess);
+            case COLOR_ATTACHMENT -> new BarrierSync(PipelineStage.COLOR_ATTACHMENT_OUTPUT,
+                    AccessFlags.COLOR_ATTACHMENT_WRITE, dstStage, dstAccess);
+            case DEPTH_STENCIL_ATTACHMENT -> new BarrierSync(PipelineStage.LATE_FRAGMENT_TESTS,
+                    AccessFlags.DEPTH_STENCIL_ATTACHMENT_WRITE, dstStage, dstAccess);
+            case GENERAL -> new BarrierSync(dstStage, AccessFlags.SHADER_WRITE, dstStage, dstAccess);
+            default -> coarse(oldLayout, TextureLayout.GENERAL);
         };
     }
 

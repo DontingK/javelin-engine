@@ -280,7 +280,7 @@ final class VulkanSwapChain implements SwapChain {
      * 交换链图像的 Texture 包装。
      * 不拥有 VkImage（由交换链管理），dispose 只清理 view。
      */
-    private static final class SwapChainTexture implements Texture {
+    static final class SwapChainTexture implements Texture {
         private final VulkanDevice device;
         private final Format format;
         private final int width;
@@ -343,7 +343,7 @@ final class VulkanSwapChain implements SwapChain {
                             }
                             imageViewHandle = viewBuf.get(0);
                         }
-                        CleanerRegistry.register(device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
+                        CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
                     }
                 }
             }
@@ -355,6 +355,7 @@ final class VulkanSwapChain implements SwapChain {
             if (disposed) return;
             disposed = true;
             if (imageViewHandle != VK_NULL_HANDLE) {
+                CleanerRegistry.markDisposed(imageViewHandle);
                 vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
             }
         }

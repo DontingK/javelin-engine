@@ -1,6 +1,6 @@
 # RHI 实现进度记录
 
-> 版本：v0.4
+> 版本：v0.5
 > 日期：2026-09-21
 > 对应实现计划：`doc/RHI_Implementation_Plan.md`
 
@@ -15,7 +15,7 @@
 | ③ 资源与描述符 + 管线 | ✅ 骨架完成 | 核心类已创建，部分方法待 Stage 4/5 完善 |
 | ④ RenderGraph 核心 | ✅ 完成 | 声明/编译/屏障计划/图缓存/执行器，编译链路可无 GPU 单测 |
 | ⑤ 呈现与帧执行 | ✅ 骨架完成 | VulkanCommandBuffer/SwapChain/Fence/Semaphore/FrameArena 已创建，帧循环待 Stage 6 收口 |
-| ⑥ 验证与引擎接入 | ⬜ 未开始 | |
+| ⑥ 验证与引擎接入 | 🔶 进行中 | 第一步完成（帧循环收口 + 清屏，2026-09-22 端到端验证跑通） |
 
 ---
 
@@ -282,21 +282,72 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
 
 ### 留待阶段⑥
 
-GENERAL 目标的精确同步参数（syncFor 细化）与 computePass 目标阶段，均依赖
-`CommandBuffer.pipelineBarrier` 签名扩展，已记录于阶段⑤已知待完善表。
+~~GENERAL 目标的精确同步参数（syncFor 细化）与 computePass 目标阶段~~
+✅ 已完成于阶段⑥第一步（pipelineBarrier 扩展 write / computePass 参数 + syncFor GENERAL 分支，见下文）。
 
 ---
 
-## 下一步（阶段 ⑥ 验证与引擎接入）
+## 阶段 ⑥ 第一步：帧循环收口 + 清屏（2026-09-21 完成，2026-09-22 端到端验证跑通）
 
-### 目标
-帧循环收口，出第一个画面。
+### 用户决策（2026-09-21）
+- 帧循环放 **core 侧**（javelin-core `com.javelin.core.render`），通过扩展 Device 公开接口驱动——不建 RHI 内 FrameScheduler
+- swapchain recreate 触发在帧循环类**内部**（isResized 轮询 + acquire<0 双路径，自包含）
+- 本次验证范围 = **清屏**，三角形留到下一步
 
-### 关键挑战
-- FrameState 环形（maxFramesInFlight=2~3）+ fence 闸门
-- swapchain recreate → 图缓存失效咬合（23.6-3）
-- CleanerRegistry.onFrameEnd() 帧推进集成（17 节两帧规则）
-- 首次引擎端对端验证（clear color 三角形）
+### RHI 侧改动（javelin-rhi）
+- **Device 接口扩展**：`createFence()` / `createFence(boolean signaled)` / `createSemaphore()` /
+  `createSwapChain(SwapChainDesc)`。VkSurfaceKHR 改由 createDevice 创建并由设备持有
+  （修正原先把 `RenderSurface.nativeHandle()`（HWND）当 VkSurfaceKHR 传给 present 族检查的潜在 bug）；
+  上层不再经 Instance.createSurface 重复创建
+- **CleanerRegistry 修复（阶段⑥激活暴露的潜在 bug，不修会导致帧推进后资源被误销毁）**：
+  - 原 `cleaner.register(new Object(), ...)` 监护的是临时对象 → 任务要么立即触发要么永不触发；
+    改为以资源实例自身为 referent
+  - 原各资源 register 传 device 为 referent（全设备共享 referent + Cleaner 强持有 → 永不触发）
+  - 显式 dispose 与 Cleaner 兜底会对同一句柄二次 vkDestroy → 新增 `markDisposed(handle)` 登记、
+    DestroyTask 触发时跳过、executeDestroy 后清理集合
+- **图缓存执行**：`RenderGraphBuilder.execute(cmd, backbuffer, CompiledGraph)` 三参重载
+  （缓存命中路径跳过内部编译）；recreate → `RenderGraphCache.invalidate()` 咬合生效（23.6-3）
+- **SwapChainTexture 附件 view bug**：beginRenderPass 的 fillAttachmentInfo 对交换链图像也走
+  ensureView()（原 else 分支把 VkImage 当 VkImageView 传入 VkRenderingAttachmentInfo）
+- **GENERAL 同步精化**：`CommandBuffer.pipelineBarrier` 增 5 参重载（write / computePass），
+  执行器按 Barrier.isWrite() + Pass.compute() 传入；`syncFor` 增 GENERAL 目标分支（toGeneral），
+  兑现 26.5 扩展的遗留承诺
+- `CleanerRegistry` 类与 `onFrameEnd` 公开化（core 帧推进调用）
+
+### core 侧新增（javelin-core）
+- `render/FrameState.java` —— fence（signaled）+ imageAvailable + renderFinished + cmd + arena（设计 24.1）
+- `render/FrameLoop.java` —— 帧迭代（24.1 顺序）+ recreate 双路径 + CleanerRegistry 帧推进 + 最小化跳过；
+  单线程退化模式（27.1）
+  - API：`renderFrame(Function<Texture, RenderGraphBuilder> graphFactory)`——acquire 先于图声明，
+    backbuffer 以入参提供给声明回调（对计划 renderFrame(RenderGraphBuilder) 的必要修正）
+- `test/java/com/javelin/core/ClearColorTest.java` —— 端到端清屏验证，
+  运行：`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.ClearColorTest`
+
+### 已知问题（本步接受，记入待办）
+| 问题 | 影响 | 方向 |
+|------|------|------|
+| backbuffer 句柄参与 structureHash | image(idx) 帧间交替 → 单槽图缓存每帧全量重编译（图小，功能正确） | 终点 backbuffer 改以"槽位身份"参与哈希 |
+| FrameArena 1MB/块 | 设计默认 64MB；环形 = 每 FrameState 一块（等价 3 块轮换语义） | 容量配置化 |
+| `VulkanQueue.submit` 等待阶段硬编码 COLOR_ATTACHMENT_OUTPUT | 纯图形首画面够用 | compute 提交时按用途分派等待阶段 |
+
+### 验证排障记录（2026-09-22，清屏首跑三连障）
+1. **VkResult=-6（VK_ERROR_LAYER_NOT_PRESENT）**：debug 模式请求 `VK_LAYER_KHRONOS_validation`，
+   本机未装 Vulkan SDK。修复：`VulkanInstance` 创建前先 `vkEnumerateInstanceLayerProperties` 检查，
+   校验层缺失时 warn 降级继续（不再硬失败）；装了 SDK 的机器自动启用。
+2. **NPE @ VkWin32SurfaceCreateInfoKHR.validate**：LWJGL 3.4 生成代码对 `hinstance`/`hwnd` 均做
+   非空检查（Vulkan 规范里 hinstance 本可选）。修复：补
+   `hinstance(WinBase.GetModuleHandle(null, (CharSequence) null))`（lwjgl core WinBase 绑定）。
+3. **VkResult=-1000000000（VK_ERROR_SURFACE_LOST_KHR）@ surface capabilities**：
+   `glfwCreateWindow` 返回的是 GLFW 内部结构体指针而非 HWND；阶段⑥改 RHI 手写
+   `vkCreateWin32SurfaceKHR` 后 `RenderSurface.nativeHandle()` 语义错位（原设计写"GLFW window 指针"）。
+   该驱动对野指针 HWND 的创建与 formats/present 查询不校验（全"成功"），仅 capabilities
+   真查窗口状态时拒绝。修复：`GLFWRenderSurface.nativeHandle()` 在 WINDOWS 下经
+   `GLFWNativeWin32.glfwGetWin32Window` 翻译为真 HWND（core 侧翻译，RHI 不依赖 GLFW）；
+   `RenderSurface.nativeHandle()` 注释改为"平台原生窗口句柄，勿直接传 GLFW 句柄"。
+
+### 待办（阶段⑥后续）
+- 三角形（SPIR-V 着色器 + PSO + 顶点缓冲 + 投影 Y 翻转 / frontFace=CW 坐标约定验证）
+- JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入（19 节多相机多物体 Demo 为阶段⑥验收）
 
 ### 阶段⑥ 前置（已完成，2026-09-21）
 

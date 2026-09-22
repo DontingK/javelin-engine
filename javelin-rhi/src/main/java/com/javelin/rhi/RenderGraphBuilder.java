@@ -37,4 +37,11 @@ public interface RenderGraphBuilder {
      * backbuffer 非空时：起始布局按 PRESENT_SRC 跟踪，图尾自动转回 PRESENT_SRC。
      */
     void execute(CommandBuffer cmd, Texture backbuffer);
+
+    /**
+     * 执行器（24.3）：用指定编译产物执行（图缓存命中路径，18 节）。
+     * 跳过内部编译，直接消费 {@link RenderGraphCache#compile} 的返回结果；
+     * compiled 的结构必须与当前声明一致（缓存契约），否则行为未定义。
+     */
+    void execute(CommandBuffer cmd, Texture backbuffer, CompiledGraph compiled);
 }

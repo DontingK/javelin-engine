@@ -2,6 +2,7 @@ package com.javelin.core.window;
 
 import com.javelin.rhi.render.Platform;
 import com.javelin.rhi.render.RenderSurface;
+import org.lwjgl.glfw.GLFWNativeWin32;
 
 /**
  * GLFW 窗口的呈现面适配器：把窗口状态翻译成 RHI 消费的 {@link RenderSurface}
@@ -24,7 +25,12 @@ final class GLFWRenderSurface implements RenderSurface {
 
     @Override
     public long nativeHandle() {
-        return window.nativeHandle();
+        long glfwHandle = window.nativeHandle();
+        // RHI 按平台把该值当原生窗口句柄使用（Win32 surface 创建需要真正的 HWND，
+        // glfwCreateWindow 返回的是 GLFW 内部结构体指针，须经 native 访问器翻译）
+        return platform() == Platform.WINDOWS
+                ? GLFWNativeWin32.glfwGetWin32Window(glfwHandle)
+                : glfwHandle;
     }
 
     @Override

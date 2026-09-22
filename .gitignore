@@ -40,6 +40,9 @@ bin/
 ### VS Code ###
 .vscode/
 
+### ZCode ###
+.zcode/
+
 ### Mac OS ###
 .DS_Store
 *.log

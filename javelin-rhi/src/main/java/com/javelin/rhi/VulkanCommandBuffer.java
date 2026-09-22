@@ -127,11 +127,17 @@ final class VulkanCommandBuffer implements CommandBuffer {
                                     CompiledGraph.Attachment attachment,
                                     MemoryStack stack) {
         info.sType$Default();
-        // dynamic rendering 需要 VkImageView；VulkanTexture.handle() 是 VkImage，
-        // 通过 ensureView() 获取或创建对应的全尺寸 view
-        long imageView = attachment.texture() instanceof VulkanTexture vkTex
-                ? vkTex.ensureView()
-                : attachment.texture().handle();
+        // dynamic rendering 需要 VkImageView；Texture.handle() 是 VkImage，
+        // 交换链图像与常规纹理都经 ensureView() 获取或创建对应的全尺寸 view
+        Texture texture = attachment.texture();
+        long imageView;
+        if (texture instanceof VulkanTexture vkTex) {
+            imageView = vkTex.ensureView();
+        } else if (texture instanceof VulkanSwapChain.SwapChainTexture scTex) {
+            imageView = scTex.ensureView();
+        } else {
+            imageView = texture.handle();
+        }
         info.imageView(imageView);
         info.imageLayout(VulkanBarrierGenerator.toVkImageLayout(
                 attachment.kind() == CompiledGraph.Attachment.Kind.DEPTH
@@ -193,13 +199,14 @@ final class VulkanCommandBuffer implements CommandBuffer {
 
     @Override
     public void pipelineBarrier(Texture texture, com.javelin.rhi.types.TextureLayout oldLayout,
-                                com.javelin.rhi.types.TextureLayout newLayout) {
+                                com.javelin.rhi.types.TextureLayout newLayout,
+                                boolean write, boolean computePass) {
         checkRecording();
         if (oldLayout == newLayout) {
             return; // 冗余消除（24.3）
         }
         VulkanBarrierGenerator.BarrierSync sync =
-                VulkanBarrierGenerator.syncFor(oldLayout, newLayout, false);
+                VulkanBarrierGenerator.syncFor(oldLayout, newLayout, write, computePass);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkImageMemoryBarrier.Buffer barrier = VkImageMemoryBarrier.calloc(1, stack);
