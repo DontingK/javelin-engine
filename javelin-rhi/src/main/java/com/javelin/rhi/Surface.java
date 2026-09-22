@@ -1,11 +1,11 @@
 package com.javelin.rhi;
 
-import com.javelin.rhi.desc.SwapChainDesc;
 import com.javelin.rhi.render.RenderSurface;
 
 /**
  * Surface 接口。
  * 对照设计文档第 23.3 节 / 第 26.6 节。
+ * 交换链一律经 {@link Device#createSwapChain} 创建（VkSurfaceKHR 由设备持有）。
  */
 public interface Surface extends GPUResource {
 
@@ -14,9 +14,6 @@ public interface Surface extends GPUResource {
 
     /** 来源呈现目标（查尺寸 / resize / 可见性） */
     RenderSurface renderSurface();
-
-    /** 创建交换链 */
-    SwapChain createSwapChain(SwapChainDesc desc);
 
     /** 能力信息 */
     Capabilities capabilities();

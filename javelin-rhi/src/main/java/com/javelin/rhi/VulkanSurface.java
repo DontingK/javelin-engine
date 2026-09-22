@@ -74,13 +74,6 @@ final class VulkanSurface implements Surface {
         return renderSurface;
     }
 
-    @Override
-    public SwapChain createSwapChain(SwapChainDesc desc) {
-        throw new UnsupportedOperationException(
-                "Surface does not own a Device context. Use Device.createSwapChain(desc) instead "
-                        + "(the Device holds the VkSurfaceKHR created with it).");
-    }
-
     /**
      * 创建交换链（需要 Device 上下文）。
      * 由 VulkanDevice 内部调用。
