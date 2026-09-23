@@ -9,11 +9,37 @@
 1. 不需要编译验证。 编译交给用户
 2. 不允许自己编写不确定的代码
 3. 当你不确定要怎么设计时可以询问用户意见
-4. 当你有任何不确定的API调用时，特别是lwjgl,vk 相关的，可以提出让用户来给你明确的API签名
+4. 当你有任何不确定的API调用时，特别是lwjgl,vk 相关的，先用 IDEA MCP 自查（方法见下文「查找依赖 API 方法签名」），查不到就提出让用户来给你明确的API签名；**不要去网页搜索**
 5. 不允许自己瞎猜，不确定都要询问用户
 6. 无法找到问题时，第一优先级应该是添加日志让用户运行后看日志。
 7. **Edit 工具必须验证唯一性**：使用 `Edit` 前，确保 `old_string` 在目标文件中唯一。若存在多处匹配，必须用更长的上下文定位到具体位置，或改用 `Write` 整文件重写。每次 `Edit` 后必须 `Read` 验证文件状态，禁止连续多个 `Edit` 不做验证。
 8. 禁止使用record类
+
+---
+
+## 查找依赖 API 方法签名（IDEA MCP）
+
+借助 IDEA MCP 确认 LWJGL / Vulkan / GLFW 等第三方库的方法签名，**优先自己查证而不是盲猜或反复询问用户**。
+
+**首选 `get_symbol_info`**：相当于 Quick Documentation，给定符号位置，直接返回**声明签名、类型、Javadoc**。拿签名最快的工具，先用它。
+
+签名不够、需要看实现或确认用法时，按以下顺序补充：
+
+1. `search_symbol`（`include_external: true`）——不知道符号在哪个 jar 时，在 SDK 与库依赖里按名称定位；
+2. `get_project_dependencies` + `read_file` 读 jar 内源码或反编译 `.class`：
+   - 带源码的依赖：`jar:///path/to/xxx.jar!/org/lwjgl/vulkan/VK10.java`
+   - 无源码的依赖：直接读 `.class`（如 `...!/VK10.class`），IDEA 会自动反编译；
+   - 也支持 `jrt://`（JDK 模块）和普通绝对路径；
+3. `analyze_calls`——调用层级分析（`INCOMING_CALLS` / `OUTGOING_CALLS`），看项目内已有调用点，确认 API 实际用法；
+4. 其他辅助工具：`search_text` / `search_regex`（文本/正则搜索常量、字段、用法示例）、`execute_terminal_command`（必要时跑 `javap` 确认字节码签名）。
+
+### 注意事项
+
+- 这些工具依赖 IDEA 的索引：IDEA 未打开项目或索引未完成时，`search_symbol` / `analyze_calls` 可能查不到或结果不全；
+- `get_symbol_info` / `analyze_calls` 作用于项目代码而非 jar 路径：前者需要"你自己的源文件里引用了该符号的位置（行+列）"，后者要求完整限定名（FQN）；名字有歧义时先用 `search_symbol` 拿到精确签名；
+- 巨型类（如 LWJGL 的 `VK10`，上万行）不要全量读：`read_file` 默认只读 2000 行，先用 `search_regex` 定位方法所在行号，再带 `offset` 跳读；
+- 反编译代码的变量名可能与真实源码不一致，属于近似源码；
+- 兜底：MCP 查不到时**不要去网页搜索**，直接按红线第 4 条请用户提供签名。
 
 ---
 
