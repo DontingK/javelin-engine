@@ -33,6 +33,20 @@ public interface PassDef {
     void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue);
 
     /**
+     * 声明颜色附件输出，并限定清屏区域（分区域清屏，多相机/编辑器视口场景）。
+     *
+     * <p>loadOp 的 CLEAR 以区域形式执行：矩形外保留原内容。Vulkan 的 loadOp 清屏
+     * 无视 scissor、始终清整个附件，区域清屏由执行器在渲染通道开始后以
+     * vkCmdClearAttachments 实现（底层为 dynamic rendering，该命令在通道内合法）。
+     *
+     * @param loadOp      必须为 CLEAR（区域清屏语义即"以 clearValue 清 clearRegion"）
+     * @param clearValue  清屏颜色，必填
+     * @param clearRegion 清屏矩形（framebuffer 坐标），必填且不得为 null
+     */
+    void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue,
+                        RHIScissor clearRegion);
+
+    /**
      * 声明深度附件输出（写：Attachment.Depth）。
      *
      * @param loadOp    LOAD / CLEAR / DONT_CARE

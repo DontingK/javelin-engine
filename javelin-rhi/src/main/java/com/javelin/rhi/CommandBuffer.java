@@ -1,5 +1,6 @@
 package com.javelin.rhi;
 
+import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.types.IndexType;
@@ -70,6 +71,17 @@ public interface CommandBuffer extends GPUResource {
     void setViewport(RHIViewport viewport);
 
     void setScissor(RHIScissor scissor);
+
+    /**
+     * 渲染通道内对当前颜色附件的指定矩形区域清屏（vkCmdClearAttachments）。
+     *
+     * <p>rect 为 framebuffer 坐标且须在渲染区域内；只影响 rect 内像素，
+     * 不受管线 viewport/scissor 状态影响。texture 必须是本 Pass 已声明的颜色附件。
+     *
+     * <p>典型用途：多相机各自清自己的视口矩形、帧中局部清屏（portal/工具）。
+     * 整附件清屏仍优先用 addColorOutput 的 CLEAR loadOp（零命令开销）。
+     */
+    void clearColor(Texture texture, RHIClearColor color, RHIScissor rect);
 
     /**
      * 设备本地缓冲拷贝（staging 上传用，25 节）。

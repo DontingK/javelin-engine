@@ -4,6 +4,7 @@ import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIClearDepthStencil;
 import com.javelin.rhi.data.RHIClearValue;
 import com.javelin.rhi.data.RHILoadOp;
+import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.desc.TextureDesc;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -29,6 +30,7 @@ final class VulkanCommandBuffer implements CommandBuffer {
     private final VkCommandBuffer vkCommandBuffer;
     private boolean recording;
     private boolean inRenderPass;
+    private List<CompiledGraph.Attachment> currentColorAttachments;
     private volatile boolean disposed;
 
     VulkanCommandBuffer(VulkanDevice device, VkCommandBuffer vkCommandBuffer) {
@@ -86,6 +88,12 @@ final class VulkanCommandBuffer implements CommandBuffer {
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             int colorCount = colorAttachments != null ? colorAttachments.size() : 0;
+            int regionClearCount = 0;
+            for (int i = 0; i < colorCount; i++) {
+                if (colorAttachments.get(i).clearRegion() != null) {
+                    regionClearCount++;
+                }
+            }
             VkRenderingAttachmentInfo.Buffer colorInfos = null;
             if (colorCount > 0) {
                 colorInfos = VkRenderingAttachmentInfo.calloc(colorCount, stack);
@@ -119,8 +127,38 @@ final class VulkanCommandBuffer implements CommandBuffer {
             renderingInfo.layerCount(1);
 
             vkCmdBeginRendering(vkCommandBuffer, renderingInfo);
+
+            // 区域清屏（CLEAR + clearRegion）：loadOp 已降为 LOAD 保住矩形外内容，
+            // 这里按原附件索引批量发 vkCmdClearAttachments（dynamic rendering 通道内合法，
+            // rect 为 framebuffer 坐标且在 renderArea 内）
+            if (regionClearCount > 0) {
+                VkClearAttachment.Buffer clearAttachments = VkClearAttachment.calloc(regionClearCount, stack);
+                VkClearRect.Buffer clearRects = VkClearRect.calloc(regionClearCount, stack);
+                int slot = 0;
+                for (int i = 0; i < colorCount; i++) {
+                    CompiledGraph.Attachment a = colorAttachments.get(i);
+                    RHIScissor region = a.clearRegion();
+                    if (region == null) {
+                        continue;
+                    }
+                    RHIClearColor color = (RHIClearColor) a.clearValue();
+                    clearAttachments.get(slot)
+                            .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                            .colorAttachment(i)
+                            .clearValue().color()
+                            .float32(stack.floats(color.r(), color.g(), color.b(), color.a()));
+                    clearRects.get(slot)
+                            .rect(r -> r.offset(o -> o.x(region.x()).y(region.y()))
+                                       .extent(e -> e.width(region.width()).height(region.height())))
+                            .baseArrayLayer(0)
+                            .layerCount(1);
+                    slot++;
+                }
+                vkCmdClearAttachments(vkCommandBuffer, clearAttachments, clearRects);
+            }
         }
         inRenderPass = true;
+        currentColorAttachments = colorAttachments;
     }
 
     private void fillAttachmentInfo(VkRenderingAttachmentInfo info,
@@ -143,7 +181,10 @@ final class VulkanCommandBuffer implements CommandBuffer {
                 attachment.kind() == CompiledGraph.Attachment.Kind.DEPTH
                         ? com.javelin.rhi.types.TextureLayout.DEPTH_STENCIL_ATTACHMENT
                         : com.javelin.rhi.types.TextureLayout.COLOR_ATTACHMENT));
-        info.loadOp(toVkLoadOp(attachment.loadOp()));
+        // 区域清屏时 loadOp 降为 LOAD：矩形外内容须保留，矩形内由 vkCmdClearAttachments 清
+        info.loadOp(attachment.clearRegion() != null
+                ? VK_ATTACHMENT_LOAD_OP_LOAD
+                : toVkLoadOp(attachment.loadOp()));
         info.storeOp(VK_ATTACHMENT_STORE_OP_STORE);
         info.clearValue(toVkClearValue(attachment.clearValue(), stack));
     }
@@ -177,6 +218,47 @@ final class VulkanCommandBuffer implements CommandBuffer {
         }
         vkCmdEndRendering(vkCommandBuffer);
         inRenderPass = false;
+        currentColorAttachments = null;
+    }
+
+    @Override
+    public void clearColor(Texture texture, RHIClearColor color, RHIScissor rect) {
+        checkRecording();
+        if (!inRenderPass) {
+            throw new IllegalStateException("clearColor must be called inside a render pass");
+        }
+        if (texture == null || color == null || rect == null) {
+            throw new IllegalArgumentException("Texture, color and rect must not be null");
+        }
+        if (currentColorAttachments == null) {
+            throw new IllegalStateException("No color attachments bound in the current render pass");
+        }
+        int index = -1;
+        for (int i = 0; i < currentColorAttachments.size(); i++) {
+            if (currentColorAttachments.get(i).texture() == texture) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            throw new IllegalArgumentException(
+                    "Texture is not a color attachment of the current render pass");
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkClearAttachment.Buffer attachment = VkClearAttachment.calloc(1, stack);
+            attachment.get(0)
+                    .aspectMask(VK_IMAGE_ASPECT_COLOR_BIT)
+                    .colorAttachment(index)
+                    .clearValue().color()
+                    .float32(stack.floats(color.r(), color.g(), color.b(), color.a()));
+            VkClearRect.Buffer clearRect = VkClearRect.calloc(1, stack);
+            clearRect.get(0)
+                    .rect(r -> r.offset(o -> o.x(rect.x()).y(rect.y()))
+                               .extent(e -> e.width(rect.width()).height(rect.height())))
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+            vkCmdClearAttachments(vkCommandBuffer, attachment, clearRect);
+        }
     }
 
     @Override

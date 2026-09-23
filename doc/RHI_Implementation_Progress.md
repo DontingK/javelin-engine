@@ -418,3 +418,4 @@ core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow
 | `VK_INDEX_TYPE_UINT8_EXT` | 在 `VK14` 类（`VK14.VK_INDEX_TYPE_UINT8`），不在 `VK10` |
 | `vkEnumeratePhysicalDevices` | 三参数：`(VkInstance, IntBuffer, PointerBuffer)`，无单参数版本 |
 | `vkCmdSetViewport` / `vkCmdSetScissor` | 需要 `VkViewport.Buffer` / `VkRect2D.Buffer`；单元素用 `nvkCmdSetViewport(cmd, 0, 1, vp.address())` |
+| `vkCmdClearAttachments` | `(VkCommandBuffer, VkClearAttachment.Buffer, VkClearRect.Buffer) → void`；dynamic rendering 通道内合法；`VkClearAttachment.aspectMask/colorAttachment/clearValue`，`VkClearRect.rect/baseArrayLayer/layerCount`（rect 为 framebuffer 坐标且在 renderArea 内） |

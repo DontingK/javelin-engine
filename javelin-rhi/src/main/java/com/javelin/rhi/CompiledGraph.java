@@ -84,7 +84,11 @@ public final class CompiledGraph {
                 if (j > 0) sb.append(", ");
                 sb.append("{\"texture\": ").append(a.texture().handle())
                         .append(", \"kind\": \"").append(a.kind()).append("\"")
-                        .append(", \"loadOp\": \"").append(a.loadOp()).append("\"}");
+                        .append(", \"loadOp\": \"").append(a.loadOp()).append("\"");
+                if (a.clearRegion() != null) {
+                    sb.append(", \"clearRegion\": \"").append(a.clearRegion()).append("\"");
+                }
+                sb.append("}");
             }
             sb.append("], \"storageReads\": [");
             for (int j = 0; j < p.storageReads().size(); j++) {
@@ -235,12 +239,19 @@ public final class CompiledGraph {
         private final Kind kind;
         private final RHILoadOp loadOp;
         private final RHIClearValue clearValue;
+        private final RHIScissor clearRegion;
 
         public Attachment(Texture texture, Kind kind, RHILoadOp loadOp, RHIClearValue clearValue) {
+            this(texture, kind, loadOp, clearValue, null);
+        }
+
+        public Attachment(Texture texture, Kind kind, RHILoadOp loadOp, RHIClearValue clearValue,
+                          RHIScissor clearRegion) {
             this.texture = texture;
             this.kind = kind;
             this.loadOp = loadOp;
             this.clearValue = clearValue;
+            this.clearRegion = clearRegion;
         }
 
         public Texture texture() {
@@ -257,6 +268,14 @@ public final class CompiledGraph {
 
         public RHIClearValue clearValue() {
             return clearValue;
+        }
+
+        /**
+         * 清屏区域（framebuffer 坐标）；非 null 时 loadOp 的 CLEAR 只作用于该矩形，
+         * 由执行器以 vkCmdClearAttachments 实现（矩形外保留原内容）。
+         */
+        public RHIScissor clearRegion() {
+            return clearRegion;
         }
     }
 

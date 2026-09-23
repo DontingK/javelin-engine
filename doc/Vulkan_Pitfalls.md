@@ -111,9 +111,29 @@
 
 ---
 
+### 15. loadOp 清屏无视 scissor：区域清屏必须 `vkCmdClearAttachments` ★设计级
+
+- **症状**：多视口/分屏场景给每个 pass 设不同 `setScissor` + `CLEAR` loadOp，
+  预期各区域不同清屏色，实际只有最后声明的颜色全屏生效（前一个区域被后一个清掉）；
+- **根因**：Vulkan 规定 render pass loadOp 的 CLEAR **忽略 scissor，始终清整个附件**。
+  scissor 只影响光栅化阶段的绘制，不影响附件加载/清屏；
+- **修法**：分区域清屏用 `vkCmdClearAttachments`（rect 在命令里显式给，同样不受管线
+  scissor 影响），且必须在渲染通道实例内调用。dynamic rendering
+  （`vkCmdBeginRendering`）开启的也是渲染通道实例，该命令合法；
+  底层为 LOAD loadOp 保住矩形外内容 + 通道开始后按附件索引批量清；
+- **注意**：rect 用 framebuffer 坐标（左上原点）且须在 renderArea 内；
+  `VkClearAttachment.colorAttachment` 是 pColorAttachments 的索引，不是 attachment 序号；
+  整附件清屏仍优先 CLEAR loadOp（零额外命令）；
+- **出处**：Vulkan 规范 VkRenderingAttachmentInfo/loadOp 语义；javelin-engine4
+  `VkRenderBackend.clearViewAttachments` 同款做法（多 View 各自区域清屏，已生产验证）；
+  engine5 阶段⑥ RHI 已封装：`PassDef.addColorOutput(4 参重载, clearRegion)` +
+  `CommandBuffer.clearColor`，验收测试 ViewportQuadTest。
+
+---
+
 ## 四、GLFW / 窗口
 
-### 15. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
+### 16. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
 
 - **症状**：手写 `vkCreateWin32SurfaceKHR` 后，`vkGetPhysicalDeviceSurfaceCapabilitiesKHR`
   报 `VK_ERROR_SURFACE_LOST_KHR`（-1000000000）；但 surface 创建、formats/present 查询
@@ -127,7 +147,7 @@
   `glfwGetWindowAttrib(handle, GLFW_VISIBLE = 0x20004)` 可核对 GLFW 侧可见性。
 - **出处**：2026-09-22 清屏排障第三障。
 
-### 16. 校验层缺失降级
+### 17. 校验层缺失降级
 
 - debug 模式请求 `VK_LAYER_KHRONOS_validation` 而本机未装 Vulkan SDK 时，
   `VulkanInstance` 先 `vkEnumerateInstanceLayerProperties` 存在性检查，缺失则 warn 降级继续

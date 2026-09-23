@@ -203,6 +203,35 @@ void addDepthOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 
 * `RHILoadOp.LOAD`：保留上一次写入内容，用于叠加渲染（分屏多相机场景）
 
+### 区域清屏（阶段⑥新增）
+
+Vulkan 的 loadOp 清屏**无视 scissor，始终清整个附件**（细节见 Vulkan_Pitfalls 第 15 条）。
+分区域清屏只能由执行器在渲染通道开始后以 `vkCmdClearAttachments` 实现（dynamic rendering
+开启的同样是渲染通道实例，该命令合法；rect 为 framebuffer 坐标、须在 renderArea 内）。
+
+对应两个入口，按场景二选一：
+
+* **声明式（推荐）**：附件声明带区域，执行器自动处理——
+
+```
+void addColorOutput(Texture tex, RHILoadOp loadOp, RHIClearColor clearValue, RHIScissor clearRegion);
+```
+
+  语义仍是 `CLEAR + clearValue`，`clearRegion` 非空时执行器把实际 loadOp 降为 LOAD
+  （保住矩形外内容），矩形内批量发 `vkCmdClearAttachments`。多相机各自清自己的视口矩形
+  （第 8 节后续相机）走这个；
+* **命令式**：帧中局部清屏（portal/编辑器工具）在渲染回调内调用——
+
+```
+void clearColor(Texture tex, RHIClearColor color, RHIScissor rect);   // CommandBuffer
+```
+
+  约束：texture 必须是本 Pass 已声明的颜色附件（按索引定位 attachment）。
+
+> 出处：javelin-engine4 `VkRenderBackend.clearViewAttachments` 同款做法（生产验证）；
+> Unity 现代后端（D3D12 rects / Vulkan clearAttachments）同源；UE 用清屏 quad 另辟蹊径。
+> 整附件清屏仍优先 CLEAR loadOp（零额外命令），区域清屏只用于"矩形外内容须保留"的场景。
+
 
 
 ***
@@ -531,6 +560,8 @@ interface CommandBuffer {   // RHICmd（15 节 / 24.3）
 
     void setScissor(RHIScissor sc);
 
+    void clearColor(Texture t, RHIClearColor c, RHIScissor rect);  // 渲染通道内区域清屏（须为本 Pass 颜色附件）
+
     void pipelineBarrier(Texture t, TextureLayout oldLayout, TextureLayout newLayout);  // 3 参便捷式
 
     void pipelineBarrier(Texture t, TextureLayout oldLayout, TextureLayout newLayout,
@@ -563,6 +594,8 @@ interface PassDef {   // 声明式：读写意图 + 回调（22.3 ResourceUsage�
     void setPipeline(GraphicsPipeline p);
 
     void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c);  // 写：Attachment.Color
+
+    void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c, RHIScissor clearRegion);  // 区域清屏（多相机视口，第 6 节）
 
     void addDepthOutput(Texture t, RHILoadOp op, RHIClearDepthStencil c);
 

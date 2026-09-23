@@ -76,6 +76,13 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 h = mix(h, a.texture().handle());
                 h = mix(h, a.kind().ordinal() + 1);
                 h = mix(h, a.loadOp().ordinal() + 1);
+                RHIScissor region = a.clearRegion();
+                if (region != null) {
+                    h = mix(h, region.x());
+                    h = mix(h, region.y());
+                    h = mix(h, region.width());
+                    h = mix(h, region.height());
+                }
             }
             for (Texture t : p.reads) {
                 h = mix(h, t.handle());
@@ -404,6 +411,20 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             checkAttachmentArgs(texture, loadOp, clearValue == null);
             attachments.add(new CompiledGraph.Attachment(
                     texture, CompiledGraph.Attachment.Kind.COLOR, loadOp, clearValue));
+        }
+
+        @Override
+        public void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue,
+                                   RHIScissor clearRegion) {
+            checkAttachmentArgs(texture, loadOp, clearValue == null);
+            if (clearRegion == null) {
+                throw new IllegalArgumentException("Clear region must not be null (use the 3-arg overload for full clears)");
+            }
+            if (loadOp != RHILoadOp.CLEAR) {
+                throw new IllegalArgumentException("Clear region is only allowed with LoadOp CLEAR");
+            }
+            attachments.add(new CompiledGraph.Attachment(
+                    texture, CompiledGraph.Attachment.Kind.COLOR, loadOp, clearValue, clearRegion));
         }
 
         @Override
