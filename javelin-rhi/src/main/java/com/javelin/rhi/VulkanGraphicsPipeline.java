@@ -46,6 +46,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
 
             // 顶点输入
             VkPipelineVertexInputStateCreateInfo vertexInput = VkPipelineVertexInputStateCreateInfo.calloc(stack);
+            vertexInput.sType$Default();
             if (desc.inputLayout() != null) {
                 VkVertexInputBindingDescription.Buffer bindingDesc = VkVertexInputBindingDescription.calloc(1, stack);
                 bindingDesc.get(0)

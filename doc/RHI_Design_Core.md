@@ -163,9 +163,10 @@ pass.setUniform("Camera.viewProj", viewProjFloatArray);
 3. **顶点 / 世界坐标**：引擎约定 **y-up 右手系**（建模工具 / 引擎世界一致）；NDC 翻转发生在投影矩阵，不在顶点数据；
 4. **UV**：Vulkan 采样 v 向下（原点左上）；美术资产若按 OpenGL 惯例（原点左下）需在导入时翻转 v（或采样器配置）；
 5. **viewport**：vkCmdSetViewport 的 y 由 Vulkan 约定（左上原点），RHI 直接透传即可，无需额外翻转。
-6. **绕序（winding）**：y 翻转是镜像变换（行列式 < 0），会把所有三角形的**屏幕绕序 CCW ↔ CW 互换**——屏幕绕序只看投影后 2D (x,y) 的带符号面积（z 不参与、x 不变），因此 x/z 无额外影响。**适配方案（推荐 A）**：投影矩阵 y 翻转 + 管线 `frontFace = VK_FRONT_FACE_CLOCKWISE`，顶点资产 / 索引完全不动；备选 B：导入时反转三角形索引顺序（front face 保持 CCW，跨 API 资产统一标准）。**front face 约定引擎全局一致**（不得 Pass 间混用）。
+6. **绕序（winding）**：y 翻转是镜像变换（行列式 < 0），会把所有三角形的**屏幕绕序 CCW ↔ CW 互换**——屏幕绕序只看投影后 2D (x,y) 的带符号面积（z 不参与、x 不变），因此 x/z 无额外影响。**适配方案（推荐 A）**：投影矩阵 y 翻转 + 管线 `frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE`，顶点资产 / 索引完全不动；备选 B：导入时反转三角形索引顺序（front face 保持 CW，跨 API 资产统一标准）。**front face 约定引擎全局一致**（不得 Pass 间混用）。
    - **澄清**：y 翻转只作用于 clip / NDC / 屏幕空间——顶点位置与法线在模型 / 世界 / 视图空间不变（M、V 不翻 y），光照与法线贴图不受影响；z 不参与绕序判定，深度 [0,1] 单独约定（见第 2 条）。
-   - **默认约定（记住这一句）**：资产 / 索引缓冲 = **逆时针（CCW，front）**——建模工具惯例，资产不动；管线 frontFace = **顺时针（CW）**——显式设置，补偿 y 翻转镜像；Vulkan API 默认 frontFace 为 CCW，**不使用默认值**。二者成对出现，是 y 翻转方案的固定搭配。
+   - **实测修正（2026-09-23，TriangleTest）**：CCW 资产（Y 向上）不翻转时在 Vulkan framebuffer（y 向下）中即为 **CW** 绕序（frontFace=CW 可见、CCW 被剔）；y 翻转后变为 **CCW** 绕序，**须配 frontFace=CCW**。本节原配对（翻转 + CW）有误，已按实测修正。
+   - **默认约定（记住这一句）**：资产 / 索引缓冲 = **逆时针（CCW，front）**——建模工具惯例，资产不动；管线 frontFace = **逆时针（CCW）**——y 翻转镜像后 CCW 资产在 framebuffer 恰为 CCW 绕序（实测），与 Vulkan 默认值一致，**仍显式设置**。二者成对出现，是 y 翻转方案的固定搭配。
 
 
 **归属**：本约定是 RHI 全局基线，引擎侧（Camera 投影矩阵生成、资产导入）必须遵守——见 `Engine_Scene_Design.md` 5.2。

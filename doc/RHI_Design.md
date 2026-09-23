@@ -127,7 +127,7 @@ RHI 内部职责：
 
 1. 多相机 Deferred 渲染，**每个相机必须拥有独立 Depth 纹理**，不能共用 DepthBuffer，会出现深度冲突
 2. 同一张纹理被多个 Pass 写入，RHI 自动插入屏障强制串行执行
-3. Vulkan 视口 Y 轴翻转由 RHI 内部封装转换，上层不需要处理 Y 翻转
+3. Vulkan NDC Y 轴向下，画面上下翻转由**投影矩阵**承担（见 RHI_Design_Core.md 161-168 节），RHI 视口直接透传，上层不需要处理视口 Y 翻转
 4. RHICmd 对象不能被上层缓存，仅在回调执行期间有效
 5. RHI 资源不能只靠 Java GC 释放 GPU 资源：上层丢弃引用后由 Cleaner 触发入延迟销毁队列，防止 GPU 资源泄漏（见第 17 节）
 

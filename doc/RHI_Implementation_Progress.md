@@ -1,7 +1,7 @@
 # RHI 实现进度记录
 
-> 版本：v0.5
-> 日期：2026-09-21
+> 版本：v0.6
+> 日期：2026-09-23
 > 对应实现计划：`doc/RHI_Implementation_Plan.md`
 
 ---
@@ -345,9 +345,40 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
    `GLFWNativeWin32.glfwGetWin32Window` 翻译为真 HWND（core 侧翻译，RHI 不依赖 GLFW）；
    `RenderSurface.nativeHandle()` 注释改为"平台原生窗口句柄，勿直接传 GLFW 句柄"。
 
+### 阶段⑥ 第二步：三角形（2026-09-23 验收通过）
+
+新增 `javelin-core/src/test/java/com/javelin/core/TriangleTest.java`：
+
+- **着色器**：GLSL 源码内嵌测试类，运行时经 javelin-tool `ShaderCompiler`（shaderc，此前无人调用）
+  编译为 SPIR-V `byte[]` → `ShaderDesc` → `Device.createGraphicsPipeline`。用户拍板：不走预编译 .spv 资产。
+- **PSO**：`VertexLayout` = pos(R32G32B32_SFLOAT@0) + color(R32G32B32_SFLOAT@12)，stride 24；
+  `colorAttachmentFormats` 取 `swapChain().image(0).desc().format()`；`dynamicStates = {VIEWPORT, SCISSOR}`
+  （仅这两项，`toVkDynamicState` 不支持 1.3 新增项）。
+- **顶点缓冲**：`BufferUsage.VERTEX` + `MemoryPreference.hostVisibleCoherent()` + `UploadData` 一次填充
+  （Buffer 无 staging 路径，hostVisible 是唯一可行路线；staging 留待后续）。
+- **Y 翻转**：用户拍板最终由**投影矩阵**翻转（接入相机时落地）；测试暂用负高度视口 `setViewport(0, h, w, -h, 0, 1)`，
+  二者对绕序影响等价。
+
+**绕序实测结论（2026-09-23，判决性实验）**：CCW 资产（Y 向上）**不翻转**时在 Vulkan framebuffer（y 向下）
+即为 CW 绕序（frontFace=CW 可见）；**翻转后变为 CCW 绕序，须配 frontFace=CCW**。
+设计文档 166-168 行原配对"翻转 + frontFace=CW"**有误**，已修正（RHI_Design_Core.md 推荐 A 改为 CCW，
+RHI_Design.md 130 行"视口翻转由 RHI 封装"改为"投影矩阵翻转、视口透传"）。
+
+**排障记录（首跑不可见，隔离实验四步定位）**：
+1. `cull=none` 仍不可见 → 排除剔除；
+2. `vb=shader`（顶点写死 VS）+ 正高度视口可见 → 锁定顶点缓冲路径；
+3. 负高度视口 + `vb=shader` 可见 → 排除视口翻转；
+4. 回读显存（临时 dump）：float 全为非规格化乱值，字节整体错位 → **根因：`ByteBuffer.allocateDirect()`
+   默认大端，GPU 期望小端**。修复：`.order(ByteOrder.LITTLE_ENDIAN)`。
+   附带修复：`VulkanGraphicsPipeline` 顶点输入结构体漏 `sType$Default()`（规范补全，保留）。
+
+**遗留（待办）**：PSO 创建缺 `VkPipelineRenderingCreateInfo`（pNext 未挂 colorAttachmentFormats，
+当前靠驱动宽容工作）——规范违反，待修。
+
 ### 待办（阶段⑥后续）
-- 三角形（SPIR-V 着色器 + PSO + 顶点缓冲 + 投影 Y 翻转 / frontFace=CW 坐标约定验证）
 - JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入（19 节多相机多物体 Demo 为阶段⑥验收）
+- RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法后，上层不再处理）
+- Buffer staging 上传（deviceLocal 顶点/索引缓冲的前置）
 
 ### 阶段⑥ 前置（已完成，2026-09-21）
 
@@ -381,16 +412,7 @@ core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow
 
 ### 常见陷阱记录
 
-| 陷阱 | 说明 |
-|------|------|
-| `Fence.wait()` 覆盖 `Object.wait()` | 改名为 `await()` |
-| `VK_API_VERSION_1_3` 在 `VK13` 类 | 需 `import static VK13.VK_API_VERSION_1_3` |
-| `VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE` 在 `VK12` 类 | 需 `import static VK12.VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE` |
-| `VkDeviceQueueCreateInfo.queueCount()` 是 getter | 由 `pQueuePriorities.remaining()` 自动设置 |
-| `vkCreateGraphicsPipelines` 需要 `Buffer` 而非单个对象 | 用 `calloc(1, stack)` 创建单元素 Buffer |
-| `vkBeginCommandBuffer` / `vkEndCommandBuffer` / 所有 `vkCmd*` | 第一个参数是 `VkCommandBuffer` 对象，不是 `long`；通过 `new VkCommandBuffer(address, device)` 构造 |
-| `VkSubmitInfo.pCommandBuffers` | 参数是 `PointerBuffer` 不是 `LongBuffer`；用 `stack.mallocPointer(1)` + `.put(0, address)` |
-| `VkSubmitInfo.signalSemaphoreCount(int)` | setter 不存在，由 `pSignalSemaphores.remaining()` 自动推断 |
+> 陷阱已集中迁移至 **`Vulkan_Pitfalls.md`**（含症状→根因→修法→出处与排障方法论），此处不再重复维护。
 | `VkPresentInfoKHR.waitSemaphoreCount(int)` | setter 不存在，由 `pWaitSemaphores.remaining()` 自动推断 |
 | `VkRenderingInfo.colorAttachmentCount(int)` | setter 不存在，由 `pColorAttachments.remaining()` 自动推断 |
 | `VK_INDEX_TYPE_UINT8_EXT` | 在 `VK14` 类（`VK14.VK_INDEX_TYPE_UINT8`），不在 `VK10` |
