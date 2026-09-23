@@ -58,11 +58,11 @@ test {
     useJUnitPlatform()
 }
 
-// 运行测试类（UI 集成测试等）
+// 运行测试类（RHI 渲染验证等，通过 -DmainClass= 指定入口）
 tasks.register('runTest', JavaExec) {
     group = 'application'
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = System.getProperty('mainClass', 'com.javelin.core.ui.UIPanelEngineTest')
+    mainClass = System.getProperty('mainClass', 'com.javelin.core.ClearColorTest')
     jvmArgs = ['--enable-native-access=ALL-UNNAMED']
 }
 
