@@ -6,6 +6,7 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -161,6 +162,35 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             pipelineInfo.layout(pipelineLayoutHandle);
             pipelineInfo.renderPass(VK_NULL_HANDLE); // Dynamic Rendering
             pipelineInfo.subpass(0);
+
+            // dynamic rendering：renderPass 为 NULL 时 pNext 必须挂 VkPipelineRenderingCreateInfo
+            // 声明目标附件格式（规范要求；desc 的 colorAttachmentFormats/depthAttachmentFormat 在此送达驱动）
+            VkPipelineRenderingCreateInfo renderingInfo = VkPipelineRenderingCreateInfo.calloc(stack);
+            renderingInfo.sType$Default();
+            var colorFormats = desc.colorAttachmentFormats();
+            renderingInfo.colorAttachmentCount(colorFormats.size());
+            if (!colorFormats.isEmpty()) {
+                IntBuffer vkFormats = stack.mallocInt(colorFormats.size());
+                for (var f : colorFormats) {
+                    vkFormats.put(VulkanTexture.toVkFormat(f));
+                }
+                vkFormats.flip();
+                renderingInfo.pColorAttachmentFormats(vkFormats);
+            }
+            int depthVkFormat = desc.depthAttachmentFormat() != null
+                    ? VulkanTexture.toVkFormat(desc.depthAttachmentFormat())
+                    : VK_FORMAT_UNDEFINED;
+            renderingInfo.depthAttachmentFormat(depthVkFormat);
+            // 深度模板混合格式（含 stencil 方面）须同时声明 stencil 格式，纯深度格式则 UNDEFINED
+            int stencilVkFormat = VK_FORMAT_UNDEFINED;
+            if (desc.depthAttachmentFormat() != null) {
+                switch (desc.depthAttachmentFormat()) {
+                    case D24_UNORM_S8_UINT, D32_SFLOAT_S8_UINT, S8_UINT -> stencilVkFormat = depthVkFormat;
+                    default -> { }
+                }
+            }
+            renderingInfo.stencilAttachmentFormat(stencilVkFormat);
+            pipelineInfo.pNext(renderingInfo);
 
             LongBuffer pipelineBuf = stack.mallocLong(1);
             int result = vkCreateGraphicsPipelines(device.vkDevice(), pipelineCache,

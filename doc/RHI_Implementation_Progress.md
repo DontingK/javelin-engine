@@ -426,6 +426,21 @@ RHI 侧改动：
 
 已知限制：UBO1 环形为测试内手写（正式版应进 FrameLoop/FrameState，17.3 待做）。
 
+### 阶段⑥ 遗留修复：PSO 挂 VkPipelineRenderingCreateInfo（2026-09-24，待验收）
+
+三角形阶段记录的规范违反修复：`renderPass(VK_NULL_HANDLE)` 走 dynamic rendering 时，
+pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDesc` 的
+`colorAttachmentFormats` / `depthAttachmentFormat` 构建该结构体（此前这两个字段被完全忽略）：
+
+- `pColorAttachmentFormats` 经 `VulkanTexture.toVkFormat` 转换填入
+- 深度模板混合格式（D24S8 / D32S8 / S8）把同一格式同时填进 `stencilAttachmentFormat`，
+  纯深度格式则 UNDEFINED
+- `pipelineInfo.pNext(renderingInfo)` 用 LWJGL 类型化重载（保留既有 pNext 链）；
+  签名经 lwjgl-vulkan 3.4.2 源码核实（pNext 重载 + sType$Default 均存在）
+
+影响面：所有 PSO 创建（TextureTest/PushUniformTest 路径都会走到），预期行为不变
+（此前靠驱动宽容），校验层环境下不再报 VUID。
+
 ### 待办（阶段⑥后续）
 - JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入（19 节多相机多物体 Demo 为阶段⑥验收）
 - RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法后，上层不再处理）

@@ -101,12 +101,15 @@
 - **出处**：A = 2026-09-23 三角形排查中发现的规范违反（非根因，但保留修复）；
   B = 2026-09-24 纹理测试黑屏根因。
 
-### 13. dynamic rendering 必须挂 `VkPipelineRenderingCreateInfo`（遗留未修）
+### 13. dynamic rendering 必须挂 `VkPipelineRenderingCreateInfo`（2026-09-24 已修）
 
 - `renderPass(VK_NULL_HANDLE)` 走 dynamic rendering 时，必须经 pNext 挂
   `VkPipelineRenderingCreateInfo` 声明 `colorAttachmentCount` / `pColorAttachmentFormats` /
-  `depthAttachmentFormat`，否则管线创建信息不完整（当前实现靠驱动宽容工作，属规范违反）。
-- **状态**：已记录待办，修复时机待拍板。
+  `depthAttachmentFormat`，否则管线创建信息不完整（修复前靠驱动宽容工作，属规范违反）。
+- **修法**：从 `GraphicsPipelineDesc.colorAttachmentFormats/depthAttachmentFormat` 构建该结构体，
+  `pipelineInfo.pNext(renderingInfo)`（LWJGL 类型化重载会保留既有 pNext 链）；
+  深度模板混合格式（D24S8/D32S8/S8）须把同一格式同时填进 `stencilAttachmentFormat`。
+- **出处**：2026-09-23 三角形阶段发现、2026-09-24 修复（VulkanGraphicsPipeline）。
 
 ### 14. Y 翻转与绕序（实测结论，2026-09-23）
 
