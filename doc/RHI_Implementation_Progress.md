@@ -15,7 +15,7 @@
 | ③ 资源与描述符 + 管线 | ✅ 骨架完成 | 核心类已创建，部分方法待 Stage 4/5 完善 |
 | ④ RenderGraph 核心 | ✅ 完成 | 声明/编译/屏障计划/图缓存/执行器，编译链路可无 GPU 单测 |
 | ⑤ 呈现与帧执行 | ✅ 骨架完成 | VulkanCommandBuffer/SwapChain/Fence/Semaphore/FrameArena 已创建，帧循环待 Stage 6 收口 |
-| ⑥ 验证与引擎接入 | 🔶 进行中 | 第一步完成（帧循环收口 + 清屏，2026-09-22 端到端验证跑通） |
+| ⑥ 验证与引擎接入 | ✅ 完成 | 帧循环收口 → 清屏/三角形/纹理/UBO1+push 逐级验收 → **引擎接入 MultiCameraDemo 验收通过（2026-09-25），阶段⑥关账** |
 
 ---
 
@@ -426,7 +426,7 @@ RHI 侧改动：
 
 已知限制：UBO1 环形为测试内手写（正式版应进 FrameLoop/FrameState，17.3 待做）。
 
-### 阶段⑥ 遗留修复：PSO 挂 VkPipelineRenderingCreateInfo（2026-09-24，待验收）
+### 阶段⑥ 遗留修复：PSO 挂 VkPipelineRenderingCreateInfo（2026-09-24 修复，2026-09-25 验收确认）
 
 三角形阶段记录的规范违反修复：`renderPass(VK_NULL_HANDLE)` 走 dynamic rendering 时，
 pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDesc` 的
@@ -442,10 +442,13 @@ pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDes
 （此前靠驱动宽容），校验层环境下不再报 VUID。
 
 ### 待办（阶段⑥后续）
-- ~~JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入~~ ✅ 代码已落地（2026-09-24，引擎实现计划阶段①③）：
+- ~~JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入~~ ✅ **验收通过（2026-09-25），RHI 阶段⑥正式关账**：
   `Engine_Rendering_Design.md`/`Engine_RenderPipeline_Design.md` v0.1 先行，RenderingSystem
   （UBO1 帧环形收编 + RenderList 排序，视锥剔除/AABB 属优化点后置）+ v0.1 Forward 管线（双 Pass）+
-  MultiCameraDemo 待用户运行验收——**Demo 验收通过即 RHI 阶段⑥正式关账**
+  MultiCameraDemo（左右分屏双相机 + 3 旋转四边形含 1 透明）用户运行验收无误；
+  同轮顺带复跑确认了 PSO 挂 VkPipelineRenderingCreateInfo 修复（87080e9）。
+  RHI 遗留未清项转入后续计划：Buffer staging 上传、描述符池环形复用（15.8）、
+  backbuffer 槽位身份参与 structureHash、UBO1 环形正式化（已随引擎侧收编落地）等，见引擎实现计划与 RHI 文档待办
 - RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法后，上层不再处理）
 - Buffer staging 上传（deviceLocal 顶点/索引缓冲的前置）
 - 描述符池按「布局 × 帧数」环形复用（15.8 正式方案，替代设备级单池）

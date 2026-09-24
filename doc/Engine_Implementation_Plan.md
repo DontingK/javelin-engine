@@ -3,7 +3,7 @@
 > 版本：v0.1（2026-09-23）
 > 目标：按 `Engine_Design.md` 总纲，把 javelin-core 从"窗口壳"建成可跑场景的引擎，最终消费 RHI 完成多相机渲染 Demo。
 > 规格来源：`doc/Engine_Design.md`（总纲）、`Engine_Scene_Design.md`（v0.1，**待审定**）、`Engine_Window_Design.md`、`Engine_Assets_Design.md`、RHI 设计系列（消费侧契约：9 节 RenderView、19 节多相机、20 节材质实例、27 节帧交接）。
-> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；RHI 六阶段完成至三角形验收（2ea4420）；**阶段①③代码已落地（2026-09-24）：JavelinEngine 接线 RHI 初始化序列 + RenderingSystem/FrameDescription + v0.1 Forward 管线 + MultiCameraDemo，待用户运行验收**；场景层仍为空壳（阶段②，本路线跳过直接注册模式落地渲染层）。
+> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；**RHI 六阶段全部关账（MultiCameraDemo 验收通过，2026-09-25）**；**阶段①③验收通过（2026-09-24 落地、2026-09-25 验收）：JavelinEngine 接线 RHI 初始化序列 + RenderingSystem/FrameDescription + v0.1 Forward 管线 + MultiCameraDemo**；场景层仍为空壳（阶段②，渲染层按拍板以直接注册模式先行落地）。
 
 ## 1. 约束（遵守 AGENTS.md 红线）
 
@@ -36,7 +36,7 @@
 
 ## 3. 阶段明细
 
-### 阶段 ① 引擎接线 RHI（纯搬家，零新设计）——代码已落地，待验收（2026-09-24）
+### 阶段 ① 引擎接线 RHI（纯搬家，零新设计）——✅ 验收通过（2026-09-25）
 
 - **目标**：`JavelinEngine.main` 直接跑起来出画面，替代 TriangleTest 成为验收载体；
 - **产出（已实现）**：
@@ -58,7 +58,7 @@
 - **验收**：场景生命周期纯单测（add/remove/setActive 回调序、脏标记重算正确性）；
 - **对应文档**：`Engine_Scene_Design.md` 1–4 节。
 
-### 阶段 ③ 渲染系统·引擎侧——第一步已落地，待验收（2026-09-24）
+### 阶段 ③ 渲染系统·引擎侧——第一步 ✅ 验收通过（2026-09-25）
 
 - **目标**：场景 → 帧描述 → RHI，多相机 Demo 验收（RHI 阶段⑥终点）；
 - **前置（已完成）**：`Engine_Rendering_Design.md` v0.1（帧描述字段级定义 = 27.2 交接契约落地、RenderingSystem 与 FrameLoop 调用关系、Y 翻转落点、UBO1 收编）+ `Engine_RenderPipeline_Design.md` v0.1（Pass 组织；拍板：文档混合/实现先 Forward、阴影纳入清单后置、后处理只留挂点）；
@@ -70,7 +70,7 @@
   - v0.1 Forward 管线 `DefaultHybridRenderPipeline`：OpaqueForward（区域 CLEAR，分屏互不覆盖）→ TransparentForward（LOAD 叠加、深度复用、alpha 混合）；钩子点 8 个 + PostProcessChain 空链直通；**着色器源码不进 core**（用户拍板 2026-09-25）：GLSL 放 `src/test/resources/shaders/`，`TestShaders`/`RhiTestBase.compileShaderResource` 读资源 + shaderc 编译 SPIR-V 后 installBuiltinShaders；
   - mainLoop 收口：renderFrame(graphFactory) 内 collectFrame（acquire 后声明，24.1）→ 逐视口 buildGraph；
   - `MultiCameraDemo`（test 源）：左右分屏双相机 + 3 旋转四边形（含 1 透明）；运行 `gradlew :javelin-core:runTest -DmainClass=com.javelin.core.MultiCameraDemo`；
-- **验收（待用户运行）**：**19 节多相机多物体 Demo**——分屏区域清屏正确、双相机各自画面、透明混合排序正确、物体不颠倒、resize 不崩；RHI 阶段⑥正式关账；
+- **验收 ✅（2026-09-25 用户运行通过）**：**19 节多相机多物体 Demo**——分屏区域清屏正确、双相机各自画面、透明混合排序正确、物体不颠倒、resize 不崩；**RHI 阶段⑥正式关账**；
 - **后续（路线一第二、三步）**：+ShadowPass/GBuffer/Lighting 切混合（渲染管线专档第 8 节）；后处理链具体化；
 - **对应文档**：`Engine_Scene_Design.md` 5–7 节、`Engine_Rendering_Design.md`（待写）、RHI 9/19/27 节。
 
