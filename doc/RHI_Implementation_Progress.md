@@ -444,7 +444,7 @@ pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDes
 ### 待办（阶段⑥后续）
 - ~~JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入~~ ✅ 代码已落地（2026-09-24，引擎实现计划阶段①③）：
   `Engine_Rendering_Design.md`/`Engine_RenderPipeline_Design.md` v0.1 先行，RenderingSystem
-  （UBO1 帧环形收编 + 视锥剔除 + RenderList 排序）+ v0.1 Forward 管线（双 Pass）+
+  （UBO1 帧环形收编 + RenderList 排序，视锥剔除/AABB 属优化点后置）+ v0.1 Forward 管线（双 Pass）+
   MultiCameraDemo 待用户运行验收——**Demo 验收通过即 RHI 阶段⑥正式关账**
 - RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法后，上层不再处理）
 - Buffer staging 上传（deviceLocal 顶点/索引缓冲的前置）

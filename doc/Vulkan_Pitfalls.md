@@ -1,7 +1,7 @@
 # Vulkan / LWJGL 陷阱记录
 
-> 版本：v1.0
-> 日期：2026-09-23
+> 版本：v1.1
+> 日期：2026-09-25
 > 范围：Javelin Engine 5 RHI 实现过程中实踩的 Vulkan 规范、LWJGL 绑定、GLFW 窗口、Java NIO 陷阱，
 > 以及沉淀下来的 GPU 排障方法论。每条含：症状 → 根因 → 修法 → 出处。
 > 实现进度与排障过程详见 `RHI_Implementation_Progress.md`。
@@ -173,7 +173,24 @@
 
 ---
 
-## 五、排障方法论（沉淀）
+## 五、RHI 命令序约束
+
+### 19. `bindDescriptorSet` 之前必须先 `bindPipeline`（RHI 布局句柄缓存约束）★
+
+- **症状**：运行期 `IllegalStateException: No pipeline bound before bindDescriptorSet`
+  （`VulkanCommandBuffer.bindDescriptorSet`）——Pass 回调里第一行就绑描述符集（如 set0 帧级 UBO）时触发；
+- **根因**：javelin-rhi 的管线布局句柄在 `bindPipeline` 时缓存（`VulkanCommandBuffer`），
+  `bindDescriptorSet` 靠它填 `vkCmdBindDescriptorSets` 的 layout 参数；没绑过 PSO 就没有布局可用。
+  注意这是 **RHI 实现层的约束**，不是 Vulkan 规范本身（Vulkan 只要求 layout 兼容）；
+- **修法**：Pass 回调入口先 `bindPipeline` 再绑描述符集。Pass 声明期不定 PSO、
+  PSO 按物体顶点布局在回调内切换（RHI 12.5-1 模式）时：空绘制列表直接 return
+  （Pass 仍声明，loadOp 清屏不受影响）；非空用首个物体 PSO 建立布局——
+  同一 Pass 内各 PSO 的 set 布局一致时，后续切 PSO 不影响已绑描述符；
+- **出处**：2026-09-25 MultiCameraDemo 首跑，已修（DefaultHybridRenderPipeline 两 Pass 回调）。
+
+---
+
+## 六、排障方法论（沉淀）
 
 1. **隔离实验，一次只改一个变量**：本轮三角形排查的收敛路径——
    `cull=none`（排除剔除）→ `vb=shader` 顶点写死（排除顶点缓冲/输入装配）→

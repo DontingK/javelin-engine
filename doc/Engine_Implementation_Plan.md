@@ -65,7 +65,7 @@
 - **场景系统前置的处理（用户拍板 2026-09-24）**：跳过场景层（Engine_Scene_Design 未审定），RenderingSystem 暴露 addCamera/addRenderer 直接注册 API——阶段②落地时 scene.add 按组件类型自动调用同一套 API，本层不变；
 - **产出（已实现，v0.1 Forward 形态）**：
   - `Camera` 组件 → `RenderCamera`（位姿 + 视口矩形；recalculate 生成视图/投影，**投影接管 Y 翻转**——perspective zZeroToOne + m11 取负，JOML）；
-  - `Mesh` 资产最小实现（Engine_Assets_Design v0.2：per-attribute + 规范序固定 location 表 + 首次上传冻结；hostVisibleCoherent 内存，deviceLocal 待 Buffer staging）+ `VertexAttribute`/`Aabb`；
+  - `Mesh` 资产最小实现（Engine_Assets_Design v0.2：per-attribute + 规范序固定 location 表 + 首次上传冻结；hostVisibleCoherent 内存，deviceLocal 待 Buffer staging；AABB 随视锥剔除一并后置）+ `VertexAttribute`；
   - `RenderingSystem`：注册表 + UBO1 帧环形收编（2 槽 × 1280B，相机块 256B 对齐 + 时间块；描述符 range=256B 防末槽越界）+ 内置无光照 PSO 缓存（VertexLayout×混合 为键）+ 每相机深度纹理（resize 换绑交 Cleaner）+ 每帧收集（opaque 分桶排序 / transparent 视图空间 z 升序；**视锥剔除/AABB 属优化点，用户拍板后置 2026-09-25**）；
   - v0.1 Forward 管线 `DefaultHybridRenderPipeline`：OpaqueForward（区域 CLEAR，分屏互不覆盖）→ TransparentForward（LOAD 叠加、深度复用、alpha 混合）；钩子点 8 个 + PostProcessChain 空链直通；**着色器源码不进 core**（用户拍板 2026-09-25）：GLSL 放 `src/test/resources/shaders/`，`TestShaders`/`RhiTestBase.compileShaderResource` 读资源 + shaderc 编译 SPIR-V 后 installBuiltinShaders；
   - mainLoop 收口：renderFrame(graphFactory) 内 collectFrame（acquire 后声明，24.1）→ 逐视口 buildGraph；
