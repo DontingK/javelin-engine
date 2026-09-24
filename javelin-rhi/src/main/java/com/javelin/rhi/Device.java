@@ -18,6 +18,13 @@ public interface Device extends GPUResource {
     ComputePipeline createComputePipeline(ComputePipelineDesc desc);
     PipelineLayout createPipelineLayout(PipelineLayoutDesc desc);
     DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc);
+
+    /**
+     * 从设备描述符池分配描述符集（15.8 落地简化：单池，设备销毁时整体回收）。
+     * layout 的定义必须与管线创建时 GraphicsPipelineDesc.descriptorSetLayouts 对应项一致（15.7-2）。
+     */
+    DescriptorSet createDescriptorSet(DescriptorSetLayout layout);
+
     ShaderModule createShaderModule(byte[] spirv);
 
     // --- 队列 ---

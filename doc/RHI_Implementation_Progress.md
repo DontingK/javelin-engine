@@ -375,10 +375,62 @@ RHI_Design.md 130 行"视口翻转由 RHI 封装"改为"投影矩阵翻转、视
 **遗留（待办）**：PSO 创建缺 `VkPipelineRenderingCreateInfo`（pNext 未挂 colorAttachmentFormats，
 当前靠驱动宽容工作）——规范违反，待修。
 
+### 阶段⑥ 第三步：纹理采样 + 描述符落地（2026-09-24 验收通过）
+
+新增 `javelin-core/src/test/java/com/javelin/core/TextureTest.java`：`resources/texture.jpeg`
+经 ImageIO 解码（JDK 内置，无新依赖）→ 紧密打包 RGBA → `R8G8B8A8_UNORM` 纹理（staging 上传）
+→ set0/binding0 组合采样器描述符 → 中央四边形（CCW，pos+uv，stride 16）采样显示。
+图片路径：`-Dtexture.path` 优先，否则从工作目录逐级向上找 `resources/texture.jpeg`。
+
+RHI 侧改动（描述符链路此前是空壳：管线布局恒为空、无描述符池、update 视图错误）：
+
+| 文件 | 改动 |
+|------|------|
+| `Device.java` | 新增 `createDescriptorSet(DescriptorSetLayout)`（15.5 示例签名落地，26.1 已同步） |
+| `VulkanDevice.java` | 设备级单描述符池（2048 sets、全类型预算、FREE 标志，随设备销毁）；实现 `createDescriptorSet` |
+| `VulkanGraphicsPipeline.java` | `createPipelineLayout` 按 `desc.descriptorSetLayouts()` 真实创建 VkDescriptorSetLayout 并挂入（管线持有、随管线销毁）；`pushConstantSize > 0` 时挂 ALL_GRAPHICS 范围；dispose 补毁 VkPipelineLayout（原泄漏）与 set 布局 |
+| `VulkanDescriptorSet.java` | update 的 SAMPLED/STORAGE_TEXTURE 改用 `VulkanTexture.ensureView()`（原误把 VkImage 句柄当视图）；STORAGE_TEXTURE 布局改 GENERAL；**补 `descriptorCount(1)`**（原 calloc 零初始化=0，vkUpdateDescriptorSets 按 0 条写入=静默不写，2026-09-24 黑屏根因） |
+| `CleanerRegistry.java` | ResourceType 增加 DESCRIPTOR_POOL |
+
+兼容性说明：管线内部 set 布局与上层 `createDescriptorSetLayout` 创建的布局来自相同
+`DescriptorSetLayoutDesc`，「定义一致」（identically defined），可安全绑定（15.7-2）。
+
+已知限制（本步接受）：
+- 描述符池为设备级单池，未做 15.8 的按「布局 × 帧数」环形复用（留待材质/多 Pass 阶段）
+- `VkPipelineRenderingCreateInfo` 仍未挂（沿用三角形遗留）
+- 上传后纹理实际停在 TRANSFER_DST，而 LayoutTracker 每帧以 UNDEFINED 为初值——屏障
+  oldLayout=UNDEFINED 规范允许（内容不保留语义），验收实测本机驱动正常显示，内容未丢
+
+### 阶段⑥ 第四步：push constants + UBO1 帧环形（2026-09-24 验收通过）
+
+用户拍板 uniform 通道划分（设计文档 15.3 已同步）：**push** = 每物件/每帧高频小量
+（model/tpf）；**set0 UBO1** = 全帧共享、所有材质通用的引擎内置属性（相机/时间/灯光）；
+**set2 UBO2** = 各材质自有参数。动态 UBO 偏移降级为备选（骨骼矩阵等大数据用）。
+
+RHI 侧改动：
+- `CommandBuffer` 新增 `pushConstants(int offset, ByteBuffer data)`（26.4 已同步）：
+  `vkCmdPushConstants`，stageFlags=ALL_GRAPHICS（与管线布局声明一致），
+  管线布局句柄复用 bindPipeline 缓存；pushConstantSize 的管线布局接线是第三步顺带完成的
+
+新增 `PushUniformTest`（`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.PushUniformTest`）：
+
+- **UBO1 帧环形**：单块 hostVisible 缓冲 2 槽 × 256B（= maxFramesInFlight），槽号 =
+  `frameCounter % 2`（与 FrameState 环形同奇偶，槽位复用前有 fence 闸门），set0 声明
+  DYNAMIC_UNIFORM_BUFFER、绑定用动态偏移切槽——2~3 帧 in-flight 下不撕裂。
+  **动态 UBO 偏移路径首个消费者，未实测**
+- **push**：mat4 model + float tpf（std140 打包，声明范围 80B），每物件一条命令
+- **首次引入投影矩阵**：Y 翻转入投影（perspective m[5] 取负）、视口恢复正高度
+  （兑现"翻转放投影矩阵"拍板），frontFace=CCW 结论不变；两个绕 Y 轴旋转的贴图四边形
+- set 编号：Vulkan 管线布局不允许断档，push 替代 set1 后材质贴图挂 **set1**，
+  15.3 的 set2=材质是否重排待材质阶段拍板
+
+已知限制：UBO1 环形为测试内手写（正式版应进 FrameLoop/FrameState，17.3 待做）。
+
 ### 待办（阶段⑥后续）
 - JavelinEngine.mainLoop 接线 FrameLoop、RenderingSystem 接入（19 节多相机多物体 Demo 为阶段⑥验收）
 - RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法后，上层不再处理）
 - Buffer staging 上传（deviceLocal 顶点/索引缓冲的前置）
+- 描述符池按「布局 × 帧数」环形复用（15.8 正式方案，替代设备级单池）
 
 ### 阶段⑥ 前置（已完成，2026-09-21）
 

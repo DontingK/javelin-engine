@@ -7,6 +7,8 @@ import org.lwjgl.vulkan.*;
 
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.lwjgl.vulkan.VK10.*;
 
@@ -21,6 +23,8 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     private final VulkanDevice device;
     private final long pipelineHandle;
     private final long pipelineLayoutHandle;
+    /** 管线布局引用的描述符集布局（按 desc.descriptorSetLayouts 创建，随管线销毁） */
+    private final List<VulkanDescriptorSetLayout> ownedSetLayouts = new ArrayList<>();
     private volatile boolean disposed;
 
     VulkanGraphicsPipeline(VulkanDevice device, GraphicsPipelineDesc desc, long pipelineCache) {
@@ -169,6 +173,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
         }
 
         CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        CleanerRegistry.register(this, device, pipelineLayoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
     }
 
     @Override
@@ -185,7 +190,13 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
         if (disposed) return;
         disposed = true;
         CleanerRegistry.markDisposed(pipelineHandle);
+        CleanerRegistry.markDisposed(pipelineLayoutHandle);
         vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
+        vkDestroyPipelineLayout(device.vkDevice(), pipelineLayoutHandle, null);
+        for (VulkanDescriptorSetLayout setLayout : ownedSetLayouts) {
+            setLayout.dispose();
+        }
+        ownedSetLayouts.clear();
     }
 
     private long createShaderModule(byte[] spirv) {
@@ -194,11 +205,32 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     }
 
     private long createPipelineLayout(GraphicsPipelineDesc desc) {
-        // 简化：创建一个空的 pipeline layout
-        // 实际应该根据 desc.descriptorSetLayouts() 创建
+        // 按 desc.descriptorSetLayouts() 逐个创建 VkDescriptorSetLayout 并挂入管线布局；
+        // 上层用相同 DescriptorSetLayoutDesc 经 createDescriptorSetLayout 创建的布局与之
+        // 「定义一致」（identically defined），可安全用于分配描述符集并绑定（15.7-2）
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkPipelineLayoutCreateInfo layoutInfo = VkPipelineLayoutCreateInfo.calloc(stack);
             layoutInfo.sType$Default();
+
+            List<com.javelin.rhi.desc.DescriptorSetLayoutDesc> setDescs = desc.descriptorSetLayouts();
+            if (!setDescs.isEmpty()) {
+                long[] setLayoutHandles = new long[setDescs.size()];
+                for (int i = 0; i < setDescs.size(); i++) {
+                    VulkanDescriptorSetLayout setLayout = new VulkanDescriptorSetLayout(device, setDescs.get(i));
+                    ownedSetLayouts.add(setLayout);
+                    setLayoutHandles[i] = setLayout.handle();
+                }
+                layoutInfo.pSetLayouts(stack.longs(setLayoutHandles));
+            }
+
+            if (desc.pushConstantSize() > 0) {
+                VkPushConstantRange.Buffer pushRange = VkPushConstantRange.calloc(1, stack);
+                pushRange.get(0)
+                        .stageFlags(VK_SHADER_STAGE_ALL_GRAPHICS)
+                        .offset(0)
+                        .size(desc.pushConstantSize());
+                layoutInfo.pPushConstantRanges(pushRange);
+            }
 
             LongBuffer layoutBuf = stack.mallocLong(1);
             int result = vkCreatePipelineLayout(device.vkDevice(), layoutInfo, null, layoutBuf);

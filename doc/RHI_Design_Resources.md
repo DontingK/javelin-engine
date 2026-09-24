@@ -75,8 +75,15 @@ public class GraphicsPipelineDesc {
 |级别|内容|载体|更新频率|典型 set 号|
 |---|---|---|---|---|
 |帧级|相机 view/proj、时间、光源列表|帧级动态 UBO（每帧一个，如 64KB）|每帧 1 次|set 0|
-|物体级|模型矩阵、骨骼数据|同一 UBO 内的动态偏移（`dynamicOffsets` 切换）|每物体 1 次偏移|set 1|
+|物体级|模型矩阵、骨骼数据|~~同一 UBO 内的动态偏移~~（2026-09-24 起改 push constants，见下）|每物体 1 次偏移|set 1|
 |材质级|贴图、采样器、材质参数|每材质一个 Descriptor Set，跨帧缓存|材质加载时 1 次|set 2|
+
+> **拍板（2026-09-24，用户）**：set1 物体级**高频小数据**（model 矩阵、tpf 等 ≤128B，
+> 上限见 15.6）改用 **push constants**——每物件一条 `vkCmdPushConstants` 命令，
+> 取代动态 UBO 偏移（15.5 的 set1 用法降级为备选，保留给骨骼矩阵等 push 放不下的
+> 每物体大数据）。通道总划分：**push** = 每物件/每帧高频小量；**set0 UBO** = 全帧共享、
+> 所有材质通用的引擎内置属性（相机、时间、灯光列表）；**set2 UBO** = 各材质自有参数 + 贴图。
+> 注意 Vulkan 管线布局不允许 set 断档：set1 取消后材质是否重编号（set1=材质）待材质阶段拍板。
 
 - set 0 / set 1 共享同一块帧级 UBO，物体切换只改 dynamic offset，**不重新绑定缓冲**；
 - set 2 材质描述符集跨帧复用，引擎侧 `MaterialCache` 持有，禁止每帧重建；

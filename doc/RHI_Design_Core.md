@@ -205,7 +205,7 @@ void addDepthOutput(Texture tex, RHILoadOp loadOp, RHIClearValue clearValue);
 
 ### 区域清屏（阶段⑥新增）
 
-Vulkan 的 loadOp 清屏**无视 scissor，始终清整个附件**（细节见 Vulkan_Pitfalls 第 15 条）。
+Vulkan 的 loadOp 清屏**无视 scissor，始终清整个附件**（细节见 Vulkan_Pitfalls 第 16 条）。
 分区域清屏只能由执行器在渲染通道开始后以 `vkCmdClearAttachments` 实现（dynamic rendering
 开启的同样是渲染通道实例，该命令合法；rect 为 framebuffer 坐标、须在 renderArea 内）。
 
@@ -427,6 +427,8 @@ interface Device extends GPUResource {
 
     DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc);
 
+    DescriptorSet createDescriptorSet(DescriptorSetLayout layout);   // 描述符池分配（15.8 落地简化：设备级单池）
+
     ShaderModule     createShaderModule(byte[] spirv);               // 16.2
 
     Queue graphicsQueue(); Queue computeQueue(); Queue transferQueue(); // 24.4
@@ -545,6 +547,8 @@ interface CommandBuffer {   // RHICmd（15 节 / 24.3）
     void bindPipeline(GraphicsPipeline p);
 
     void bindDescriptorSet(int setIndex, DescriptorSet set, int dynamicOffsetCount, int[] dynamicOffsets);
+
+    void pushConstants(int offset, ByteBuffer data);   // model/tpf 等高频小量（布局按 pushConstantSize 声明）
 
     void bindVertexBuffer(Buffer vb, int binding);
 

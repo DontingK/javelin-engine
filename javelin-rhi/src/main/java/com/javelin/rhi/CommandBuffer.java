@@ -58,6 +58,13 @@ public interface CommandBuffer extends GPUResource {
     void bindDescriptorSet(int setIndex, DescriptorSet set,
                            int dynamicOffsetCount, int[] dynamicOffsets);
 
+    /**
+     * 写入 push constants（用户拍板：model 矩阵、tpf 等每物件/每帧高频小量走此通道）。
+     * 管线布局须按 GraphicsPipelineDesc.pushConstantSize 声明覆盖范围（offset + data.remaining() ≤ 声明值）。
+     * 数据为原始字节，由上层按 shader 侧 block 布局（std140）打包。
+     */
+    void pushConstants(int offset, ByteBuffer data);
+
     void bindVertexBuffer(Buffer buffer, int binding);
 
     void bindIndexBuffer(Buffer buffer, IndexType type, int offset);

@@ -53,7 +53,8 @@ public final class CleanerRegistry {
         IMAGE_VIEW,
         SEMAPHORE,
         FENCE,
-        COMMAND_POOL
+        COMMAND_POOL,
+        DESCRIPTOR_POOL
     }
 
     /** 延迟销毁队列条目 */
@@ -111,6 +112,7 @@ public final class CleanerRegistry {
                 case SEMAPHORE -> org.lwjgl.vulkan.VK10.vkDestroySemaphore(task.device.vkDevice(), task.handle, null);
                 case FENCE -> org.lwjgl.vulkan.VK10.vkDestroyFence(task.device.vkDevice(), task.handle, null);
                 case COMMAND_POOL -> org.lwjgl.vulkan.VK10.vkDestroyCommandPool(task.device.vkDevice(), task.handle, null);
+                case DESCRIPTOR_POOL -> org.lwjgl.vulkan.VK10.vkDestroyDescriptorPool(task.device.vkDevice(), task.handle, null);
             }
             // 句柄已真正释放，清理显式销毁登记
             DISPOSED_HANDLES.remove(task.handle);

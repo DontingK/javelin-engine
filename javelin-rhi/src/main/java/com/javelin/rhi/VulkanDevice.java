@@ -29,6 +29,7 @@ final class VulkanDevice implements Device {
     private final Queue transferQueue;
     private final VulkanSurface surface;   // 设备持有的呈现 surface（createSwapChain 复用）
     private final long commandPoolHandle;
+    private final long descriptorPoolHandle;
     private volatile boolean disposed;
 
     VulkanDevice(VulkanInstance instance, VkInstance vkInstance,
@@ -110,9 +111,45 @@ final class VulkanDevice implements Device {
                 throw new VulkanException(result, "Failed to create command pool");
             }
             this.commandPoolHandle = poolBuf.get(0);
+
+            // 描述符池（15 节落地简化：单池 + FREE 标志，设备销毁时整体回收；
+            // 15.8 的按「布局 × 帧数」环形池留待材质/多 Pass 阶段）
+            int[][] poolTypeCounts = {
+                    {VK_DESCRIPTOR_TYPE_SAMPLER, 512},
+                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024},
+                    {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 512},
+                    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 512},
+                    {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 256},
+                    {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 256},
+                    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024},
+                    {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1024},
+                    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 256},
+                    {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 256},
+                    {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 256},
+            };
+            VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(poolTypeCounts.length, stack);
+            for (int i = 0; i < poolTypeCounts.length; i++) {
+                poolSizes.get(i)
+                        .type(poolTypeCounts[i][0])
+                        .descriptorCount(poolTypeCounts[i][1]);
+            }
+
+            VkDescriptorPoolCreateInfo descriptorPoolInfo = VkDescriptorPoolCreateInfo.calloc(stack);
+            descriptorPoolInfo.sType$Default();
+            descriptorPoolInfo.flags(VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+            descriptorPoolInfo.maxSets(2048);
+            descriptorPoolInfo.pPoolSizes(poolSizes);
+
+            LongBuffer descriptorPoolBuf = stack.mallocLong(1);
+            result = vkCreateDescriptorPool(device, descriptorPoolInfo, null, descriptorPoolBuf);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to create descriptor pool");
+            }
+            this.descriptorPoolHandle = descriptorPoolBuf.get(0);
         }
 
         CleanerRegistry.register(this, this, commandPoolHandle, CleanerRegistry.ResourceType.COMMAND_POOL);
+        CleanerRegistry.register(this, this, descriptorPoolHandle, CleanerRegistry.ResourceType.DESCRIPTOR_POOL);
     }
 
     @Override
@@ -163,6 +200,27 @@ final class VulkanDevice implements Device {
     public DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc) {
         checkDisposed();
         return new VulkanDescriptorSetLayout(this, desc);
+    }
+
+    @Override
+    public DescriptorSet createDescriptorSet(DescriptorSetLayout layout) {
+        checkDisposed();
+        if (layout == null) {
+            throw new IllegalArgumentException("DescriptorSetLayout must not be null");
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDescriptorSetAllocateInfo allocInfo = VkDescriptorSetAllocateInfo.calloc(stack);
+            allocInfo.sType$Default();
+            allocInfo.descriptorPool(descriptorPoolHandle);
+            allocInfo.pSetLayouts(stack.longs(layout.handle()));
+
+            LongBuffer setBuf = stack.mallocLong(1);
+            int result = vkAllocateDescriptorSets(device, allocInfo, setBuf);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to allocate descriptor set");
+            }
+            return new VulkanDescriptorSet(this, setBuf.get(0));
+        }
     }
 
     @Override
@@ -325,7 +383,9 @@ final class VulkanDevice implements Device {
         if (disposed) return;
         disposed = true;
         CleanerRegistry.markDisposed(commandPoolHandle);
+        CleanerRegistry.markDisposed(descriptorPoolHandle);
         vkDestroyCommandPool(device, commandPoolHandle, null);
+        vkDestroyDescriptorPool(device, descriptorPoolHandle, null);
         vkDestroyDevice(device, null);
         // VkSurfaceKHR 由实例层创建，须在设备销毁后释放
         if (surface != null) {

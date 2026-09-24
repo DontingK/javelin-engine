@@ -72,28 +72,43 @@
 
 - RHI 的 `Fence.wait()` 与 `Object.wait()` 冲突，本项目决策改名 `await()`。
 
+### 11. `vkAllocateDescriptorSets` 输出参数是 `LongBuffer`/`long[]`，不是 `PointerBuffer`
+
+- **症状**：`vkAllocateDescriptorSets(device, allocInfo, pointerBuffer)` 编译错误：
+  找不到合适的方法（`PointerBuffer` 无法转换为 `long[]`/`LongBuffer`）。
+- **根因**：VkDescriptorSet 是**非调度句柄**，LWJGL 输出参数用 `LongBuffer`/`long[]`；
+  只有**调度句柄**（VkCommandBuffer / VkQueue / VkDevice 等）才用 `PointerBuffer`。
+- **修法**：`LongBuffer setBuf = stack.mallocLong(1); vkAllocateDescriptorSets(device, allocInfo, setBuf);`
+- **出处**：2026-09-24 描述符池落地首编译报错（签名以编译器错误提示为准）。
+
 ---
 
 ## 三、Vulkan 规范
 
-### 11. `VkPipelineVertexInputStateCreateInfo` 漏 `sType$Default()` ★静默失败
+### 12. `calloc` 结构体漏设字段：sType / descriptorCount 零初始化 ★静默失败
 
-- **症状**：顶点输入声明（binding/stride/attribute）不生效，**无任何报错**（无校验层时），
+- **症状 A（sType）**：顶点输入声明（binding/stride/attribute）不生效，**无任何报错**（无校验层时），
   顶点 fetch 到垃圾数据，图形静默不可见。
-- **根因**：`calloc` 零初始化后 sType = 0，不是合法的
+- **根因 A**：`calloc` 零初始化后 sType = 0，不是合法的
   `VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO`，驱动解析行为未定义。
-- **修法**：所有 `Vk*CreateInfo` 组装后逐一检查 `sType$Default()`——
-  同方法里其他结构体都设了、唯独漏一个是本坑的高发形态。
-- **出处**：2026-09-23 三角形排查中发现的规范违反（非根因，但保留修复）。
+- **症状 B（descriptorCount，2026-09-24 纹理黑屏根因）**：`VkWriteDescriptorSet` 只设了
+  dstSet/dstBinding/descriptorType/pImageInfo，漏 `descriptorCount` → calloc 后为 0 →
+  `vkUpdateDescriptorSets` 按 **0 条**写入 = **静默不写**，描述符集保持空，
+  shader 采样返回黑色，无任何报错。
+- **修法**：`calloc` 结构体凡是有 count 的字段（descriptorCount / stageCount 等）都要显式设置；
+  只有 `pXxx(Buffer)` 数组指针 setter 会自动带 count（见第 7 条）。sType 则靠
+  同方法内其他结构体都设了、唯独漏一个的对比排查。
+- **出处**：A = 2026-09-23 三角形排查中发现的规范违反（非根因，但保留修复）；
+  B = 2026-09-24 纹理测试黑屏根因。
 
-### 12. dynamic rendering 必须挂 `VkPipelineRenderingCreateInfo`（遗留未修）
+### 13. dynamic rendering 必须挂 `VkPipelineRenderingCreateInfo`（遗留未修）
 
 - `renderPass(VK_NULL_HANDLE)` 走 dynamic rendering 时，必须经 pNext 挂
   `VkPipelineRenderingCreateInfo` 声明 `colorAttachmentCount` / `pColorAttachmentFormats` /
   `depthAttachmentFormat`，否则管线创建信息不完整（当前实现靠驱动宽容工作，属规范违反）。
 - **状态**：已记录待办，修复时机待拍板。
 
-### 13. Y 翻转与绕序（实测结论，2026-09-23）
+### 14. Y 翻转与绕序（实测结论，2026-09-23）
 
 - Vulkan NDC **Y 向下**、深度 **[0, 1]**（完整约定见 `RHI_Design_Core.md` 161-168 节）；
 - **不翻转**时，CCW 资产（Y 向上书写）在 framebuffer（Y 向下）中即 **CW** 绕序
@@ -102,7 +117,7 @@
   **须配 `frontFace = CCW`**；
 - 引擎最终约定：**投影矩阵翻转 + frontFace=CCW**（用户拍板：翻转放投影矩阵，视口透传）。
 
-### 14. 视口 y 与高度符号必须配对
+### 15. 视口 y 与高度符号必须配对
 
 - `RHIViewport(0, h, w, h)`（y=h 且正高度）把 NDC 映射到 y ∈ [h, 2h]，
   几何整体被推出屏幕裁剪掉，与绕序/剔除无关；
@@ -111,7 +126,7 @@
 
 ---
 
-### 15. loadOp 清屏无视 scissor：区域清屏必须 `vkCmdClearAttachments` ★设计级
+### 16. loadOp 清屏无视 scissor：区域清屏必须 `vkCmdClearAttachments` ★设计级
 
 - **症状**：多视口/分屏场景给每个 pass 设不同 `setScissor` + `CLEAR` loadOp，
   预期各区域不同清屏色，实际只有最后声明的颜色全屏生效（前一个区域被后一个清掉）；
@@ -133,7 +148,7 @@
 
 ## 四、GLFW / 窗口
 
-### 16. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
+### 17. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
 
 - **症状**：手写 `vkCreateWin32SurfaceKHR` 后，`vkGetPhysicalDeviceSurfaceCapabilitiesKHR`
   报 `VK_ERROR_SURFACE_LOST_KHR`（-1000000000）；但 surface 创建、formats/present 查询
@@ -147,7 +162,7 @@
   `glfwGetWindowAttrib(handle, GLFW_VISIBLE = 0x20004)` 可核对 GLFW 侧可见性。
 - **出处**：2026-09-22 清屏排障第三障。
 
-### 17. 校验层缺失降级
+### 18. 校验层缺失降级
 
 - debug 模式请求 `VK_LAYER_KHRONOS_validation` 而本机未装 Vulkan SDK 时，
   `VulkanInstance` 先 `vkEnumerateInstanceLayerProperties` 存在性检查，缺失则 warn 降级继续

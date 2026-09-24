@@ -9,6 +9,7 @@ import com.javelin.rhi.desc.TextureDesc;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
+import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.List;
@@ -344,6 +345,21 @@ final class VulkanCommandBuffer implements CommandBuffer {
                     setIndex, sets,
                     offsets);
         }
+    }
+
+    @Override
+    public void pushConstants(int offset, ByteBuffer data) {
+        checkRecording();
+        if (data == null || data.remaining() == 0) {
+            throw new IllegalArgumentException("Push constant data must not be null or empty");
+        }
+        long layout = currentPipelineLayout;
+        if (layout == VK_NULL_HANDLE) {
+            throw new IllegalStateException("No pipeline bound before pushConstants");
+        }
+        // 阶段标志与管线布局声明一致（VulkanGraphicsPipeline 用 ALL_GRAPHICS 声明范围）
+        vkCmdPushConstants(vkCommandBuffer, layout, VK_SHADER_STAGE_ALL_GRAPHICS,
+                offset, data);
     }
 
     @Override

@@ -35,6 +35,9 @@ final class VulkanDescriptorSet implements DescriptorSet {
                 write.dstSet(setHandle);
                 write.dstBinding(update.binding());
                 write.descriptorType(toVkDescriptorType(update.type()));
+                // DescriptorUpdate 各工厂方法均为单描述符更新；calloc 零初始化下不设就是 0，
+                // vkUpdateDescriptorSets 会按 0 条写入（等于静默不写，VUID 亦要求 >0）
+                write.descriptorCount(1);
 
                 switch (update.type()) {
                     case UNIFORM_BUFFER, DYNAMIC_UNIFORM_BUFFER, STORAGE_BUFFER -> {
@@ -46,11 +49,17 @@ final class VulkanDescriptorSet implements DescriptorSet {
                         write.pBufferInfo(bufInfo);
                     }
                     case SAMPLED_TEXTURE, STORAGE_TEXTURE -> {
+                        // 描述符要的是 VkImageView（Texture.handle() 是 VkImage，须经 ensureView 取默认视图）
+                        long imageView = update.texture() instanceof VulkanTexture vkTex
+                                ? vkTex.ensureView()
+                                : update.texture().handle();
                         VkDescriptorImageInfo.Buffer imgInfo = VkDescriptorImageInfo.calloc(1, stack);
                         imgInfo.get(0)
                                 .sampler(update.sampler() != null ? update.sampler().handle() : VK_NULL_HANDLE)
-                                .imageView(update.texture().handle())
-                                .imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                .imageView(imageView)
+                                .imageLayout(update.type() == DescriptorUpdate.Type.STORAGE_TEXTURE
+                                        ? VK_IMAGE_LAYOUT_GENERAL
+                                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                         write.pImageInfo(imgInfo);
                     }
                     case SAMPLER -> {
