@@ -105,6 +105,17 @@ public abstract class RhiTestBase {
         }
     }
 
+    /**
+     * 编译 test resources 下的着色器资源为 SPIR-V（着色器源码不进 core 主代码，
+     * 统一放 {@code src/test/resources/shaders/}，经 {@link TestShaders} 读取 + 编译）。
+     *
+     * @param resourcePath classpath 路径，如 {@code "shaders/builtin_quad.vert"}
+     */
+    protected byte[] compileShaderResource(String resourcePath,
+                                           com.javelin.tool.shaderc.ShaderStage stage) {
+        return TestShaders.compileResource(resourcePath, stage);
+    }
+
     private RenderGraphBuilder buildGraph(Texture backbuffer) {
         RenderGraphBuilder graph = RHI.beginRenderGraph();
         buildPasses(graph, backbuffer);

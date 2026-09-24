@@ -50,9 +50,9 @@
 
 - **职责**：把场景变成 RHI 的输入——RenderingSystem 注册表（renderers/cameras/lights）、每帧收集（脏标记更新、视锥剔除、每相机 RenderList 排序）、**帧描述组装**（图声明 + 场景快照 + 各相机 RenderList，对齐 RHI 27.2）；引擎侧渲染管线/Pass 的高层组织（哪些 Pass、什么顺序，RHI RenderGraph 负责具体执行）。
 - **现状**：全缺（RenderingSystem/FrameDescription/Pass 组织均无实现）；RHI 接收端（FrameLoop/RenderView/RenderGraph）已就绪。
-- **待写专档**（本方向信息密度最高，建议拆两档）：
-  - `Engine_Rendering_Design.md`：RenderingSystem、帧描述结构（字段级定义——这是逻辑线程与渲染线程的交接契约）、与 RHI FrameLoop 的调用关系、Y 翻转落点（投影矩阵，已拍板）。
-  - `Engine_RenderPipeline_Design.md`：引擎侧 Pass 组织（前向管线先行的 Pass 清单：阴影/不透明/透明/后处理/UI 的取舍与扩展点）。
+- **待写专档**（本方向信息密度最高，拆两档）：
+  - `Engine_Rendering_Design.md`：**已有 v0.1**——RenderingSystem、帧描述结构（FrameDescription 字段级定义，27.2 交接契约落地）、与 RHI FrameLoop 的调用关系（v0.1 单线程退化）、Y 翻转落点（投影矩阵，已拍板）、UBO1 收编。
+  - `Engine_RenderPipeline_Design.md`：**已有 v0.1**——引擎侧 Pass 组织（默认混合管线完整设计 + v0.1 先 Forward 的落地路线；阴影纳入清单实现后置；后处理链式挂点细节占位；视图级资源规划、钩子点、uniform 通道约定）。
 
 ### 2.6 材质系统
 
@@ -98,8 +98,8 @@
 | `Engine_Scene_Design.md` | 已有 v0.1，**待审定** |
 | `Engine_Assets_Design.md` | 已有 |
 | `Engine_Subsystem_Design.md` | 待写 |
-| `Engine_Rendering_Design.md`（帧描述/RenderingSystem） | 待写 |
-| `Engine_RenderPipeline_Design.md`（Pass 组织） | 待写 |
+| `Engine_Rendering_Design.md`（帧描述/RenderingSystem） | 已有 v0.1 |
+| `Engine_RenderPipeline_Design.md`（Pass 组织） | 已有 v0.1 |
 | `Engine_Material_Design.md` | 待写 |
 | 输入 / 物理 / 音频 | 方向确认后待写 |
 

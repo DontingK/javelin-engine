@@ -3,7 +3,7 @@
 > 版本：v0.1（2026-09-23）
 > 目标：按 `Engine_Design.md` 总纲，把 javelin-core 从"窗口壳"建成可跑场景的引擎，最终消费 RHI 完成多相机渲染 Demo。
 > 规格来源：`doc/Engine_Design.md`（总纲）、`Engine_Scene_Design.md`（v0.1，**待审定**）、`Engine_Window_Design.md`、`Engine_Assets_Design.md`、RHI 设计系列（消费侧契约：9 节 RenderView、19 节多相机、20 节材质实例、27 节帧交接）。
-> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；RHI 六阶段完成至三角形验收（2ea4420），**RHI 初始化序列只存在于测试类**；场景层为空壳。
+> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；RHI 六阶段完成至三角形验收（2ea4420）；**阶段①③代码已落地（2026-09-24）：JavelinEngine 接线 RHI 初始化序列 + RenderingSystem/FrameDescription + v0.1 Forward 管线 + MultiCameraDemo，待用户运行验收**；场景层仍为空壳（阶段②，本路线跳过直接注册模式落地渲染层）。
 
 ## 1. 约束（遵守 AGENTS.md 红线）
 
@@ -36,14 +36,14 @@
 
 ## 3. 阶段明细
 
-### 阶段 ① 引擎接线 RHI（纯搬家，零新设计）
+### 阶段 ① 引擎接线 RHI（纯搬家，零新设计）——代码已落地，待验收（2026-09-24）
 
 - **目标**：`JavelinEngine.main` 直接跑起来出画面，替代 TriangleTest 成为验收载体；
-- **产出**：
-  - JavelinEngine 持有 RHI 初始化序列：`RHI.createInstance` → `createDevice` → `new FrameLoop`（graphFactory 先手工塞清屏/三角形图）；
-  - `initialize()` 扩展 + **shutdown 逆序契约**：frameLoop.close（内部 waitIdle）→ device → instance → window（finally 链）；
-  - mainLoop 形态对齐 27.1 单线程退化：pollEvents → Time.update → update() → frameLoop.renderFrame；
-- **验收**：`JavelinEngine.main` 窗口出三角形（用户运行）；关闭窗口无 Vulkan 验证层报错；
+- **产出（已实现）**：
+  - JavelinEngine 持有 RHI 初始化序列：`RHI.createInstance` → `createDevice` → `new FrameLoop`，工厂可覆盖（createInstanceConfig/createDevicePrefs/createSwapChainDesc/createFrameLoop）；
+  - `initialize()` 扩展 + **shutdown 逆序**：frameLoop.close（内部 waitIdle）→ renderingSystem.close → device → instance → window（finally 链）；
+  - mainLoop 形态对齐 27.1 单线程退化：pollEvents → Time.update → update() → frameLoop.renderFrame；无渲染系统时 graphFactory 回退纯清屏（默认 main 出画面）；
+- **验收**：`JavelinEngine.main` 窗口出清屏（用户运行）；关闭窗口无 Vulkan 验证层报错；
 - **对应文档**：27.1、`Engine_Window_Design.md`。
 
 ### 阶段 ② 场景系统实现（先审定 Engine_Scene_Design v0.1）
@@ -58,17 +58,20 @@
 - **验收**：场景生命周期纯单测（add/remove/setActive 回调序、脏标记重算正确性）；
 - **对应文档**：`Engine_Scene_Design.md` 1–4 节。
 
-### 阶段 ③ 渲染系统·引擎侧（本路线核心，含设计文档先行）
+### 阶段 ③ 渲染系统·引擎侧——第一步已落地，待验收（2026-09-24）
 
 - **目标**：场景 → 帧描述 → RHI，多相机 Demo 验收（RHI 阶段⑥终点）；
-- **前置**：**先写 `Engine_Rendering_Design.md`**——帧描述字段级定义（FrameDescription = 图声明 + 场景快照 + 各相机 RenderList，形状由 `FrameLoop.renderFrame` 入参反推；这是逻辑线程→渲染线程的交接契约）+ RenderingSystem 与 FrameLoop 调用关系 + **Y 翻转落点（投影矩阵，已拍板）**；
-- **产出**：
-  - `Camera` 组件（fov/near/far/isMain）→ 引擎内部生成 RHI `RenderView`（视图/投影矩阵按 Vulkan NDC 约定生成，**投影矩阵接管 Y 翻转**；测试里的负高度视口届时删除）；
-  - `MeshRenderer` 组件（mesh 资产引用 + material）/ `Light` 组件；
-  - `RenderingSystem`：注册表（scene.add 时按类型登记，O(1) 注销）+ 每帧收集（脏标记更新 → 每相机视锥剔除 → RenderList 排序：opaque 按材质、transparent 由远及近）+ 帧描述组装；
-  - mainLoop 收口：update() → RenderingSystem 收集 → frameLoop.renderFrame（帧描述）；
-  - 视口恢复正高度；
-- **验收**：**19 节多相机多物体 Demo**（多相机各出各的画面、物体不颠倒、剔除正确）；RHI 阶段⑥正式关账；
+- **前置（已完成）**：`Engine_Rendering_Design.md` v0.1（帧描述字段级定义 = 27.2 交接契约落地、RenderingSystem 与 FrameLoop 调用关系、Y 翻转落点、UBO1 收编）+ `Engine_RenderPipeline_Design.md` v0.1（Pass 组织；拍板：文档混合/实现先 Forward、阴影纳入清单后置、后处理只留挂点）；
+- **场景系统前置的处理（用户拍板 2026-09-24）**：跳过场景层（Engine_Scene_Design 未审定），RenderingSystem 暴露 addCamera/addRenderer 直接注册 API——阶段②落地时 scene.add 按组件类型自动调用同一套 API，本层不变；
+- **产出（已实现，v0.1 Forward 形态）**：
+  - `Camera` 组件 → `RenderCamera`（位姿 + 视口矩形；recalculate 生成视图/投影，**投影接管 Y 翻转**——perspective zZeroToOne + m11 取负，JOML）；
+  - `Mesh` 资产最小实现（Engine_Assets_Design v0.2：per-attribute + 规范序固定 location 表 + 首次上传冻结；hostVisibleCoherent 内存，deviceLocal 待 Buffer staging）+ `VertexAttribute`/`Aabb`；
+  - `RenderingSystem`：注册表 + UBO1 帧环形收编（2 槽 × 1280B，相机块 256B 对齐 + 时间块；描述符 range=256B 防末槽越界）+ 内置无光照 PSO 缓存（VertexLayout×混合 为键）+ 每相机深度纹理（resize 换绑交 Cleaner）+ 每帧收集（opaque 分桶排序 / transparent 视图空间 z 升序；**视锥剔除/AABB 属优化点，用户拍板后置 2026-09-25**）；
+  - v0.1 Forward 管线 `DefaultHybridRenderPipeline`：OpaqueForward（区域 CLEAR，分屏互不覆盖）→ TransparentForward（LOAD 叠加、深度复用、alpha 混合）；钩子点 8 个 + PostProcessChain 空链直通；**着色器源码不进 core**（用户拍板 2026-09-25）：GLSL 放 `src/test/resources/shaders/`，`TestShaders`/`RhiTestBase.compileShaderResource` 读资源 + shaderc 编译 SPIR-V 后 installBuiltinShaders；
+  - mainLoop 收口：renderFrame(graphFactory) 内 collectFrame（acquire 后声明，24.1）→ 逐视口 buildGraph；
+  - `MultiCameraDemo`（test 源）：左右分屏双相机 + 3 旋转四边形（含 1 透明）；运行 `gradlew :javelin-core:runTest -DmainClass=com.javelin.core.MultiCameraDemo`；
+- **验收（待用户运行）**：**19 节多相机多物体 Demo**——分屏区域清屏正确、双相机各自画面、透明混合排序正确、物体不颠倒、resize 不崩；RHI 阶段⑥正式关账；
+- **后续（路线一第二、三步）**：+ShadowPass/GBuffer/Lighting 切混合（渲染管线专档第 8 节）；后处理链具体化；
 - **对应文档**：`Engine_Scene_Design.md` 5–7 节、`Engine_Rendering_Design.md`（待写）、RHI 9/19/27 节。
 
 ### 阶段 ④ 材质系统
@@ -120,11 +123,11 @@
 | 项 | 现状 | 建议 |
 |---|---|---|
 | `Engine_Scene_Design.md` 审定 | v0.1，标注"可能由 AI 生成" | **阶段 ② 前置**，逐节过一遍 |
-| 帧描述字段级定义 | 只有一句话方向 | 阶段 ③ 前写 `Engine_Rendering_Design.md`，从 FrameLoop.renderFrame 入参反推 |
+| 帧描述字段级定义 | 只有一句话方向 | ✅ 已定（2026-09-24，`Engine_Rendering_Design.md` v0.1） |
 | `.mat` 格式 | 未定 | 阶段 ④ 前写 `Engine_Material_Design.md`，与 `.scene` 格式统筹 |
-| PSO 修复时机 | 已报告未修 | 阶段 ③ 前（§4） |
+| PSO 修复时机 | 已报告未修 | ✅ 已修（87080e9，随本次一并复跑确认） |
 | 物理 / 音频选型 | 未定 | 阶段 ⑥ 前拍板即可，不阻塞主线 |
-| `JavelinSetting.vsync` 消费方 | 无 | 阶段 ③ 接 FrameLoop 时定（present 模式） |
+| `JavelinSetting.vsync` 消费方 | 无 | ✅ 已定（2026-09-24：vsync→FIFO，!vsync→IMMEDIATE，createSwapChainDesc） |
 | `update()` / `onInitialize()` 钩子去留 | 现为 protected 空钩子 | 阶段 ② 后随用户类形态再定 |
 
 ## 7. 文档对照索引
@@ -133,7 +136,7 @@
 |---|---|
 | ① 接线 RHI | `Engine_Design.md` §2.1、RHI 27.1、Window 专档 |
 | ② 场景系统 | `Engine_Scene_Design.md` 1–4 节 |
-| ③ 渲染系统 | `Engine_Rendering_Design.md`（待写）、Scene 5–7 节、RHI 9/19/27 |
+| ③ 渲染系统 | `Engine_Rendering_Design.md` v0.1、Scene 5–7 节、RHI 9/19/27 |
 | ④ 材质系统 | `Engine_Material_Design.md`（待写）、RHI 20 |
 | ⑤ 子系统+输入 | `Engine_Subsystem_Design.md`（待写） |
 | ⑥ 物理/音频 | 各自专档（待写） |
