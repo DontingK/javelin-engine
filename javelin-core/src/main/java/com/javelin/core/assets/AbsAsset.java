@@ -1,5 +1,6 @@
 package com.javelin.core.assets;
 
+import com.javelin.core.obj.ObjectId;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 
@@ -7,7 +8,7 @@ import com.javelin.core.serialize.OutputCapsule;
 /**
  * guid资源
  */
-public class AbsAsset implements Asset {
+public class AbsAsset extends ObjectId implements Asset {
     private String guid;
     private long lastModified;
 
