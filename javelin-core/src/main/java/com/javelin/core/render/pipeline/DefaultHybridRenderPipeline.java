@@ -2,6 +2,7 @@ package com.javelin.core.render.pipeline;
 
 import com.javelin.core.render.FrameDescription;
 import com.javelin.core.render.RenderObject;
+import com.javelin.core.render.mesh.MeshDraw;
 import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
 import com.javelin.rhi.CommandBuffer;
@@ -140,8 +141,7 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
     private void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro,
                             float tpf, boolean blend) {
         cmd.bindPipeline(rs.pipelineFor(ro.mesh().layout(), blend));
-        cmd.bindVertexBuffer(ro.mesh().vertexBuffer(), 0);
-        cmd.bindIndexBuffer(ro.mesh().indexBuffer(), ro.mesh().indexType(), 0);
+        MeshDraw.bindBuffers(cmd, ro.mesh());
         cmd.bindDescriptorSet(1, rs.textureSet(ro.texture()), 0, null);
         pushData.clear();
         for (float v : ro.world().get(worldTmp)) {
@@ -151,7 +151,7 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
         pushData.limit(RenderingSystem.PUSH_TPF_OFFSET + Float.BYTES);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
-        cmd.drawIndexed(ro.mesh().indexCount(), 1);
+        MeshDraw.drawIndexed(cmd, ro.mesh());
     }
 
     /** 视口矩形小于终点附件 = 分屏/预览视口，需要区域清屏 */

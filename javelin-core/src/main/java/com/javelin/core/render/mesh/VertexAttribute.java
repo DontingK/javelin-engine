@@ -1,4 +1,4 @@
-package com.javelin.core.assets;
+package com.javelin.core.render.mesh;
 
 import com.javelin.rhi.types.Format;
 
@@ -20,7 +20,7 @@ public final class VertexAttribute {
     public static final VertexAttribute COLOR = new VertexAttribute("COLOR", 4, Format.R32G32B32A32_SFLOAT);
 
     /** 规范序（固定）：location = 在已填属性集合中的规范序索引（2.4） */
-    static final VertexAttribute[] BUILTIN_ORDER = {
+    public static final VertexAttribute[] BUILTIN_ORDER = {
             POSITION, NORMAL, TANGENT, UV0, COLOR
     };
 

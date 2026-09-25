@@ -1,7 +1,8 @@
 package com.javelin.core.render;
 
 import com.javelin.core.Time;
-import com.javelin.core.assets.Mesh;
+import com.javelin.core.render.mesh.MeshUpload;
+import com.javelin.core.render.texture.TextureLoader;
 import com.javelin.rhi.Buffer;
 import com.javelin.rhi.DescriptorSet;
 import com.javelin.rhi.DescriptorSetLayout;
@@ -165,7 +166,7 @@ public final class RenderingSystem implements AutoCloseable {
         if (object == null) {
             throw new IllegalArgumentException("object must not be null");
         }
-        object.mesh().upload(device);
+        MeshUpload.upload(device, object.mesh());
         textureSet(object.texture());
         renderers.add(object);
     }

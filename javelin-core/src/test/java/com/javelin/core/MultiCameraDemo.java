@@ -1,10 +1,10 @@
 package com.javelin.core;
 
-import com.javelin.core.assets.Mesh;
+import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.RenderCamera;
 import com.javelin.core.render.RenderObject;
 import com.javelin.core.render.RenderingSystem;
-import com.javelin.core.render.TextureLoader;
+import com.javelin.core.render.texture.TextureLoader;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.rhi.Texture;
 import com.javelin.tool.shaderc.ShaderStage;

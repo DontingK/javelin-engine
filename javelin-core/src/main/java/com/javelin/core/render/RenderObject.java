@@ -1,6 +1,6 @@
 package com.javelin.core.render;
 
-import com.javelin.core.assets.Mesh;
+import com.javelin.core.render.mesh.Mesh;
 import com.javelin.rhi.Texture;
 import org.joml.Matrix4f;
 
