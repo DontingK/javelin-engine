@@ -43,7 +43,7 @@ public abstract class CefFrame extends JFrame  {
 
     @Override
     public void dispose() {
-        logger.info("cefBrowser close");
+        logger.info("cefBrowser close:{}",this.getClass());
         cefBrowser.close(true);
         super.dispose();
     }

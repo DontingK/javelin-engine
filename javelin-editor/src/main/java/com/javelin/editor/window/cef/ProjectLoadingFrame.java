@@ -1,6 +1,7 @@
 package com.javelin.editor.window.cef;
 
 import com.javelin.core.settings.JavelinSetting;
+import com.javelin.editor.EditorApp;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
 import com.javelin.editor.asset.ProjectAssetLibManager;
 import com.javelin.editor.importer.AssetImportPipeline;
@@ -29,7 +30,7 @@ public class ProjectLoadingFrame extends CefFrame {
     }
 
     private void intAsset(File projectDir) {
-        ThreadUtil.run("init-project", () -> {
+        ThreadUtil.run("Engine Main", () -> {
             try {
                 GradleProject gradleProject = new GradleProject(projectDir);
                 MetaManager metaManager = new MetaManager(gradleProject);
@@ -43,7 +44,10 @@ public class ProjectLoadingFrame extends CefFrame {
                 ThreadUtil.sleep(2000);
 
                 SwingUtilities.invokeAndWait((Runnable) () -> getInstance().dispose());
+                JavelinSetting setting = new JavelinSetting();
 
+                EditorApp editorApp = new EditorApp(setting, metaManager, assetManager, assetImportPipeline, builtinAssetReleaser);
+                editorApp.start();
 
             } catch (Exception ex) {
                 log.error(ex.getMessage(), ex);

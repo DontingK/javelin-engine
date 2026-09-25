@@ -18,7 +18,7 @@ public interface Window {
     void create();
 
     /** 显示窗口（未创建时先创建）；重复调用为 no-op */
-    void show();
+    void showWindow();
 
     /** 窗口是否请求关闭（点关闭按钮 / ESC） */
     boolean closeRequested();

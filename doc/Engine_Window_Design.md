@@ -29,8 +29,8 @@ javelin-core 已具备 Subsystem 体系（`SubsystemManager` / `Subsystem`）与
 com.javelin.core.window              com.javelin.rhi.render
 ┌──────────────────────┐             ┌─────────────────────┐
 │ Window（接口）        │             │ RenderSurface（接口） │
-│  show/closeRequested │             │  nativeHandle()     │
-│  pollEvents          │ renderSurface() platform()         │
+│  showWindow          │             │  nativeHandle()     │
+│  closeRequested      │ renderSurface() platform()         │
 │  width/height        │────────────▶│  width/height       │
 │  isResized/ack       │             │  isResized/ack      │
 │  isVisible/close     │             │  isVisible          │
@@ -62,14 +62,14 @@ Swing 下包 Canvas。若 `Window extends RenderSurface`，Swing 场景需伪造
 
 用户拍板（2026-09-21）：窗口归引擎主类持有——`JavelinEngine.start()` 内经
 `createWindow()` 工厂创建（protected，子类可覆盖），`window()` 访问。
-生命周期由 start() 编排：`create() → show() → mainLoop() → close()`（finally）。
+生命周期由 start() 编排：`create() → showWindow() → mainLoop() → close()`（finally）。
 理由：
 
 - 窗口不是"跨节点的全局服务"（Subsystem 的定位），是应用级资源，
   尺寸/标题等配置来自 `JavelinSetting`
 - 呈现链路与窗口强耦合：acquire/present/resize/close 全在帧循环内，不存在独立的
   "窗口更新阶段"交给子系统调度
-- 包一层 Subsystem 只是给 show/pollEvents/close 加间接层
+- 包一层 Subsystem 只是给 showWindow/pollEvents/close 加间接层
 
 **后续演进**：待 SubsystemManager 驱动的正式主循环落地、且 Input 子系统需要窗口句柄时，
 可能以"窗口属主 + 状态分发"的身份回归；形状届时再定。
@@ -79,7 +79,7 @@ Swing 下包 Canvas。若 `Window extends RenderSurface`，Swing 场景需伪造
 ### 5.1 GLFW 全局引用计数
 
 `glfwInit()`/`glfwTerminate()` 是进程级全局调用。`GLFWWindow` 以静态引用计数管理：
-首个窗口 show 时 init + 安装错误回调，最后一个 close 时 terminate。
+首个窗口 showWindow 时 init + 安装错误回调，最后一个 close 时 terminate。
 多窗口共存安全，与 23.4 单窗口现状兼容。
 
 ### 5.2 resize 检测：轮询而非回调
@@ -115,7 +115,7 @@ ESC 释放 = 请求关闭（`glfwSetWindowShouldClose`），属窗口生命周�
 启动（JavelinEngine.start()）：
   window = createWindow()   // 工厂，protected 可覆盖
   window.create()           // 隐藏创建
-  window.show()
+  window.showWindow()
 
 每帧（mainLoop，窗口从 engine.window() 获取）：
   window.pollEvents()              // 保证 resize/close 状态最新

@@ -8,7 +8,7 @@ import com.javelin.editor.jcef.domain.vo.FileVo;
 import com.javelin.editor.project.GradleProject;
 import com.javelin.editor.project.RecentProjectManager;
 import com.javelin.editor.window.cef.ProjectLoadingFrame;
-import com.javelin.editor.window.cef.ProjectWindow;
+import com.javelin.editor.window.cef.ProjectFrame;
 
 import javax.swing.*;
 import java.io.File;
@@ -60,7 +60,7 @@ public class ProjectMethod {
     @BridgeMethod("/openProject")
     public FileVo openProject(FilePathPar par) throws Exception {
         File projectDir = new File(par.path);
-        SwingUtilities.invokeAndWait((Runnable) () -> ProjectWindow.getInstance().dispose());
+        SwingUtilities.invokeAndWait((Runnable) () -> ProjectFrame.getInstance().dispose());
 
         ProjectLoadingFrame projectLoadingFrame = new ProjectLoadingFrame(projectDir);
         projectLoadingFrame.setVisible(true);

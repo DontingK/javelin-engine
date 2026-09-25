@@ -62,7 +62,7 @@ public abstract class RhiTestBase {
         window = new GLFWWindow(1280, 720, "Javelin RHI - " + testName());
         try {
             window.create();
-            window.show();
+            window.showWindow();
 
             RenderSurface surface = window.renderSurface();
             instance = RHI.createInstance(

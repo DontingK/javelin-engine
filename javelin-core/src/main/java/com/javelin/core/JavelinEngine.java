@@ -88,7 +88,7 @@ public class JavelinEngine {
     private final void initialize() {
         window = createWindow();
         window.create();
-        window.show();
+        window.showWindow();
 
         assetManager = createAssetManager();
         subsystemManager = createSubsystemManager();
@@ -226,7 +226,7 @@ public class JavelinEngine {
      * 渲染系统工厂：默认 null（纯清屏）；游戏/演示子类覆盖创建并注册相机与渲染对象。
      */
     protected RenderingSystem createRenderingSystem() {
-        return null;
+        return new RenderingSystem(device(), frameLoop());
     }
 
     protected RenderPipeline createRenderPipeline() {

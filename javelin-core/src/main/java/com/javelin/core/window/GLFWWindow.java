@@ -100,7 +100,7 @@ public final class GLFWWindow implements Window {
     }
 
     @Override
-    public synchronized void show() {
+    public synchronized void showWindow() {
         if (shown) {
             return;
         }

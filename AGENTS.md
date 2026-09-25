@@ -62,7 +62,8 @@
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.1）：组件模型、Node/Component/Scene、RenderingSystem |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线 |
-| `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
+| `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
+| `Editor_Design.md` | 编辑器模块架构（v0.1）：Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题 |
 
 ### 实现进度文档
 
