@@ -28,7 +28,7 @@
 xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
    └─ javelin-tool 构建工具（待写）：
         解析 Properties / Pass / 状态命令
-        → //@auto 注入（camera/obj 引擎块 + MaterialBlock + sampler，RHI 21.5 节）
+        → `#version` 后注入声明（camera/obj 引擎块 + MaterialBlock + sampler，RHI 21.5 节，v0.13 起无 @auto 标记）
         → shaderc 编译 vs/fs 块 → SPIR-V
         → 打包二进制资产（结构 + SPIR-V，序列化格式随加载器一并定）
    └─ core 运行时：加载二进制 → 装配 Shader（addProperty / addPass）

@@ -4,7 +4,7 @@ package com.javelin.core.render.material;
  * Shader 的一个 Pass（.shader {@code Pass GBuffer {}} 块编译后的结构，RHI 20.2 / 21 节）。
  *
  * <p>块名即渲染阶段名，是引擎 {@code pipelineFor("GBuffer")} 的查找键；
- * SPIR-V 为离线构建产物（vs/fs 块经 {@code //@auto} 注入后由 shaderc 编译）。
+ * SPIR-V 为离线构建产物（vs/fs 块经 {@code #version} 后注入声明，由 shaderc 编译）。
  * 纯数据、device 无关；PSO 经渲染侧缓存按 Pass 取用（RHI 20.7-4），本类不持有 PSO。</p>
  *
  * @author Javelin Engine Team

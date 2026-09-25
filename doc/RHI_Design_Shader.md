@@ -124,7 +124,7 @@ graph.addGraphicsPass("ShadowPass", pass -> {
 
 ---
 
-## 21. 着色器文件语法（.shader，v0.8）
+## 21. 着色器文件语法（.shader，v0.13）
 
 > 目标：一个 Shader = 一个 `.shader` 文件；采用 **Unity ShaderLab 简化版**语法（用户决策）——保留 Properties / 状态命令手感，去掉 SubShader 层、FallBack、Tags.Queue 与 Pass 的 Name+LightMode 双标签，**`Pass GBuffer {}` 块名即渲染阶段名**。
 > 0 变体策略贯穿：无 multi_compile，功能开关属性走 uniform 分支（第 16.3 节）。
@@ -135,7 +135,8 @@ graph.addGraphicsPass("ShadowPass", pass -> {
 - **简化**：去掉 `SubShader` 层（单平台不需要平台降级）；去掉 `Pass { Name + Tags{LightMode} }` 双标签——**`Pass GBuffer {}` 块名即 LightMode**，引擎 `pipelineFor("GBuffer")` 直接对应；
 - **去掉（v0.11）**：`FallBack`（加载失败由引擎报错并替换内置默认）；`Tags.Queue`（排序完全归引擎，第 14.5 节，理由见下）；`[Toggle]` 属性语法（开关属性用普通 `Float` 声明）；
 - **改掉**：不用 `GLSLPROGRAM ... ENDGLSL`（Unity 靠 `#pragma vertex / fragment` 在整段代码里找入口）——改为 **`vs { }` / `fs { }` 分离块**，入口统一 `main()`，无需 #pragma；
-- **不依赖 `#include`（v0.10）**：GLSL 全部内嵌于 vs/fs 块；构建工具将引擎内置块（camera / obj）与 Properties 生成的材质声明注入 `//@auto` 标记处，文件完全自包含；
+- **不依赖 `#include`（v0.10）**：GLSL 全部内嵌于 vs/fs 块；构建工具将引擎内置块（camera / obj）与 Properties 生成的材质声明直接注入每个 vs/fs 块的 `#version` 之后一行，文件完全自包含；
+- **无注入标记（v0.13，用户决策 2026-09-26）**：~~`//@auto` 标记~~已取消——注入位置固定为 `#version` 行之后，作者不写任何标记；
 - **不做**：`#pragma multi_compile`（变体系统，v0.7 决策）；keyword 系统。
 
 **为什么不需要 `Tags.Queue`（设计决策存档，v0.12）**：Unity 的渲染是「全提交 + 全局排序」模型——所有渲染器（网格、粒子、UI、天空盒）往同一个 draw list 提交 draw call，引擎从 draw call 本身推断不出顺序意图，只能让材质自己声明「排第几」。这是历史架构的补丁，问题：① 顺序信息碎片化在上百个材质里，全局顺序不可见、不可验证；② 写错 Queue 值不报错，画面顺序悄悄烂掉；③ `2450` 这类桶号 + `+1/-1` 微调全靠约定；④ 引擎放弃排序优化权，只能照单执行。本架构的渲染顺序由**引擎 Pass 链集中编排**（第 14 节：GBuffer → Lighting → Transparent），材质含哪些 Pass 自动归类——有 `Pass GBuffer` 即 Deferred 几何阶段、有 `Pass Transparent` 即前向混合阶段，**Pass 名本身携带分类信息，Queue 是冗余声明**。若同一阶段内需细分排序（如多个透明物体谁先画），在 Material 实例上加排序键（renderOrder），不进 shader 语法。
@@ -166,7 +167,6 @@ Shader "PBR_Standard"
 
         vs {                            // 顶点着色器：入口统一 main()
             #version 450
-            //@auto                     // 构建工具在此注入：camera/obj 引擎块 + MaterialBlock + sampler
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec2 aUV;
             layout(location = 0) out vec2 vUV;
@@ -179,7 +179,6 @@ Shader "PBR_Standard"
 
         fs {                            // 片元着色器
             #version 450
-            //@auto
             layout(location = 0) in vec2 vUV;
             layout(location = 0) out vec4 fragColor;
 
@@ -198,7 +197,6 @@ Shader "PBR_Standard"
 
         vs {
             #version 450
-            //@auto
             layout(location = 0) in vec3 aPos;
             void main() {
                 // camera 块内容由引擎绑定为光源的 viewProj（第 19 节 lightCamOffset）
@@ -207,7 +205,6 @@ Shader "PBR_Standard"
         }
         fs {
             #version 450
-            //@auto
             void main() { /* 阴影 Pass 只写深度，片元可空 */ }
         }
     }
@@ -231,7 +228,7 @@ Shader "PBR_Standard"
 |`Properties`|set 2 materialLayout（第 15.3 节）|生成 GLSL 声明文本（MaterialBlock + sampler）+ 布局元数据（std140）|
 |`Pass GBuffer`|ShaderPass("GBuffer")（第 20.2 节）|`pipelineFor("GBuffer")` 的查找键|
 |`Cull / ZWrite / ZTest / Blend / ColorMask`|GraphicsPipelineDesc 固定状态|光栅 / 深度模板 / 混合状态|
-|`vs { }` / `fs { }`（内嵌，`//@auto` 注入声明）|离线编译 .vert.spv / .frag.spv（第 16.1/16.2 节）|入口统一 main()，无需 #pragma|
+|`vs { }` / `fs { }`（内嵌，构建工具注入声明）|离线编译 .vert.spv / .frag.spv（第 16.1/16.2 节）|入口统一 main()，无需 #pragma|
 
 ### 21.4 Properties 类型集（v0.1）
 
@@ -252,11 +249,11 @@ Shader "PBR_Standard"
 StandardMetal.shader
    ├─ Properties ──→ 生成 GLSL 声明文本（MaterialBlock + sampler，std140 自动排布）
    │              └─→ 生成 materialLayout 元数据（RHI / 编辑器用）
-   └─ 每个 Pass：vs/fs 块 + 注入声明（//@auto）──→ glslc ──→ .spv ──→ GraphicsPipeline（PipelineCache，第 16.4 节）
+   └─ 每个 Pass：vs/fs 块 + `#version` 后注入声明 ──→ glslc ──→ .spv ──→ GraphicsPipeline（PipelineCache，第 16.4 节）
 ```
 
 - 生成材质声明保证 **GLSL / RHI / CPU 三方布局一致**（消灭 std140 对齐与参数名拼写 bug，第 15.7 节坑点 1）；
-- **注入机制（v0.10）**：构建工具把两类声明注入 vs/fs 块的 `//@auto` 标记处（缺省时注入在 `#version` 之后）：
+- **注入机制（v0.10 立、v0.13 修订）**：构建工具把两类声明注入每个 vs/fs 块的 `#version` 行之后（v0.13 起取消 `//@auto` 标记，位置固定，无需作者写任何标记）：
   1. **引擎内置块**（同一份模板）：set 0 CameraBlock、set 1 ObjectBlock——用户代码直接引用 `camera` / `obj`；
   2. **材质声明**（从 Properties 生成）：set 2 MaterialBlock + sampler 槽位；
   **无 `#include`，文件完全自包含**；
@@ -265,17 +262,17 @@ StandardMetal.shader
 ### 21.6 约定与坑点
 
 1. Pass 名是引擎查找键，改名必须同步 `pipelineFor()` 调用（第 20 节）；
-2. 所有 Pass 共用 Properties 生成的布局：每个 Pass 的 vs/fs 都注入同一份材质声明（`//@auto`），未用贴图绑占位（第 20.3 节）；
+2. 所有 Pass 共用 Properties 生成的布局：每个 Pass 的 vs/fs 都注入同一份材质声明，未用贴图绑占位（第 20.3 节）；
 3. 无变体：不要写 `#pragma multi_compile`；功能开关一律 uniform 分支；
 4. 材质 / shader 加载失败：引擎 Debug 报错并替换为内置默认材质（不依赖 FallBack，v0.11）；
 5. 透明 Pass 别忘了 `Blend` + `ZWrite Off`；渲染队列完全由引擎决定（第 14.5 节），shader 不声明 Queue（v0.11）。
-6. `//@auto` 每个 vs/fs 块最多一个；缺省时工具默认注入在 `#version` 之后；
+6. 注入位置固定为每个 vs/fs 块的 `#version` 行之后（v0.13 起无 `//@auto` 标记）——**`#version 450` 由此成为必填行**，是注入锚点，缺了构建报错；
 7. 用户**不得手写** camera / obj / MaterialBlock 同名声明（与注入冲突，构建期报错）；
 8. MaterialBlock 的 std140 填充由生成器处理，用户不要手动补 padding。
 
 ### 21.7 完整参考示例（PBR_Standard.shader，v0.12）
 
-> 一个真实可编译的 PBR 材质 shader，覆盖全部语法：多 Pass、vs/fs 内嵌、`//@auto` 注入、占位贴图、uniform 分支、GBuffer 三 RT 输出。
+> 一个真实可编译的 PBR 材质 shader，覆盖全部语法：多 Pass、vs/fs 内嵌、`#version` 后注入声明、占位贴图、uniform 分支、GBuffer 三 RT 输出。
 
 ```shader
 Shader "PBR_Standard"
@@ -302,7 +299,6 @@ Shader "PBR_Standard"
 
         vs {
             #version 450
-            //@auto
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec2 aUV;
             layout(location = 2) in vec3 aNormal;
@@ -321,7 +317,6 @@ Shader "PBR_Standard"
 
         fs {
             #version 450
-            //@auto
             layout(location = 0) in vec2 vUV;
             layout(location = 1) in vec3 vWorldPos;
             layout(location = 2) in vec3 vNormal;
@@ -357,7 +352,6 @@ Shader "PBR_Standard"
 
         vs {
             #version 450
-            //@auto
             layout(location = 0) in vec3 aPos;
             void main() {
                 // 阴影阶段 camera 块由引擎绑定为光源 viewProj（第 19 节 lightCamOffset）
@@ -366,7 +360,6 @@ Shader "PBR_Standard"
         }
         fs {
             #version 450
-            //@auto
             void main() { }              // 只写深度，片元可空
         }
     }
@@ -380,7 +373,6 @@ Shader "PBR_Standard"
 
         vs {
             #version 450
-            //@auto
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec2 aUV;
             layout(location = 0) out vec2 vUV;
@@ -391,7 +383,6 @@ Shader "PBR_Standard"
         }
         fs {
             #version 450
-            //@auto
             layout(location = 0) in vec2 vUV;
             layout(location = 0) out vec4 fragColor;
             void main() {
@@ -404,7 +395,7 @@ Shader "PBR_Standard"
 ```
 
 **示例关键点**：
-- `//@auto` 注入后可直接引用：`camera.viewProj` / `obj.model`（引擎内置块）、`material._BaseColor`（材质块成员）、`_AlbedoMap` 等 sampler；
+- 声明注入后可直接引用：`camera.viewProj` / `obj.model`（引擎内置块）、`material._BaseColor`（材质块成员）、`_AlbedoMap` 等 sampler；
 - GBuffer 输出 3 个 RT，材质参数塞 alpha 省显存（normal.a=金属度、worldPos.a=粗糙度）；
 - 开关属性 `_UseNormalMap` 走 uniform 分支，非变体；
 - 阴影 Pass 复用同一套注入声明，`camera` 块由引擎绑定为光源 viewProj；

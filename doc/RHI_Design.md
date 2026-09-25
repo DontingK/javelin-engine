@@ -18,7 +18,8 @@
 > v0.7（用户决策：暂不采用变体系统）：变体相关内容降级为「可选扩展」——第 12.7 节标注暂不采用；第 16.3 节改为「0 变体 + uniform 分支」策略；第 20.5 节改为「变体：暂不采用」；ShaderPass 去掉变体维度字段。
 > v0.8（用户决策：着色器文件语法）：新增第 21 节《着色器文件语法（.shader）》——Unity ShaderLab 简化版：保留 Properties / 状态命令 / FallBack 手感，去掉 SubShader 层，`Pass GBuffer {}` 块名即渲染阶段名，[Toggle] 走 uniform 分支。
 > v0.9（语法修订，用户决策）：GLSL 代码改为 `vs { }` / `fs { }` 分离块（入口统一 main()，无需 #pragma），外链用 `vs = "file"` / `fs = "file"`。
-> v0.10（语法修订，用户决策）：**GLSL 全部内嵌，不使用 `#include`**——构建工具将引擎内置块（camera / obj）与 Properties 生成的材质声明注入到 vs/fs 内的 `//@auto` 标记处；移除外链写法。
+> v0.10（语法修订，用户决策）：**GLSL 全部内嵌，不使用 `#include`**——构建工具将引擎内置块（camera / obj）与 Properties 生成的材质声明注入到 vs/fs 内；移除外链写法。
+> v0.13（语法修订，用户决策 2026-09-26）：**取消 `//@auto` 注入标记**——注入位置固定为每个 vs/fs 块的 `#version` 行之后，作者不写任何标记。
 > v0.11（语法瘦身，用户决策）：**去掉 `FallBack`**（加载失败由引擎报错并替换内置默认）、**去掉 `Tags.Queue`**（排序完全归引擎）、**去掉 `[Toggle]` 语法**（开关属性用普通 Float + uniform 分支）。
 > v0.12（记录存档，用户决策）：21.1 补充「为什么不需要 Tags.Queue」设计决策存档；新增 21.7 完整参考示例（PBR_Standard.shader）。
 > 说明：第 12 节原文档暂缺，章节编号保留原文档编号。

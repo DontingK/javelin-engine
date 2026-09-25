@@ -68,7 +68,7 @@
 - **目标**：场景编辑最小闭环——场景视口（飞行相机）+ 层级面板 + 拾取 + Transform 移动/旋转/缩放 + 场景保存/加载；
 - **前置**：
   - **.scene 序列化**（现为 P2，编辑器存取必须）；
-  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：.shader 二进制格式 + javelin-tool 解析器（//@auto 注入 + shaderc + 打包）、.mat 格式 + AssetManager 读写；
+  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：.shader 二进制格式 + javelin-tool 解析器（声明注入 + shaderc + 打包）、.mat 格式 + AssetManager 读写；
   - **编辑器形态拍板**（内嵌 + imgui-java / 内嵌 + Nuklear / 独立 Swing——管线已预留 targetOverride 渲染到纹理、预览视口简化形态两个口子）；
   - `Engine_Editor_Design.md`（待写：editor 作为 JavelinEngine 子类的架构、编辑态/运行态关系、与 javelin-tool 分工）；
 - **产出**：编辑器应用骨架 + 上述最小闭环；

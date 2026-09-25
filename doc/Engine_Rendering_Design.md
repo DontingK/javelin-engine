@@ -121,6 +121,7 @@ v0.1 把 PushUniformTest 里**测试内手写**的 UBO1 环形收编为引擎正
 - **写入时机**：collectFrame 第 3 步（逻辑侧帧首写，RHI 27.3-4：渲染侧只读绑定）；
 - **动态偏移**：Pass 绑 set0 时传本槽偏移（RHI 19.4-1 机制，PushUniformTest 已验证）；
 - 每相机矩阵不占独立段——相机矩阵**统一进 UBO1**（拍板：set0 UBO1 = 全帧共享；多相机时 viewProj 按相机序排在槽内，Pass 绑定时取对应偏移，等价 19 节 camUniformOffset 语义但并入引擎槽布局）。
+- **push constants 形态拍板（2026-09-26 存档）：`model` + `tpf`，弃用早期原型的 `mvp` 形态**。理由：① 多相机下 mvp 需每物件×每相机在 CPU 重算重推，model 则每物件推一次、相机切换走 UBO1 动态偏移零额外推送；② mvp 形态着色器拿不到 model，法线变换/世界坐标/光照（三期 GBuffer 硬需求）不可行；③ 顶点侧多一次 mat4 乘法代价可忽略。早期骨架的 mvp push 见 git 历史 `ead65ab`。
 
 ## 7. Y 翻转落点（已拍板，2026-09-24）
 
