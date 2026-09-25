@@ -153,7 +153,7 @@ mesh.recalculateBounds();   // AABB（视锥剔除必需）
 - **.mesh 二进制格式**（快加载）：紧凑头 + 顶点/索引块 + 包围盒；.obj 仅作导入源；
 - 多绑定点（分离布局）、显式 location、U8/U16/HALF 格式；
 - 骨骼网格（SkinnedMesh）对称设计（自带 SkinnedMesh 字段，`Engine_Scene_Design.md` 5.1）；
-- 动态网格（粒子 / 变形 / 水面）：上传后解冻或独立 DynamicMesh 路径。
+- **动态 Mesh**（骨骼蒙皮 / 粒子 / 物理形变 / 水面，每帧变化）：v0.1 已定**冻结语义**（上传即冻结，要改新建，见 `Engine_Material_Design.md` §5），destroy-and-recreate 扛不住每帧频率——后续专项支持，走独立 DynamicMesh 路径（hostVisible 常驻缓冲 + 每帧映射写入，逻辑/渲染线程分工对齐 RHI 27 节）；需求与设计要点记录于 `Engine_Material_Design.md` §6 首条；
 
 ---
 
