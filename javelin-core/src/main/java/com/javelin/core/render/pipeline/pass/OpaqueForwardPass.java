@@ -55,12 +55,12 @@ public class OpaqueForwardPass extends AbstractForwardPass {
                 if (objects.isEmpty()) {
                     return;
                 }
-                // set0 绑定需要已绑 PSO 提供布局：先用首个物体 PSO 建立（全部内置 PSO set 布局一致，
-                // 后续 drawObject 按 layout 切换 PSO 不影响已绑描述符）
-                cmd.bindPipeline(rs.pipelineFor(objects.get(0).mesh().layout(), false));
+                // set0 绑定需要已绑 PSO 提供布局：先用首个物体 PSO 建立（全部材质 PSO 的
+                // set0 同为帧布局，后续 drawObject 按材质/layout 切 PSO 不影响已绑描述符）
+                cmd.bindPipeline(entryPipeline(rs, objects.get(0)));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : objects) {
-                    drawObject(cmd, rs, ro, tpf, false);
+                    drawObject(cmd, rs, ro, tpf);
                 }
             });
         });

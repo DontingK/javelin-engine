@@ -42,10 +42,10 @@ public class TransparentForwardPass extends AbstractForwardPass {
                 if (objects.isEmpty()) {
                     return;
                 }
-                cmd.bindPipeline(rs.pipelineFor(objects.get(0).mesh().layout(), true));
+                cmd.bindPipeline(entryPipeline(rs, objects.get(0)));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : objects) {
-                    drawObject(cmd, rs, ro, tpf, true);
+                    drawObject(cmd, rs, ro, tpf);
                 }
             });
         });

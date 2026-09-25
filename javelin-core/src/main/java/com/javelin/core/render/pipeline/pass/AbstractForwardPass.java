@@ -5,6 +5,7 @@ import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
 import com.javelin.core.render.mesh.MeshDraw;
 import com.javelin.rhi.CommandBuffer;
+import com.javelin.rhi.GraphicsPipeline;
 import com.javelin.rhi.Texture;
 
 import java.nio.ByteBuffer;
@@ -24,14 +25,13 @@ public abstract class AbstractForwardPass implements RenderPass {
     protected final float[] worldTmp = new float[16];
 
     /**
-     * 单个物体绘制：PSO 按 layout 切换 → 顶点缓冲 → set1 贴图 →
-     * push constants（model mat4 + tpf）→ drawIndexed。
+     * 单个物体绘制：PSO 按材质前向 Pass + layout 切换 → 顶点缓冲 →
+     * set 2 材质描述符集 → push constants（model mat4 + tpf）→ drawIndexed。
      */
-    protected void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro,
-                              float tpf, boolean blend) {
-        cmd.bindPipeline(rs.pipelineFor(ro.mesh().layout(), blend));
+    protected void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro, float tpf) {
+        cmd.bindPipeline(rs.pipelineFor(ro.material(), ro.mesh().layout()));
         MeshDraw.bindBuffers(cmd, ro.mesh());
-        cmd.bindDescriptorSet(1, rs.textureSet(ro.texture()), 0, null);
+        cmd.bindDescriptorSet(2, rs.materialSet(ro.material()), 0, null);
         pushData.clear();
         for (float v : ro.world().get(worldTmp)) {
             pushData.putFloat(v);
@@ -41,6 +41,11 @@ public abstract class AbstractForwardPass implements RenderPass {
         pushData.position(0);
         cmd.pushConstants(0, pushData);
         MeshDraw.drawIndexed(cmd, ro.mesh());
+    }
+
+    /** 物体列表入口的 PSO 建立（bindDescriptorSet 前必须先 bindPipeline，RHI 命令序约束） */
+    protected static GraphicsPipeline entryPipeline(RenderingSystem rs, RenderObject first) {
+        return rs.pipelineFor(first.material(), first.mesh().layout());
     }
 
     /** 视口矩形小于终点附件 = 分屏/预览视口，需要区域清屏 */

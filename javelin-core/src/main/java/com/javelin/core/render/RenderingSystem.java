@@ -1,8 +1,16 @@
 package com.javelin.core.render;
 
 import com.javelin.core.Time;
+import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.MaterialBlock;
+import com.javelin.core.render.material.MaterialProperty;
+import com.javelin.core.render.material.MaterialPropertyType;
+import com.javelin.core.render.material.PassState;
+import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.material.ShaderPass;
 import com.javelin.core.render.mesh.MeshUpload;
-import com.javelin.core.render.texture.TextureLoader;
+import com.javelin.core.render.texture.Texture2D;
+import com.javelin.core.render.texture.TextureUpload;
 import com.javelin.rhi.Buffer;
 import com.javelin.rhi.DescriptorSet;
 import com.javelin.rhi.DescriptorSetLayout;
@@ -11,7 +19,6 @@ import com.javelin.rhi.Device;
 import com.javelin.rhi.GraphicsPipeline;
 import com.javelin.rhi.Sampler;
 import com.javelin.rhi.Texture;
-import com.javelin.rhi.UploadData;
 import com.javelin.rhi.VertexLayout;
 import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.data.RHIViewport;
@@ -22,18 +29,16 @@ import com.javelin.rhi.desc.MemoryPreference;
 import com.javelin.rhi.desc.SamplerDesc;
 import com.javelin.rhi.desc.ShaderDesc;
 import com.javelin.rhi.desc.TextureDesc;
-import com.javelin.rhi.types.BlendFactor;
-import com.javelin.rhi.types.BlendOp;
 import com.javelin.rhi.types.BufferUsage;
-import com.javelin.rhi.types.ColorComponentFlags;
-import com.javelin.rhi.types.CompareOp;
-import com.javelin.rhi.types.CullMode;
 import com.javelin.rhi.types.DescriptorType;
 import com.javelin.rhi.types.DynamicState;
+import com.javelin.rhi.types.Filter;
 import com.javelin.rhi.types.Format;
 import com.javelin.rhi.types.FrontFace;
 import com.javelin.rhi.types.PolygonMode;
 import com.javelin.rhi.types.PrimitiveTopology;
+import com.javelin.rhi.types.SamplerAddressMode;
+import com.javelin.rhi.types.SamplerMipmapMode;
 import com.javelin.rhi.types.ShaderStage;
 import com.javelin.rhi.types.TextureUsage;
 import org.joml.Vector3f;
@@ -51,14 +56,27 @@ import java.util.Set;
 /**
  * 渲染系统（Engine_Rendering_Design.md 第 2 节）：注册表 + 每帧收集 + 帧描述组装 + 渲染侧常驻资源。
  *
- * <p>v0.1 形态（场景系统落地前的直接注册模式，用户拍板 2026-09-24）：
- * 上层经 addCamera / addRenderer 直接注册；未来场景层（阶段②）由 scene.add
- * 按组件类型自动调用同一套注册 API，本类不变。
+ * <p>v0.1 形态：上层经 addCamera / addRenderer 直接注册（直注册模式），场景层由
+ * SceneRenderBridge 每帧 pull 翻译成同一套注册 API（Engine_Implementation_Plan 拍板
+ * 2026-09-25：pull，本类不感知 scene 包）。
+ *
+ * <p>材质桥（Engine_Material_Design.md §4，2026-09-25 落地）：
+ * <ul>
+ *   <li>set 2 布局按 Shader 缓存（binding0 = MaterialBlock UBO，binding1..n = 贴图槽
+ *   按声明序；RHI 20.3 硬约束：所有 Pass 共用同一布局）；set 1 为 ObjectBlock 占位
+ *   （引擎 per-object 走 push constants，v0.1 空布局）；</li>
+ *   <li>materialSet(Material)：材质首渲染懒创建 UBO + 描述符集，贴图槽经
+ *   {@link TextureUpload} 懒上传 + 占位贴图解析（white/bump/black，RHI 21.4）；
+ *   数值参数（MaterialBlock std140）每次调用重打包写入，运行期 setFloat/setColor 即时生效；
+ *   贴图槽仅在首绑解析（运行期换贴图 = 换材质实例，v0.1 语义）；</li>
+ *   <li>pipelineFor(Material, VertexLayout)：PSO 按 Shader 的前向 Pass + 顶点布局缓存，
+ *   固定状态取自 PassState（RHI 21.3）；SPIR-V 来自 .shader 编译产物
+ *   （core 不含着色器源码，用户拍板 2026-09-25）。</li>
+ * </ul>
  *
  * <p>持有的常驻资源：UBO1 帧环形缓冲（2 槽 × 槽容量，槽号 = frameIndex % slots，
- * 与 FrameState 环形同奇偶，复用前有 fence 闸门，RHI 24.5）、set0/set1 描述符布局、
- * 采样器、白图占位纹理、内置无光照着色程序的 PSO 缓存（按 VertexLayout + 是否混合为键）、
- * 每相机深度纹理（resize 时换绑，旧纹理交 Cleaner）。
+ * 与 FrameState 环形同奇偶，复用前有 fence 闸门，RHI 24.5）、set0/set1(set2) 描述符
+ * 布局、采样器缓存、每相机深度纹理（resize 时换绑，旧纹理交 Cleaner）。
  *
  * <p>线程模型：v0.1 单线程退化（27.1），collectFrame 在图声明回调内被渲染帧调用。
  */
@@ -89,17 +107,17 @@ public final class RenderingSystem implements AutoCloseable {
     private final Buffer uboBuffer;
     private final DescriptorSetLayout frameSetLayout;
     private final DescriptorSet frameSet;
-    // set1（材质贴图，v0.1 直挂纹理）
-    private final DescriptorSetLayout materialSetLayout;
-    private final Sampler sampler;
-    private final Texture whiteTexture;
+    // set 1 占位（ObjectBlock：per-object 走 push constants，v0.1 空布局，RHI 20.4 编号占位）
+    private final DescriptorSetLayout emptySetLayout;
 
-    // 内置着色程序
-    private byte[] builtinVs;
-    private byte[] builtinFs;
+    // 材质桥：set 2 布局按 Shader 缓存；材质资源按 Material 实例缓存；采样器按参数缓存
+    private final Map<Shader, DescriptorSetLayout> materialLayouts = new HashMap<>();
+    private final Map<Shader, DescriptorSetLayoutDesc> materialLayoutDescs = new HashMap<>();
+    private final Map<Material, MaterialResources> materialResources = new HashMap<>();
+    private final Map<SamplerDesc, Sampler> samplers = new HashMap<>();
+
     private Format colorAttachmentFormat;
     private final Map<String, GraphicsPipeline> pipelines = new HashMap<>();
-    private final Map<Texture, DescriptorSet> textureSets = new HashMap<>();
 
     // 每相机深度纹理（视口独立，RHI 19.4-2）
     private final Map<String, Texture> depthTextures = new HashMap<>();
@@ -135,14 +153,10 @@ public final class RenderingSystem implements AutoCloseable {
         // 否则末槽末相机 offset+range 会越出缓冲）
         this.frameSet.update(DescriptorUpdate.dynamicUniformBuffer(0, uboBuffer, 0, CAMERA_STRIDE));
 
-        this.materialSetLayout = device.createDescriptorSetLayout(new DescriptorSetLayoutDesc(List.of(
-                new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT))));
-        this.sampler = device.createSampler(SamplerDesc.linear());
-        this.whiteTexture = TextureLoader.createSolid(device, 0xFF, 0xFF, 0xFF, 0xFF);
+        this.emptySetLayout = device.createDescriptorSetLayout(new DescriptorSetLayoutDesc(List.of()));
     }
 
-    // ═══ 注册表（未来 scene.add 自动调用同一套 API） ═══
+    // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
 
     public void addCamera(RenderCamera camera) {
         if (camera == null) {
@@ -161,13 +175,13 @@ public final class RenderingSystem implements AutoCloseable {
         }
     }
 
-    /** 注册渲染对象（触发 Mesh lazy 上传与贴图描述符集预建） */
+    /** 注册渲染对象（触发 Mesh lazy 上传与材质 set 2 描述符集预建） */
     public void addRenderer(RenderObject object) {
         if (object == null) {
             throw new IllegalArgumentException("object must not be null");
         }
         MeshUpload.upload(device, object.mesh());
-        textureSet(object.texture());
+        materialSet(object.material());
         renderers.add(object);
     }
 
@@ -183,67 +197,65 @@ public final class RenderingSystem implements AutoCloseable {
         return renderers;
     }
 
-    // ═══ 内置着色程序 ═══
+    // ═══ 材质桥（Engine_Material_Design.md §4） ═══
 
     /**
-     * 安装内置无光照着色程序的 SPIR-V（core 主代码不含 GLSL 源码：着色器源放启动/应用层
-     * 资源，由调用方编译——测试工程为 src/test/resources/shaders/ 经 TestShaders）。
-     *
-     * <p>须在首次 collectFrame 之前调用。
+     * Pass 回调内取 PSO（按 Shader 前向 Pass + 顶点布局缓存，PSO 不每帧新建，RHI 16.4）：
+     * SPIR-V 与固定状态（PassState）取自 ShaderPass，set 布局 = set0 帧 + set1 空占位 +
+     * set2 材质（RHI 20.3/20.4）。
      */
-    public void installBuiltinShaders(byte[] vertexSpirv, byte[] fragmentSpirv) {
-        if (vertexSpirv == null || fragmentSpirv == null) {
-            throw new IllegalArgumentException("vertexSpirv / fragmentSpirv must not be null");
-        }
-        this.builtinVs = vertexSpirv.clone();
-        this.builtinFs = fragmentSpirv.clone();
-    }
-
-    /** Pass 回调内取 PSO（按 VertexLayout + 是否混合缓存，PSO 不每帧新建，RHI 16.4） */
-    public GraphicsPipeline pipelineFor(VertexLayout layout, boolean blend) {
-        checkShaders();
-        String key = layout.hashCode() + (blend ? ":blend" : ":opaque");
+    public GraphicsPipeline pipelineFor(Material material, VertexLayout layout) {
+        checkOpen();
+        Shader shader = material.getShader();
+        String key = System.identityHashCode(shader) + ":" + layout.hashCode();
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
             return cached;
         }
+        ShaderPass pass = shader.forwardPass();
+        PassState s = pass.getState();
         GraphicsPipelineDesc desc = new GraphicsPipelineDesc(
-                new ShaderDesc(ShaderStage.VERTEX, builtinVs),
-                new ShaderDesc(ShaderStage.FRAGMENT, builtinFs),
+                new ShaderDesc(ShaderStage.VERTEX, pass.getVertexSpirv()),
+                new ShaderDesc(ShaderStage.FRAGMENT, pass.getFragmentSpirv()),
                 layout,
                 PrimitiveTopology.TRIANGLE_LIST,
-                CullMode.BACK,
+                s.getCull(),
                 FrontFace.COUNTER_CLOCKWISE,
                 PolygonMode.FILL,
                 1.0f,
-                true, !blend, CompareOp.LESS,
-                blend,
-                blend ? BlendFactor.SRC_ALPHA : BlendFactor.ONE,
-                blend ? BlendFactor.ONE_MINUS_SRC_ALPHA : BlendFactor.ZERO,
-                BlendOp.ADD,
-                blend ? BlendFactor.SRC_ALPHA : BlendFactor.ONE,
-                blend ? BlendFactor.ONE_MINUS_SRC_ALPHA : BlendFactor.ZERO,
-                BlendOp.ADD,
-                Set.of(ColorComponentFlags.R, ColorComponentFlags.G,
-                        ColorComponentFlags.B, ColorComponentFlags.A),
+                true, s.isDepthWrite(), s.getDepthTest(),
+                s.isBlendEnabled(),
+                s.getSrcColor(), s.getDstColor(),
+                s.getBlendOp(),
+                s.getSrcAlpha(), s.getDstAlpha(),
+                s.getBlendOp(),
+                s.getColorMask(),
                 List.of(colorAttachmentFormat()), depthFormat(),
-                List.of(frameLayoutDesc(), materialLayoutDesc()),
+                List.of(frameLayoutDesc(), emptySetLayoutDesc(), materialLayoutDesc(shader)),
                 PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR));
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
-        log.info("builtin PSO created: layout={} blend={}", layout, blend);
+        log.info("material PSO created: shader={} pass={} layout={}",
+                shader.getShaderName(), pass.getName(), layout);
         return created;
     }
 
-    /** Pass 回调内取贴图描述符集（null 贴图 → 白图占位；按纹理缓存） */
-    public DescriptorSet textureSet(Texture texture) {
-        Texture key = texture != null ? texture : whiteTexture;
-        return textureSets.computeIfAbsent(key, t -> {
-            DescriptorSet set = device.createDescriptorSet(materialSetLayout);
-            set.update(DescriptorUpdate.sampledTexture(0, t, sampler));
-            return set;
-        });
+    /**
+     * Pass 回调内取材质 set 2 描述符集（首渲染懒创建 + 按材质缓存）。
+     *
+     * <p>数值参数（MaterialBlock，std140）每次调用重打包写入 UBO——运行期
+     * setFloat/setColor 即时生效；贴图槽仅在首绑解析（占位约定 white/bump/black，
+     * RHI 21.4），运行期换贴图 = 换材质实例（v0.1 语义）。
+     */
+    public DescriptorSet materialSet(Material material) {
+        checkOpen();
+        if (material == null || material.getShader() == null) {
+            throw new IllegalArgumentException("material / material.shader must not be null");
+        }
+        MaterialResources resources = materialResources.computeIfAbsent(material, this::createMaterialResources);
+        resources.ubo.writeAligned(0, FloatBuffer.wrap(MaterialBlock.pack(material)));
+        return resources.set;
     }
 
     /** Pass 回调内绑 set0（UBO1 帧槽，dynamic offset 由 RenderView.uboOffset 提供） */
@@ -255,7 +267,7 @@ public final class RenderingSystem implements AutoCloseable {
     public Texture depthFor(String cameraName) {
         return depthTextures.computeIfAbsent(cameraName, n ->
                 device.createTexture(TextureDesc.depth2D(depthFormat(), depthWidth, depthHeight,
-                        Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT)), (UploadData) null));
+                        Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT)), null));
     }
 
     // ═══ 每帧收集（逻辑侧帧首；单线程退化下由图声明回调驱动） ═══
@@ -270,7 +282,6 @@ public final class RenderingSystem implements AutoCloseable {
      * @param backbuffer 本帧 acquire 到的交换链图像（帧描述终点）
      */
     public FrameDescription collectFrame(long frameIndex, Texture backbuffer) {
-        checkShaders();
         checkOpen();
         int w = frameLoop.swapChain().width();
         int h = frameLoop.swapChain().height();
@@ -326,6 +337,75 @@ public final class RenderingSystem implements AutoCloseable {
 
     // ═══ 内部 ═══
 
+    /** 材质首渲染：建 set 2 布局（按 Shader 缓存）+ UBO + 描述符集（贴图懒上传 + 占位解析） */
+    private MaterialResources createMaterialResources(Material material) {
+        Shader shader = material.getShader();
+        DescriptorSetLayout layout = materialLayouts.computeIfAbsent(shader,
+                s -> device.createDescriptorSetLayout(materialLayoutDesc(s)));
+        DescriptorSet set = device.createDescriptorSet(layout);
+
+        int uboSize = MaterialBlock.uboByteSize(shader);
+        Buffer ubo = device.createBuffer(
+                new BufferDesc(uboSize, Set.of(BufferUsage.UNIFORM),
+                        MemoryPreference.hostVisibleCoherent()),
+                null);
+        set.update(DescriptorUpdate.uniformBuffer(0, ubo, 0, uboSize));
+
+        int binding = 1;
+        for (MaterialProperty property : shader.getProperties()) {
+            if (property.getType() != MaterialPropertyType.TEXTURE_2D) {
+                continue;
+            }
+            Texture2D texture = material.getTexture(property.getName());
+            if (texture == null) {
+                texture = placeholderTexture(property.getTexturePlaceholder());
+            }
+            Texture gpu = TextureUpload.upload(device, texture);
+            set.update(DescriptorUpdate.sampledTexture(binding++, gpu,
+                    samplerFor(texture.getFilterMode(), texture.getWrapMode())));
+        }
+        log.info("material set created: shader={} uboBytes={}", shader.getShaderName(), uboSize);
+        return new MaterialResources(set, ubo);
+    }
+
+    /** 未赋值贴图槽的占位解析（RHI 21.4：white / bump / black） */
+    private static Texture2D placeholderTexture(String placeholder) {
+        if ("black".equals(placeholder)) {
+            return Texture2D.blackTexture();
+        }
+        if ("bump".equals(placeholder) || "normal".equals(placeholder)) {
+            return Texture2D.normalTexture();
+        }
+        return Texture2D.whiteTexture();
+    }
+
+    /** 采样器按 (filter, wrap) 缓存（filter/wrap 参数在此消费，Engine_Material_Design.md §4.2） */
+    private Sampler samplerFor(Texture2D.FilterMode filter, Texture2D.WrapMode wrap) {
+        Filter f = filter == Texture2D.FilterMode.POINT ? Filter.NEAREST : Filter.LINEAR;
+        SamplerAddressMode address = wrap == Texture2D.WrapMode.CLAMP
+                ? SamplerAddressMode.CLAMP_TO_EDGE : SamplerAddressMode.REPEAT;
+        SamplerDesc desc = new SamplerDesc(f, f, SamplerMipmapMode.LINEAR,
+                address, address, address, 1.0f, 1000.0f);
+        return samplers.computeIfAbsent(desc, device::createSampler);
+    }
+
+    /** set 2 布局元数据（按 Shader 缓存）：binding0 = MaterialBlock UBO，binding1..n = 贴图槽按声明序 */
+    private DescriptorSetLayoutDesc materialLayoutDesc(Shader shader) {
+        return materialLayoutDescs.computeIfAbsent(shader, s -> {
+            List<DescriptorSetLayoutDesc.Binding> bindings = new ArrayList<>();
+            bindings.add(new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER, 1,
+                    ShaderStage.FRAGMENT));
+            int binding = 1;
+            for (MaterialProperty property : s.getProperties()) {
+                if (property.getType() == MaterialPropertyType.TEXTURE_2D) {
+                    bindings.add(new DescriptorSetLayoutDesc.Binding(binding++,
+                            DescriptorType.COMBINED_IMAGE_SAMPLER, 1, ShaderStage.FRAGMENT));
+                }
+            }
+            return new DescriptorSetLayoutDesc(bindings);
+        });
+    }
+
     private Format colorAttachmentFormat() {
         if (colorAttachmentFormat == null) {
             colorAttachmentFormat = frameLoop.swapChain().image(0).desc().format();
@@ -343,10 +423,8 @@ public final class RenderingSystem implements AutoCloseable {
                         ShaderStage.VERTEX)));
     }
 
-    private DescriptorSetLayoutDesc materialLayoutDesc() {
-        return new DescriptorSetLayoutDesc(List.of(
-                new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT)));
+    private DescriptorSetLayoutDesc emptySetLayoutDesc() {
+        return new DescriptorSetLayoutDesc(List.of());
     }
 
     /** 交换链尺寸变化 → 深度纹理全部换绑（旧纹理引用丢弃，交 Cleaner 延迟销毁，RHI 17.1） */
@@ -360,13 +438,6 @@ public final class RenderingSystem implements AutoCloseable {
         }
         depthWidth = w;
         depthHeight = h;
-    }
-
-    private void checkShaders() {
-        if (builtinVs == null || builtinFs == null) {
-            throw new IllegalStateException(
-                    "内置着色程序未安装：先调用 installBuiltinShaders(vs, fs)（SPIR-V 由启动层经 shaderc 编译）");
-        }
     }
 
     private void checkOpen() {
@@ -384,15 +455,31 @@ public final class RenderingSystem implements AutoCloseable {
         closed = true;
         pipelines.values().forEach(GraphicsPipeline::dispose);
         pipelines.clear();
-        textureSets.values().forEach(DescriptorSet::dispose);
-        textureSets.clear();
+        materialResources.values().forEach(r -> {
+            r.set.dispose();
+            r.ubo.dispose();
+        });
+        materialResources.clear();
+        materialLayouts.values().forEach(DescriptorSetLayout::dispose);
+        materialLayouts.clear();
         depthTextures.values().forEach(Texture::dispose);
         depthTextures.clear();
         frameSet.dispose();
         frameSetLayout.dispose();
-        materialSetLayout.dispose();
+        emptySetLayout.dispose();
+        samplers.values().forEach(Sampler::dispose);
+        samplers.clear();
         uboBuffer.dispose();
-        sampler.dispose();
-        whiteTexture.dispose();
+    }
+
+    /** 材质实例的渲染侧资源（set 2 描述符集 + MaterialBlock UBO） */
+    private static final class MaterialResources {
+        final DescriptorSet set;
+        final Buffer ubo;
+
+        MaterialResources(DescriptorSet set, Buffer ubo) {
+            this.set = set;
+            this.ubo = ubo;
+        }
     }
 }

@@ -28,17 +28,19 @@ public final class TextureUpload {
     }
 
     /**
-     * 上传纹理像素到 GPU 并回填句柄（幂等：已上传直接返回）。
+     * 上传纹理像素到 GPU 并回填句柄（幂等：已上传直接返回原句柄）。
      *
      * @param device   渲染设备（FrameLoop/RenderingSystem 持有，帧首收集阶段传入）
      * @param texture2D 待上传纹理（pixels 必须已填充）
+     * @return GPU 句柄（含已上传命中路径）
      */
-    public static void upload(Device device, Texture2D texture2D) {
+    public static Texture upload(Device device, Texture2D texture2D) {
         if (device == null || texture2D == null) {
             throw new IllegalArgumentException("device / texture2D must not be null");
         }
+        Texture gpu = texture2D.getGpu();
         if (texture2D.getGpu() != null) {
-            return;   // 已上传
+            return gpu;   // 已上传
         }
         ByteBuffer pixels = texture2D.getPixels();
         if (pixels == null) {
@@ -51,7 +53,8 @@ public final class TextureUpload {
         TextureDesc desc = TextureDesc.texture2D(texture2D.getFormat(),
                 texture2D.getWidth(), texture2D.getHeight(),
                 Set.of(TextureUsage.TRANSFER_DST, TextureUsage.SAMPLED));
-        Texture gpu = device.createTexture(desc, UploadData.of(pixels));
+        gpu = device.createTexture(desc, UploadData.of(pixels));
         texture2D.setGpu(gpu);
+        return gpu;
     }
 }

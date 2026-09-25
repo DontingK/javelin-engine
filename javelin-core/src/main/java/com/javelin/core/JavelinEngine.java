@@ -9,6 +9,8 @@ import com.javelin.core.render.RenderingSystem;
 import com.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.core.render.pipeline.RenderPipeline;
+import com.javelin.core.scene.Scene;
+import com.javelin.core.scene.SceneRenderBridge;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.subsystem.SubsystemManager;
 import com.javelin.core.window.GLFWWindow;
@@ -36,9 +38,11 @@ import java.io.File;
  * shutdown 逆序（frameLoop.close（内部 waitIdle）→ renderingSystem.close →
  * device → instance → window，Engine_Implementation_Plan 阶段①）。
  *
- * <p>mainLoop 形态对齐 RHI 27.1 单线程退化；帧描述由图声明回调内组装
- * （acquire 先于图声明，RHI 24.1 落地修正）：renderFrame 的 graphFactory
- * 收到 backbuffer → RenderingSystem.collectFrame → 逐视口 renderPipeline.buildGraph。
+ * <p>mainLoop 形态对齐 RHI 27.1 单线程退化：pollEvents → Time.update →
+ * scene.update（场景生命周期，若有）→ update → renderFrame；帧描述由图声明回调内组装
+ * （acquire 先于图声明，RHI 24.1 落地修正）：graphFactory 收到 backbuffer →
+ * SceneRenderBridge.sync（场景→渲染 pull 翻译，若有场景）→ RenderingSystem.collectFrame
+ * → 逐视口 renderPipeline.buildGraph。
  */
 public class JavelinEngine {
 
@@ -59,6 +63,10 @@ public class JavelinEngine {
     private FrameLoop frameLoop;
     private RenderingSystem renderingSystem;
     private RenderPipeline renderPipeline;
+
+    /** 当前场景（setScene 设置；null = 无场景，直注册模式） */
+    private Scene scene;
+    private final SceneRenderBridge sceneRenderBridge = new SceneRenderBridge();
 
     private long lastFrameTime;
 
@@ -109,6 +117,9 @@ public class JavelinEngine {
             float deltaTime = (currentTime - lastFrameTime) / 1_000_000_000.0f;
             lastFrameTime = currentTime;
             Time.update(deltaTime);
+            if (scene != null) {
+                scene.update(Time.getDeltaTime());
+            }
             update();
             frameLoop.renderFrame(this::buildFrameGraph);
         }
@@ -123,6 +134,9 @@ public class JavelinEngine {
                     pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
                             new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f)));
             return graph;
+        }
+        if (scene != null) {
+            sceneRenderBridge.sync(scene, renderingSystem, backbuffer);
         }
         FrameDescription desc = renderingSystem.collectFrame(frameLoop.frameCounter(), backbuffer);
         RenderGraphBuilder graph = RHI.beginRenderGraph();
@@ -217,6 +231,25 @@ public class JavelinEngine {
 
     protected RenderPipeline createRenderPipeline() {
         return renderingSystem != null ? new DefaultHybridRenderPipeline() : null;
+    }
+
+    /**
+     * 设置当前场景：旧场景注册的渲染侧包装全部注销，新场景下一帧起经
+     * SceneRenderBridge pull 进渲染系统。重复设同一引用为幂等空操作。
+     */
+    public void setScene(Scene scene) {
+        if (this.scene == scene) {
+            return;
+        }
+        if (this.scene != null && renderingSystem != null) {
+            sceneRenderBridge.clear(renderingSystem);
+        }
+        this.scene = scene;
+    }
+
+    /** 当前场景（start() 调用前/未设置时为 null） */
+    public Scene scene() {
+        return scene;
     }
 
     /**

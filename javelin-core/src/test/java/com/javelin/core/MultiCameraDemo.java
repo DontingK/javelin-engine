@@ -4,9 +4,15 @@ import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.RenderCamera;
 import com.javelin.core.render.RenderObject;
 import com.javelin.core.render.RenderingSystem;
+import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.MaterialProperty;
+import com.javelin.core.render.material.PassState;
+import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.material.ShaderPass;
+import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.render.texture.TextureLoader;
 import com.javelin.core.settings.JavelinSetting;
-import com.javelin.rhi.Texture;
+import com.javelin.rhi.types.BlendFactor;
 import com.javelin.tool.shaderc.ShaderStage;
 
 /**
@@ -21,7 +27,9 @@ import com.javelin.tool.shaderc.ShaderStage;
  *   <li>resize 不崩溃、深度纹理按新尺寸换绑；ESC 退出。</li>
  * </ul>
  *
- * <p>运行：gradlew :javelin-core:runTest -DmainClass=com.javelin.core.MultiCameraDemo
+ * <p>直注册模式（无场景）：材质走材质桥路径（set 2 MaterialBlock + 贴图槽，
+ * 透明桶由材质 Blend 态得出）。运行：gradlew :javelin-core:runTest
+ * -DmainClass=com.javelin.core.MultiCameraDemo
  */
 public final class MultiCameraDemo extends JavelinEngine {
 
@@ -66,14 +74,34 @@ public final class MultiCameraDemo extends JavelinEngine {
 
     @Override
     protected void onInitialize() {
-        // 内置着色程序：test resources 的 GLSL → shaderc → SPIR-V → 渲染系统
+        // 着色程序：test resources 的 GLSL → shaderc → SPIR-V → ShaderPass（.shader 编译产物替身，
         // （core 主代码不含着色器源码，用户拍板 2026-09-25）
         byte[] vs = TestShaders.compileResource("shaders/builtin_quad.vert", ShaderStage.VERTEX);
         byte[] fs = TestShaders.compileResource("shaders/builtin_quad.frag", ShaderStage.FRAGMENT);
-        renderingSystem().installBuiltinShaders(vs, fs);
 
         Mesh quad = createQuad();
-        Texture texture = TextureLoader.loadRgba8(device(), TextureLoader.resolveDefaultTexturePath());
+        Texture2D texture = TextureLoader.loadImage(TextureLoader.resolveDefaultTexturePath());
+
+        // 不透明材质：Forward Pass，Blend Off（ZWrite On 默认）
+        Shader opaqueShader = Shader.builder("BuiltinQuad")
+                .property(MaterialProperty.color("_Tint", "Tint", 1f, 1f, 1f, 1f))
+                .property(MaterialProperty.texture2D("_MainTex", "Main Texture", "white"))
+                .pass(new ShaderPass("Forward", vs, fs, new PassState()))
+                .build();
+        Material opaqueMaterial = new Material(opaqueShader);
+        opaqueMaterial.setTexture("_MainTex", texture);
+
+        // 透明材质：独立 Shader（PSO 键 = shader+layout），Blend On + ZWrite Off
+        Shader transparentShader = Shader.builder("BuiltinQuadTransparent")
+                .property(MaterialProperty.color("_Tint", "Tint", 1f, 1f, 1f, 1f))
+                .property(MaterialProperty.texture2D("_MainTex", "Main Texture", "white"))
+                .pass(new ShaderPass("Forward", vs, fs, new PassState()
+                        .setDepthWrite(false)
+                        .setBlend(true, BlendFactor.SRC_ALPHA, BlendFactor.ONE_MINUS_SRC_ALPHA)))
+                .build();
+        Material transparentMaterial = new Material(transparentShader);
+        transparentMaterial.setTexture("_MainTex", texture);
+        transparentMaterial.setColor("_Tint", 1f, 1f, 1f, 0.5f);
 
         mainCam = new RenderCamera("Main");
         mainCam.position().set(0.0f, 1.0f, 6.0f);
@@ -84,9 +112,9 @@ public final class MultiCameraDemo extends JavelinEngine {
         renderingSystem().addCamera(sideCam);
 
         // 两个不透明 + 一个透明（前方，验证混合与由远及近排序）
-        spinners[0] = register(new RenderObject(quad, texture, false, true), -1.2f, 0.0f, -2.0f, 1.0f);
-        spinners[1] = register(new RenderObject(quad, texture, false, true), 1.2f, 0.0f, -3.5f, 1.6f);
-        spinners[2] = register(new RenderObject(quad, texture, true, false), 0.0f, 0.2f, -1.2f, -0.7f);
+        spinners[0] = register(new RenderObject(quad, opaqueMaterial, true), -1.2f, 0.0f, -2.0f, 1.0f);
+        spinners[1] = register(new RenderObject(quad, opaqueMaterial, true), 1.2f, 0.0f, -3.5f, 1.6f);
+        spinners[2] = register(new RenderObject(quad, transparentMaterial, false), 0.0f, 0.2f, -1.2f, -0.7f);
 
         layoutCameras();
     }

@@ -89,6 +89,27 @@ public class Shader extends AbsAsset {
     }
 
     /**
+     * v0.1 前向渲染取 Pass（Engine_RenderPipeline_Design.md 4.4 Pass 名分类）：
+     * 名 "Forward" → 第一个非混合 pass → 第一个 pass。混合态决定物体进
+     * 不透明/透明桶（渲染队列由引擎决定，RHI 21.1）。
+     */
+    public ShaderPass forwardPass() {
+        ShaderPass named = passes.get("Forward");
+        if (named != null) {
+            return named;
+        }
+        for (ShaderPass pass : passes.values()) {
+            if (!pass.getState().isBlendEnabled()) {
+                return pass;
+            }
+        }
+        if (passes.isEmpty()) {
+            throw new IllegalStateException("Shader[" + shaderName + "] 无任何 Pass");
+        }
+        return passes.values().iterator().next();
+    }
+
+    /**
      * Shader 构建器（仅预编译 / 资产加载侧使用；build 后 Shader 只读）。
      */
     public static final class Builder {
