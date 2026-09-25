@@ -58,7 +58,7 @@
   - 内置组件：Camera（fov/near/far/main）、MeshRenderer（阴影标记 + implements Renderable，mesh/material 字段待阶段④资产管线）；Layer/LayerMask/Tag（31 层预定义 + 位掩码，Unity 风格）；材质骨架 Material/Shader（extends AbsAsset，随 AbsAsset 改继承 ObjectId 落地）；
 - **拍板（2026-09-25）**：**无 createNode**；`setParent` 挂到已入场景的父节点自动整树入场景，**摘除即出场景**（整棵子树 onDisable/onDestroy + 注销；不同于 Unity 出生即入场景——本引擎节点可裸存在）；已属场景禁止跨场景 setParent（抛异常）；**渲染衔接走 pull**（推翻 ③ 节原"scene.add 自动调 addCamera/addRenderer"预登记路径：引擎层每帧从 getCameras/getRenderables 取组件，翻译成 RenderCamera/RenderObject 喂 RenderingSystem）；onAwake 对整树触发含 inactive 节点（Unity 语义），仅 onEnable 按激活过滤；
 - **验收 ✅（2026-09-25 用户运行全绿）**：`GameSceneTest` 13 用例——add/remove/setActive 回调序与级联边界、setParent 自动入/出场景（含孙节点）、跨场景/二次 remove 抛异常、注册表内容、update 驱动、Transform 父链世界矩阵与防环、重复 Transform 拒绝；`gradlew :javelin-core:test --tests com.javelin.core.scene.GameSceneTest`；
-- **遗留**：GameScene→RenderingSystem 的 pull 翻译接线（Camera→RenderCamera、MeshRenderer→RenderObject，需先补 mesh/material 字段）随阶段④；environment/sun、.scene 序列化仍 P2；
+- **遗留**：~~GameScene→RenderingSystem 的 pull 翻译接线~~——**已关闭（2026-09-25 场景渲染接入）**：`SceneRenderBridge` 落地（Camera→RenderCamera、MeshRenderer→RenderObject、多相机横向均分视口），MeshRenderer.mesh/material 字段已补；environment/sun、.scene 序列化仍 P2；
 - **对应文档**：`Engine_Scene_Design.md`（v0.2）1–6 节。
 
 ### 阶段 ③ 渲染系统·引擎侧——第一步 ✅ 验收通过（2026-09-25）
@@ -77,16 +77,20 @@
 - **后续（路线一第二、三步）**：+ShadowPass/GBuffer/Lighting 切混合（渲染管线专档第 8 节）；后处理链具体化；
 - **对应文档**：`Engine_Scene_Design.md` 5–7 节、`Engine_Rendering_Design.md`（待写）、RHI 9/19/27 节。
 
-### 阶段 ④ 材质系统
+### 阶段 ④ 材质系统——桥接半落地（2026-09-25，待验收）
 
 - **目标**：材质资产落地，渲染可见差异；
 - **前置**：先写 `Engine_Material_Design.md`（`.mat` 格式 = shader 引用 + 参数值，序列化走 Capsule；材质实例与 RHI 20 节 Material 的创建/缓存桥接）；
-- **产出**：
+- **已落地（场景渲染接入一并，材质文档 §4 全项）**：
+  - 渲染侧桥接三环节：set 2 布局按 Shader 缓存（binding0 = MaterialBlock UBO + binding1..n 贴图槽）/ materialSet 懒创建（std140 排布器 MaterialBlock、TextureUpload 懒上传 + 占位解析、SamplerDesc 缓存）/ pipelineFor(Material, layout)（PassState → GraphicsPipelineDesc，缓存键 shader+layout）；
+  - `Shader.forwardPass()`（Pass 名分类 v0.1 前向规则）+ 透明分桶 = 前向 Pass Blend 态（RHI 21.1 引擎决定队列）；
+  - 场景侧：MeshRenderer.mesh/material 字段 + `SceneRenderBridge` pull 翻译；JavelinEngine.setScene + mainLoop 驱动 scene.update + collectFrame 前 sync；
+  - 验收载体：`SceneRenderDemo`（GameScene + Spinner 组件 + 双相机分屏 + 透明材质）、`MaterialBlockTest`（CPU 单测）、MultiCameraDemo 迁移材质路径（内置程序路径删除）；
+- **待办（仍为阶段 ④ 范围）**：
   - `.mat` 资产格式 + 加载（AssetManager 接入）；
-  - `MeshRenderer.material` 赋值路径 → RHI 材质实例创建/缓存；
   - 多 Pass 材质与 RHI 20 节模型的对齐检查；
 - **验收**：换 `.mat` 出可见差异（颜色/纹理）的 Demo（用户运行）；
-- **对应文档**：`Engine_Material_Design.md`（待写）、RHI 20、`Engine_Scene_Design.md` 5.1。
+- **对应文档**：`Engine_Material_Design.md`（v0.1 §4 已落地标注）、RHI 20、`Engine_Scene_Design.md` 5.1。
 
 ### 阶段 ⑤ 子系统完善 + 输入子系统
 

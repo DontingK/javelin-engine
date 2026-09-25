@@ -1,8 +1,11 @@
 # 引擎渲染设计（Engine Rendering Design）
 
-> 版本：v0.1
+> 版本：v0.2
 > 日期：2026-09-24
 > 说明：引擎侧渲染交接专档——**场景怎么变成 RHI 的输入**：RenderingSystem 注册表与每帧收集、RenderView/RenderList/RenderObject/FrameDescription 字段级定义（逻辑线程与渲染线程的交接契约，RHI 27.2）、与 RHI FrameLoop 的调用关系、Y 翻转落点（已拍板：投影矩阵）。
+> v0.2 变更（2026-09-25）：**场景渲染接入落地**——SceneRenderBridge pull 翻译层
+> （Camera→RenderCamera、MeshRenderer→RenderObject，阶段②遗留接线关闭）；
+> RenderObject 持 Material（4.2 内置无光照取舍关闭，材质桥 = Engine_Material_Design §4）。
 > 职责边界：本文管**「收集与交接」**；Pass 怎么组织归 `Engine_RenderPipeline_Design.md`（消费本文产物）；场景组件模型归 `Engine_Scene_Design.md`（本文消费其 MeshRenderer/Camera/Light）；RHI 管**「图怎么执行」**（22 节「声明在引擎，推导执行在 RHI」）。
 
 ---
@@ -18,7 +21,7 @@
 
 ### 2.1 职责
 
-- **注册表**：`renderers` / `cameras` / `lights` 三个表；`scene.add` / `scene.remove` / `addComponent` 时按类型登记注销（Scene 3.2/3.3，O(1) 不每帧遍历场景树）；
+- **注册表**：`renderers` / `cameras` 两个表（lights 未实现）；v0.1 直注册模式由上层直接 add/remove，场景模式由 **SceneRenderBridge 每帧 pull**（getCameras/getRenderables → 翻译 → 同一套注册 API，阶段②拍板 2026-09-25，RenderingSystem 不感知 scene 包）；
 - **每帧收集**（逻辑线程，mainLoop 渲染阶段前）：产出一份**帧描述**（FrameDescription）；
 - **持有渲染侧常驻资源**：每视口 depth RT、UBO1 环形缓冲（随 FrameState 槽位）、内置着色程序（v0.1）。
 
@@ -26,10 +29,11 @@
 
 ```
 collectFrame(frameIndex, backbuffer):
-  1. updateTransforms(scene)                        // Scene 2.4 脏标记（场景层职责，RenderingSystem 触发）
+  0. SceneRenderBridge.sync(scene, rs, backbuffer)  // pull 翻译：注册/注销/同步相机与物体（collectFrame 之前）
+  1. updateTransforms = Transform 脏标记惰性重算    // getLocalToWorld() 时触发，无独立遍历 pass
   2. for cam in cameras (isActiveAndEnabled):
        view = cam.renderView                        // 引擎 RenderView（第 3 节）
-       view.viewport/scissor ← 相机组件视口设置
+       view.viewport/scissor ← SceneRenderBridge 布局（多相机横向均分 backbuffer 宽高）
        frustumCull(cam, renderers) → view.list
        sort: opaque 按材质 hash（减少 PSO 切换）
              transparent 相机空间由远及近
@@ -38,8 +42,8 @@ collectFrame(frameIndex, backbuffer):
   4. 组装 FrameDescription（第 5 节）
 ```
 
-- **剔除**：视锥剔除（CPU）；遮挡剔除 P2（Scene 6.2）；
-- **排序**：opaque 排序键 =（材质 shaderId, texture handle）——v0.1 材质系统未建，用 RenderObject 的着色键（第 4.2 节）；透明按视图空间 Z 降序。
+- **剔除**：视锥剔除已拍板后置（2026-09-25，Aabb/FrustumIntersection 待优化阶段回加）；遮挡剔除 P2（Scene 6.2）；
+- **排序**：opaque 排序键 =（材质 identity, layout hash，RenderObject.bucketKey）；透明按视图空间 Z 升序（由远及近）。
 
 ## 3. RenderView（引擎侧，对应 RHI 9 节）
 
@@ -68,19 +72,17 @@ class EngineRenderView {              // 命名 RenderView，包 com.javelin.cor
 ```java
 class RenderObject {
     Mesh mesh;                        // 资产引用（Engine_Assets_Design，多 renderer 共享）
-    Texture texture;                  // v0.1：直挂贴图（见 4.2 取舍）；材质系统建后换 Material
+    Material material;                // 材质实例（set 2 描述符集 / PSO 由渲染侧懒创建）
     Matrix4 world;                    // transform.localToWorld 引用（帧描述存活期内场景不修改）
-    float sortKey;                    // 视图空间深度（透明排序用，收集期算好）
-    long shaderKey;                   // 排序/分桶键：着色程序 id
+    boolean transparent;              // 由材质前向 Pass 的 Blend 态得出（RHI 21.1 引擎决定队列）
     boolean castShadow;
 }
 ```
 
-### 4.2 v0.1 着色模型取舍（已知，材质专档落地后替换）
+### 4.2 v0.1 着色模型取舍（已关闭，2026-09-25）
 
-- 材质系统（Engine_Material_Design.md，未写）缺位，v0.1 RenderObject 直接持有 texture，着色为**内置无光照采样**（内嵌 GLSL 经 ShaderCompiler 运行时编译，同 TextureTest/PushUniformTest 路线）；
-- 置空 texture 的物体用内置 1×1 白图占位（RHI 16.3「占位贴图 + uniform 分支」思路）；
-- 通道沿用拍板：set0 UBO1（camera/time）+ push（model/tpf）+ set1（本物体贴图）。
+- ~~材质系统缺位，直挂贴图内置无光照采样~~——**材质桥已落地**（Engine_Material_Design §4 全项实现）：RenderObject 持 Material；通道 = set0 UBO1（camera/time）+ push（model/tpf）+ set2 材质（MaterialBlock UBO + 贴图槽）；set1 为 ObjectBlock 空占位（per-object 走 push constants，RHI 20.4 编号）；
+- 决策存档：原"内置无光照着色程序 + 单贴图 set1"临时形态已删除（`installBuiltinShaders`/`textureSet(Texture)` 移除，MultiCameraDemo 迁移材质路径）。
 
 ### 4.3 RenderList（每视口一份）
 
@@ -133,13 +135,14 @@ v0.1 把 PushUniformTest 里**测试内手写**的 UBO1 环形收编为引擎正
 
 ```
 mainLoop 每帧（Engine_Design 2.1）：
-  ... 逻辑更新（子系统/场景组件）...
+  ... 逻辑更新（子系统）...
+  scene.update(tpf)                 // 场景组件生命周期（JavelinEngine.setScene 设置后）
   FrameDescription desc = renderingSystem.collectFrame(frameIndex, backbuffer提供者)
   frameLoop.renderFrame(backbuffer -> renderPipeline.buildGraph(graph, PipelineContext.of(desc, backbuffer)))
   frameIndex++
 ```
 
-- `backbuffer` 在 acquire 之后可得——FrameLoop.renderFrame 的 `Function<Texture, RenderGraphBuilder>` 签名天然支持：图声明回调内才组装 PipelineContext（RenderPipeline 3.1），**acquire 先于图声明**（阶段⑥落地修正，RHI 24.1）；
+- `backbuffer` 在 acquire 之后可得——FrameLoop.renderFrame 的 `Function<Texture, RenderGraphBuilder>` 签名天然支持：图声明回调内先做 SceneRenderBridge.sync（需 backbuffer 尺寸做视口布局）再 collectFrame 组装 PipelineContext，**acquire 先于图声明**（阶段⑥落地修正，RHI 24.1）；
 - renderPipeline 来源：`RenderingSystem.renderPipeline`（默认 `DefaultHybridRenderPipeline`，模式 B 可换，RenderPipeline 6.1）。
 
 ### 8.2 未来双线程（P1，27.2/27.3）
