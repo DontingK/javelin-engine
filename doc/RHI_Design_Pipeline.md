@@ -932,7 +932,7 @@ graph.addGraphicsPass("PostProcessPass")
 
 * PrePostProcess
 
-用户可以在这些钩子追加自定义 Pass，不用重写整套管线。
+用户可以在这些位置追加自定义 Pass，不用重写整套管线。**引擎侧落地（2026-09-25 拍板）不设命名钩子枚举**：默认管线持有有序 Pass 列表，「插入位置」= 列表下标（见 Engine_RenderPipeline_Design.md 6.2）。
 
 #### 方式 2：完全丢弃默认管线，从零编排所有 Pass（完全自定义）
 
@@ -1007,17 +1007,9 @@ RenderPipeline pipeline = new DefaultHybridRenderPipeline(scene, renderView);
 
 pipeline.buildGraph(graph);
 
-// 方式A扩展：在默认管线钩子插入自定义Pass
+// 方式A扩展：向默认管线有序 Pass 列表插入自定义 Pass（原 PipelineHook 枚举已移除，2026-09-25）
 
-pipeline.addPassHook(PipelineHook.POST_LIGHTING, builder -> {
-
-    builder.addGraphicsPass("SSRPass")
-
-        .read(lightingRT, depthTex, gbufferNormal)
-
-        .write(ssrRT);
-
-});
+pipeline.passes().add(index, new SsrPass());  // 实现 RenderPass：addToGraph 内声明读写 + 录制回调
 
 // 方式B：完全自定义，抛弃默认管线
 

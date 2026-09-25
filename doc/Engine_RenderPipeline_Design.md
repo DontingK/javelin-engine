@@ -1,8 +1,9 @@
 # 引擎渲染管线设计（Engine Render Pipeline Design）
 
-> 版本：v0.1
+> 版本：v0.2
 > 日期：2026-09-24
-> 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展钩子）。
+> 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展机制）。
+> v0.2 变更（2026-09-25）：**钩子点枚举（PipelineHook）移除**——编排改为**有序 Pass 列表**（`RenderPass.addToGraph`），扩展 = 向列表指定位置插入自定义 Pass（6.2）；散点表述同步清扫。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
 > - RHI 文档管**「图怎么推导执行」**（依赖拓扑、屏障、图缓存——22 节「声明在引擎，推导执行在 RHI」）；
@@ -38,7 +39,7 @@
 
 ### 2.3 两种使用模式（RHI 14.1）
 
-- **模式 A**：用默认管线 `DefaultHybridRenderPipeline`，只调材质/灯光/钩子，不手写 Pass（普通场景）；
+- **模式 A**：用默认管线 `DefaultHybridRenderPipeline`，只调材质/灯光、或向 Pass 列表插入自定义 Pass，不手写图（普通场景）；
 - **模式 B**：实现 `RenderPipeline` 接口完全接管图编排（管线实验、定制渲染）。
 
 ## 3. 默认混合管线总览
@@ -91,7 +92,7 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 - **输出**：shadowMap（D32_SFLOAT，默认 2048²，灯光正交包围盒决定 frustum）；
 - **uniform**：light viewProj（UBO1）+ 每物体 model（push）；
 - **消费方**：GBuffer（着色时采样）与 Forward 不透明着色分支——需要材质系统提供带阴影采样的着色路径；
-- **资源归属**：全局唯一（主光单张图），不属于任何视口；挂 PipelineHook.PRE_GBUFFER 之前的独立位置。
+- **资源归属**：全局唯一（主光单张图），不属于任何视口；位于不透明几何 Pass 之前的独立位置。
 
 ### 4.2 GBufferPass
 
@@ -114,7 +115,7 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 - **输入**：GBuffer×3、depth（软阴影/重建用）、shadowMap、UBO1（camera + lights）；
 - **输出**：lightingRT（R16G16B16A16_SFLOAT，HDR）；
 - **光源数据**：UBO1 内 lights 数组（方向/点光，数量上限与打包格式随材质/灯光专档拍板，预估 16 盏）；
-- **计算化**：v0.x 用图形全屏 Pass；tiled/clustered 计算光照为 P2 扩展点（挂 POST_LIGHTING 前的计算 Pass）。
+- **计算化**：v0.x 用图形全屏 Pass；tiled/clustered 计算光照为 P2 扩展点（插于光照 Pass 之前的计算 Pass）。
 
 ### 4.4 深度复用（决策记录）
 
@@ -144,7 +145,7 @@ interface PostProcessPass {
     void record(CommandBuffer cmd, ChainContext ctx);
 }
 
-// 链操作 = 管线钩子的一种特化
+// 链操作 = 向管线追加节点的一种特化（落地后经 pipeline.passes() 列表表达，6.2）
 pipeline.postProcess().addLast(bloomChain);        // Bloom 多级降采样（细节占位）
 pipeline.postProcess().addLast(tonemapPass);       // HDR→LDR（细节占位）
 pipeline.postProcess().remove("Bloom");
@@ -152,7 +153,7 @@ pipeline.postProcess().remove("Bloom");
 
 - **空链 = 直通**：链首输入直接作为链尾输出交 Composite，不产生任何 Pass；
 - **HDR 切换点**：首个后处理 Pass 引入时，场景颜色从「直写 backbuffer（LDR）」变为「先写 lightingRT（RGBA16F HDR）、Tonemap 后回 LDR」——这是管线结构变化，图缓存正常失效，非兼容性破坏；
-- **挂点对齐**：链的注入/移除与 PipelineHook.PRE_POST_PROCESS 钩子等价表达，二选一在实现时定，文档不双写。
+- **挂点对齐（已拍板 2026-09-25）**：不设命名钩子枚举；链的注入/移除经 `postProcess()` 表达，链节点落地时实现 `RenderPass` 进入管线 Pass 列表——扩展统一走 6.2 的有序列表机制，文档不双写。
 
 ### 4.7 CompositePass
 
@@ -205,24 +206,19 @@ class PipelineContext {
 }
 ```
 
-### 6.2 钩子点（对齐 RHI 14.3）
+### 6.2 Pass 编排与扩展（有序 Pass 列表；v0.2 起替代原钩子点枚举）
 
 ```java
-enum PipelineHook {
-    PRE_SHADOW,        // ShadowPass 之前（插入自定义阴影级联等）
-    PRE_GBUFFER,       // 不透明几何之前
-    POST_GBUFFER,
-    POST_LIGHTING,     // 例：SSR（RHI 14.3 示例）
-    PRE_TRANSPARENT,
-    POST_TRANSPARENT,
-    PRE_POST_PROCESS,
-    PRE_COMPOSITE
+// Pass = 图构建单元：自持附件声明 + 渲染回调（第 4 节每个 Pass 一个实现类）
+interface RenderPass {
+    String name();                                        // 语义标识
+    void addToGraph(RenderGraphBuilder graph, PipelineContext ctx);
 }
-// pipeline.addHook(PipelineHook.POST_LIGHTING, (graph, ctx, chain) -> { ... });
 ```
 
-- 钩子注入的 Pass 属于图结构 → 注入/移除变化 = structureHash 失效（RHI 18.5 正常失效）；
-- 钩子回调**只准做 Pass 声明 + 录制**，不碰屏障/布局（22.4 迁移纪律）。
+- 管线 = 有序 `RenderPass` 列表：`buildGraph` 按序调用各 Pass 的 `addToGraph`；
+- **扩展（RHI 14.3 方式 1）**：向 `pipeline.passes()` 指定下标插入自定义 Pass（如 SSR 插于光照后、透明前）——「插入位置」即原钩子点的语义，不再设命名枚举（原 PipelineHook 已于 2026-09-25 移除：零调用方 + v0.1 下 POST_LIGHTING 等点位别名映射已造成漏触发）；清空列表自行填充 = 方式 2 完全自定义；
+- 列表组成变化 = structureHash 正常失效（RHI 18.5）；Pass 实现**只准做声明 + 录制**，不碰屏障/布局（22.4 迁移纪律）。
 
 ### 6.3 每视口管线选择
 
@@ -231,7 +227,7 @@ enum PipelineHook {
 
 ### 6.4 与图缓存咬合
 
-- 相机增删、钩子注入变化、后处理链变化 → 结构变化 → 正常失效（RHI 18.5），**不做特殊优化**；
+- 相机增删、Pass 列表组成变化、后处理链变化 → 结构变化 → 正常失效（RHI 18.5），**不做特殊优化**；
 - 运行数据（相机矩阵、物体列表、清屏值）不参与 structureHash——每帧变、不触发重编译；
 - 相机集合稳定的常规帧：整套多视口 Pass 链 + 屏障计划跨帧复用（RHI 19.4-5）。
 
@@ -262,7 +258,7 @@ enum PipelineHook {
 ## 9. 待定（P2）
 
 - GBuffer 布局与材质/着色模型绑定（4.2 格式拍板）、灯光数量上限与打包、shadowMap 描述符挂点（第 7 节）；
-- tiled/clustered 计算光照（LightingPass 计算化）、SSR 等 POST_LIGHTING 钩子示例；
+- tiled/clustered 计算光照（LightingPass 计算化）、SSR 等光照后扩展 Pass 示例（插入 Pass 列表）；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；
 - UI Pass 组、环境（天空盒/雾，Scene.environment）。
 
@@ -272,7 +268,7 @@ enum PipelineHook {
 |------|------|------|
 | RenderView / RenderList / 帧描述 | `Engine_Rendering_Design.md`（待写） | 本文 PipelineContext 的上游产物 |
 | RenderGraph / 屏障 / 图缓存 / 多相机 | RHI 7/8/18/19/22 节 | 本文 Pass 声明的执行端 |
-| 默认混合管线承诺 / 钩子模式 | RHI 14 节 | 本文是其在引擎侧的兑现 |
+| 默认混合管线承诺 / 扩展模式 | RHI 14 节 | 本文是其在引擎侧的兑现（方式 1 = Pass 列表插入，方式 2 = 完全接管） |
 | MeshRenderer/Camera/Light、渲染列表收集 | `Engine_Scene_Design.md` 5/6 节 | 渲染组件 → RenderList → 本文 Pass 消费 |
 | 帧循环 / FrameLoop / recreate | RHI 23/24 节 + 实现进度 | 管线终点 backbuffer 的供给方 |
 
