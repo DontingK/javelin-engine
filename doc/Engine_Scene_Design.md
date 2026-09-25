@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.1
+> 版本：v0.2（2026-09-25：2.4 节 Transform 拍板为 Component 子类）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -64,7 +64,11 @@ abstract class Component {
 - 用户自定义组件：继承 `Component` 覆写回调，**组件类须标 `@Reflective`（公开无参构造）**，由 `ReflectiveFactory` 零反射创建（GraalVM AOT，禁反射）；
 - 内置组件：`MeshRenderer` / `Camera` / `Light`（见第 5 节）。
 
-### 2.4 Transform（独立类，不是组件）
+### 2.4 Transform（组件，每个 Node 必有且唯一）
+
+> v0.1 原文为"独立类，不是组件"；**v0.2 拍板更正：Transform 就是 Component 子类**，
+> 由 Node 构造时自动挂载（经 addComponent + ReflectiveFactory），
+> 享受组件的生命周期与 getNode() 反引用，禁止重复添加。
 
 ```java
 class Transform {
@@ -78,7 +82,7 @@ class Transform {
 }
 ```
 
-- **节点层级 = Transform 树**：`node.transform.children` 即子节点；
+- **节点层级 = Transform 树**：`node.transform.children` 即子节点的 Transform；
 - **脏标记**：仅当 local 变换变化时重算自身 world 矩阵并向下传播（子树级联更新，不每帧全量重算）。
 
 ## 3. 创建与挂入

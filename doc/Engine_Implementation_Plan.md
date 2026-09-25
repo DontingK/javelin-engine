@@ -2,8 +2,8 @@
 
 > 版本：v0.1（2026-09-23）
 > 目标：按 `Engine_Design.md` 总纲，把 javelin-core 从"窗口壳"建成可跑场景的引擎，最终消费 RHI 完成多相机渲染 Demo。
-> 规格来源：`doc/Engine_Design.md`（总纲）、`Engine_Scene_Design.md`（v0.1，**待审定**）、`Engine_Window_Design.md`、`Engine_Assets_Design.md`、RHI 设计系列（消费侧契约：9 节 RenderView、19 节多相机、20 节材质实例、27 节帧交接）。
-> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；**RHI 六阶段全部关账（MultiCameraDemo 验收通过，2026-09-25）**；**阶段①③验收通过（2026-09-24 落地、2026-09-25 验收）：JavelinEngine 接线 RHI 初始化序列 + RenderingSystem/FrameDescription + v0.1 Forward 管线 + MultiCameraDemo**；场景层仍为空壳（阶段②，渲染层按拍板以直接注册模式先行落地）。
+> 规格来源：`doc/Engine_Design.md`（总纲）、`Engine_Scene_Design.md`（v0.2，**2026-09-25 审定**：Transform 拍板为 Component 子类）、`Engine_Window_Design.md`、`Engine_Assets_Design.md`、RHI 设计系列（消费侧契约：9 节 RenderView、19 节多相机、20 节材质实例、27 节帧交接）。
+> 现状：窗口/Time/AssetManager/SubsystemManager 已挂入 JavelinEngine（57f2719）；**RHI 六阶段全部关账（MultiCameraDemo 验收通过，2026-09-25）**；**阶段①③验收通过（2026-09-24 落地、2026-09-25 验收）：JavelinEngine 接线 RHI 初始化序列 + RenderingSystem/FrameDescription + v0.1 Forward 管线 + MultiCameraDemo**；**阶段②验收通过（2026-09-25 落地、单测全绿）：Node/Component/Transform/GameScene + GameSceneTest 13 用例**。
 
 ## 1. 约束（遵守 AGENTS.md 红线）
 
@@ -19,7 +19,7 @@
 ```
 ① 引擎接线 RHI（初始化序列搬家 + shutdown 逆序 + JavelinEngine.main 出画面）
    ↓
-② 场景系统实现（Node/Component/Transform + 生命周期，按 Engine_Scene_Design v0.1）
+② 场景系统实现（Node/Component/Transform + 生命周期，按 Engine_Scene_Design v0.2）
    ↓
 ③ 渲染系统·引擎侧（帧描述设计 → RenderingSystem → Camera/RenderView → 多相机 Demo 验收）
    ↓
@@ -46,23 +46,26 @@
 - **验收**：`JavelinEngine.main` 窗口出清屏（用户运行）；关闭窗口无 Vulkan 验证层报错；
 - **对应文档**：27.1、`Engine_Window_Design.md`。
 
-### 阶段 ② 场景系统实现（先审定 Engine_Scene_Design v0.1）
+### 阶段 ② 场景系统实现——✅ 验收通过（2026-09-25）
 
 - **目标**：组件模型落地，生命周期由主循环驱动；
-- **前置**：用户审定 `Engine_Scene_Design.md`（v0.1 标注"可能由 AI 生成"）；
-- **产出**：
-  - `Node`（容器，构造自动持有 Transform）/ `Component`（回调集）/ `Transform`（独立类，脏标记级联重算 localToWorld）；
-  - `Scene`：createNode 一步式 + add/remove 两步式提交语义（整树递归、归属检查、Awake 全先于 Enable、渲染组件登记）；
-  - 生命周期驱动：主循环遍历活动节点派发 onUpdate（active 且 enabled；setActive 级联语义）；
-  - `ReflectiveFactory` 创建组件（`@Reflective` + 公开无参构造）；
-- **验收**：场景生命周期纯单测（add/remove/setActive 回调序、脏标记重算正确性）；
-- **对应文档**：`Engine_Scene_Design.md` 1–4 节。
+- **规格**：`Engine_Scene_Design.md` **v0.2**（2026-09-25 审定，更正 v0.1：Transform 拍板为 Component 子类）；
+- **产出（已实现）**：
+  - `Node`（容器；name/active/layer/tags；构造经 addComponent 自动持有 Transform；getComponent(s) 线性扫描；isActiveInHierarchy 沿 Transform 父链；持 `Scene` 接口归属字段）；
+  - `Component`（抽象基类：node 反引用、enabled、isActiveAndEnabled、六回调 onAwake/onEnable/onStart/onUpdate/onDisable/onDestroy；`@Reflective` + ReflectiveFactory 零反射创建）；
+  - `Transform`（**组件**，v0.2 拍板推翻 v0.1"独立类"；TRS + 父子层级 + localToWorld 脏标记级联重算 + setParent 防环 + Iterable 子变换遍历）；
+  - `Scene` 接口（getName/getCameras/getRenderables/update）+ `GameScene`：add/remove（attachSubtree/detachSubtree：整树递归、归属检查、onAwake 全树先于 onEnable）+ update 扁平注册表驱动 onStart（每组件一次）/onUpdate + 组件注册表（cameras/renderables/全量 components，O(1) 增删，不每帧遍历场景树）；
+  - 内置组件：Camera（fov/near/far/main）、MeshRenderer（阴影标记 + implements Renderable，mesh/material 字段待阶段④资产管线）；Layer/LayerMask/Tag（31 层预定义 + 位掩码，Unity 风格）；材质骨架 Material/Shader（extends AbsAsset，随 AbsAsset 改继承 ObjectId 落地）；
+- **拍板（2026-09-25）**：**无 createNode**；`setParent` 挂到已入场景的父节点自动整树入场景，**摘除即出场景**（整棵子树 onDisable/onDestroy + 注销；不同于 Unity 出生即入场景——本引擎节点可裸存在）；已属场景禁止跨场景 setParent（抛异常）；**渲染衔接走 pull**（推翻 ③ 节原"scene.add 自动调 addCamera/addRenderer"预登记路径：引擎层每帧从 getCameras/getRenderables 取组件，翻译成 RenderCamera/RenderObject 喂 RenderingSystem）；onAwake 对整树触发含 inactive 节点（Unity 语义），仅 onEnable 按激活过滤；
+- **验收 ✅（2026-09-25 用户运行全绿）**：`GameSceneTest` 13 用例——add/remove/setActive 回调序与级联边界、setParent 自动入/出场景（含孙节点）、跨场景/二次 remove 抛异常、注册表内容、update 驱动、Transform 父链世界矩阵与防环、重复 Transform 拒绝；`gradlew :javelin-core:test --tests com.javelin.core.scene.GameSceneTest`；
+- **遗留**：GameScene→RenderingSystem 的 pull 翻译接线（Camera→RenderCamera、MeshRenderer→RenderObject，需先补 mesh/material 字段）随阶段④；environment/sun、.scene 序列化仍 P2；
+- **对应文档**：`Engine_Scene_Design.md`（v0.2）1–6 节。
 
 ### 阶段 ③ 渲染系统·引擎侧——第一步 ✅ 验收通过（2026-09-25）
 
 - **目标**：场景 → 帧描述 → RHI，多相机 Demo 验收（RHI 阶段⑥终点）；
 - **前置（已完成）**：`Engine_Rendering_Design.md` v0.1（帧描述字段级定义 = 27.2 交接契约落地、RenderingSystem 与 FrameLoop 调用关系、Y 翻转落点、UBO1 收编）+ `Engine_RenderPipeline_Design.md` v0.1（Pass 组织；拍板：文档混合/实现先 Forward、阴影纳入清单后置、后处理只留挂点）；
-- **场景系统前置的处理（用户拍板 2026-09-24）**：跳过场景层（Engine_Scene_Design 未审定），RenderingSystem 暴露 addCamera/addRenderer 直接注册 API——阶段②落地时 scene.add 按组件类型自动调用同一套 API，本层不变；
+- **场景系统前置的处理（用户拍板 2026-09-24）**：跳过场景层（Engine_Scene_Design 未审定），RenderingSystem 暴露 addCamera/addRenderer 直接注册 API~~——阶段②落地时 scene.add 按组件类型自动调用同一套 API~~（**2026-09-25 阶段②拍板改为 pull**：引擎层每帧从 Scene 接口取组件翻译后调用，见阶段②节），本层不变；
 - **产出（已实现，v0.1 Forward 形态）**：
   - `Camera` 组件 → `RenderCamera`（位姿 + 视口矩形；recalculate 生成视图/投影，**投影接管 Y 翻转**——perspective zZeroToOne + m11 取负，JOML）；
   - `Mesh` 资产最小实现（Engine_Assets_Design v0.2：per-attribute + 规范序固定 location 表 + 首次上传冻结；hostVisibleCoherent 内存，deviceLocal 待 Buffer staging；AABB 随视锥剔除一并后置）+ `VertexAttribute`；
