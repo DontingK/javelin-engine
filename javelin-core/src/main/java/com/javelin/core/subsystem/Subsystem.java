@@ -3,21 +3,29 @@ package com.javelin.core.subsystem;
 import com.javelin.core.JavelinEngine;
 
 /**
- * 子系统接口 —— 引擎扩展模块的统一契约。
+ * 子系统接口 —— 引擎底层全局服务的统一契约（物理、音频、输入等）。
  *
- * <p>子系统是全局服务级模块，与 Component 的区别：
+ * <p>子系统与其他扩展模块的分界：
  * <ul>
  *   <li><b>Component</b>：附加到单个 Node，管理该节点的局部数据和行为</li>
- *   <li><b>Subsystem</b>：全局单例，管理跨节点的系统级逻辑（如物理世界、粒子管理器、音频上下文）</li>
+ *   <li><b>Subsystem</b>：引擎级全局服务。启动前经 {@link SubsystemManager#register} 注册，
+ *       {@link SubsystemManager#initAll} 后结构冻结、<b>不允许移除</b>（暂停用 enabled 开关）</li>
+ *   <li><b>AppState</b>（appstate 包）：控制程序层，运行时可动态挂卸，与底层子系统互补
+ *       —— 两层的分界见 {@link com.javelin.core.appstate.AppState}</li>
  * </ul>
  *
- * <p>执行顺序由方法名直接体现：
+ * <p>调度序列（JavelinEngine.mainLoop 每帧，对齐 Engine_Design §2.1）：
  * <pre>
- *   每帧更新：earlyUpdate → scene.update(组件onUpdate) → lateUpdate
- *   每帧渲染：preRender → RenderingPipeline.render → render → postRender
+ *   pollEvents → Time.update
+ *   → 子系统 earlyUpdate（AppStateSubsystem 桥接：AppState 挂卸队列 + AppState update）
+ *   → scene.update（组件 onUpdate）
+ *   → 子系统 lateUpdate
+ *   → 收集帧描述 → frameLoop.renderFrame
  * </pre>
  *
- * <p>不需要的阶段直接空实现即可。</p>
+ * <p>渲染贡献不走子系统钩子：需要绘制内容的模块向
+ * {@code renderPipeline.passes()} 注册 Pass（管线扩展的既定方式，
+ * 见 Engine_RenderPipeline_Design）。不需要的钩子直接留 default 空实现。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -26,14 +34,17 @@ public interface Subsystem {
 
     /**
      * 初始化。
-     * <p>所有子系统注册完成后调用，分配资源、创建上下文。</p>
+     * <p>所有子系统注册完成、RHI 就绪后由 {@link SubsystemManager#initAll} 统一调用，
+     * 分配资源、创建上下文。init 抛异常的子系统被剔除、不进入调度。</p>
+     *
+     * @param engine 引擎实例（{@link AbstractSubsystem} 会回填到字段）
      */
     default void init(JavelinEngine engine) {
     }
 
     /**
-     * 早期更新。
-     * <p>在 scene.update() 之前执行。适合物理步进、动画采样、输入预处理。</p>
+     * 早期更新：每帧 scene.update 之前。
+     * <p>适合输入采集、物理步进。</p>
      *
      * @param deltaTime 帧间隔（秒）
      */
@@ -41,17 +52,8 @@ public interface Subsystem {
     }
 
     /**
-     * 正常更新。
-     * <p>在 scene.update() 之后执行。适合 AI、游戏逻辑、粒子发射器更新。</p>
-     *
-     * @param deltaTime 帧间隔（秒）
-     */
-    default void update(float deltaTime) {
-    }
-
-    /**
-     * 晚期更新。
-     * <p>在 update() 之后执行。适合物理同步到 Transform、相机跟随。</p>
+     * 晚期更新：每帧 scene.update 之后、帧描述收集之前。
+     * <p>适合物理结果回写 Transform、相机跟随等渲染前修正。</p>
      *
      * @param deltaTime 帧间隔（秒）
      */
@@ -59,33 +61,18 @@ public interface Subsystem {
     }
 
     /**
-     * 渲染前准备。
-     * <p>在 RenderingPipeline.render() 之前执行。适合粒子生成、LOD 计算。</p>
-     *
-     * @param context 渲染上下文，可分配 viewId、设置视口
+     * 是否启用（调度过滤探针）。
+     * <p>结构冻结不可移除，暂停即禁用：禁用的子系统不参与帧调度，
+     * 但保留在管理器中。可变开关由 {@link AbstractSubsystem#setEnabled} 提供。</p>
      */
-    default void preRender() {
-    }
-
-    /**
-     * 渲染贡献。
-     * <p>在 RenderingPipeline.render() 之后执行。适合提交额外的 RenderCommand（如粒子、调试线框）。</p>
-     *
-     */
-    default void render() {
-    }
-
-    /**
-     * 渲染后处理。
-     * <p>在所有渲染完成后执行。适合调试绘制、Gizmo、UI。</p>
-     *
-     */
-    default void postRender() {
+    default boolean isEnabled() {
+        return true;
     }
 
     /**
      * 关闭。
-     * <p>释放资源、保存状态、清理 GPU 对象。</p>
+     * <p>引擎 shutdown 时由 {@link SubsystemManager#shutdownAll} 按注册逆序调用，
+     * 时点在 GPU 设备销毁之前（子系统可能持有 GPU 资源）。</p>
      */
     default void shutdown() {
     }

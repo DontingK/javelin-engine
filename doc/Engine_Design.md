@@ -11,7 +11,7 @@
 | # | 系统 | 职责一句话 | 现状 | 设计文档 |
 |---|---|---|---|---|
 | 1 | 引擎外壳与主循环 | 生命周期（init→loop→shutdown）、帧调度、Time | 骨架已有，RHI 未接入 | 本文 §2.1 |
-| 2 | 子系统框架 | 全局服务级模块的统一契约与调度（early/late update、pre/post render） | 契约已有，具体子系统待建 | 待写（§2.2） |
+| 2 | 子系统框架 | 引擎级全局服务的统一契约与调度（init/earlyUpdate/lateUpdate/shutdown + 暂停开关） | 契约已重构、调度已接入 mainLoop；具体子系统待建 | 待写（§2.2） |
 | 3 | 窗口系统 | 窗口抽象、GLFW 实现、与渲染表面分离 | 已实现 | `Engine_Window_Design.md` |
 | 4 | 场景系统 | Node/Component/Transform、生命周期、场景增删 | 设计 v0.1，实现为空壳 | `Engine_Scene_Design.md` |
 | 5 | 渲染系统（引擎侧） | RenderingSystem、渲染列表收集、帧描述生产、Pass 组织 | 未建 | 待写（§2.5） |
@@ -28,13 +28,13 @@
 
 - **职责**：`JavelinEngine` 持有 setting/window/assetManager/subsystemManager；`start()` 走 initialize → onInitialize → mainLoop → shutdown；`mainLoop` 的单线程退化形态对齐 RHI 27.1：pollEvents → Time.update → 子系统 earlyUpdate → scene.update（组件 onUpdate）→ 子系统 lateUpdate → 收集帧描述 → frameLoop.renderFrame。
 - **现状**：窗口创建/关闭、Time 驱动、AssetManager/SubsystemManager 挂接已提交（57f2719）；RHI 初始化序列（Instance/Device/FrameLoop）目前只在测试类里，待搬入。
-- **待定**：shutdown 逆序释放契约（frameLoop.close → device → instance → window）；`JavelinSetting.vsync` 消费方；onInitialize/update 钩子是否保留给最终用户。
+- **待定**：`JavelinSetting.vsync` 消费方；onInitialize/update 钩子是否保留给最终用户。（shutdown 逆序已落地：子系统 shutdownAll → frameLoop.close（含 waitIdle）→ 渲染系统 → device → instance → window）
 
 ### 2.2 子系统框架
 
-- **职责**：`Subsystem` 接口（init/earlyUpdate/update/lateUpdate/preRender/render/postRender/shutdown）+ `SubsystemManager` 注册与调度。子系统是**全局服务**，与附加到 Node 的 Component 互补。
-- **现状**：接口与 Manager 已有；`AppStateSubsystem`（appstate 包）是首个实例。
-- **待写专档**：子系统注册时机（init 顺序与依赖）、渲染阶段（preRender/render/postRender）与引擎侧渲染管线的交接点、子系统与帧描述的关系。现有 `Subsystem` 注释里出现的 `scene.update`、`RenderingPipeline.render` 是契约中预设的调用点，对应类尚未实现。
+- **职责**：`Subsystem` 接口（init/earlyUpdate/lateUpdate/shutdown，全 default）+ `SubsystemManager` 注册与调度。子系统是**引擎级全局服务**（物理/音频/输入），与附加到 Node 的 Component 互补。结构规则（拍板 2026-09-26）：启动前 register、initAll 后**结构冻结不可移除**，暂停用 enabled 开关；init 抛异常剔除、不进调度。渲染贡献不走子系统钩子——需要绘制的模块向 `renderPipeline.passes()` 注册 Pass（Engine_RenderPipeline_Design 6.2）。
+- **现状**：契约已重构、调度已接入 mainLoop 与 shutdown（earlyUpdate → scene.update → lateUpdate，shutdown 首相位清理）；`AppStateSubsystem`（appstate 包）是首个实例。appstate 是**控制程序层**（游戏流程/场景切换/编辑器全局状态）：运行时动态挂卸（线程安全队列、帧边界生效）+ 单 update 心跳，经 AppStateSubsystem 桥接进子系统调度——与底层子系统的「冻结不可移除」相对。
+- **待写专档**：子系统注册时机（init 顺序与依赖）、子系统与帧描述的关系。
 
 ### 2.3 窗口系统
 
@@ -87,7 +87,7 @@
 | 物理 | 碰撞/刚体世界、物理步进（earlyUpdate）、结果回写 Transform（lateUpdate） | 引擎选型未定（自研/JBullet/bullet 绑定） |
 | 音频 | 音频上下文、3D 音源、总线 | 引擎选型未定（OpenAL 等） |
 
-三者在 `Subsystem` 契约里已有对应挂点（earlyUpdate 物理步进、lateUpdate 同步回写、render 提交调试/粒子等），框架不为它们特设机制。
+三者在 `Subsystem` 契约里已有对应挂点（earlyUpdate 物理步进、lateUpdate 同步回写；渲染贡献经管线 Pass 列表注册），框架不为它们特设机制。
 
 ## 4. 文档规划
 

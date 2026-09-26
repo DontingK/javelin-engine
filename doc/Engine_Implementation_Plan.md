@@ -95,10 +95,9 @@
 ### 阶段 ⑤ 子系统完善 + 输入子系统
 
 - **目标**：子系统框架成文，首个功能性子系统落地；
-- **前置**：先写 `Engine_Subsystem_Design.md`（注册时机与 init 顺序、渲染阶段挂点与引擎侧渲染管线的交接——`Subsystem` 注释中预设的 scene.update / RenderingPipeline.render 调用点落到具体类）；
+- **前置**：先写 `Engine_Subsystem_Design.md`（注册时机与 init 顺序、子系统与帧描述的关系；契约已重构落地 2026-09-26：四钩子 + 冻结/暂停，渲染贡献走管线 Pass 注册）；
 - **产出**：
-  - SubsystemManager 调度接入 mainLoop（earlyUpdate → scene.update → lateUpdate → preRender → render → postRender）；
-  - **输入子系统**：键鼠状态采集（GLFW 事件源）+ Action 映射；消费方演示 = 输入驱动相机移动；
+  - **输入子系统**：键鼠状态采集（GLFW 事件源）+ Action 映射；消费方演示 = 输入驱动相机移动；（SubsystemManager 调度已接入 mainLoop/shutdown：earlyUpdate → scene.update → lateUpdate）
 - **验收**：输入驱动相机在 ③ 的 Demo 里移动（用户运行）；
 - **对应文档**：`Engine_Subsystem_Design.md`（待写）、`Engine_Window_Design.md`（事件源）。
 
@@ -123,7 +122,7 @@
 - `.scene` 序列化格式、Prefab 资产（阶段 ② 数据模型为其预留，格式另定）；
 - 材质变体/关键字、遮挡剔除、GPU Instancing、LOD、Environment（雾/天空盒）；
 - 多线程逻辑/渲染分离（27.5；当前单线程退化形态已对齐 27.1）；
-- AppState 玩法层扩展。
+- 玩法层扩展（基于已落地的 appstate 控制程序层：动态挂卸 + 单 update 心跳）。
 
 ## 6. 需要用户拍板的开放项
 

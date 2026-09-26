@@ -9,20 +9,19 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * 子系统管理器 —— 统一管理所有 {@link Subsystem} 的注册、生命周期和调度。
+ * 子系统管理器 —— 引擎底层全局服务的注册与调度。
  *
- * <p>执行顺序由方法名直接体现，同阶段内按注册顺序遍历：
+ * <p>结构冻结规则（用户拍板 2026-09-26）：子系统在 {@link #initAll} 之前注册、
+ * 之后<b>冻结、不允许移除</b>（与 appstate 控制层的动态挂卸相对）；暂停用
+ * {@link Subsystem#isEnabled()} 过滤，开关由 {@link AbstractSubsystem#setEnabled} 驱动。</p>
+ *
+ * <p>调度序列由 JavelinEngine.mainLoop 接线（对齐 Engine_Design §2.1）：
  * <pre>
- *   updateAll(dt):
- *       for each subsystem: earlyUpdate(dt)
- *       for each subsystem: update(dt)
- *       for each subsystem: lateUpdate(dt)
- *
- *   renderAll():
- *       for each subsystem: preRender()
- *       for each subsystem: render()
- *       for each subsystem: postRender()
+ *   earlyUpdate(dt)   —— scene.update 之前（含 AppStateSubsystem 桥接的挂卸队列与 AppState update）
+ *   scene.update
+ *   lateUpdate(dt)    —— scene.update 之后、帧描述收集之前
  * </pre>
+ * 每个钩子逐个 try/catch：单个子系统抛错不拖死引擎，log.error 带堆栈继续调度其余子系统。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -60,8 +59,8 @@ public class SubsystemManager {
     /**
      * 初始化所有子系统。
      * <p>
-     * 调用后结构冻结，禁止再注册子系统。
-     * 按注册顺序调用 {@link Subsystem#init()}。
+     * 调用后结构冻结，禁止再注册子系统。按注册顺序调用 {@link Subsystem#init}；
+     * init 抛异常的子系统被<b>剔除</b>，不进入后续调度（避免半初始化状态每帧被驱动）。
      * </p>
      */
     public void initAll(JavelinEngine javelinEngine) {
@@ -70,21 +69,58 @@ public class SubsystemManager {
             return;
         }
         LOGGER.info("Initializing {} subsystems...", subsystems.size());
-        for (Subsystem s : subsystems) {
+        subsystems.removeIf(subsystem -> {
             try {
-                s.init(javelinEngine);
+                subsystem.init(javelinEngine);
+                return false;
             } catch (Exception e) {
-                LOGGER.error("Failed to initialize subsystem: {}", s.getClass().getSimpleName(), e);
+                LOGGER.error("Failed to initialize subsystem: {}, removed from scheduling",
+                        subsystem.getClass().getSimpleName(), e);
+                return true;
+            }
+        });
+        initialized = true;
+    }
+
+    /**
+     * 执行所有启用子系统的 earlyUpdate（scene.update 之前，mainLoop 接线）。
+     */
+    public void earlyUpdate(float deltaTime) {
+        for (Subsystem subsystem : subsystems) {
+            if (!subsystem.isEnabled()) {
+                continue;
+            }
+            try {
+                subsystem.earlyUpdate(deltaTime);
+            } catch (Exception e) {
+                LOGGER.error("Error in {}.earlyUpdate: {}",
+                        subsystem.getClass().getSimpleName(), e.getMessage(), e);
             }
         }
-        initialized = true;
+    }
+
+    /**
+     * 执行所有启用子系统的 lateUpdate（scene.update 之后、帧描述收集之前）。
+     */
+    public void lateUpdate(float deltaTime) {
+        for (Subsystem subsystem : subsystems) {
+            if (!subsystem.isEnabled()) {
+                continue;
+            }
+            try {
+                subsystem.lateUpdate(deltaTime);
+            } catch (Exception e) {
+                LOGGER.error("Error in {}.lateUpdate: {}",
+                        subsystem.getClass().getSimpleName(), e.getMessage(), e);
+            }
+        }
     }
 
     /**
      * 关闭所有子系统（逆序）。
      * <p>
-     * 后初始化的先关闭，避免依赖问题。
-     * 关闭后可通过重新创建 SubsystemManager 实例来重新配置。
+     * 后初始化的先关闭，避免依赖问题。JavelinEngine.shutdown 的第一步调用
+     * （在 GPU 设备销毁之前）。关闭后可通过重新创建 SubsystemManager 实例来重新配置。
      * </p>
      */
     public void shutdownAll() {
@@ -94,103 +130,16 @@ public class SubsystemManager {
         LOGGER.info("Shutting down {} subsystems...", subsystems.size());
         List<Subsystem> reversed = new ArrayList<>(subsystems);
         Collections.reverse(reversed);
-        for (Subsystem s : reversed) {
+        for (Subsystem subsystem : reversed) {
             try {
-                s.shutdown();
+                subsystem.shutdown();
             } catch (Exception e) {
-                LOGGER.error("Error shutting down subsystem: {}", s.getClass().getSimpleName(), e);
+                LOGGER.error("Error shutting down subsystem: {}",
+                        subsystem.getClass().getSimpleName(), e);
             }
         }
         initialized = false;
         subsystems.clear();
-    }
-
-    /**
-     * 执行所有子系统的 earlyUpdate。
-     */
-    public void earlyUpdate(float deltaTime) {
-        for (Subsystem s : subsystems) {
-            try {
-                s.earlyUpdate(deltaTime);
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.earlyUpdate: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 执行所有子系统的 update。
-     */
-    public void update(float deltaTime) {
-        for (Subsystem s : subsystems) {
-            try {
-                s.update(deltaTime);
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.update: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 执行所有子系统的 lateUpdate。
-     */
-    public void lateUpdate(float deltaTime) {
-        for (Subsystem s : subsystems) {
-            try {
-                s.lateUpdate(deltaTime);
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.lateUpdate: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 执行所有子系统的 preRender。
-     *
-     */
-    public void preRender() {
-        for (Subsystem s : subsystems) {
-            try {
-                s.preRender();
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.preRender: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 执行所有子系统的 render。
-     *
-     */
-    public void render() {
-        for (Subsystem s : subsystems) {
-            try {
-                s.render();
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.render: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 执行所有子系统的 postRender。
-     *
-     */
-    public void postRender() {
-        for (Subsystem s : subsystems) {
-            try {
-                s.postRender();
-            } catch (Exception e) {
-                LOGGER.error("Error in {}.postRender: {}", s.getClass().getSimpleName(), e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * 获取子系统数量。
-     */
-    public int getCount() {
-        return subsystems.size();
     }
 
     /**

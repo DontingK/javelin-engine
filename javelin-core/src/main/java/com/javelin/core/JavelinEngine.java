@@ -1,5 +1,6 @@
 package com.javelin.core;
 
+import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.math.Color;
@@ -10,9 +11,12 @@ import com.javelin.core.render.RenderingSystem;
 import com.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.core.render.pipeline.RenderPipeline;
+import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.SceneRenderBridge;
+import com.javelin.core.settings.GameSettings;
 import com.javelin.core.settings.JavelinSetting;
+import com.javelin.core.settings.SettingManager;
 import com.javelin.core.subsystem.SubsystemManager;
 import com.javelin.core.window.GLFWWindow;
 import com.javelin.core.window.Window;
@@ -54,19 +58,19 @@ public class JavelinEngine {
     /**
      * 主窗口：start() 时经 createWindow() 工厂创建，帧循环直接驱动（见 Engine_Window_Design.md）
      */
-    private Window window;
-    private AssetManager assetManager;
-    private SubsystemManager subsystemManager;
+    protected Window window;
+    protected AssetManager assetManager;
+    protected SubsystemManager subsystemManager;
 
     // RHI 初始化序列（阶段①：从测试类搬入，工厂可覆盖）
     private Instance instance;
     private Device device;
     private FrameLoop frameLoop;
-    private RenderingSystem renderingSystem;
-    private RenderPipeline renderPipeline;
+    protected RenderingSystem renderingSystem;
+    protected RenderPipeline renderPipeline;
 
     /** 当前场景（setScene 设置；null = 无场景，直注册模式） */
-    private Scene scene;
+    protected Scene scene;
     private final SceneRenderBridge sceneRenderBridge = new SceneRenderBridge();
 
     private long lastFrameTime;
@@ -93,6 +97,7 @@ public class JavelinEngine {
 
         assetManager = createAssetManager();
         subsystemManager = createSubsystemManager();
+        registerSubsystem(subsystemManager);
 
         // RHI 初始化序列（VkSurfaceKHR 由 createDevice 内部创建并持有，上层不再重复创建）
         RenderSurface surface = window.renderSurface();
@@ -102,6 +107,16 @@ public class JavelinEngine {
         renderingSystem = createRenderingSystem();
         renderPipeline = createRenderPipeline();
         log.info("RHI initialized: {}x{}, vsync={}", window.width(), window.height(), setting.isVsync());
+
+        subsystemManager.initAll(this);
+
+
+        Scene scene = loadScene();
+        setScene(scene);
+    }
+
+    protected void registerSubsystem(SubsystemManager subsystemManager){
+        subsystemManager.register(new AppStateSubsystem());
     }
 
     protected void onInitialize() {
@@ -118,9 +133,11 @@ public class JavelinEngine {
             float deltaTime = (currentTime - lastFrameTime) / 1_000_000_000.0f;
             lastFrameTime = currentTime;
             Time.update(deltaTime);
+            subsystemManager.earlyUpdate(Time.getDeltaTime());
             if (scene != null) {
                 scene.update(Time.getDeltaTime());
             }
+            subsystemManager.lateUpdate(Time.getDeltaTime());
             update();
             frameLoop.renderFrame(this::buildFrameGraph);
         }
@@ -160,8 +177,11 @@ public class JavelinEngine {
         return new RHIClearColor(bg.r, bg.g, bg.b, bg.a);
     }
 
-    /** shutdown 逆序（阶段①）：frameLoop（含 waitIdle）→ 渲染系统 → device → instance → window */
+    /** shutdown 逆序：子系统 → frameLoop（含 waitIdle）→ 渲染系统 → device → instance → window */
     private void shutdown() {
+        if (subsystemManager != null) {
+            subsystemManager.shutdownAll();
+        }
         if (frameLoop != null) {
             frameLoop.close();
         }
@@ -243,6 +263,12 @@ public class JavelinEngine {
         DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline();
         pipeline.setClearColor(clearColor());
         return pipeline;
+    }
+
+    protected Scene loadScene(){
+        GameSettings gameSettings = SettingManager.loadGameSettings();
+        String sceneGuid = gameSettings.getDefaultSceneGuid();
+        return assetManager.loadGuid(sceneGuid, GameScene.class);
     }
 
     /**

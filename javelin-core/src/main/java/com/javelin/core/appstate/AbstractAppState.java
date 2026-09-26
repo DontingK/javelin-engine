@@ -5,7 +5,8 @@ import com.javelin.core.JavelinEngine;
 /**
  * 应用状态抽象基类。
  *
- * <p>提供 {@link AppState} 的默认实现，子类只需重写需要的方法。</p>
+ * <p>提供 {@link AppState} 的默认实现，子类只需重写需要的方法；
+ * 编辑器侧的编辑状态继承 {@code AbsEditorAppState}（javelin-editor）二次收窄引擎类型。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -55,14 +56,6 @@ public abstract class AbstractAppState implements AppState {
     }
 
     @Override
-    public void earlyUpdate(float deltaTime) {
-    }
-
-    @Override
     public void update(float deltaTime) {
-    }
-
-    @Override
-    public void lateUpdate(float deltaTime) {
     }
 }

@@ -4,19 +4,17 @@ import com.javelin.core.JavelinEngine;
 import com.javelin.core.subsystem.Subsystem;
 
 /**
- * AppState 子系统 —— 将 {@link AppState} 生命周期桥接到 {@link Subsystem} 体系。
+ * AppState 子系统 —— 将 {@link AppState} 控制层桥接进 {@link Subsystem} 调度体系。
  *
- * <p>作为 Subsystem 注册到 {@link com.javelin.core.subsystem.SubsystemManager}，
- * 在每个更新阶段将调用转发给所有已附加的 {@link AppState}。</p>
+ * <p>作为 Subsystem 注册到 {@link com.javelin.core.subsystem.SubsystemManager}
+ * （JavelinEngine.registerSubsystem 默认注册），在 earlyUpdate 相位——
+ * 即每帧 scene.update 之前——驱动 {@link AppStateManager}：
+ * 先处理挂卸队列（帧边界生效），再逐个调用启用状态的 update。</p>
  *
  * <p>使用方式：</p>
  * <pre>
- *   // 在 JavelinEngine 子类中
- *   var appStateSubsystem = new AppStateSubsystem();
- *   subsystemManager.register(appStateSubsystem);
- *
- *   // 附加 AppState
- *   appStateSubsystem.getStateManager().attach(new MyGameState());
+ * // JavelinEngine 子类中（默认已注册，通常无需自建）
+ * appStateSubsystem.getStateManager().attach(new MyGameState());
  * </pre>
  *
  * @author Javelin Engine Team
@@ -34,21 +32,7 @@ public class AppStateSubsystem implements Subsystem {
     @Override
     public void earlyUpdate(float deltaTime) {
         if (stateManager != null) {
-            stateManager.earlyUpdate(deltaTime);
-        }
-    }
-
-    @Override
-    public void update(float deltaTime) {
-        if (stateManager != null) {
             stateManager.update(deltaTime);
-        }
-    }
-
-    @Override
-    public void lateUpdate(float deltaTime) {
-        if (stateManager != null) {
-            stateManager.lateUpdate(deltaTime);
         }
     }
 

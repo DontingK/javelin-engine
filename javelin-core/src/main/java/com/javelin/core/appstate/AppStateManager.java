@@ -11,10 +11,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * 应用状态管理器。
  *
- * <p>管理所有 {@link AppState} 的生命周期，负责按顺序调度更新。</p>
- *
- * <p>支持在运行时动态附加/分离状态，操作通过线程安全队列延迟到帧边界执行，
- * 避免在更新过程中修改状态列表。</p>
+ * <p>管理所有 {@link AppState}（控制程序层）的生命周期与帧调度。
+ * 支持运行时动态附加/分离（与底层子系统「冻结不可移除」相对）：
+ * 操作经线程安全队列延迟到帧边界处理，避免更新过程中修改状态列表——
+ * 编辑器 UI/JS 桥线程可直接发起 attach/detach。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -55,7 +55,8 @@ public class AppStateManager {
     /**
      * 附加状态。
      *
-     * <p>状态不会立即附加，而是加入队列，在下一帧开始时处理。</p>
+     * <p>状态不会立即附加，而是加入队列，在下一帧调度时处理——
+     * attach 后<b>同帧</b> {@link #getState} 返回 null，需等下一帧。</p>
      *
      * @param state 要附加的状态
      */
@@ -69,7 +70,7 @@ public class AppStateManager {
     /**
      * 分离状态。
      *
-     * <p>状态不会立即分离，而是加入队列，在下一帧开始时处理。</p>
+     * <p>状态不会立即分离，而是加入队列，在下一帧调度时处理。</p>
      *
      * @param state 要分离的状态
      */
@@ -83,7 +84,8 @@ public class AppStateManager {
     /**
      * 按类型查找状态。
      *
-     * <p>返回第一个匹配指定类型的状态实例。</p>
+     * <p>返回第一个匹配指定类型的状态实例。<b>注意延迟语义</b>：
+     * {@link #attach} 后、挂卸队列处理前（同帧）查不到该状态。</p>
      *
      * @param <T>        状态类型
      * @param stateClass 状态类
@@ -112,9 +114,16 @@ public class AppStateManager {
     /**
      * 清理所有状态。
      *
-     * <p>分离并清理所有已附加的状态，通常在引擎关闭时调用。</p>
+     * <p>分离并清理所有已附加的状态，通常在引擎关闭时调用。
+     * 挂卸队列中尚未生效的 pending attach 被丢弃并告警
+     * （它们从未 onAttach，故不触发任何回调）。</p>
      */
     public void cleanup() {
+        AppState pending;
+        while ((pending = attachQueue.poll()) != null) {
+            LOGGER.warn("Cleanup discarded pending AppState (never attached): {}",
+                    pending.getClass().getName());
+        }
         for (AppState state : new ArrayList<>(states)) {
             detach(state);
         }
@@ -130,7 +139,7 @@ public class AppStateManager {
             if (!states.contains(state)) {
                 states.add(state);
                 state.onAttach(this, engine);
-                LOGGER.info("AppState 已附加: {}", state.getClass().getName());
+                LOGGER.info("AppState attached: {}", state.getClass().getName());
             }
         }
     }
@@ -144,36 +153,23 @@ public class AppStateManager {
             if (states.remove(state)) {
                 state.onDisable();
                 state.onDetach(this);
-                LOGGER.debug("AppState 已分离: {}", state.getClass().getName());
+                LOGGER.debug("AppState detached: {}", state.getClass().getName());
             }
         }
     }
 
-    // ========== 更新调度（包内可见，由 AppStateSubsystem 调用） ==========
+    // ========== 帧调度（包内可见，由 AppStateSubsystem 在 earlyUpdate 相位调用） ==========
 
-    void earlyUpdate(float deltaTime) {
+    /**
+     * 每帧调度：处理挂卸队列（帧边界）后，逐个调用启用状态的 update。
+     */
+    void update(float deltaTime) {
         processAttachQueue();
         processDetachQueue();
 
         for (AppState state : states) {
             if (state.isEnabled()) {
-                state.earlyUpdate(deltaTime);
-            }
-        }
-    }
-
-    void update(float deltaTime) {
-        for (AppState state : states) {
-            if (state.isEnabled()) {
                 state.update(deltaTime);
-            }
-        }
-    }
-
-    void lateUpdate(float deltaTime) {
-        for (AppState state : states) {
-            if (state.isEnabled()) {
-                state.lateUpdate(deltaTime);
             }
         }
     }

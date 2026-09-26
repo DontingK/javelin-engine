@@ -43,8 +43,8 @@
 ### 2.1 输入子系统
 
 - **目标**：键鼠状态采集（GLFW 事件源）+ Action 映射；消费方演示 = 输入驱动相机移动；
-- **前置**：`Engine_Subsystem_Design.md`（待写：注册时机与 init 顺序、mainLoop 挂点落到具体类）+ `Engine_Input_Design.md`（待写）；
-- **产出**：SubsystemManager 调度接入 mainLoop（earlyUpdate → scene.update → lateUpdate → preRender → render → postRender）；输入子系统落地；
+- **前置**：`Engine_Subsystem_Design.md`（待写：注册时机与 init 顺序；契约重构 + mainLoop/shutdown 接线已完成 2026-09-26）+ `Engine_Input_Design.md`（待写）；
+- **产出**：输入子系统落地（子系统调度序列已接线：earlyUpdate → scene.update → lateUpdate）；
 - **验收**：输入驱动相机在场景 Demo 里移动（用户运行）；
 - **对应实现计划**：阶段⑤主体。
 

@@ -1,5 +1,6 @@
 package com.javelin.editor.settings;
 
+import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;
@@ -12,6 +13,7 @@ import com.javelin.core.serialize.Serializable;
  * @author javelin
  * @since 1.0
  */
+@Reflective
 public class EditorSettings implements Serializable {
 
     /** 新建项目时默认打开的父目录路径。 */

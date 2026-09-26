@@ -1,5 +1,7 @@
 package com.javelin.core.scene;
 
+import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.assets.AbsAsset;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
@@ -25,14 +27,20 @@ import java.util.List;
  * @author Javelin Engine Team
  * @since 1.0.0
  */
-public class GameScene implements Scene {
+@Reflective
+public class GameScene extends AbsAsset implements Scene {
 
-    private final String name;
+    private String name;
     private final List<Node> rootNodes = new ArrayList<>();
-    /** 全部已挂入组件（update 驱动顺序 ≈ 挂入顺序，设计文档 4 节） */
+    /**
+     * 全部已挂入组件（update 驱动顺序 ≈ 挂入顺序，设计文档 4 节）
+     */
     private final List<Component> components = new ArrayList<>();
     private final List<Camera> cameras = new ArrayList<>();
     private final List<Renderable> renderables = new ArrayList<>();
+
+    public GameScene() {
+    }
 
     public GameScene(String name) {
         this.name = name;
@@ -186,7 +194,9 @@ public class GameScene implements Scene {
 
     // ═══ Node 联动钩子（package-private，同包调用） ═══
 
-    /** 已挂入节点上 addComponent：注册并触发 onAwake → onEnable（Unity AddComponent 语义）。 */
+    /**
+     * 已挂入节点上 addComponent：注册并触发 onAwake → onEnable（Unity AddComponent 语义）。
+     */
     void onComponentAttached(Node node, Component component) {
         register(component);
         component.onAwake();
@@ -195,7 +205,9 @@ public class GameScene implements Scene {
         }
     }
 
-    /** 已挂入节点 setActive 翻转：子树内逐节点比对翻转前后的层级生效状态，触发 onEnable/onDisable。 */
+    /**
+     * 已挂入节点 setActive 翻转：子树内逐节点比对翻转前后的层级生效状态，触发 onEnable/onDisable。
+     */
     void onActiveToggled(Node toggled) {
         boolean oldSelfActive = !toggled.isActive();
         boolean ancestorsActive = true;
@@ -242,7 +254,9 @@ public class GameScene implements Scene {
         renderables.remove(component);
     }
 
-    /** 层级序（前序）收集节点及其 Transform 子树。 */
+    /**
+     * 层级序（前序）收集节点及其 Transform 子树。
+     */
     private static List<Node> collectSubtree(Node root) {
         List<Node> result = new ArrayList<>();
         collect(root, result);
