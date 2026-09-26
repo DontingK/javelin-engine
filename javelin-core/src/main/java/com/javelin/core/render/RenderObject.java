@@ -20,14 +20,21 @@ public class RenderObject {
     private final Matrix4f world = new Matrix4f();
     private final boolean transparent;
     private final boolean castShadow;
+    /** 渲染对象层级掩码（来源 Node.layer；与相机 cullingMask 相交才可见） */
+    private final int layerMask;
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow) {
+        this(mesh, material, castShadow, ~0);
+    }
+
+    public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask) {
         if (mesh == null || material == null) {
             throw new IllegalArgumentException("mesh / material must not be null");
         }
         this.mesh = mesh;
         this.material = material;
         this.castShadow = castShadow;
+        this.layerMask = layerMask;
         this.transparent = material.getShader().forwardPass().getState().isBlendEnabled();
     }
 
@@ -49,6 +56,10 @@ public class RenderObject {
 
     public boolean isCastShadow() {
         return castShadow;
+    }
+
+    public int layerMask() {
+        return layerMask;
     }
 
     /** 不透明排序键：同 layout + 同材质的对象相邻（减少 PSO 切换与描述符绑定） */

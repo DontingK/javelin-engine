@@ -23,7 +23,7 @@ public final class LayerMask {
         int mask = 0;
         for (Layer layer : layers) {
             if (layer != null) {
-                mask |= layer.getValue();
+                mask |= layer.getMask();
             }
         }
         return mask;
@@ -37,7 +37,7 @@ public final class LayerMask {
      * @return 是否包含
      */
     public static boolean contains(int mask, Layer layer) {
-        return layer != null && (mask & layer.getValue()) != 0;
+        return layer != null && (mask & layer.getMask()) != 0;
     }
 
     /**

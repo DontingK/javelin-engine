@@ -47,22 +47,25 @@ public final class ShaderParser {
             "not_equal", CompareOp.NOT_EQUAL,
             "never", CompareOp.NEVER);
 
-    /** Blend 因子：Unity 惯用名 → BlendFactor（Vulkan 原名小写后同名，一并覆盖） */
+    /**
+     * Blend 因子：key = 小写去下划线形态（与 blendFactor 查询端对齐——
+     * "OneMinusSrcAlpha"（Unity）与 "ONE_MINUS_SRC_ALPHA"（Vulkan）统一归一为 oneminussrcalpha）
+     */
     private static final Map<String, BlendFactor> BLEND_NAMES = Map.ofEntries(
             Map.entry("one", BlendFactor.ONE),
             Map.entry("zero", BlendFactor.ZERO),
             Map.entry("srccolor", BlendFactor.SRC_COLOR),
-            Map.entry("one_minussrccolor", BlendFactor.ONE_MINUS_SRC_COLOR),
+            Map.entry("oneminussrccolor", BlendFactor.ONE_MINUS_SRC_COLOR),
             Map.entry("dstcolor", BlendFactor.DST_COLOR),
-            Map.entry("one_minusdstcolor", BlendFactor.ONE_MINUS_DST_COLOR),
+            Map.entry("oneminusdstcolor", BlendFactor.ONE_MINUS_DST_COLOR),
             Map.entry("srcalpha", BlendFactor.SRC_ALPHA),
-            Map.entry("one_minussrcalpha", BlendFactor.ONE_MINUS_SRC_ALPHA),
+            Map.entry("oneminussrcalpha", BlendFactor.ONE_MINUS_SRC_ALPHA),
             Map.entry("dstalpha", BlendFactor.DST_ALPHA),
-            Map.entry("one_minusdstalpha", BlendFactor.ONE_MINUS_DST_ALPHA),
+            Map.entry("oneminusdstalpha", BlendFactor.ONE_MINUS_DST_ALPHA),
             Map.entry("constantcolor", BlendFactor.CONSTANT_COLOR),
-            Map.entry("one_minusconstantcolor", BlendFactor.ONE_MINUS_CONSTANT_COLOR),
+            Map.entry("oneminusconstantcolor", BlendFactor.ONE_MINUS_CONSTANT_COLOR),
             Map.entry("constantalpha", BlendFactor.CONSTANT_ALPHA),
-            Map.entry("one_minusconstantalpha", BlendFactor.ONE_MINUS_CONSTANT_ALPHA),
+            Map.entry("oneminusconstantalpha", BlendFactor.ONE_MINUS_CONSTANT_ALPHA),
             Map.entry("srcalphasaturate", BlendFactor.SRC_ALPHA_SATURATE));
 
     private ShaderParser(String src, String sourceName) {
@@ -298,7 +301,7 @@ public final class ShaderParser {
     }
 
     private BlendFactor blendFactor(String rawName) {
-        // 命名容差：OneMinusSrcAlpha（Unity）/ ONE_MINUS_SRC_ALPHA（Vulkan）统一小写匹配
+        // 命名容差：OneMinusSrcAlpha（Unity）/ ONE_MINUS_SRC_ALPHA（Vulkan）统一小写去下划线匹配
         String key = rawName.toLowerCase(Locale.ROOT).replace("_", "");
         BlendFactor factor = BLEND_NAMES.get(key);
         if (factor == null) {

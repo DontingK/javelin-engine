@@ -11,6 +11,7 @@ import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.material.ShaderPass;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.render.texture.TextureLoader;
+import com.javelin.core.scene.Scene;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.tool.shaderc.ShaderStage;
@@ -70,6 +71,11 @@ public final class MultiCameraDemo extends JavelinEngine {
     @Override
     protected RenderingSystem createRenderingSystem() {
         return new RenderingSystem(device(), frameLoop());
+    }
+
+    @Override
+    protected Scene loadScene() {
+        return null;
     }
 
     @Override

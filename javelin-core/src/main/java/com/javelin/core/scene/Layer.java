@@ -48,6 +48,17 @@ public final class Layer {
     }
 
     /**
+     * 层级位掩码（1 &lt;&lt; 索引）：cullingMask / LayerMask 世界的换算唯一落点。
+     * <p>注意与 {@link #getValue()}（索引 0~31）区分——直接拿索引做按位运算是历史 bug 源
+     * （曾在 LayerMask.of / SceneRenderBridge 把索引当掩码，导致全渲染对象被误过滤）。</p>
+     *
+     * @return 位掩码（bit index）
+     */
+    public int getMask() {
+        return 1 << value;
+    }
+
+    /**
      * 获取层级名称。
      *
      * @return 层级名称

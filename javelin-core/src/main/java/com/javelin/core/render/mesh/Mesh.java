@@ -1,9 +1,9 @@
 package com.javelin.core.render.mesh;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.assets.AbsAsset;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
-import com.javelin.core.serialize.Serializable;
 import com.javelin.rhi.Buffer;
 import com.javelin.rhi.VertexLayout;
 import com.javelin.rhi.types.IndexType;
@@ -32,7 +32,12 @@ import java.util.TreeMap;
  * <p>序列化（Capsule 二进制协议，.smesh 导入产物，2026-09-26 落地；重构拍板：
  * <b>字段类型即序列化实体类型，存储形态 = 序列化形态，零转换零重建</b>）——
  * CPU 数据 = {@code attributes}（{@link MeshAttributeData} 节点列表，name 唯一）+
- * {@code indices}；uploaded/layout/GPU 句柄等运行态不落盘。</p>
+ * {@code indices}；uploaded/layout/GPU 句柄等运行态不落盘。write/read 不写资产
+ * guid/lastModified（引擎约定：产物不内嵌 guid，资产身份由资产管理层管理，
+ * 与 Shader/GameScene 同款）。</p>
+ *
+ * <p>资产身份（用户拍板 2026-09-26）：extends {@link AbsAsset} 后即为 {@code Asset}，
+ * 产物可经 AssetManager 按路径/GUID 加载（"core/mesh/plane.smesh" 等）。</p>
  *
  * <p>v0.1 取舍：hostVisibleCoherent 内存（Buffer staging 上传未实现，RHI 遗留），
  * deviceLocal 化待 staging 路径落地；AABB/bounds 与视锥剔除属引擎优化点，后置
@@ -40,7 +45,7 @@ import java.util.TreeMap;
  * TRIANGLE_LIST）/ submesh / .mesh 格式属 P2 未实现。</p>
  */
 @Reflective
-public class Mesh implements Serializable {
+public class Mesh extends AbsAsset {
 
     /** 顶点属性列表（name 唯一；序列化直通字段；package-private：MeshUpload 消费） */
     ArrayList<MeshAttributeData> attributes = new ArrayList<>();

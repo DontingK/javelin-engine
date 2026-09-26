@@ -102,6 +102,10 @@ public final class RenderingSystem implements AutoCloseable {
 
     private final List<RenderCamera> cameras = new ArrayList<>();
     private final List<RenderObject> renderers = new ArrayList<>();
+    /** depth 排序缓存（collectFrame 每帧复用：预分配 + clear，热路径规矩） */
+    private final List<RenderCamera> sortedCameras = new ArrayList<>();
+    /** 首帧收集一次性诊断日志（渲染链读音入口，常驻保留） */
+    private boolean collectLogged;
 
     // UBO1 帧环形 + set0
     private final Buffer uboBuffer;
@@ -292,21 +296,28 @@ public final class RenderingSystem implements AutoCloseable {
 
         int slotBase = (int) (frameIndex % frameSlots) * SLOT_SIZE;
         float tpf = Time.getDeltaTime();
+        sortCamerasByDepth();
 
         List<RenderView> views = new ArrayList<>();
         int camIndex = 0;
-        for (RenderCamera cam : cameras) {
+        for (RenderCamera cam : sortedCameras) {
             cam.recalculate();
             uboBuffer.writeAligned(slotBase + camIndex * CAMERA_STRIDE,
                     FloatBuffer.wrap(cam.viewProj().get(new float[16])));
             RenderList list = collectList(cam);
+            if (!collectLogged) {
+                collectLogged = true;
+                log.info("首帧收集: backbuffer={}x{} 相机[{}] viewport={}x{} 不透明={} 透明={}",
+                        w, h, cam.name(), cam.viewportWidth(), cam.viewportHeight(),
+                        list.opaque().size(), list.transparent().size());
+            }
             views.add(new RenderView(cam.name(),
                     slotBase + camIndex * CAMERA_STRIDE,
                     new RHIViewport(cam.viewportX(), cam.viewportY(),
                             cam.viewportWidth(), cam.viewportHeight(), 0.0f, 1.0f),
                     new RHIScissor(cam.viewportX(), cam.viewportY(),
                             cam.viewportWidth(), cam.viewportHeight()),
-                    list));
+                    list, null, cam.clearColor(), cam.clearFlags()));
             camIndex++;
         }
         uboBuffer.writeAligned(slotBase + TIME_OFFSET,
@@ -316,11 +327,31 @@ public final class RenderingSystem implements AutoCloseable {
                 Time.getTime(), tpf, slotBase, CAMERA_STRIDE);
     }
 
+    /** 相机渲染序 = depth 升序稳定排序（升序即"值越大越晚渲染"；同值保持注册序） */
+    private void sortCamerasByDepth() {
+        sortedCameras.clear();
+        sortedCameras.addAll(cameras);
+        // 插入排序：≤MAX_CAMERAS(4)；严格大于比较保证稳定性
+        for (int i = 1; i < sortedCameras.size(); i++) {
+            RenderCamera key = sortedCameras.get(i);
+            int j = i - 1;
+            while (j >= 0 && sortedCameras.get(j).depth() > key.depth()) {
+                sortedCameras.set(j + 1, sortedCameras.get(j));
+                j--;
+            }
+            sortedCameras.set(j + 1, key);
+        }
+    }
+
     private RenderList collectList(RenderCamera cam) {
         RenderList list = new RenderList();
         Vector3f worldPos = new Vector3f();
         Map<RenderObject, Float> viewZ = new HashMap<>();
+        int cullingMask = cam.cullingMask();
         for (RenderObject ro : renderers) {
+            if ((ro.layerMask() & cullingMask) == 0) {
+                continue;   // 层级裁剪：对象 Layer 不在相机 cullingMask 内，跳过
+            }
             if (ro.isTransparent()) {
                 ro.world().getTranslation(worldPos);
                 worldPos.mulPosition(cam.view());

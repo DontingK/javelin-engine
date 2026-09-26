@@ -18,6 +18,11 @@ import java.util.List;
  */
 public class TransparentForwardPass extends AbstractForwardPass {
 
+    /** 首帧绘制一次性诊断（渲染链读数口，常驻） */
+    private static final org.slf4j.Logger LOGGER =
+            org.slf4j.LoggerFactory.getLogger(TransparentForwardPass.class);
+    private static boolean drawLogged;
+
     @Override
     public String name() {
         return "Transparent";
@@ -39,6 +44,11 @@ public class TransparentForwardPass extends AbstractForwardPass {
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {
                 List<RenderObject> objects = view.list().transparent();
+                if (!drawLogged) {
+                    drawLogged = true;
+                    LOGGER.info("首帧 Transparent 回调执行: 视口[{}] 物体={}",
+                            view.name(), objects.size());
+                }
                 if (objects.isEmpty()) {
                     return;
                 }
