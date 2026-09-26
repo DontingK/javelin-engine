@@ -1,27 +1,41 @@
 package com.javelin.core.render.material;
 
+import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.core.serialize.Serializable;
+
 /**
  * 材质属性元数据（.shader Properties 块的一条声明，RHI 21.4 节）。
  *
  * <p>纯数据、device 无关；由离线构建工具从 .shader 解析生成，
  * 是 set 2 材质布局（MaterialBlock + 贴图槽位）的来源。</p>
  *
+ * <p>序列化：实现 {@link Serializable} 走 Capsule 二进制协议（.shader 资产产物格式，
+ * Engine_Material_Design §3）；字段非 final——反序列化需回写（红线 9）；
+ * TEXTURE_2D 的 defaultValues/占位名为 null，Capsule 写入跳过、读取返回 null。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
-public final class MaterialProperty {
+@Reflective
+public final class MaterialProperty implements Serializable {
 
-    private final String name;
-    private final String displayName;
-    private final MaterialPropertyType type;
+    private String name;
+    private String displayName;
+    private MaterialPropertyType type;
     /** COLOR/VECTOR 为 4 元，FLOAT/RANGE 为 1 元，TEXTURE_2D 为 null */
-    private final float[] defaultValues;
+    private float[] defaultValues;
     /** RANGE 的取值下限 */
-    private final float min;
+    private float min;
     /** RANGE 的取值上限 */
-    private final float max;
+    private float max;
     /** TEXTURE_2D 的占位贴图名（white / bump / black，RHI 21.4 节约定） */
-    private final String texturePlaceholder;
+    private String texturePlaceholder;
+
+    /** 反序列化用无参构造（ReflectiveFactory 重建） */
+    public MaterialProperty() {
+    }
 
     private MaterialProperty(String name, String displayName, MaterialPropertyType type,
                              float[] defaultValues, float min, float max, String texturePlaceholder) {
@@ -32,6 +46,28 @@ public final class MaterialProperty {
         this.min = min;
         this.max = max;
         this.texturePlaceholder = texturePlaceholder;
+    }
+
+    @Override
+    public void write(OutputCapsule output) {
+        output.write("name", name);
+        output.write("displayName", displayName);
+        output.write("type", type);
+        output.write("defaultValues", defaultValues);
+        output.write("min", min);
+        output.write("max", max);
+        output.write("texturePlaceholder", texturePlaceholder);
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        name = input.readString("name");
+        displayName = input.readString("displayName");
+        type = input.readEnum("type", MaterialPropertyType.class);
+        defaultValues = input.readFloatArray("defaultValues");
+        min = input.readFloat("min");
+        max = input.readFloat("max");
+        texturePlaceholder = input.readString("texturePlaceholder");
     }
 
     /**

@@ -139,8 +139,10 @@ EditorApp.main()
 ### 6.2 元数据（meta 包）
 
 - **伴生 `.meta`**：每个资源文件同级 `文件名.meta`（文本序列化），存 guid / 类型 / 导入设置 / 源文件 mtime。
-- **自包含 GUID**：`src/` 下 `.java` 文件不建 `.meta`，GUID 以 `// @javelin-guid:` 文件头形式
-  由 `GuidHeaderManager` 提取/注入。
+- **自包含 GUID**：`src/main/java` 下 `.java` 与**全部文本格式资产（`.shader` / `.smesh`）**
+  不建 `.meta`，GUID 以 `// @javelin-guid:` 文件头形式由 `GuidHeaderManager` 提取/注入
+  （拍板 2026-09-26：内置资源无伴生 .meta，GUID 以文件头为唯一真值——删 `Library`/`.javelin`
+  缓存重编译后 GUID 不变，引用不失效；无头文件首次导入自动注入确定性 GUID）。
 - `MetaManager`：构造即 `sync()`（建缺、清孤儿、重建缓存），维护 guid↔path 三向缓存，
   GUID 重复视为致命错误抛异常；`updateIndex()` 生成 `Library/index.asset`。
 - 类型检测按扩展名粗分（Texture/Shader/Audio/Scene/Material/Script/Mesh/Data）。
@@ -148,8 +150,12 @@ EditorApp.main()
 ### 6.3 导入管线（importer 包）
 
 - `AssetImporter` SPI：扩展名注册表驱动（扫描实例化所有实现）。产物统一命名
-  `Library/{guid}.asset`。当前实现：`SimpleMeshImporter`（.smesh 文本格式 → Mesh）。
-  **shader 导入器尚未实现**（main 源集空缺，测试资源已有 `default.shader`）。
+  `Library/{guid}.asset`。**产物 guid 优先取源码文件头**（`.shader` 自包含真值源），
+  **文件头缺失才回退 meta 的 guid**（拍板 2026-09-26）。当前实现：`SimpleMeshImporter`
+  （.smesh 文本格式 → Mesh Capsule 二进制产物，补齐落盘 2026-09-26）；
+  **`ShaderImporter`（.shader → 解析 → #version 后注入 → shaderc 编译 → Capsule 二进制
+  产物，2026-09-26 落地）**——管线中首个真正写出二进制产物的导入器，
+  组成：`ShaderParser`（v0.13 语法）/ `ShaderInjector`（声明注入）/ `ShaderImporter`（编排+导出）。
 - `AssetImportPipeline`：生产者 `refresh()`（扫监听目录，mtime 变化或产物缺失才提交）/
   `reimportAll()`（清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
   `ImportTask` 记录状态/耗时/错误。
@@ -193,12 +199,12 @@ EditorApp.main()
 6. **`SettingsManager` javadoc 引用不存在的 `ProjectManagerJFrame`**（现为 `ProjectFrame`）。
 7. **`MainFrame.width()` 语义与 GLFW 实现不同**（逻辑像素 vs framebuffer 像素），
    当前消费方（帧循环只用 surface 尺寸）不受影响，但若未来有按窗口宽高的逻辑需留意 dpi。
-8. **`importer/shader` 实现缺失**：.shader 资产暂无法进 Library（二期 javelin-tool 解析器落地后补）。
+8. ~~**`importer/shader` 实现缺失**~~——**已落地（2026-09-26）**：`ShaderParser/ShaderInjector/ShaderImporter` 进 main 源集，.shader 经解析、注入、shaderc 编译产出 Capsule 二进制资产（§6.3）；`SimpleMeshImporter` 的产物落盘同日补齐（Mesh 存储即 `ArrayList<MeshAttributeData>` 节点列表，序列化字段直通零转换）。
 9. `EditorApp.main()` 仍是旧的 `new ProjectFrame()` demo 入口；正式入口在 `ProjectLoadingFrame`。
 
 ## 10. 演进方向
 
 - 二期：编辑器基本功能（场景编辑 UI ↔ 引擎 Scene 回写，待编辑器 UI 栈拍板）
-- shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）
+- ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

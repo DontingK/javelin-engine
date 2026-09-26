@@ -60,7 +60,11 @@ class Mesh {
 }
 ```
 
-### 2.3 VertexAttribute（描述对象：内置常量 + 用户自定义）
+> **实现存档（2026-09-26，用户拍板）**：Mesh 属性的内部存储即序列化形态——
+> `ArrayList<MeshAttributeData>`（name/components/format/data 自描述节点，name 唯一）
+> + `int[] indices`，Capsule write/read 字段直通零转换（红线 10 的根治式满足：
+> 不搞 Map→列表转换、不搞懒装配）。序列化只落 CPU 数据；uploaded/layout/GPU 句柄
+> 运行态不落盘，.smesh 导入产物 = 未上传的纯 CPU 网格。
 
 > **属性不是封闭枚举**——是描述对象，内置属性为预定义常量，用户可 new 自定义属性，机制完全一致。
 

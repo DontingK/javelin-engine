@@ -329,14 +329,19 @@ public class MetaManager {
     /**
      * 判断是否为自包含 GUID 的资源
      *
-     * <p>目前仅 {@code src/} 下的 {@code .java} 文件为自包含 GUID 资源。</p>
+     * <p>{@code src/main/java} 下的 {@code .java} 与全部文本格式资产
+     * （{@code .shader} / {@code .smesh}）为自包含 GUID 资源（GUID 以文件头为准——
+     * 内置资源无伴生 .meta）。</p>
      *
      * @param file 文件
      * @return 如果是自包含 GUID 资源返回 true
      */
     private boolean isSelfContainedGuidFile(File file) {
         String name = file.getName().toLowerCase();
-        return name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file);
+        if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
+            return true;
+        }
+        return name.endsWith(".shader") || name.endsWith(".smesh");
     }
 
     /**
@@ -434,8 +439,9 @@ public class MetaManager {
     /**
      * 更新 Library 索引文件
      *
-     * <p>扫描所有 {@code .meta} 文件和 {@code src/} 下的 {@code .java} 文件，提取 GUID，
-     * 生成 {@code Library/index.asset}，存储 guid → Library 产物路径的映射。</p>
+     * <p>扫描所有 {@code .meta} 文件、{@code src/main/java} 下的 {@code .java} 与全部
+     * 自包含文本资产（{@code .shader} / {@code .smesh}，guid 从文件头提取），生成
+     * {@code Library/index.asset}，存储 guid → Library 产物路径的映射。</p>
      */
     public synchronized void updateIndex() {
         File indexFile = new File(project.getLibrary(), "index.asset");
@@ -490,6 +496,13 @@ public class MetaManager {
                         index.put(meta.getGuid(), sourcePath);
                     }
                 } else if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
+                    String guid = guidHeaderManager.extractGuid(file);
+                    if (guid != null) {
+                        String sourcePath = getRelativePath(rootDir, file);
+                        index.put(guid, sourcePath);
+                    }
+                } else if (name.endsWith(".shader") || name.endsWith(".smesh")) {
+                    // 自包含 GUID 文本资产（无伴生 .meta）：guid 从文件头取，产物路径即 guid
                     String guid = guidHeaderManager.extractGuid(file);
                     if (guid != null) {
                         String sourcePath = getRelativePath(rootDir, file);

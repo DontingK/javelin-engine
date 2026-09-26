@@ -55,23 +55,24 @@ public final class MeshUpload {
         }
 
         int vertexCount = positions.length / 3;
-        List<VertexAttribute> canonical = mesh.canonicalAttributes();
+        List<MeshAttributeData> canonical = mesh.canonicalAttributes();
         int stride = 0;
-        for (VertexAttribute a : canonical) {
-            stride += a.byteSize();
+        for (MeshAttributeData node : canonical) {
+            stride += node.getComponents() * Float.BYTES;
         }
 
         ByteBuffer vertexData = ByteBuffer.allocateDirect(vertexCount * stride)
                 .order(ByteOrder.LITTLE_ENDIAN);
         for (int v = 0; v < vertexCount; v++) {
-            for (VertexAttribute a : canonical) {
-                float[] data = mesh.dataByName.get(a.name());
-                int base = v * a.components();
-                if (base + a.components() > data.length) {
-                    throw new IllegalStateException("属性 " + a.name() + " 数据长度 "
+            for (MeshAttributeData node : canonical) {
+                int components = node.getComponents();
+                float[] data = node.getData();
+                int base = v * components;
+                if (base + components > data.length) {
+                    throw new IllegalStateException("属性 " + node.getName() + " 数据长度 "
                             + data.length + " 与顶点数 " + vertexCount + " 不匹配");
                 }
-                for (int k = 0; k < a.components(); k++) {
+                for (int k = 0; k < components; k++) {
                     vertexData.putFloat(data[base + k]);
                 }
             }
@@ -103,7 +104,7 @@ public final class MeshUpload {
         mesh.layout = buildLayout(canonical, stride);
         mesh.uploaded = true;
         if (!mesh.keepCpuCopy) {
-            mesh.dataByName.clear();
+            mesh.attributes.clear();
             mesh.indices = null;
         }
     }
@@ -113,11 +114,12 @@ public final class MeshUpload {
      * UV0=3、COLOR=4、自定义 5+ 按 name 字典序）——.shader 顶点输入按此固定表声明，避免错位；
      * 偏移仍按已填属性紧密排列（stride = 各属性字节和）。
      */
-    private static VertexLayout buildLayout(List<VertexAttribute> canonical, int stride) {
+    private static VertexLayout buildLayout(List<MeshAttributeData> canonical, int stride) {
         List<VertexLayout.Attribute> attributes = new ArrayList<>(canonical.size());
         int offset = 0;
         int customIndex = 0;
-        for (VertexAttribute a : canonical) {
+        for (MeshAttributeData node : canonical) {
+            VertexAttribute a = node.toVertexAttribute();
             int location = a.isBuiltin() ? builtinLocation(a) : 5 + customIndex++;
             attributes.add(new VertexLayout.Attribute(location, a.format(), offset));
             offset += a.byteSize();

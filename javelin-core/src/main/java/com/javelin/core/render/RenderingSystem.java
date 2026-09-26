@@ -200,14 +200,17 @@ public final class RenderingSystem implements AutoCloseable {
     // ═══ 材质桥（Engine_Material_Design.md §4） ═══
 
     /**
-     * Pass 回调内取 PSO（按 Shader 前向 Pass + 顶点布局缓存，PSO 不每帧新建，RHI 16.4）：
-     * SPIR-V 与固定状态（PassState）取自 ShaderPass，set 布局 = set0 帧 + set1 空占位 +
+     * Pass 回调内取 PSO（按 Shader 前向 Pass + 顶点布局 + 图元拓扑缓存，
+     * PSO 不每帧新建，RHI 16.4）：SPIR-V 与固定状态（PassState）取自 ShaderPass，
+     * 图元类型 = Mesh 拓扑（TRIANGLE_LIST 默认），set 布局 = set0 帧 + set1 空占位 +
      * set2 材质（RHI 20.3/20.4）。
      */
-    public GraphicsPipeline pipelineFor(Material material, VertexLayout layout) {
+    public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
+                                        PrimitiveTopology topology) {
         checkOpen();
         Shader shader = material.getShader();
-        String key = System.identityHashCode(shader) + ":" + layout.hashCode();
+        String key = System.identityHashCode(shader) + ":" + layout.hashCode()
+                + ":" + topology;
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
             return cached;
@@ -218,7 +221,7 @@ public final class RenderingSystem implements AutoCloseable {
                 new ShaderDesc(ShaderStage.VERTEX, pass.getVertexSpirv()),
                 new ShaderDesc(ShaderStage.FRAGMENT, pass.getFragmentSpirv()),
                 layout,
-                PrimitiveTopology.TRIANGLE_LIST,
+                topology,
                 s.getCull(),
                 FrontFace.COUNTER_CLOCKWISE,
                 PolygonMode.FILL,
@@ -236,8 +239,8 @@ public final class RenderingSystem implements AutoCloseable {
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR));
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
-        log.info("material PSO created: shader={} pass={} layout={}",
-                shader.getShaderName(), pass.getName(), layout);
+        log.info("material PSO created: shader={} pass={} layout={} topology={}",
+                shader.getShaderName(), pass.getName(), layout, topology);
         return created;
     }
 

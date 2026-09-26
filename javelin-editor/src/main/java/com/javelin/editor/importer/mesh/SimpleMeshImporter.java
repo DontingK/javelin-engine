@@ -1,8 +1,12 @@
 package com.javelin.editor.importer.mesh;
 
+import com.javelin.core.render.mesh.Mesh;
+import com.javelin.core.serialize.binary.BinaryExporter;
+import com.javelin.rhi.types.PrimitiveTopology;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
+import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.project.Project;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +21,9 @@ import java.util.List;
 /**
  * 简单网格导入器
  *
- * <p>解析自定义文本格式（.smesh），支持 [POSITION]、[UV]、[INDEX]、[NORMAL] 段，生成 {@link Mesh}。</p>
+ * <p>解析自定义文本格式（.smesh），支持 [POSITION]、[UV]、[INDEX]、[NORMAL]、
+ * [TOPOLOGY] 段，生成 {@link Mesh}（[TOPOLOGY] 值 = PrimitiveTopology 枚举名，
+ * 如 TRIANGLE_LIST，缺省同默认）。</p>
  *
  * <p><b>格式示例：</b></p>
  * <pre>
@@ -35,6 +41,8 @@ import java.util.List;
  * 0,0,1
  * 0,0,1
  * 0,0,1
+ * [TOPOLOGY]
+ * TRIANGLE_LIST
  * </pre>
  *
  * @author Javelin Engine Team
@@ -45,6 +53,9 @@ public class SimpleMeshImporter implements AssetImporter {
     private static final Logger LOGGER = LoggerFactory.getLogger(SimpleMeshImporter.class);
 
     private static final List<String> SUPPORTED_EXTENSIONS = List.of(".smesh");
+
+    /** 源码文件头 GUID 读取（自包含真值源优先于 meta） */
+    private final GuidHeaderManager guidHeaderManager = new GuidHeaderManager();
 
     @Override
     public String getName() {
@@ -73,6 +84,7 @@ public class SimpleMeshImporter implements AssetImporter {
             IntArray indices = new IntArray();
 
             String currentSection = "NONE";
+            String topologyName = null;
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -92,6 +104,7 @@ public class SimpleMeshImporter implements AssetImporter {
                     case "NORMAL" -> parseFloatLine(line, normals, 3);
                     case "UV" -> parseFloatLine(line, uvs, 2);
                     case "INDEX" -> parseIntLine(line, indices);
+                    case "TOPOLOGY" -> topologyName = line.toUpperCase();
                     default -> {
                         // 未识别段，忽略
                     }
@@ -119,15 +132,41 @@ public class SimpleMeshImporter implements AssetImporter {
             }
 
 
-            // 输出到 Library
+            // 装配 Mesh（给哪些段就有哪些属性，数据驱动——Mesh 2.2）
+            Mesh mesh = new Mesh();
+            mesh.setPositions(positions.toArray());
+            if (normals.size > 0) {
+                mesh.setNormals(normals.toArray());
+            }
+            if (uvs.size > 0) {
+                mesh.setUVs(uvs.toArray());
+            }
+            if (indices.size > 0) {
+                mesh.setIndices(indices.toArray());
+            }
+            if (topologyName != null) {
+                // 拓扑值 = PrimitiveTopology 枚举名（TRIANGLE_LIST / TRIANGLE_STRIP / ...）
+                try {
+                    mesh.setTopology(PrimitiveTopology.valueOf(topologyName));
+                } catch (IllegalArgumentException e) {
+                    task.setErrorMessage("TOPOLOGY 取值非法: " + topologyName
+                            + "（应为 PrimitiveTopology 枚举名，如 TRIANGLE_LIST）");
+                    return false;
+                }
+            }
+
+            // 落盘：guid 优先源文件头（.smesh 自包含），缺失才回退 meta；
+            // 产物路径与解析出的 guid 同源（文件名/内容/index 三者一致）
+            String guid = guidHeaderManager.extractGuid(sourceFile);
+            if (guid == null || guid.isEmpty()) {
+                guid = task.getMeta().getGuid();
+            }
             File libraryDir = project.getLibrary();
             if (!libraryDir.exists()) {
                 libraryDir.mkdirs();
             }
-            File outputFile = new File(libraryDir, task.getMeta().getGuid() + EXTENSION);
-
-//            BinaryExporter exporter = new BinaryExporter(outputFile);
-//            exporter.export(mesh);
+            File outputFile = new File(libraryDir, guid + EXTENSION);
+            new BinaryExporter(outputFile).export(mesh);
 
             LOGGER.info("简单网格导入成功: {} -> {} (顶点数={})",
                     sourceFile.getName(), outputFile.getName(), vertexCount);
@@ -201,6 +240,10 @@ public class SimpleMeshImporter implements AssetImporter {
                 data = Arrays.copyOf(data, data.length * 2);
             }
             data[size++] = v;
+        }
+
+        float[] toArray() {
+            return Arrays.copyOf(data, size);
         }
     }
 

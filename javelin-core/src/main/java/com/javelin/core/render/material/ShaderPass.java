@@ -1,5 +1,10 @@
 package com.javelin.core.render.material;
 
+import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.core.serialize.Serializable;
+
 /**
  * Shader 的一个 Pass（.shader {@code Pass GBuffer {}} 块编译后的结构，RHI 20.2 / 21 节）。
  *
@@ -7,15 +12,23 @@ package com.javelin.core.render.material;
  * SPIR-V 为离线构建产物（vs/fs 块经 {@code #version} 后注入声明，由 shaderc 编译）。
  * 纯数据、device 无关；PSO 经渲染侧缓存按 Pass 取用（RHI 20.7-4），本类不持有 PSO。</p>
  *
+ * <p>序列化：实现 {@link Serializable} 走 Capsule 二进制协议（.shader 资产产物格式，
+ * Engine_Material_Design §3）；字段非 final——反序列化需回写（红线 9），只读靠 API 面。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
-public final class ShaderPass {
+@Reflective
+public final class ShaderPass implements Serializable {
 
-    private final String name;
-    private final byte[] vertexSpirv;
-    private final byte[] fragmentSpirv;
-    private final PassState state;
+    private String name;
+    private byte[] vertexSpirv;
+    private byte[] fragmentSpirv;
+    private PassState state;
+
+    /** 反序列化用无参构造（ReflectiveFactory 重建） */
+    public ShaderPass() {
+    }
 
     public ShaderPass(String name, byte[] vertexSpirv, byte[] fragmentSpirv, PassState state) {
         if (name == null || name.isBlank()) {
@@ -25,6 +38,22 @@ public final class ShaderPass {
         this.vertexSpirv = vertexSpirv;
         this.fragmentSpirv = fragmentSpirv;
         this.state = state != null ? state : new PassState();
+    }
+
+    @Override
+    public void write(OutputCapsule output) {
+        output.write("name", name);
+        output.write("vertexSpirv", vertexSpirv);
+        output.write("fragmentSpirv", fragmentSpirv);
+        output.write("state", state);
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        name = input.readString("name");
+        vertexSpirv = input.readByteArray("vertexSpirv");
+        fragmentSpirv = input.readByteArray("fragmentSpirv");
+        state = input.readSerializable("state", PassState.class);
     }
 
     /**

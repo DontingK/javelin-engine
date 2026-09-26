@@ -1,0 +1,572 @@
+package com.javelin.editor.importer.shader;
+
+import com.javelin.core.render.material.MaterialProperty;
+import com.javelin.core.render.material.PassState;
+import com.javelin.rhi.types.BlendFactor;
+import com.javelin.rhi.types.ColorComponentFlags;
+import com.javelin.rhi.types.CompareOp;
+import com.javelin.rhi.types.CullMode;
+
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * .shader 文本解析器（Unity ShaderLab 简化版，RHI 21 节 v0.13）。
+ *
+ * <p>语法：{@code Shader "name" { Properties {...} Pass 名 { 状态命令 vs{} fs{} } }}。
+ * 顶层识别大小写敏感（Shader/Properties/Pass/vs/fs），状态命令取值大小写不敏感
+ * （Unity 惯用名与 Vulkan 枚举名都收，如 LEqual / Less / SRC_ALPHA）。
+ * 首行 {@code // @javelin-guid:} 头对解析器透明（注释层跳过，BuiltinAssetReleaser 消费）。</p>
+ *
+ * <p>解析产出 core 数据模型：MaterialProperty 列表 + ParsedPass（名/PassState/vs/fs 原文），
+ * SPIR-V 编译与声明注入由 {@link ShaderInjector} / 导入器衔接。</p>
+ *
+ * @author Javelin Engine Team
+ * @since 1.0.0
+ */
+public final class ShaderParser {
+
+    private final String src;
+    private final String sourceName;
+    private int pos = 0;
+    private int line = 1;
+
+    /** ZTest 取值：Unity 惯用名 → CompareOp（CompareOp 无 ALWAYS，Unity Always 显式报错） */
+    private static final Map<String, CompareOp> ZTEST_NAMES = Map.of(
+            "lequal", CompareOp.LESS_OR_EQUAL,
+            "less_or_equal", CompareOp.LESS_OR_EQUAL,
+            "less", CompareOp.LESS,
+            "equal", CompareOp.EQUAL,
+            "gequal", CompareOp.GREATER_OR_EQUAL,
+            "greater_or_equal", CompareOp.GREATER_OR_EQUAL,
+            "greater", CompareOp.GREATER,
+            "notequal", CompareOp.NOT_EQUAL,
+            "not_equal", CompareOp.NOT_EQUAL,
+            "never", CompareOp.NEVER);
+
+    /** Blend 因子：Unity 惯用名 → BlendFactor（Vulkan 原名小写后同名，一并覆盖） */
+    private static final Map<String, BlendFactor> BLEND_NAMES = Map.ofEntries(
+            Map.entry("one", BlendFactor.ONE),
+            Map.entry("zero", BlendFactor.ZERO),
+            Map.entry("srccolor", BlendFactor.SRC_COLOR),
+            Map.entry("one_minussrccolor", BlendFactor.ONE_MINUS_SRC_COLOR),
+            Map.entry("dstcolor", BlendFactor.DST_COLOR),
+            Map.entry("one_minusdstcolor", BlendFactor.ONE_MINUS_DST_COLOR),
+            Map.entry("srcalpha", BlendFactor.SRC_ALPHA),
+            Map.entry("one_minussrcalpha", BlendFactor.ONE_MINUS_SRC_ALPHA),
+            Map.entry("dstalpha", BlendFactor.DST_ALPHA),
+            Map.entry("one_minusdstalpha", BlendFactor.ONE_MINUS_DST_ALPHA),
+            Map.entry("constantcolor", BlendFactor.CONSTANT_COLOR),
+            Map.entry("one_minusconstantcolor", BlendFactor.ONE_MINUS_CONSTANT_COLOR),
+            Map.entry("constantalpha", BlendFactor.CONSTANT_ALPHA),
+            Map.entry("one_minusconstantalpha", BlendFactor.ONE_MINUS_CONSTANT_ALPHA),
+            Map.entry("srcalphasaturate", BlendFactor.SRC_ALPHA_SATURATE));
+
+    private ShaderParser(String src, String sourceName) {
+        this.src = src;
+        this.sourceName = sourceName;
+    }
+
+    /**
+     * 解析 .shader 源码（v0.13 全语法）。解析失败（语法错/未知命令/取值非法）抛
+     * {@link ShaderParseException}（带行号）。
+     */
+    public static ParsedShader parse(String source, String sourceName) {
+        ShaderParser parser = new ShaderParser(source, sourceName);
+        ParsedShader shader = parser.parseShader();
+        if (shader.passes().isEmpty()) {
+            throw new ShaderParseException("Shader 至少需要一个 Pass 块", sourceName, parser.line);
+        }
+        return shader;
+    }
+
+    // ═══ 解析主体 ═══
+
+    private ParsedShader parseShader() {
+        expectKeyword("Shader");
+        String shaderName = readString();
+        expect('{');
+
+        ArrayList<MaterialProperty> properties = new ArrayList<>();
+        ArrayList<ParsedPass> passes = new ArrayList<>();
+        Set<String> passNames = new java.util.HashSet<>();
+
+        while (true) {
+            skipTrivia();
+            if (peek() == '}') {
+                next();
+                break;
+            }
+            if (atEnd()) {
+                throw error("Shader 块未闭合");
+            }
+            String keyword = readIdentifier();
+            switch (keyword) {
+                case "Properties" -> properties.addAll(parseProperties());
+                case "Pass" -> {
+                    ParsedPass pass = parsePassBody();
+                    if (!passNames.add(pass.name())) {
+                        throw error("重复 Pass: " + pass.name());
+                    }
+                    passes.add(pass);
+                }
+                default -> throw error("未知顶层块: " + keyword + "（仅 Properties / Pass）");
+            }
+        }
+        return new ParsedShader(shaderName, properties, passes);
+    }
+
+    private ArrayList<MaterialProperty> parseProperties() {
+        expect('{');
+        ArrayList<MaterialProperty> properties = new ArrayList<>();
+        while (true) {
+            skipTrivia();
+            if (peek() == '}') {
+                next();
+                break;
+            }
+            if (atEnd()) {
+                throw error("Properties 块未闭合");
+            }
+            properties.add(parsePropertyLine());
+        }
+        return properties;
+    }
+
+    /**
+     * 属性声明：_Name ("Display", Type) = 默认值 [;]
+     * Color/Vector → (r,g,b,a)；Float/Range → 0.5；2D → "white" [{ }]
+     */
+    private MaterialProperty parsePropertyLine() {
+        String propName = readIdentifier();
+        expect('(');
+        String displayName = readString();
+        expect(',');
+        skipTrivia();
+        String typeKeyword = readIdentifier();
+        MaterialProperty property = switch (typeKeyword) {
+            case "Color", "Vector" -> {
+                expect(')');
+                expect('=');
+                expect('(');
+                float r = readNumber();
+                expect(',');
+                float g = readNumber();
+                expect(',');
+                float b = readNumber();
+                expect(',');
+                float a = readNumber();
+                expect(')');
+                float[] v = {r, g, b, a};
+                yield typeKeyword.equals("Color")
+                        ? MaterialProperty.color(propName, displayName, v[0], v[1], v[2], v[3])
+                        : MaterialProperty.vector(propName, displayName, v[0], v[1], v[2], v[3]);
+            }
+            case "Float" -> {
+                expect(')');
+                expect('=');
+                yield MaterialProperty.floatProp(propName, displayName, readNumber());
+            }
+            case "Range" -> {
+                expect('(');
+                float min = readNumber();
+                expect(',');
+                float max = readNumber();
+                expect(')');
+                expect('=');
+                yield MaterialProperty.range(propName, displayName, min, max, readNumber());
+            }
+            case "2D" -> {
+                expect(')');
+                expect('=');
+                String placeholder = readString();
+                skipTrivia();
+                if (peek() == '{') {          // Unity 的 "white" {} 带空块声明，吞掉
+                    next();
+                    skipTrivia();
+                    expect('}');
+                }
+                yield MaterialProperty.texture2D(propName, displayName, placeholder);
+            }
+            default -> throw error("未知属性类型: " + typeKeyword
+                    + "（Color / Vector / Float / Range / 2D）");
+        };
+        skipTrivia();
+        if (peek() == ';') {
+            next();
+        }
+        return property;
+    }
+
+    private ParsedPass parsePassBody() {
+        skipTrivia();
+        String passName = readIdentifier();
+        expect('{');
+        PassState state = new PassState();
+        String vsBody = null;
+        String fsBody = null;
+        int vsLine = 0;
+        int fsLine = 0;
+
+        while (true) {
+            skipTrivia();
+            if (peek() == '}') {
+                next();
+                break;
+            }
+            if (atEnd()) {
+                throw error("Pass 块未闭合");
+            }
+            String keyword = readIdentifier();
+            switch (keyword) {
+                case "vs" -> {
+                    if (vsBody != null) {
+                        throw error("Pass 内重复 vs 块");
+                    }
+                    vsLine = line;
+                    vsBody = captureGlslBlock();
+                }
+                case "fs" -> {
+                    if (fsBody != null) {
+                        throw error("Pass 内重复 fs 块");
+                    }
+                    fsLine = line;
+                    fsBody = captureGlslBlock();
+                }
+                case "Cull" -> state.setCull(readCull());
+                case "ZWrite" -> state.setDepthWrite(readOnOff("ZWrite"));
+                case "ZTest" -> state.setDepthTest(readZTest());
+                case "Blend" -> readBlend(state);
+                case "ColorMask" -> state.setColorMask(readColorMask());
+                default -> throw error("未知 Pass 命令: " + keyword
+                        + "（Cull / ZWrite / ZTest / Blend / ColorMask / vs / fs）");
+            }
+        }
+
+        if (vsBody == null || fsBody == null) {
+            throw new ShaderParseException("Pass 缺少 " + (vsBody == null ? "vs" : "fs") + " 块",
+                    sourceName, line);
+        }
+        return new ParsedPass(passName, state, vsBody, fsBody, vsLine, fsLine);
+    }
+
+    // ═══ 状态命令取值 ═══
+
+    private CullMode readCull() {
+        String value = readIdentifier().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "back" -> CullMode.BACK;
+            case "front" -> CullMode.FRONT;
+            case "off" -> CullMode.NONE;
+            default -> throw error("Cull 取值非法: " + value + "（Back / Front / Off）");
+        };
+    }
+
+    private boolean readOnOff(String command) {
+        String value = readIdentifier().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "on" -> true;
+            case "off" -> false;
+            default -> throw error(command + " 取值非法: " + value + "（On / Off）");
+        };
+    }
+
+    private CompareOp readZTest() {
+        String value = readIdentifier().toLowerCase(Locale.ROOT);
+        CompareOp op = ZTEST_NAMES.get(value);
+        if (op == null) {
+            throw error("ZTest 取值非法: " + value
+                    + "（LEqual / Less / Equal / GEqual / Greater / NotEqual / Never；"
+                    + "CompareOp 无 ALWAYS，Unity 的 Always 不支持）");
+        }
+        return op;
+    }
+
+    /** Blend Off | Blend SrcFactor DstFactor（颜色/alpha 同因子，PassState v0.1 语义） */
+    private void readBlend(PassState state) {
+        String first = readIdentifier();
+        if ("off".equalsIgnoreCase(first)) {
+            state.setBlend(false, BlendFactor.ONE, BlendFactor.ZERO);
+            return;
+        }
+        BlendFactor src = blendFactor(first);
+        BlendFactor dst = blendFactor(readIdentifier());
+        state.setBlend(true, src, dst);
+    }
+
+    private BlendFactor blendFactor(String rawName) {
+        // 命名容差：OneMinusSrcAlpha（Unity）/ ONE_MINUS_SRC_ALPHA（Vulkan）统一小写匹配
+        String key = rawName.toLowerCase(Locale.ROOT).replace("_", "");
+        BlendFactor factor = BLEND_NAMES.get(key);
+        if (factor == null) {
+            throw error("Blend 因子非法: " + rawName);
+        }
+        return factor;
+    }
+
+    /** ColorMask 掩码字（如 RGBA / RG / A）：读一个标识符逐字符解析，防误吞后续命令首字母 */
+    private Set<ColorComponentFlags> readColorMask() {
+        String word = readIdentifier().toUpperCase(Locale.ROOT);
+        Set<ColorComponentFlags> mask = EnumSet.noneOf(ColorComponentFlags.class);
+        for (int i = 0; i < word.length(); i++) {
+            switch (word.charAt(i)) {
+                case 'R' -> mask.add(ColorComponentFlags.R);
+                case 'G' -> mask.add(ColorComponentFlags.G);
+                case 'B' -> mask.add(ColorComponentFlags.B);
+                case 'A' -> mask.add(ColorComponentFlags.A);
+                default -> throw error("ColorMask 取值非法: " + word + "（R / G / B / A 的组合）");
+            }
+        }
+        return mask;
+    }
+
+    // ═══ 词法 ═══
+
+    /** 跳过空白与行/块注释——GUID 文件头行注释在此透明 */
+    private void skipTrivia() {
+        while (pos < src.length()) {
+            char c = src.charAt(pos);
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+                if (c == '\n') {
+                    line++;
+                }
+                pos++;
+            } else if (c == '/' && pos + 1 < src.length() && src.charAt(pos + 1) == '/') {
+                while (pos < src.length() && src.charAt(pos) != '\n') {
+                    pos++;
+                }
+            } else if (c == '/' && pos + 1 < src.length() && src.charAt(pos + 1) == '*') {
+                pos += 2;
+                while (pos + 1 < src.length()
+                        && !(src.charAt(pos) == '*' && src.charAt(pos + 1) == '/')) {
+                    if (src.charAt(pos) == '\n') {
+                        line++;
+                    }
+                    pos++;
+                }
+                pos = Math.min(pos + 2, src.length());
+            } else {
+                break;
+            }
+        }
+    }
+
+    /** 抓取 vs/fs 的原始 GLSL 块（从 '{' 到配对 '}'，跳过注释与字符串字面量防大括号误配） */
+    private String captureGlslBlock() {
+        skipTrivia();
+        expect('{');
+        int start = pos;
+        int depth = 1;
+        while (pos < src.length() && depth > 0) {
+            char c = src.charAt(pos);
+            if (c == '\n') {
+                line++;
+                pos++;
+            } else if (c == '/' && pos + 1 < src.length() && src.charAt(pos + 1) == '/') {
+                while (pos < src.length() && src.charAt(pos) != '\n') {
+                    pos++;
+                }
+            } else if (c == '/' && pos + 1 < src.length() && src.charAt(pos + 1) == '*') {
+                pos += 2;
+                while (pos + 1 < src.length()
+                        && !(src.charAt(pos) == '*' && src.charAt(pos + 1) == '/')) {
+                    if (src.charAt(pos) == '\n') {
+                        line++;
+                    }
+                    pos++;
+                }
+                pos = Math.min(pos + 2, src.length());
+            } else if (c == '"') {
+                pos++;
+                while (pos < src.length() && src.charAt(pos) != '"') {
+                    pos++;
+                }
+                pos++;
+            } else if (c == '{') {
+                depth++;
+                pos++;
+            } else if (c == '}') {
+                depth--;
+                pos++;
+            } else {
+                pos++;
+            }
+        }
+        if (depth > 0) {
+            throw error("vs/fs 块未闭合");
+        }
+        // 回退最后的配对 '}'，块内容 = [start, pos-1)
+        return src.substring(start, pos - 1);
+    }
+
+    private char peek() {
+        if (atEnd()) {
+            throw error("意外到达文件末尾");
+        }
+        return src.charAt(pos);
+    }
+
+    private void next() {
+        pos++;
+    }
+
+    private boolean atEnd() {
+        return pos >= src.length();
+    }
+
+    private void expect(char expected) {
+        skipTrivia();
+        if (atEnd() || peek() != expected) {
+            throw error("期望 '" + expected + "'，实际 '"
+                    + (atEnd() ? "<EOF>" : peek()) + "'");
+        }
+        next();
+    }
+
+    private void expectKeyword(String keyword) {
+        skipTrivia();
+        String ident = readIdentifier();
+        if (!keyword.equals(ident)) {
+            throw error("期望关键字 " + keyword + "，实际 " + ident);
+        }
+    }
+
+    private String readIdentifier() {
+        skipTrivia();
+        if (atEnd() || !isIdentStart(peek())) {
+            throw error("期望标识符，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+        }
+        int start = pos;
+        while (pos < src.length() && isIdentPart(src.charAt(pos))) {
+            pos++;
+        }
+        return src.substring(start, pos);
+    }
+
+    private String readString() {
+        skipTrivia();
+        expect('"');
+        StringBuilder sb = new StringBuilder();
+        while (pos < src.length() && src.charAt(pos) != '"') {
+            sb.append(src.charAt(pos));
+            pos++;
+        }
+        if (atEnd()) {
+            throw error("字符串未闭合");
+        }
+        next();
+        return sb.toString();
+    }
+
+    private float readNumber() {
+        skipTrivia();
+        int start = pos;
+        if (pos < src.length() && (src.charAt(pos) == '-' || src.charAt(pos) == '+')) {
+            pos++;
+        }
+        while (pos < src.length()
+                && (Character.isDigit(src.charAt(pos)) || src.charAt(pos) == '.')) {
+            pos++;
+        }
+        if (start == pos) {
+            throw error("期望数字，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+        }
+        try {
+            return Float.parseFloat(src.substring(start, pos));
+        } catch (NumberFormatException e) {
+            throw error("数字格式错误: " + src.substring(start, pos));
+        }
+    }
+
+    private static boolean isIdentStart(char c) {
+        return Character.isLetter(c) || c == '_';
+    }
+
+    private static boolean isIdentPart(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    private ShaderParseException error(String message) {
+        return new ShaderParseException(message, sourceName, line);
+    }
+
+    // ═══ 解析产物 ═══
+
+    /**
+     * 解析结果：Shader 名 + 属性声明序 + Pass 列表（SPIR-V 未编译，vs/fs 为原文）。
+     */
+    public static final class ParsedShader {
+        private final String shaderName;
+        private final ArrayList<MaterialProperty> properties;
+        private final ArrayList<ParsedPass> passes;
+
+        ParsedShader(String shaderName, ArrayList<MaterialProperty> properties,
+                     ArrayList<ParsedPass> passes) {
+            this.shaderName = shaderName;
+            this.properties = properties;
+            this.passes = passes;
+        }
+
+        public String shaderName() {
+            return shaderName;
+        }
+
+        public ArrayList<MaterialProperty> properties() {
+            return properties;
+        }
+
+        public ArrayList<ParsedPass> passes() {
+            return passes;
+        }
+    }
+
+    /**
+     * 单个 Pass 的解析结果：块名（渲染阶段名）+ 固定状态 + vs/fs GLSL 原文
+     * （起始行号供编译报错定位用）。
+     */
+    public static final class ParsedPass {
+        private final String name;
+        private final PassState state;
+        private final String vsBody;
+        private final String fsBody;
+        private final int vsStartLine;
+        private final int fsStartLine;
+
+        ParsedPass(String name, PassState state, String vsBody, String fsBody,
+                   int vsStartLine, int fsStartLine) {
+            this.name = name;
+            this.state = state;
+            this.vsBody = vsBody;
+            this.fsBody = fsBody;
+            this.vsStartLine = vsStartLine;
+            this.fsStartLine = fsStartLine;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public PassState state() {
+            return state;
+        }
+
+        public String vsBody() {
+            return vsBody;
+        }
+
+        public String fsBody() {
+            return fsBody;
+        }
+
+        public int vsStartLine() {
+            return vsStartLine;
+        }
+
+        public int fsStartLine() {
+            return fsStartLine;
+        }
+    }
+}

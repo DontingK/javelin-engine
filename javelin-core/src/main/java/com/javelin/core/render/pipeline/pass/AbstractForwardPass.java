@@ -29,7 +29,7 @@ public abstract class AbstractForwardPass implements RenderPass {
      * set 2 材质描述符集 → push constants（model mat4 + tpf）→ drawIndexed。
      */
     protected void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro, float tpf) {
-        cmd.bindPipeline(rs.pipelineFor(ro.material(), ro.mesh().layout()));
+        cmd.bindPipeline(rs.pipelineFor(ro.material(), ro.mesh().layout(), ro.mesh().getTopology()));
         MeshDraw.bindBuffers(cmd, ro.mesh());
         cmd.bindDescriptorSet(2, rs.materialSet(ro.material()), 0, null);
         pushData.clear();
@@ -45,7 +45,7 @@ public abstract class AbstractForwardPass implements RenderPass {
 
     /** 物体列表入口的 PSO 建立（bindDescriptorSet 前必须先 bindPipeline，RHI 命令序约束） */
     protected static GraphicsPipeline entryPipeline(RenderingSystem rs, RenderObject first) {
-        return rs.pipelineFor(first.material(), first.mesh().layout());
+        return rs.pipelineFor(first.material(), first.mesh().layout(), first.mesh().getTopology());
     }
 
     /** 视口矩形小于终点附件 = 分屏/预览视口，需要区域清屏 */

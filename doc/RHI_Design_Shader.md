@@ -135,7 +135,7 @@ graph.addGraphicsPass("ShadowPass", pass -> {
 - **简化**：去掉 `SubShader` 层（单平台不需要平台降级）；去掉 `Pass { Name + Tags{LightMode} }` 双标签——**`Pass GBuffer {}` 块名即 LightMode**，引擎 `pipelineFor("GBuffer")` 直接对应；
 - **去掉（v0.11）**：`FallBack`（加载失败由引擎报错并替换内置默认）；`Tags.Queue`（排序完全归引擎，第 14.5 节，理由见下）；`[Toggle]` 属性语法（开关属性用普通 `Float` 声明）；
 - **改掉**：不用 `GLSLPROGRAM ... ENDGLSL`（Unity 靠 `#pragma vertex / fragment` 在整段代码里找入口）——改为 **`vs { }` / `fs { }` 分离块**，入口统一 `main()`，无需 #pragma；
-- **不依赖 `#include`（v0.10）**：GLSL 全部内嵌于 vs/fs 块；构建工具将引擎内置块（camera / obj）与 Properties 生成的材质声明直接注入每个 vs/fs 块的 `#version` 之后一行，文件完全自包含；
+- **不依赖 `#include`（v0.10）**：GLSL 全部内嵌于 vs/fs 块；构建工具将引擎内置块（cam 相机 UBO / pc push）与 Properties 生成的材质声明（实例名 material）直接注入每个 vs/fs 块的 `#version` 之后一行，文件完全自包含；
 - **无注入标记（v0.13，用户决策 2026-09-26）**：~~`//@auto` 标记~~已取消——注入位置固定为 `#version` 行之后，作者不写任何标记；
 - **不做**：`#pragma multi_compile`（变体系统，v0.7 决策）；keyword 系统。
 
@@ -173,7 +173,7 @@ Shader "PBR_Standard"
 
             void main() {
                 vUV = aUV;
-                gl_Position = camera.viewProj * obj.model * vec4(aPos, 1.0);
+                gl_Position = cam.viewProj * pc.model * vec4(aPos, 1.0);
             }
         }
 
@@ -199,8 +199,8 @@ Shader "PBR_Standard"
             #version 450
             layout(location = 0) in vec3 aPos;
             void main() {
-                // camera 块内容由引擎绑定为光源的 viewProj（第 19 节 lightCamOffset）
-                gl_Position = camera.viewProj * obj.model * vec4(aPos, 1.0);
+                // cam 块内容由引擎绑定为光源的 viewProj（第 19 节 lightCamOffset）
+                gl_Position = cam.viewProj * pc.model * vec4(aPos, 1.0);
             }
         }
         fs {
@@ -254,7 +254,7 @@ StandardMetal.shader
 
 - 生成材质声明保证 **GLSL / RHI / CPU 三方布局一致**（消灭 std140 对齐与参数名拼写 bug，第 15.7 节坑点 1）；
 - **注入机制（v0.10 立、v0.13 修订）**：构建工具把两类声明注入每个 vs/fs 块的 `#version` 行之后（v0.13 起取消 `//@auto` 标记，位置固定，无需作者写任何标记）：
-  1. **引擎内置块**（同一份模板）：set 0 CameraBlock、set 1 ObjectBlock——用户代码直接引用 `camera` / `obj`；
+  1. **引擎内置块**（同一份模板，实例名拍板 2026-09-26）：set 0 CameraBlock（实例名 `cam`；set 1 ObjectBlock 为空占位，per-object 走 push constants）+ `layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc`——用户代码直接引用 `cam` / `pc`；
   2. **材质声明**（从 Properties 生成）：set 2 MaterialBlock + sampler 槽位；
   **无 `#include`，文件完全自包含**；
 - 构建工具抽取注入后的 vs 块 → `.vert.spv`、fs 块 → `.frag.spv` 编译。
@@ -267,7 +267,7 @@ StandardMetal.shader
 4. 材质 / shader 加载失败：引擎 Debug 报错并替换为内置默认材质（不依赖 FallBack，v0.11）；
 5. 透明 Pass 别忘了 `Blend` + `ZWrite Off`；渲染队列完全由引擎决定（第 14.5 节），shader 不声明 Queue（v0.11）。
 6. 注入位置固定为每个 vs/fs 块的 `#version` 行之后（v0.13 起无 `//@auto` 标记）——**`#version 450` 由此成为必填行**，是注入锚点，缺了构建报错；
-7. 用户**不得手写** camera / obj / MaterialBlock 同名声明（与注入冲突，构建期报错）；
+7. 用户**不得手写** cam / pc / material 注入同名声明（CameraBlock / PushBlock / MaterialBlock 为保留字，与注入冲突构建期报错）；
 8. MaterialBlock 的 std140 填充由生成器处理，用户不要手动补 padding。
 
 ### 21.7 完整参考示例（PBR_Standard.shader，v0.12）
@@ -307,11 +307,11 @@ Shader "PBR_Standard"
             layout(location = 2) out vec3 vNormal;
 
             void main() {
-                vec4 worldPos = obj.model * vec4(aPos, 1.0);
+                vec4 worldPos = pc.model * vec4(aPos, 1.0);
                 vUV       = aUV;
                 vWorldPos = worldPos.xyz;
-                vNormal   = mat3(obj.model) * aNormal;
-                gl_Position = camera.viewProj * worldPos;
+                vNormal   = mat3(pc.model) * aNormal;
+                gl_Position = cam.viewProj * worldPos;
             }
         }
 
@@ -354,8 +354,8 @@ Shader "PBR_Standard"
             #version 450
             layout(location = 0) in vec3 aPos;
             void main() {
-                // 阴影阶段 camera 块由引擎绑定为光源 viewProj（第 19 节 lightCamOffset）
-                gl_Position = camera.viewProj * obj.model * vec4(aPos, 1.0);
+                // 阴影阶段 cam 块由引擎绑定为光源 viewProj（第 19 节 lightCamOffset）
+                gl_Position = cam.viewProj * pc.model * vec4(aPos, 1.0);
             }
         }
         fs {
@@ -378,7 +378,7 @@ Shader "PBR_Standard"
             layout(location = 0) out vec2 vUV;
             void main() {
                 vUV = aUV;
-                gl_Position = camera.viewProj * obj.model * vec4(aPos, 1.0);
+                gl_Position = cam.viewProj * pc.model * vec4(aPos, 1.0);
             }
         }
         fs {
@@ -395,10 +395,10 @@ Shader "PBR_Standard"
 ```
 
 **示例关键点**：
-- 声明注入后可直接引用：`camera.viewProj` / `obj.model`（引擎内置块）、`material._BaseColor`（材质块成员）、`_AlbedoMap` 等 sampler；
+- 声明注入后可直接引用：`cam.viewProj`（相机 UBO）/ `pc.model`（push constants）、`material._BaseColor`（材质块成员）、`_AlbedoMap` 等 sampler；
 - GBuffer 输出 3 个 RT，材质参数塞 alpha 省显存（normal.a=金属度、worldPos.a=粗糙度）；
 - 开关属性 `_UseNormalMap` 走 uniform 分支，非变体；
-- 阴影 Pass 复用同一套注入声明，`camera` 块由引擎绑定为光源 viewProj；
+- 阴影 Pass 复用同一套注入声明，`cam` 块由引擎绑定为光源 viewProj；
 - 未传贴图自动用占位贴图（white / bump）。
 
 ---

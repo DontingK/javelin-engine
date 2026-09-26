@@ -30,13 +30,27 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
         解析 Properties / Pass / 状态命令
         → `#version` 后注入声明（camera/obj 引擎块 + MaterialBlock + sampler，RHI 21.5 节，v0.13 起无 @auto 标记）
         → shaderc 编译 vs/fs 块 → SPIR-V
-        → 打包二进制资产（结构 + SPIR-V，序列化格式随加载器一并定）
+        → 打包二进制资产（结构 + SPIR-V，见下方产物格式）
    └─ core 运行时：加载二进制 → 装配 Shader（addProperty / addPass）
 ```
 
 - 构建工具保证 GLSL / RHI / CPU 三方布局一致（RHI 15.7 节坑点 1）；
 - 加载失败：报错并替换内置默认材质（RHI 21.6-4，不依赖 FallBack）；
-- **P2**：.shader 解析器、二进制资产格式、AssetManager 接入、std140 排布生成器。
+- **解析→注入→编译→打包已落地（2026-09-26）**：编辑器 `importer/shader`（ShaderParser / ShaderInjector / ShaderImporter），归属 editor 模块、不经 javelin-tool（用户拍板：导入管线整体在 editor，tool 只留 shaderc）；
+- **P2**：AssetManager 加载侧接入与内置默认材质替换、std140 排布生成器独立化。
+
+### 3.1 Shader 产物格式（已定，2026-09-26）
+
+`Library/{guid}.asset` 产物 = core Capsule 二进制协议（BinaryExporter/BinaryImporter）：
+
+- `Shader.write/read`：super（guid/lastModified）+ `shaderName` + `properties`（ArrayList，声明序）+ `passes`（ArrayList，声明序）；
+- `ShaderPass / MaterialProperty / PassState` 实现 `Serializable` + `@Reflective`（补 ReflectiveFactory 注册），SPIR-V 为 byte[]、PassState 枚举走 name() 字符串、`colorMask` 存 int 位掩码（枚举集不直接序列化——list 元素类名要 @Reflective 注册，绕开）。
+
+**坑点存档（AGENTS 红线 10 出处，2026-09-26 调试得出）**：
+
+1. **write 禁止包装写入**：`write()` 里集合/数组必须直传字段本体（`output.write("passes", passes)`）。曾在 write 里 `new ArrayList<>(properties)` 包一层——`Collections.unmodifiableList` 视图不是 `ArrayList`（Capsule 只有 `write(key, ArrayList)` 重载）被迫拷贝，拷贝切断对象图引用同一性（BinaryImporter 按 identity 重建共享引用），包装一律禁止；**集合字段类型直接用 `ArrayList`**，write/read 双向直通零转换；
+2. **read 禁止派生嵌套字段**：BinaryImporter 按对象 id 升序统一 populate，根对象 id=0 **先于**嵌套对象填充——曾在 `Shader.read()` 里 `pass.getName()` 建名→Pass 映射，取到的全是 null（单 Pass 查不到、双 Pass 塌成一个键）。修法：唯一存储 = 与序列化同构的有序 `ArrayList<ShaderPass>`，按名查找用线性扫描（Pass 个位数），`read()` 只回写字段引用；
+3. **枚举集序列化**：`writeEnumList/readEnumList` 的元素类名要过 `ReflectiveFactory.getRegisteredClass`，RHI 枚举（如 ColorComponentFlags）没注册会抛"未注册的类"——枚举集改存 int 位掩码，单枚举字段走 `write(key, Enum)`（name 字符串，无需注册）。
 
 ## 4. 渲染侧桥接（已落地 2026-09-25，场景渲染接入一并验收）
 
@@ -49,12 +63,12 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 
 ## 5. 与现有代码的关系
 
-- ~~`RenderingSystem` 当前的"内置无光照着色程序 + 单贴图 set1"是阶段③直注册模式的临时形态~~——**已收编（2026-09-25）**：内置程序路径整体删除（`installBuiltinShaders`/`textureSet(Texture)`/旧 `pipelineFor(layout, blend)` 移除），MultiCameraDemo 与 SceneRenderDemo 均走材质路径；内置 .shader（编译进二进制）仍待 javelin-tool 落地；
+- ~~`RenderingSystem` 当前的"内置无光照着色程序 + 单贴图 set1"是阶段③直注册模式的临时形态~~——**已收编（2026-09-25）**：内置程序路径整体删除（`installBuiltinShaders`/`textureSet(Texture)`/旧 `pipelineFor(layout, blend)` 移除），MultiCameraDemo 与 SceneRenderDemo 均走材质路径；内置 .shader（编译进二进制）~~仍待 javelin-tool 落地~~——**导入链已落地（2026-09-26，编辑器 importer/shader + capsule 二进制产物，见 §3）**；
 - 渲染资源包归属（用户拍板 2026-09-25）：Mesh/VertexAttribute + 桥接 MeshUpload/MeshDraw 在 **render.mesh**，Texture2D/TextureLoader + 桥接 TextureUpload 在 **render.texture**，材质五件在 **render.material**；
 - **"用户侧零 GPU 暴露"原则**（用户拍板 2026-09-25）：资产公开 API 不出现 RHI 句柄——Texture2D 的 getGpu/setGpu、Mesh 的 vertexBuffer/indexBuffer/indexType/indexCount 全部 package-private，GPU 代码只存在于同包桥接类（**上传逻辑全在桥接**：MeshUpload/TextureUpload 持有 device 逻辑，Mesh/Texture2D 是纯 CPU 数据容器）；`Mesh.layout()`（VertexLayout 描述值，PSO 键）例外公开，类比 Texture2D 的 format 元数据；
 - **冻结语义（拍板 2026-09-25）**：上传后资产不可变——Mesh 修改抛异常（既有），Texture2D 补齐守卫（setPixels/setFilterMode/setWrapMode 上传后抛 IllegalStateException，堵"改了静默失效"洞）；动态顶点/像素更新（骨骼、粒子、物理形变）将来走专门的动态缓冲路径，不经重传；
 - MeshRenderer 的 `mesh`/`material` 字段已补（场景渲染接入，2026-09-25）：null = 不渲染（missing 语义），SceneRenderBridge pull 翻译；
-- AbsAsset 提供 guid/lastModified，.mat/.jshader 的 Serializable 协议随格式定义补 write/read。
+- AbsAsset 提供 guid/lastModified；~~.shader 侧 Serializable 协议待补~~——**已落地（2026-09-26，§3.1）**；.mat 的协议随 .mat 格式另行定义。
 
 ## 6. 不做（P2）
 

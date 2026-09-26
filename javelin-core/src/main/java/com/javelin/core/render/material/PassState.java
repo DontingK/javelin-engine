@@ -1,11 +1,16 @@
 package com.javelin.core.render.material;
 
+import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.core.serialize.Serializable;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.rhi.types.BlendOp;
 import com.javelin.rhi.types.ColorComponentFlags;
 import com.javelin.rhi.types.CompareOp;
 import com.javelin.rhi.types.CullMode;
 
+import java.util.EnumSet;
 import java.util.Set;
 
 /**
@@ -15,10 +20,14 @@ import java.util.Set;
  *
  * <p>默认对齐 Unity 惯例：Cull Back / ZWrite On / ZTest LEqual / Blend Off / ColorMask RGBA。</p>
  *
+ * <p>序列化：实现 {@link Serializable} 走 Capsule 二进制协议（.shader 资产产物格式，
+ * Engine_Material_Design §3）；colorMask 存为位掩码 int，避免枚举集直接序列化。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
-public final class PassState {
+@Reflective
+public final class PassState implements Serializable {
 
     private CullMode cull = CullMode.BACK;
     private boolean depthWrite = true;
@@ -32,6 +41,78 @@ public final class PassState {
     private Set<ColorComponentFlags> colorMask = Set.of(
             ColorComponentFlags.R, ColorComponentFlags.G,
             ColorComponentFlags.B, ColorComponentFlags.A);
+
+    /** 反序列化用无参构造（ReflectiveFactory 重建） */
+    public PassState() {
+    }
+
+    @Override
+    public void write(OutputCapsule output) {
+        output.write("cull", cull);
+        output.write("depthWrite", depthWrite);
+        output.write("depthTest", depthTest);
+        output.write("blendEnabled", blendEnabled);
+        output.write("srcColor", srcColor);
+        output.write("dstColor", dstColor);
+        output.write("srcAlpha", srcAlpha);
+        output.write("dstAlpha", dstAlpha);
+        output.write("blendOp", blendOp);
+        // 枚举集不直接走 writeEnumList（元素类需 @Reflective），改存位掩码 int
+        output.write("colorMask", colorMaskToInt(colorMask));
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        CullMode c = input.readEnum("cull", CullMode.class);
+        if (c != null) {
+            cull = c;
+        }
+        depthWrite = input.readBoolean("depthWrite");
+        CompareOp dt = input.readEnum("depthTest", CompareOp.class);
+        if (dt != null) {
+            depthTest = dt;
+        }
+        blendEnabled = input.readBoolean("blendEnabled");
+        BlendFactor sc = input.readEnum("srcColor", BlendFactor.class);
+        if (sc != null) {
+            srcColor = sc;
+        }
+        BlendFactor dc = input.readEnum("dstColor", BlendFactor.class);
+        if (dc != null) {
+            dstColor = dc;
+        }
+        BlendFactor sa = input.readEnum("srcAlpha", BlendFactor.class);
+        if (sa != null) {
+            srcAlpha = sa;
+        }
+        BlendFactor da = input.readEnum("dstAlpha", BlendFactor.class);
+        if (da != null) {
+            dstAlpha = da;
+        }
+        BlendOp op = input.readEnum("blendOp", BlendOp.class);
+        if (op != null) {
+            blendOp = op;
+        }
+        colorMask = intToColorMask(input.readInt("colorMask"));
+    }
+
+    private static int colorMaskToInt(Set<ColorComponentFlags> mask) {
+        int bits = 0;
+        for (ColorComponentFlags f : mask) {
+            bits |= 1 << f.ordinal();
+        }
+        return bits;
+    }
+
+    private static Set<ColorComponentFlags> intToColorMask(int bits) {
+        Set<ColorComponentFlags> set = EnumSet.noneOf(ColorComponentFlags.class);
+        for (ColorComponentFlags f : ColorComponentFlags.values()) {
+            if ((bits & (1 << f.ordinal())) != 0) {
+                set.add(f);
+            }
+        }
+        return set;
+    }
 
     public CullMode getCull() {
         return cull;

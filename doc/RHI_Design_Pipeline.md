@@ -1192,7 +1192,7 @@ layout(set = 0, binding = 0) uniform CameraBlock {
 
     mat4 viewProj;      // 所有需要相机矩阵的 shader 声明同一个块
 
-} camera;
+} cam;
 ```
 
 

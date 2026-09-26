@@ -456,7 +456,12 @@ public class AssetImportPipeline {
      */
     private boolean isSelfContainedGuidFile(File file) {
         String name = file.getName().toLowerCase();
-        return name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file);
+        if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
+            return true;
+        }
+        // 文本格式资产全目录自包含：GUID 以文件头为唯一真值（内置资源无伴生 .meta），
+        // 删 Library/.javelin 缓存重编译后 GUID 不变，引用不失效
+        return name.endsWith(".shader") || name.endsWith(".smesh");
     }
 
     /**

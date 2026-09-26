@@ -2,12 +2,13 @@ package com.javelin.core.render.material;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.assets.AbsAsset;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * 着色器模板（.shader 源码文件编译后的结构，RHI 20.2 / 21 节）。
@@ -20,25 +21,56 @@ import java.util.Map;
  * <p>构建期（预编译 / 资产加载侧）用 {@link #builder(String)} 装配；
  * 构建完成后只读，运行期无任何修改方法。</p>
  *
+ * <p>序列化（Capsule 二进制协议，Engine_Material_Design §3，2026-09-26 落地）：
+ * 集合字段类型即 {@link ArrayList}——write/read 直通引用，零包装零拷贝；
+ * 反序列化约束（BinaryImporter 按 id 升序统一 populate，根对象先于嵌套对象）：
+ * {@code read()} 只回写字段引用，禁止解引用嵌套元素字段做派生结构。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
 @Reflective
 public class Shader extends AbsAsset {
 
-    // 非 final：序列化反序列化需回写（write/read 在 AbsAsset 上扩展，格式 P2 待定）；
-    // 只读靠 API 面保证——无公开修改方法，构建只能走 Builder
+    // 非 final：序列化反序列化需回写（红线 9）；只读靠 API 面保证——
+    // 无公开修改方法，构建只能走 Builder
     private String shaderName;
-    private List<MaterialProperty> properties;
-    private Map<String, ShaderPass> passes;
+    private ArrayList<MaterialProperty> properties = new ArrayList<>();
+    /** Pass 声明序存储（序列化直通）；按名查找用线性扫描（Pass 数量为个位数） */
+    private ArrayList<ShaderPass> passes = new ArrayList<>();
 
-    private Shader(String shaderName, List<MaterialProperty> properties, Map<String, ShaderPass> passes) {
+    private Shader(String shaderName, ArrayList<MaterialProperty> properties, ArrayList<ShaderPass> passes) {
         this.shaderName = shaderName;
         this.properties = properties;
         this.passes = passes;
     }
-    public Shader(){
 
+    public Shader() {
+    }
+
+    /**
+     * 序列化写出：guid/lastModified 由 AbsAsset 写，本类补 shaderName/properties/passes
+     * （passes 有序 List——声明序即布局与查找序）。
+     */
+    @Override
+    public void write(OutputCapsule output) {
+        super.write(output);
+        output.write("shaderName", shaderName);
+        output.write("properties", properties);
+        output.write("passes", passes);
+    }
+
+    /**
+     * 序列化读入：只回写字段引用，不经由嵌套元素派生任何结构（populate 顺序约束）。
+     */
+    @Override
+    public void read(InputCapsule input) {
+        super.read(input);
+        shaderName = input.readString("shaderName");
+        ArrayList<MaterialProperty> props = input.readArrayList("properties", MaterialProperty.class);
+        properties = props != null ? props : new ArrayList<>();
+        ArrayList<ShaderPass> passList = input.readArrayList("passes", ShaderPass.class);
+        passes = passList != null ? passList : new ArrayList<>();
     }
 
     /**
@@ -56,7 +88,7 @@ public class Shader extends AbsAsset {
     }
 
     /**
-     * 材质参数接口（Properties 元数据，只读）。
+     * 材质参数接口（Properties 元数据，只读，声明顺序即 set 2 布局顺序）。
      */
     public List<MaterialProperty> getProperties() {
         return properties;
@@ -78,14 +110,19 @@ public class Shader extends AbsAsset {
      * 全部 Pass（按声明顺序，只读）。
      */
     public List<ShaderPass> getPasses() {
-        return List.copyOf(passes.values());
+        return List.copyOf(passes);
     }
 
     /**
      * 按渲染阶段名取 Pass，没有返回 null。
      */
     public ShaderPass pass(String passName) {
-        return passes.get(passName);
+        for (ShaderPass pass : passes) {
+            if (pass.getName().equals(passName)) {
+                return pass;
+            }
+        }
+        return null;
     }
 
     /**
@@ -94,19 +131,19 @@ public class Shader extends AbsAsset {
      * 不透明/透明桶（渲染队列由引擎决定，RHI 21.1）。
      */
     public ShaderPass forwardPass() {
-        ShaderPass named = passes.get("Forward");
+        ShaderPass named = pass("Forward");
         if (named != null) {
             return named;
         }
-        for (ShaderPass pass : passes.values()) {
-            if (!pass.getState().isBlendEnabled()) {
-                return pass;
+        for (ShaderPass p : passes) {
+            if (!p.getState().isBlendEnabled()) {
+                return p;
             }
         }
         if (passes.isEmpty()) {
             throw new IllegalStateException("Shader[" + shaderName + "] 无任何 Pass");
         }
-        return passes.values().iterator().next();
+        return passes.get(0);
     }
 
     /**
@@ -115,8 +152,9 @@ public class Shader extends AbsAsset {
     public static final class Builder {
 
         private final String shaderName;
-        private final List<MaterialProperty> properties = new ArrayList<>();
-        private final Map<String, ShaderPass> passes = new LinkedHashMap<>();
+        private final ArrayList<MaterialProperty> properties = new ArrayList<>();
+        private final ArrayList<ShaderPass> passes = new ArrayList<>();
+        private final Set<String> passNames = new HashSet<>();
 
         private Builder(String shaderName) {
             if (shaderName == null || shaderName.isBlank()) {
@@ -137,19 +175,18 @@ public class Shader extends AbsAsset {
          * 添加 Pass（块名即渲染阶段名，重复即抛异常）。
          */
         public Builder pass(ShaderPass pass) {
-            if (passes.putIfAbsent(pass.getName(), pass) != null) {
+            if (!passNames.add(pass.getName())) {
                 throw new IllegalArgumentException("重复 Pass: " + pass.getName());
             }
+            passes.add(pass);
             return this;
         }
 
         /**
-         * 构建不可变 Shader 实例。
+         * 构建 Shader 实例（字段即 ArrayList，供序列化直通引用）。
          */
         public Shader build() {
-            return new Shader(shaderName,
-                    Collections.unmodifiableList(new ArrayList<>(properties)),
-                    Collections.unmodifiableMap(new LinkedHashMap<>(passes)));
+            return new Shader(shaderName, properties, passes);
         }
     }
 }
