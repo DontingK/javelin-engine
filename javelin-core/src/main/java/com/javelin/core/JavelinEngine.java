@@ -3,6 +3,7 @@ package com.javelin.core;
 import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
 import com.javelin.core.render.FrameDescription;
 import com.javelin.core.render.FrameLoop;
@@ -116,6 +117,9 @@ public class JavelinEngine {
     }
 
     protected void registerSubsystem(SubsystemManager subsystemManager){
+        // 注册序 = earlyUpdate 调度序：Input 先于 AppState，
+        // 输入边沿翻转（帧边界发布）先完成，后继消费方读到一致快照
+        subsystemManager.register(new InputSubsystem());
         subsystemManager.register(new AppStateSubsystem());
     }
 

@@ -40,12 +40,12 @@
 
 > 目标：让游戏/编辑器"可交互"。依赖顺序：**①输入 → ②碰撞检查 → ③Ray → ④编辑器基本**（Ray 与碰撞是编辑器拾取的前置）。
 
-### 2.1 输入子系统
+### 2.1 输入子系统——✅ 已落地（2026-09-26，待用户验收）
 
 - **目标**：键鼠状态采集（GLFW 事件源）+ Action 映射；消费方演示 = 输入驱动相机移动；
-- **前置**：`Engine_Subsystem_Design.md`（待写：注册时机与 init 顺序；契约重构 + mainLoop/shutdown 接线已完成 2026-09-26）+ `Engine_Input_Design.md`（待写）；
-- **产出**：输入子系统落地（子系统调度序列已接线：earlyUpdate → scene.update → lateUpdate）；
-- **验收**：输入驱动相机在场景 Demo 里移动（用户运行）；
+- **设计档**：`Engine_Input_Design.md`（v0.1，含拍板记录：KeyCode 纯语义枚举零平台关联（键码映射归 Window 实现私有）/ Input 静态门面对齐 Time / 动作层三次收束——ActionMap 概念移除、bind 与查询合流 Input（唯一使用方式）/ ESC 关窗便利逻辑移除）；
+- **架构**：Window.attachInputSink 事件出口（平台键码经 Window 侧翻译成引擎枚举投递）→ InputSubsystem（双缓冲帧边沿，earlyUpdate 发布本帧快照 + 动作绑定全局单表）→ Input 静态门面（原始查询 + 动作 bind/按名查询）；失焦清态防卡键；
+- **验收**：InputCameraDemo（WASD 移动/右键拖拽转视角/SPACE 边沿/失焦不卡键）——**待用户运行确认**；
 - **对应实现计划**：阶段⑤主体。
 
 ### 2.2 碰撞检查
@@ -96,7 +96,7 @@
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 未开始（编辑器窗口层已就绪：EditorApp 接引擎 + CanvasSurface，见 Editor_Design） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统已落地（2026-09-26，待用户验收）；碰撞/Ray 未开始（编辑器窗口层已就绪：EditorApp 接引擎 + CanvasSurface，见 Editor_Design） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

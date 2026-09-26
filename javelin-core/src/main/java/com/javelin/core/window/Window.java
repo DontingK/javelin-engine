@@ -9,7 +9,8 @@ import com.javelin.rhi.render.RenderSurface;
  * 呈现面由 {@link #renderSurface()} 提供、RHI 消费（RHI 设计文档 23.2 控制反转）。</p>
  *
  * <p>本次为<b>最小呈现集</b>：生命周期 + 事件轮询 + 尺寸/resize 感知 + 关闭请求。
- * 键鼠输入回调另设 Input 子系统，不在本接口内。</p>
+ * 键鼠输入经 {@link #attachInputSink} 挂载（ implementations 在原生回调里
+ * 翻译成引擎枚举后投递，见 com.javelin.core.input.InputSink）。</p>
  *
  * <p>GLFW 要求窗口操作与事件轮询在主线程执行，实现侧须保证。</p>
  */
@@ -25,6 +26,14 @@ public interface Window {
 
     /** 轮询窗口事件（GLFW 要求主线程调用） */
     void pollEvents();
+
+    /**
+     * 挂载输入事件出口（传 null 摘除）：实现方在原生键鼠/焦点回调里
+     * 翻译成引擎枚举后投递给 sink。default 空实现——不支持原生输入的
+     * 窗口实现（如编辑器 Swing 窗口）暂不接入，将来按需实现。
+     */
+    default void attachInputSink(com.javelin.core.input.InputSink sink) {
+    }
 
     /** framebuffer 像素宽度（呈现用；DPI 缩放时与窗口坐标尺寸不同） */
     int width();

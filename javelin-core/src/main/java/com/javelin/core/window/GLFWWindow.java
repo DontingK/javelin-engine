@@ -1,8 +1,13 @@
 package com.javelin.core.window;
 
+import com.javelin.core.input.InputSink;
 import com.javelin.rhi.render.RenderSurface;
+import org.lwjgl.glfw.GLFWCursorPosCallback;
 import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWKeyCallback;
+import org.lwjgl.glfw.GLFWMouseButtonCallback;
+import org.lwjgl.glfw.GLFWScrollCallback;
+import org.lwjgl.glfw.GLFWWindowFocusCallback;
 import org.lwjgl.system.MemoryStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,7 +26,9 @@ import static org.lwjgl.system.MemoryUtil.NULL;
  *   <li>GLFW 全局 init/terminate 引用计数——首个窗口 init、最后一个关闭 terminate</li>
  *   <li>create() 隐藏创建（GLFW_VISIBLE=false），show() 显示，避免白屏闪烁</li>
  *   <li>GLFW_CLIENT_API=NO_API：Vulkan 呈现，不创建 OpenGL 上下文</li>
- *   <li>ESC 释放关闭窗口（窗口生命周期便利，非输入系统范畴）</li>
+ *   <li>键鼠/焦点回调在 create() 统一注册：GLFW 码 → 引擎枚举（com.javelin.core.input）
+ *       翻译后投递 attachInputSink 挂载的出口；ESC 关窗便利逻辑已移除（用户拍板 2026-09-26，
+ *       关窗走系统关闭按钮）</li>
  *   <li>resize 采用每帧轮询 framebuffer 尺寸而非回调（实现简单，与 RenderSurface 查询模型一致）</li>
  * </ul>
  *
@@ -39,7 +46,14 @@ public final class GLFWWindow implements Window {
     private final String title;
 
     private long handle = NULL;
-    private GLFWKeyCallback keyCallback;   // 持有引用防止 GC（native 侧仅持指针）
+    // 持有回调引用防止 GC（native 侧仅持指针）
+    private GLFWKeyCallback keyCallback;
+    private GLFWMouseButtonCallback mouseButtonCallback;
+    private GLFWCursorPosCallback cursorPosCallback;
+    private GLFWScrollCallback scrollCallback;
+    private GLFWWindowFocusCallback focusCallback;
+    /** 输入事件出口（InputSubsystem 挂载；null = 无输入接线，回调直写 null 安全） */
+    private InputSink inputSink;
     private GLFWRenderSurface renderSurface;
     private boolean created = false;
     private boolean shown = false;
@@ -79,12 +93,47 @@ public final class GLFWWindow implements Window {
                 throw new IllegalStateException("glfwCreateWindow failed");
             }
 
+            // 键鼠/焦点回调：GLFW 码 → 引擎枚举翻译（GLFWKeyMapping，实现私有）后投递
+            // inputSink（InputSubsystem 挂载；sink 为 null 时零开销跳过）
             keyCallback = GLFWKeyCallback.create((window, key, scancode, action, mods) -> {
-                if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE) {
-                    glfwSetWindowShouldClose(window, true);
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    sink.onKey(GLFWKeyMapping.keyCode(key), GLFWKeyMapping.inputAction(action), mods);
                 }
             });
             glfwSetKeyCallback(handle, keyCallback);
+
+            mouseButtonCallback = GLFWMouseButtonCallback.create((window, button, action, mods) -> {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    sink.onMouseButton(GLFWKeyMapping.mouseButton(button), GLFWKeyMapping.inputAction(action), mods);
+                }
+            });
+            glfwSetMouseButtonCallback(handle, mouseButtonCallback);
+
+            cursorPosCallback = GLFWCursorPosCallback.create((window, x, y) -> {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    sink.onCursorMove(x, y);
+                }
+            });
+            glfwSetCursorPosCallback(handle, cursorPosCallback);
+
+            scrollCallback = GLFWScrollCallback.create((window, dx, dy) -> {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    sink.onScroll(dx, dy);
+                }
+            });
+            glfwSetScrollCallback(handle, scrollCallback);
+
+            focusCallback = GLFWWindowFocusCallback.create((window, focused) -> {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    sink.onFocusChanged(focused);
+                }
+            });
+            glfwSetWindowFocusCallback(handle, focusCallback);
 
             renderSurface = new GLFWRenderSurface(this);
             created = true;
@@ -118,6 +167,11 @@ public final class GLFWWindow implements Window {
         if (created) {
             glfwPollEvents();
         }
+    }
+
+    @Override
+    public void attachInputSink(InputSink sink) {
+        this.inputSink = sink;
     }
 
     @Override
@@ -156,7 +210,12 @@ public final class GLFWWindow implements Window {
         created = false;
         shown = false;
         renderSurface = null;
+        inputSink = null;
         keyCallback = null;   // glfwDestroyWindow 会释放 native 侧回调
+        mouseButtonCallback = null;
+        cursorPosCallback = null;
+        scrollCallback = null;
+        focusCallback = null;
         if (handle != NULL) {
             glfwDestroyWindow(handle);
             handle = NULL;

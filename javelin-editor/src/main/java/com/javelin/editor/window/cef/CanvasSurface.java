@@ -1,5 +1,9 @@
 package com.javelin.editor.window.cef;
 
+import com.javelin.core.input.InputAction;
+import com.javelin.core.input.KeyCode;
+import com.javelin.core.input.MouseButton;
+import com.javelin.core.input.InputSink;
 import com.javelin.editor.util.ThreadUtil;
 import com.javelin.rhi.render.Platform;
 import com.javelin.rhi.render.RenderSurface;
@@ -13,6 +17,14 @@ import org.slf4j.LoggerFactory;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.lwjgl.system.jawt.JAWTFunctions.*;
 import static org.lwjgl.system.jawt.JAWTFunctions.JAWT_DrawingSurface_FreeDrawingSurfaceInfo;
@@ -35,6 +47,19 @@ public class CanvasSurface extends Canvas implements RenderSurface {
             resized = true;
         }
     };
+
+    // ---------------- 编辑器输入（输入源 = 本 Canvas 视口） ----------------
+
+    /** 输入事件出口（InputSubsystem 挂载；null = 无输入接线，监听零开销跳过） */
+    private InputSink inputSink;
+    /**
+     * EDT → 引擎线程事件队列：AWT 监听在 EDT 入队（闭包捕获翻译结果），
+     * {@link #pollInputEvents()} 在引擎线程（MainFrame.pollEvents 驱动）出队投递 sink。
+     * —— 线程模型：mainLoop 跑在 Engine Main 线程，AWT 事件在 EDT，不能直写子系统状态。
+     */
+    private final ConcurrentLinkedQueue<Runnable> inputQueue = new ConcurrentLinkedQueue<>();
+    /** 监听只装一次（attach/detach 不重复装） */
+    private boolean inputListenersInstalled;
 
 
     public void setDpi(float dpi) {
@@ -98,6 +123,128 @@ public class CanvasSurface extends Canvas implements RenderSurface {
     @Override
     public void acknowledgeResize() {
         resized = false;
+    }
+
+    // ---------------- 编辑器输入 ----------------
+
+    /**
+     * 挂载输入事件出口 + 安装 AWT 监听（幂等）。
+     * <p>输入源 = 本 Canvas 视口区域：鼠标事件坐标即视口局部坐标
+     * （后续视口拾取直接可用）；键盘事件须 canvas 持有焦点（点击视口抢占，见
+     * mousePressed），点击 CEF UI 区域焦点自然移走——游戏中输入随之静默。</p>
+     */
+    public void attachInputSink(InputSink sink) {
+        this.inputSink = sink;
+        if (!inputListenersInstalled) {
+            inputListenersInstalled = true;
+            installInputListeners();
+        }
+    }
+
+    /**
+     * 泵积压输入事件（引擎线程调用，{@code MainFrame.pollEvents} 每帧驱动）：
+     * EDT 生产 → 引擎线程消费，等价 GLFW 的 glfwPollEvents 语义，
+     * 时序对齐 mainLoop（pollEvents 先于 earlyUpdate 帧翻转）。
+     */
+    public void pollInputEvents() {
+        Runnable event;
+        while ((event = inputQueue.poll()) != null) {
+            event.run();
+        }
+    }
+
+    /** AWT 监听安装：翻译成引擎枚举后入队（EDT；捕获值，不引用 AWT 事件对象） */
+    private void installInputListeners() {
+        setFocusable(true);   // 键盘事件随 canvas 焦点派发（AWT 焦点模型）
+        addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                enqueueKey(e, InputAction.PRESS);
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                enqueueKey(e, InputAction.RELEASE);
+            }
+        });
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                requestFocusInWindow();   // 点击视口抢占键盘焦点（编辑器视口输入惯例）
+                enqueueMouseButton(e, InputAction.PRESS);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                enqueueMouseButton(e, InputAction.RELEASE);
+            }
+        });
+        addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                enqueueCursor(e);
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                enqueueCursor(e);
+            }
+        });
+        addMouseWheelListener(e -> {
+            InputSink sink = inputSink;
+            if (sink != null) {
+                double dy = e.getPreciseWheelRotation();   // 上滚为正，与 GLFW 滚轮同号
+                inputQueue.add(() -> sink.onScroll(0.0, dy));
+            }
+        });
+        addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    inputQueue.add(() -> sink.onFocusChanged(true));
+                }
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                InputSink sink = inputSink;
+                if (sink != null) {
+                    // canvas 失焦（点到 CEF UI/他处）：清持续按下态，防"卡键"
+                    inputQueue.add(() -> sink.onFocusChanged(false));
+                }
+            }
+        });
+    }
+
+    private void enqueueKey(KeyEvent e, InputAction action) {
+        InputSink sink = inputSink;
+        if (sink == null) {
+            return;
+        }
+        KeyCode key = AwtKeyMapping.keyCode(e.getKeyCode());
+        int mods = AwtKeyMapping.modifiers(e.getModifiersEx());
+        inputQueue.add(() -> sink.onKey(key, action, mods));
+    }
+
+    private void enqueueMouseButton(MouseEvent e, InputAction action) {
+        InputSink sink = inputSink;
+        if (sink == null) {
+            return;
+        }
+        MouseButton button = AwtKeyMapping.mouseButton(e.getButton());
+        int mods = AwtKeyMapping.modifiers(e.getModifiersEx());
+        inputQueue.add(() -> sink.onMouseButton(button, action, mods));
+    }
+
+    private void enqueueCursor(MouseEvent e) {
+        InputSink sink = inputSink;
+        if (sink == null) {
+            return;
+        }
+        double x = e.getX();   // 视口局部坐标（拾取时直接可用）
+        double y = e.getY();
+        inputQueue.add(() -> sink.onCursorMove(x, y));
     }
 
     /**

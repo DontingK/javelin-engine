@@ -1,5 +1,6 @@
 package com.javelin.editor.window.cef;
 
+import com.javelin.core.input.InputSink;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -24,6 +25,8 @@ public class MainFrame extends CefFrame implements Window {
 
     private final JavelinSetting setting;
     private CanvasSurface canvas;
+    /** 输入事件出口（attachInputSink 存储；挂接时序见 attachInputSink 注释） */
+    private InputSink inputSink;
     private boolean close;
     private boolean shown;
     private boolean closed;
@@ -48,6 +51,10 @@ public class MainFrame extends CefFrame implements Window {
         }
         canvas = new CanvasSurface();
         canvas.setDpi(dpi);
+        if (inputSink != null) {
+            // attachInputSink 早于 create 的兜底转发（正常时序：create 先于子系统 initAll）
+            canvas.attachInputSink(inputSink);
+        }
         getContentPane().setLayout(null);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         // 关窗请求只置标志，由引擎轮询 closeRequested() 后调 close() 统一收尾
@@ -84,7 +91,24 @@ public class MainFrame extends CefFrame implements Window {
 
     @Override
     public void pollEvents() {
-        // Swing 事件在 EDT 上自发派发，无需轮询
+        // Swing UI 事件在 EDT 自发派发无需轮询；但输入事件是「EDT 入队 →
+        // 引擎线程泵」模型（mainLoop 在 Engine Main 线程），每帧此处泵进
+        // InputSubsystem —— 时序对齐 GLFW 路径：pollEvents 先于 earlyUpdate 帧翻转
+        if (canvas != null) {
+            canvas.pollInputEvents();
+        }
+    }
+
+    /**
+     * 挂载输入事件出口：转发到 canvas（**输入源 = Canvas 视口区域**，
+     * 键鼠事件均来自视口，坐标为视口局部坐标）。传 null 摘除。
+     */
+    @Override
+    public void attachInputSink(InputSink sink) {
+        this.inputSink = sink;
+        if (canvas != null) {
+            canvas.attachInputSink(sink);
+        }
     }
 
     @Override

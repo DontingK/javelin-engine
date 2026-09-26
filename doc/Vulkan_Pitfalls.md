@@ -190,6 +190,32 @@
 
 ---
 
+## 五·五、呈现与帧节律
+
+### 20. FIFO 锁帧下移动顿挫——帧率数据全干净 ★
+
+- **症状**：InputCameraDemo 按住 W 移动有肉眼顿挫；每秒性能日志
+  `180 fps | worst 7.8 ms | avg 5.6 ms`——平均恰好 1/180s（显示器刷新率锁帧），
+  worst « 2×avg（无任何一帧错过 vsync 周期）。**不掉帧、无 GC 尖刺、渲染本身 <6ms**，
+  帧率维度全部排除；
+- **根因**：FIFO 显示节拍严格固定（5.56ms/格），主循环 dt 却带 ±2ms 级
+  线程唤醒抖动；位移按 dt 积分 → 帧间步进忽大忽小（worst/avg ≈ 40% 差异）——
+  节拍没断但步伐不匀，肉眼即顿挫；叠加 vsync 1-2 帧输入→显示延迟加重手感。
+  **帧率高 ≠ 节律好，worst/avg 比值是顿挫的观测指标**；
+- **修法/验证**：A/B 隔离——`setting.setVsync(false)`（IMMEDIATE）后
+  `[perf] ~10000 fps | avg 0.1 ms`，移动顺滑，实锤 FIFO/DWM 呈现节奏；
+  引擎侧候选（待做，按性价比）：① present mode 接 MAILBOX
+  （`SwapChainDesc.PresentMode` 枚举已有值，`JavelinEngine.createSwapChainDesc`
+  只做 vsync→FIFO/IMMEDIATE 二值映射，需加配置位 + swapchain 图像数 2→3）；
+  ② vsync 锁帧下 dt 平滑/固定步长（模拟步进与真实 dt 解耦）；③ 独占全屏；
+- **观测工具**：InputCameraDemo.update() 的 per-second `[perf]` 日志
+  （fps / worst 单帧 / avg），读法——avg ≈ 1/刷新率 = FIFO 宽帧；
+  worst « 2×avg = 节律问题而非掉帧；
+- **出处**：2026-09-27 InputCameraDemo 移动卡顿排查，用户 A/B 确认；排障链：
+  per-second 观测先排帧率（数据干净）→ 单变量 A/B（vsync off 顺滑）→ 定位呈现节律。
+
+---
+
 ## 六、排障方法论（沉淀）
 
 1. **隔离实验，一次只改一个变量**：本轮三角形排查的收敛路径——

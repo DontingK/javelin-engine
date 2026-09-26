@@ -3,6 +3,7 @@ package com.javelin.editor;
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
@@ -78,9 +79,12 @@ public class JavelinEditor extends JavelinEngine {
     /**
      * 用本类持有的 AppStateSubsystem 替换 core 默认注册的匿名实例——
      * 编辑器需要经 {@code getStateManager()} 挂载控制状态，SubsystemManager 无按类型查询。
+     * <p>输入子系统先注册（注册序 = earlyUpdate 序）：边沿帧翻转先完成，
+     * AppState 后读到一致快照（时序说明见 JavelinEngine.registerSubsystem）。</p>
      */
     @Override
     protected void registerSubsystem(SubsystemManager subsystemManager) {
+        subsystemManager.register(new InputSubsystem());
         subsystemManager.register(appStateSubsystem);
     }
 
