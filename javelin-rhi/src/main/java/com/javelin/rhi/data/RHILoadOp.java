@@ -5,7 +5,10 @@ package com.javelin.rhi.data;
  * 对照 VkAttachmentLoadOp。
  */
 public enum RHILoadOp {
-    LOAD,       // 保留附件原有内容
-    CLEAR,      // Pass 启动自动清屏
-    DONT_CARE   // 丢弃原有内容，驱动优化
+    /** 保留附件原有内容 */
+    LOAD,
+    /** Pass 启动时清除为指定清除值 */
+    CLEAR,
+    /** 丢弃原有内容，内容未定义（驱动可优化） */
+    DONT_CARE
 }
