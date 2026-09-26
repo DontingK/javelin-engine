@@ -144,7 +144,7 @@
 | ① 接线 RHI | `Engine_Design.md` §2.1、RHI 27.1、Window 专档 |
 | ② 场景系统 | `Engine_Scene_Design.md` 1–4 节 |
 | ③ 渲染系统 | `Engine_Rendering_Design.md` v0.1、Scene 5–7 节、RHI 9/19/27 |
-| ④ 材质系统 | `Engine_Material_Design.md`（待写）、RHI 20 |
+| ④ 材质系统 | `Engine_Material_Design.md` v0.1（§3 产物格式已落地 2026-09-26）、RHI 20/21 |
 | ⑤ 子系统+输入 | `Engine_Subsystem_Design.md`（待写） |
 | ⑥ 物理/音频 | 各自专档（待写） |
 
