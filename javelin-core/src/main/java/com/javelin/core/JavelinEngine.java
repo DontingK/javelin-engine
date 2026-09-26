@@ -2,6 +2,7 @@ package com.javelin.core;
 
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.math.Color;
 import com.javelin.core.render.FrameDescription;
 import com.javelin.core.render.FrameLoop;
 import com.javelin.core.render.RenderView;
@@ -132,7 +133,7 @@ public class JavelinEngine {
             RenderGraphBuilder graph = RHI.beginRenderGraph();
             graph.addGraphicsPass("ClearOnly", pass ->
                     pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
-                            new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f)));
+                            clearColor()));
             return graph;
         }
         if (scene != null) {
@@ -148,9 +149,15 @@ public class JavelinEngine {
         if (desc.views().isEmpty()) {
             graph.addGraphicsPass("ClearOnly", pass ->
                     pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
-                            new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f)));
+                            clearColor()));
         }
         return graph;
+    }
+
+    /** 设置的默认背景颜色 → RHI 清屏值（三处清屏统一来源：无渲染系统/无相机兜底/管线注入） */
+    private RHIClearColor clearColor() {
+        Color bg = setting.getBackgroundColor();
+        return new RHIClearColor(bg.r, bg.g, bg.b, bg.a);
     }
 
     /** shutdown 逆序（阶段①）：frameLoop（含 waitIdle）→ 渲染系统 → device → instance → window */
@@ -230,7 +237,12 @@ public class JavelinEngine {
     }
 
     protected RenderPipeline createRenderPipeline() {
-        return renderingSystem != null ? new DefaultHybridRenderPipeline() : null;
+        if (renderingSystem == null) {
+            return null;
+        }
+        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline();
+        pipeline.setClearColor(clearColor());
+        return pipeline;
     }
 
     /**
