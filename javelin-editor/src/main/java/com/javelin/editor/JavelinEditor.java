@@ -1,9 +1,16 @@
 package com.javelin.editor;
 
 import com.javelin.core.JavelinEngine;
+import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.math.Color;
 import com.javelin.core.scene.GameScene;
+import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
+import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Transform;
+import com.javelin.core.subsystem.SubsystemManager;
+import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -17,6 +24,8 @@ import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.settings.SettingsManager;
 import com.javelin.editor.window.cef.MainFrame;
 import com.javelin.editor.window.cef.ProjectFrame;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +42,11 @@ public class JavelinEditor extends JavelinEngine {
     private final SettingsManager settingsManager;
     private final Project project;
     private final EditorScene editorScene;
+    private Camera editorCamera;
+    /**
+     * 编辑器持有引用的 AppState 子系统：编辑器控制状态（网格辅助线等）经它挂载
+     */
+    private final AppStateSubsystem appStateSubsystem = new AppStateSubsystem();
 
     public JavelinEditor(Project project,
                          JavelinSetting setting,
@@ -61,6 +75,37 @@ public class JavelinEditor extends JavelinEngine {
         return new MainFrame(setting);
     }
 
+    /**
+     * 用本类持有的 AppStateSubsystem 替换 core 默认注册的匿名实例——
+     * 编辑器需要经 {@code getStateManager()} 挂载控制状态，SubsystemManager 无按类型查询。
+     */
+    @Override
+    protected void registerSubsystem(SubsystemManager subsystemManager) {
+        subsystemManager.register(appStateSubsystem);
+    }
+
+    @Override
+    protected void onInitialize() {
+
+        GameScene editorGameScene = getEditorGameScene();
+        if (editorGameScene == null) {
+            // loadScene 失败（场景文件缺失/解析错）时编辑子场景未建：跳过编辑器装配，帧循环退化为清屏
+            log.warn("编辑器场景未就绪（loadScene 失败），跳过编辑器相机与网格装配");
+            return;
+        }
+        Node node = new Node();
+        node.setName("Editor Camera Node");
+        editorCamera = node.addComponent(Camera.class);
+        // 斜俯视位姿：原点上方后侧 45° 低头看向原点（applyPose 走 transformDirection
+        // 正向提取，rotationX 符号即标准右手直觉）
+        Transform transform = node.getTransform();
+        transform.setLocalPosition(new Vector3f(0, 30, -30));
+        transform.setLocalRotation(new Quaternionf().rotationX((float) Math.toRadians(45)));
+        editorGameScene.add(node);
+
+        appStateSubsystem.getStateManager().attach(new EditGridAppState());
+    }
+
 
     public MetaManager getMetaManager() {
         return metaManager;
@@ -82,10 +127,18 @@ public class JavelinEditor extends JavelinEngine {
             editorScene.setGameScene(gameScene, file);
             editorScene.setEditorScene(new GameScene("editor"));
             return editorScene;
-        }catch (Exception ex){
-            log.warn(ex.getMessage(),ex);
+        } catch (Exception ex) {
+            log.warn(ex.getMessage(), ex);
             return null;
         }
+    }
+
+    public GameScene getEditorGameScene() {
+        return editorScene.getEditorScene();
+    }
+
+    public Camera getEditorCamera() {
+        return editorCamera;
     }
 
     public static void main(String[] args) {
