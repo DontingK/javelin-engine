@@ -26,8 +26,18 @@ public class RenderStatsAppState extends AbstractAppState {
     /** overlay 固定占用行 0 ~ LAST_ROW */
     private static final int LAST_ROW = 7;
 
+    /** 文本刷新节流间隔（秒）：写行 0~7 每秒一轮，数字不逐帧跳动（F3 开关不受节流） */
+    private static final float REFRESH_INTERVAL = 1.0f;
+
     /** F3 切换；默认显示 */
     private boolean visible = true;
+
+    /** 距上次刷新累计时长；初值=间隔 → 首帧立即刷一次 */
+    private float refreshTimer = REFRESH_INTERVAL;
+    /** 本刷新窗内主循环迭代数（FPS 分子） */
+    private int framesSinceRefresh;
+    /** 首帧无满秒窗口，FPS 以 Time EMA 兜底显示，其后为本窗实测 */
+    private boolean firstRefresh = true;
 
     @Override
     public void update(float deltaTime) {
@@ -40,6 +50,19 @@ public class RenderStatsAppState extends AbstractAppState {
         if (!visible) {
             return;
         }
+
+        // 1Hz 节流：数字每秒刷新一轮；计时用未缩放 dt（timeScale 暂停时统计照常推进）
+        refreshTimer += Time.getUnscaledDeltaTime();
+        framesSinceRefresh++;
+        if (refreshTimer < REFRESH_INTERVAL) {
+            return;
+        }
+        float fps = firstRefresh
+                ? Time.getFps()
+                : framesSinceRefresh / refreshTimer;
+        firstRefresh = false;
+        refreshTimer = 0f;
+        framesSinceRefresh = 0;
 
         Device device = engine.device();
         RenderStats stats = device.renderStats();
@@ -58,9 +81,9 @@ public class RenderStatsAppState extends AbstractAppState {
         DebugText.printf(2, "API " + gpu.apiVersionString()
                 + "  驱动 " + gpu.driverVersionString(), DebugTextColor.GRAY);
 
-        // 行 3：FPS（EMA 平滑）+ 帧计数
+        // 行 3：FPS（本刷新窗实测；只有首帧用 Time EMA 兜底）+ 帧计数
         DebugText.clear(3);
-        DebugText.printf(3, "FPS " + String.format("%.1f", Time.getFps())
+        DebugText.printf(3, "FPS " + String.format("%.1f", fps)
                 + "  帧 " + Time.getFrameCount(), DebugTextColor.LIGHT_GREEN);
 
         // 行 4：上一帧 draw 统计（dispatch 非零才显示）

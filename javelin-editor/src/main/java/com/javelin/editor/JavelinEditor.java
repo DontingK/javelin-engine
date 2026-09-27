@@ -1,16 +1,13 @@
 package com.javelin.editor;
 
 import com.javelin.core.JavelinEngine;
-import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetManager;
-import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
-import com.javelin.core.subsystem.SubsystemManager;
 import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
@@ -44,11 +41,6 @@ public class JavelinEditor extends JavelinEngine {
     private final Project project;
     private final EditorScene editorScene;
     private Camera editorCamera;
-    /**
-     * 编辑器持有引用的 AppState 子系统：编辑器控制状态（网格辅助线等）经它挂载
-     */
-    private final AppStateSubsystem appStateSubsystem = new AppStateSubsystem();
-
     public JavelinEditor(Project project,
                          JavelinSetting setting,
                          MetaManager metaManager,
@@ -74,18 +66,6 @@ public class JavelinEditor extends JavelinEngine {
     @Override
     protected Window createWindow() {
         return new MainFrame(setting);
-    }
-
-    /**
-     * 用本类持有的 AppStateSubsystem 替换 core 默认注册的匿名实例——
-     * 编辑器需要经 {@code getStateManager()} 挂载控制状态，SubsystemManager 无按类型查询。
-     * <p>输入子系统先注册（注册序 = earlyUpdate 序）：边沿帧翻转先完成，
-     * AppState 后读到一致快照（时序说明见 JavelinEngine.registerSubsystem）。</p>
-     */
-    @Override
-    protected void registerSubsystem(SubsystemManager subsystemManager) {
-        subsystemManager.register(new InputSubsystem());
-        subsystemManager.register(appStateSubsystem);
     }
 
     @Override

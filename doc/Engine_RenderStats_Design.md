@@ -98,13 +98,16 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 - 关闭时逐行 `DebugText.clear(row)` 清干净自己占的行；
 - **固定占用 DebugText 行 0~7**（组件规范，其他 DebugText 客户端请避开），
   每帧单行覆写惯用法 `clear(row) + printf(row, ...)`：
+  **文本刷新 1 秒节流一轮**（2026-09-27 用户反馈"FPS 跳动太快"）——数字每秒刷
+  一次不逐帧闪动，F3 开关不受节流即时响应；计时用未缩放 dt（timeScale 暂停时
+  统计照常推进）。
 
 | 行 | 内容 |
 |----|------|
 | 0 | 标题 "Javelin 统计"（黄前景）+ "[F3 隐藏]"（灰） |
 | 1 | GPU 名（白） |
 | 2 | API 版本 + 驱动版本（灰） |
-| 3 | FPS + 帧计数（亮绿） |
+| 3 | FPS（**本刷新窗实测**帧数，仅首帧由 Time EMA 兜底）+ 帧计数（亮绿） |
 | 4 | DrawCalls + 三角形 + 实例（+ Dispatch，非零才显示） |
 | 5 | 纹理 / 缓冲 / 图形管线 / compute 管线 |
 | 6 | 采样器 / 描述符集 / 描述符布局 |
@@ -118,7 +121,12 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
   `RenderStatsAppState`；`initialize()` 在 `subsystemManager.initAll(this)` 之后调用；
 - **DebugTextDemo 覆盖此钩子为空**：该样例自身就在验收 DebugText 行区语义
   （自动行 0/1、色表行区），与 overlay 的行 0~7 必然叠写冲突，关闭以保持样例纯净；
-- 其余 demo / JavelinEditor（编辑器视口）默认显示统计。
+- **其余 demo 与 JavelinEditor（编辑器视口）默认显示统计**。JavelinEditor 原有
+  `registerSubsystem` 覆盖（历史动机：编辑器要拿 AppStateSubsystem 引用，故自建
+  实例替换）在基类持有 protected 字段 + 注册 DebugDrawTextSubsystem 后与基类
+  完全重复，已整个删除（用户指正 2026-09-27）。⚠ 履历中的教训留档：编辑器同名
+  私有字段曾遮蔽基类新字段致启动 NPE——**若有子类确需覆盖 `registerSubsystem`，
+  必须给基类 `appStateSubsystem` 字段赋值，且不得以同名字段遮蔽**。
 
 ## 4. 文件清单
 
@@ -139,7 +147,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 
 1. 任一 demo（SceneRenderDemo / MultiCameraDemo）或编辑器启动，左上角默认显示 8 行统计；
    GPU 名 / 驱动版本与机器实际一致；
-2. F3 关闭后行 0~7 全部消失，再按恢复；overlay 不遮挡 demo 自身文本时数字随帧刷新；
+2. F3 关闭后行 0~7 全部消失，再按恢复；数字每秒刷新一轮（1Hz 节流）、不逐帧闪动；
 3. drawCalls / 三角形数与场景规模吻合（SceneRenderDemo 已知三角形数可对照）；
    overlay 读到的是**上一帧**快照，帧间不闪零、跳帧不归零；
 4. 资源计数稳定应用：资产加载 / 窗口 resize 后数字与实际创建量一致，长跑无漂移
