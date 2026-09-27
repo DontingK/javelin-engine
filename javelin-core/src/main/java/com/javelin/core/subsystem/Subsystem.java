@@ -1,6 +1,8 @@
 package com.javelin.core.subsystem;
 
 import com.javelin.core.JavelinEngine;
+import com.javelin.rhi.RenderGraphBuilder;
+import com.javelin.rhi.Texture;
 
 /**
  * 子系统接口 —— 引擎底层全局服务的统一契约（物理、音频、输入等）。
@@ -23,9 +25,11 @@ import com.javelin.core.JavelinEngine;
  *   → 收集帧描述 → frameLoop.renderFrame
  * </pre>
  *
- * <p>渲染贡献不走子系统钩子：需要绘制内容的模块向
- * {@code renderPipeline.passes()} 注册 Pass（管线扩展的既定方式，
- * 见 Engine_RenderPipeline_Design）。不需要的钩子直接留 default 空实现。</p>
+ * <p>渲染贡献分两级：<b>物体/视口级</b>向 {@code renderPipeline.passes()} 注册 Pass
+ * （管线扩展的既定方式，见 Engine_RenderPipeline_Design）；<b>帧组装级</b> overlay
+ * 走 {@link #appendOverlay} 钩子——"总在所有相机视口合成之后、无相机也画"是 Pass
+ * 体系（逐视口进图）表达不了的层（DebugText 落地时泛化，用户拍板 2026-09-27）。
+ * 不需要的钩子直接留 default 空实现。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -75,5 +79,26 @@ public interface Subsystem {
      * 时点在 GPU 设备销毁之前（子系统可能持有 GPU 资源）。</p>
      */
     default void shutdown() {
+    }
+
+    /**
+     * 帧组装级 overlay 钩子：所有相机视口合成之后、写最终 backbuffer，
+     * 由 {@link SubsystemManager#appendOverlays} 在 buildFrameGraph 末尾统一遍历调用。
+     *
+     * <p>无相机（ClearOnly 兜底）也照调。禁用（isEnabled=false）由管理器过滤；
+     * 未初始化/资源未就绪等自检由实现自理（自检不过即不进图——图结构决策权在子系统）。</p>
+     */
+    default void appendOverlay(RenderGraphBuilder graph, Texture backbuffer, long frameIndex) {
+    }
+
+    /**
+     * GPU 资源销毁钩子：引擎在 frameLoop.close()（waitIdle）之后由
+     * {@link SubsystemManager#closeGpuAll} 统一遍历调用。
+     *
+     * <p>存在原因：shutdownAll 时点早于帧循环 waitIdle，持 GPU 资源的子系统不能在
+     * {@link #shutdown} 里 dispose（in-flight 使用风险），在本钩子处安全销毁
+     * （RenderingSystem.close() 同层语义）。</p>
+     */
+    default void closeGpu() {
     }
 }

@@ -1,6 +1,8 @@
 package com.javelin.core.subsystem;
 
 import com.javelin.core.JavelinEngine;
+import com.javelin.rhi.RenderGraphBuilder;
+import com.javelin.rhi.Texture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,12 +33,14 @@ public class SubsystemManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(SubsystemManager.class);
 
     private final List<Subsystem> subsystems = new ArrayList<>();
+    /** shutdownAll 时的已关账副本——closeGpuAll 在列表清空后仍需可达（waitIdle 之后才销 GPU） */
+    private final List<Subsystem> shutdownSubsystems = new ArrayList<>();
     private boolean initialized = false;
 
     /**
      * 注册子系统。
      * <p>
-     * 必须在 {@link #initAll()} 之前调用，初始化后结构冻结，禁止再注册。
+     * 必须在 {@link #initAll(JavelinEngine)} 之前调用，初始化后结构冻结，禁止再注册。
      * </p>
      *
      * @param subsystem 子系统实例
@@ -128,6 +132,8 @@ public class SubsystemManager {
             return;
         }
         LOGGER.info("Shutting down {} subsystems...", subsystems.size());
+        shutdownSubsystems.clear();
+        shutdownSubsystems.addAll(subsystems);
         List<Subsystem> reversed = new ArrayList<>(subsystems);
         Collections.reverse(reversed);
         for (Subsystem subsystem : reversed) {
@@ -140,6 +146,46 @@ public class SubsystemManager {
         }
         initialized = false;
         subsystems.clear();
+    }
+
+    /**
+     * 帧组装级 overlay 统一遍历（JavelinEngine.buildFrameGraph 视口循环后调用）。
+     * <p>禁用子系统跳过（与 earlyUpdate 同过滤口径）；未就绪等自检由子系统自理。</p>
+     */
+    public void appendOverlays(RenderGraphBuilder graph, Texture backbuffer, long frameIndex) {
+        for (Subsystem subsystem : subsystems) {
+            if (!subsystem.isEnabled()) {
+                continue;
+            }
+            try {
+                subsystem.appendOverlay(graph, backbuffer, frameIndex);
+            } catch (Exception e) {
+                LOGGER.error("Error in {}.appendOverlay: {}",
+                        subsystem.getClass().getSimpleName(), e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * GPU 资源统一销毁（注册逆序，与 shutdownAll 同向）：JavelinEngine.shutdown 在
+     * frameLoop.close()（waitIdle）之后调用。基于 shutdownAll 留存的已关账副本——
+     * 那时注册列表已清空。幂等：跑一次即清。
+     */
+    public void closeGpuAll() {
+        if (shutdownSubsystems.isEmpty()) {
+            return;
+        }
+        List<Subsystem> reversed = new ArrayList<>(shutdownSubsystems);
+        Collections.reverse(reversed);
+        for (Subsystem subsystem : reversed) {
+            try {
+                subsystem.closeGpu();
+            } catch (Exception e) {
+                LOGGER.error("Error in {}.closeGpu: {}",
+                        subsystem.getClass().getSimpleName(), e.getMessage(), e);
+            }
+        }
+        shutdownSubsystems.clear();
     }
 
     /**

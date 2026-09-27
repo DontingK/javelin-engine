@@ -3,6 +3,7 @@ package com.javelin.core;
 import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.debug.DebugDrawTextSubsystem;
 import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
 import com.javelin.core.render.FrameDescription;
@@ -121,6 +122,8 @@ public class JavelinEngine {
         // 输入边沿翻转（帧边界发布）先完成，后继消费方读到一致快照
         subsystemManager.register(new InputSubsystem());
         subsystemManager.register(new AppStateSubsystem());
+        // DebugText：渲染贡献走 SubSystem appendOverlay 帧组装级钩子，注册序无调度影响
+        subsystemManager.register(new DebugDrawTextSubsystem());
     }
 
     protected void onInitialize() {
@@ -149,29 +152,31 @@ public class JavelinEngine {
 
     /** 图声明回调：acquire 之后调用，backbuffer 为入参（RHI 24.1） */
     private RenderGraphBuilder buildFrameGraph(Texture backbuffer) {
+        RenderGraphBuilder graph = RHI.beginRenderGraph();
         if (renderingSystem == null || renderPipeline == null) {
             // 无渲染系统（默认 JavelinEngine.main）：纯清屏，阶段①最小画面
-            RenderGraphBuilder graph = RHI.beginRenderGraph();
             graph.addGraphicsPass("ClearOnly", pass ->
                     pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
                             clearColor()));
-            return graph;
+        } else {
+            if (scene != null) {
+                sceneRenderBridge.sync(scene, renderingSystem, backbuffer);
+            }
+            FrameDescription desc = renderingSystem.collectFrame(frameLoop.frameCounter(), backbuffer);
+            for (RenderView view : desc.views()) {
+                renderPipeline.buildGraph(graph, new PipelineContext(
+                        renderingSystem, view, desc, backbuffer,
+                        renderingSystem.depthFor(view.name())));
+            }
+            if (desc.views().isEmpty()) {
+                graph.addGraphicsPass("ClearOnly", pass ->
+                        pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
+                                clearColor()));
+            }
         }
-        if (scene != null) {
-            sceneRenderBridge.sync(scene, renderingSystem, backbuffer);
-        }
-        FrameDescription desc = renderingSystem.collectFrame(frameLoop.frameCounter(), backbuffer);
-        RenderGraphBuilder graph = RHI.beginRenderGraph();
-        for (RenderView view : desc.views()) {
-            renderPipeline.buildGraph(graph, new PipelineContext(
-                    renderingSystem, view, desc, backbuffer,
-                    renderingSystem.depthFor(view.name())));
-        }
-        if (desc.views().isEmpty()) {
-            graph.addGraphicsPass("ClearOnly", pass ->
-                    pass.addColorOutput(backbuffer, RHILoadOp.CLEAR,
-                            clearColor()));
-        }
+        // 帧组装级 overlay 钩子统一遍历（DebugText 等首客户）：总在视口合成之后、
+        // 写最终 backbuffer、无相机也出字（Engine_DebugText_Design.md §3.1）
+        subsystemManager.appendOverlays(graph, backbuffer, frameLoop.frameCounter());
         return graph;
     }
 
@@ -191,6 +196,11 @@ public class JavelinEngine {
         }
         if (renderingSystem != null) {
             renderingSystem.close();
+        }
+        // 子系统 GPU 资源统一销毁（shutdownAll 早于 waitIdle 不能碰 GPU，
+        // closeGpu 钩子在此安全区统一遍历——RenderingSystem.close() 同层）
+        if (subsystemManager != null) {
+            subsystemManager.closeGpuAll();
         }
         if (device != null) {
             device.dispose();
