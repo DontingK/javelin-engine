@@ -147,11 +147,28 @@
   engine5 阶段⑥ RHI 已封装：`PassDef.addColorOutput(4 参重载, clearRegion)` +
   `CommandBuffer.clearColor`，验收测试 ViewportQuadTest。
 
+### 17. 着色器模块生命周期：销毁必须晚于「管线创建完成」★启动闪退
+
+- **症状**：渲染统计打点改造后引擎启动闪退——`EXCEPTION_ACCESS_VIOLATION (0xc0000005)`
+  原生层崩溃，无 Java 侧异常；日志停在 `InputSubsystem initialized` 之后
+  （即 DebugDrawTextSubsystem.init 建首个管线处）。Driver 无校验层拦截，直接崩
+  在 `vkCreateGraphicsPipelines` 内部解引用已销毁的模块句柄。
+- **根因**：管线内部临时 `VulkanShaderModule` 被"new 完立即 dispose"——dispose 落在
+  `vkCreateGraphicsPipelines` **消费句柄之前**，模块先行 `vkDestroyShaderModule`。
+  规范语义是「**管线创建完成后**模块才可销毁」（vkCreate*Pipelines 返回即消费完
+  SPIR-V）——「创建时消费」≠「参数填完就能销」。
+- **修法**：模块引用在 try(MemoryStack) 块外用局部变量留存，
+  **`vkCreateGraphicsPipelines` 成功返回之后**再 `dispose()`（Graphics/Compute 两处同修）。
+- **教训**：生命周期结论的措辞必须精确到调用时序——「创建完成后可销」与
+  「传入创建参数后即可销」在原生层是生与死的差别；此类改动必须对照调用链核对。
+- **出处**：2026-09-27 渲染统计打点首跑闪退（SceneRenderDemo，用户回报；
+  `Engine_RenderStats_Design.md` §2.3 修正记录）。
+
 ---
 
 ## 四、GLFW / 窗口
 
-### 17. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
+### 18. `glfwCreateWindow` 返回的是 GLFW 内部结构体指针，不是 HWND ★
 
 - **症状**：手写 `vkCreateWin32SurfaceKHR` 后，`vkGetPhysicalDeviceSurfaceCapabilitiesKHR`
   报 `VK_ERROR_SURFACE_LOST_KHR`（-1000000000）；但 surface 创建、formats/present 查询
@@ -165,7 +182,7 @@
   `glfwGetWindowAttrib(handle, GLFW_VISIBLE = 0x20004)` 可核对 GLFW 侧可见性。
 - **出处**：2026-09-22 清屏排障第三障。
 
-### 18. 校验层缺失降级
+### 19. 校验层缺失降级
 
 - debug 模式请求 `VK_LAYER_KHRONOS_validation` 而本机未装 Vulkan SDK 时，
   `VulkanInstance` 先 `vkEnumerateInstanceLayerProperties` 存在性检查，缺失则 warn 降级继续
@@ -175,7 +192,7 @@
 
 ## 五、RHI 命令序约束
 
-### 19. `bindDescriptorSet` 之前必须先 `bindPipeline`（RHI 布局句柄缓存约束）★
+### 20. `bindDescriptorSet` 之前必须先 `bindPipeline`（RHI 布局句柄缓存约束）★
 
 - **症状**：运行期 `IllegalStateException: No pipeline bound before bindDescriptorSet`
   （`VulkanCommandBuffer.bindDescriptorSet`）——Pass 回调里第一行就绑描述符集（如 set0 帧级 UBO）时触发；
@@ -192,7 +209,7 @@
 
 ## 五·五、呈现与帧节律
 
-### 20. FIFO 锁帧下移动顿挫——帧率数据全干净 ★
+### 21. FIFO 锁帧下移动顿挫——帧率数据全干净 ★
 
 - **症状**：InputCameraDemo 按住 W 移动有肉眼顿挫；每秒性能日志
   `180 fps | worst 7.8 ms | avg 5.6 ms`——平均恰好 1/180s（显示器刷新率锁帧），

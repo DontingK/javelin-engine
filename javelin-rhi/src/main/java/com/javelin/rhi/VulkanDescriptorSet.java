@@ -21,6 +21,7 @@ final class VulkanDescriptorSet implements DescriptorSet {
     VulkanDescriptorSet(VulkanDevice device, long setHandle) {
         this.device = device;
         this.setHandle = setHandle;
+        device.stats().onDescriptorSetCreated();
     }
 
     @Override
@@ -84,8 +85,10 @@ final class VulkanDescriptorSet implements DescriptorSet {
 
     @Override
     public void dispose() {
-        // DescriptorSet 由池管理，不单独销毁
+        // DescriptorSet 由池管理，不单独销毁；重入 guard 保统计双减
+        if (disposed) return;
         disposed = true;
+        device.stats().onDescriptorSetDisposed();
     }
 
     private static int toVkDescriptorType(DescriptorUpdate.Type type) {

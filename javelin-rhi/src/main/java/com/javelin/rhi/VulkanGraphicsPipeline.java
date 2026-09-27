@@ -31,6 +31,8 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     VulkanGraphicsPipeline(VulkanDevice device, GraphicsPipelineDesc desc, long pipelineCache) {
         this.device = device;
 
+        VulkanShaderModule vsModule;
+        VulkanShaderModule fsModule;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             // 着色器阶段
             VkPipelineShaderStageCreateInfo.Buffer stages = VkPipelineShaderStageCreateInfo.calloc(2, stack);
@@ -39,14 +41,16 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             VkPipelineShaderStageCreateInfo vsStage = stages.get(0);
             vsStage.sType$Default();
             vsStage.stage(VK_SHADER_STAGE_VERTEX_BIT);
-            vsStage.module(createShaderModule(desc.vertexShader().spirv()));
+            vsModule = new VulkanShaderModule(device, desc.vertexShader().spirv());
+            vsStage.module(vsModule.handle());
             vsStage.pName(stack.UTF8("main"));
 
             // 片元着色器
             VkPipelineShaderStageCreateInfo fsStage = stages.get(1);
             fsStage.sType$Default();
             fsStage.stage(VK_SHADER_STAGE_FRAGMENT_BIT);
-            fsStage.module(createShaderModule(desc.fragmentShader().spirv()));
+            fsModule = new VulkanShaderModule(device, desc.fragmentShader().spirv());
+            fsStage.module(fsModule.handle());
             fsStage.pName(stack.UTF8("main"));
 
             // 顶点输入
@@ -202,8 +206,14 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             this.pipelineHandle = pipelineBuf.get(0);
         }
 
+        // 规范：管线创建完成（消费完 SPIR-V）后即可销毁着色器模块——
+        // 必须在 vkCreateGraphicsPipelines 成功之后 dispose，销毁早于创建会解引用悬空句柄直接崩溃
+        vsModule.dispose();
+        fsModule.dispose();
+
         CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
         CleanerRegistry.register(this, device, pipelineLayoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
+        device.stats().onGraphicsPipelineCreated();
     }
 
     @Override
@@ -219,6 +229,7 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onGraphicsPipelineDisposed();
         CleanerRegistry.markDisposed(pipelineHandle);
         CleanerRegistry.markDisposed(pipelineLayoutHandle);
         vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
@@ -227,11 +238,6 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             setLayout.dispose();
         }
         ownedSetLayouts.clear();
-    }
-
-    private long createShaderModule(byte[] spirv) {
-        VulkanShaderModule module = new VulkanShaderModule(device, spirv);
-        return module.handle();
     }
 
     private long createPipelineLayout(GraphicsPipelineDesc desc) {

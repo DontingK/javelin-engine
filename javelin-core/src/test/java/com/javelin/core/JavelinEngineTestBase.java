@@ -27,7 +27,7 @@ public class JavelinEngineTestBase extends JavelinEngine{
     /**
      * 每秒窗口性能观测：FPS + 窗口内最差单帧 + 平均帧耗时。
      * 读法——avg ≈ 1/刷新率 = FIFO 宽帧（vsync 锁帧）；worst « 2×avg = 节律问题
-     * 而非掉帧（顿挫看 worst/avg 比值，见 Vulkan_Pitfalls #20）；
+     * 而非掉帧（顿挫看 worst/avg 比值，见 Vulkan_Pitfalls #21）；
      * avg 本身超预算 = 稳定性慢（渲染/驱动），与抖动区分。
      */
     @Override

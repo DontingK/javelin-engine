@@ -30,6 +30,8 @@ final class VulkanDevice implements Device {
     private final VulkanSurface surface;   // 设备持有的呈现 surface（createSwapChain 复用）
     private final long commandPoolHandle;
     private final long descriptorPoolHandle;
+    private final RenderStats stats = new RenderStats();
+    private final GPUInfo gpuInfo;
     private volatile boolean disposed;
 
     VulkanDevice(VulkanInstance instance, VkInstance vkInstance,
@@ -43,6 +45,7 @@ final class VulkanDevice implements Device {
         // 选择物理设备（surface 感知：检查 present 队列族支持）
         long surfaceHandle = this.surface != null ? this.surface.handle() : 0;
         this.physicalDevice = VulkanPhysicalDevice.select(vkInstance, prefs, surfaceHandle);
+        this.gpuInfo = new GPUInfo(physicalDevice.properties());
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             // 队列创建信息
@@ -294,6 +297,26 @@ final class VulkanDevice implements Device {
     @Override
     public void waitIdle() {
         vkDeviceWaitIdle(device);
+    }
+
+    @Override
+    public GPUInfo gpuInfo() {
+        return gpuInfo;
+    }
+
+    @Override
+    public RenderStats renderStats() {
+        return stats;
+    }
+
+    @Override
+    public void resetFrameStats() {
+        stats.snapshotFrame();
+    }
+
+    /** 资源类/命令缓冲打点入口（构造器尾 ++ / dispose guard 后 -- / draw 录制累计） */
+    RenderStats stats() {
+        return stats;
     }
 
     @Override

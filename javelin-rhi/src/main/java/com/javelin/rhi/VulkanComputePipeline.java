@@ -23,12 +23,14 @@ final class VulkanComputePipeline implements ComputePipeline {
     VulkanComputePipeline(VulkanDevice device, ComputePipelineDesc desc, long pipelineCache) {
         this.device = device;
 
+        VulkanShaderModule module;
         try (MemoryStack stack = MemoryStack.stackPush()) {
             // 着色器阶段
             VkPipelineShaderStageCreateInfo stageInfo = VkPipelineShaderStageCreateInfo.calloc(stack);
             stageInfo.sType$Default();
             stageInfo.stage(VK_SHADER_STAGE_COMPUTE_BIT);
-            stageInfo.module(createShaderModule(desc.shader().spirv()));
+            module = new VulkanShaderModule(device, desc.shader().spirv());
+            stageInfo.module(module.handle());
             stageInfo.pName(stack.UTF8("main"));
 
             // 管线布局
@@ -51,7 +53,12 @@ final class VulkanComputePipeline implements ComputePipeline {
             this.pipelineHandle = pipelineBuf.get(0);
         }
 
+        // 规范：管线创建完成后即可销毁着色器模块——
+        // 必须在 vkCreateComputePipelines 成功之后 dispose，销毁早于创建会解引用悬空句柄直接崩溃
+        module.dispose();
+
         CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        device.stats().onComputePipelineCreated();
     }
 
     @Override
@@ -67,13 +74,12 @@ final class VulkanComputePipeline implements ComputePipeline {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onComputePipelineDisposed();
         CleanerRegistry.markDisposed(pipelineHandle);
+        // 内部布局显式销毁（与 Graphics 版成对；此前仅靠 Cleaner 兜底）
+        CleanerRegistry.markDisposed(pipelineLayoutHandle);
+        vkDestroyPipelineLayout(device.vkDevice(), pipelineLayoutHandle, null);
         vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
-    }
-
-    private long createShaderModule(byte[] spirv) {
-        VulkanShaderModule module = new VulkanShaderModule(device, spirv);
-        return module.handle();
     }
 
     private long createPipelineLayout(ComputePipelineDesc desc) {

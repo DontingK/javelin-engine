@@ -49,6 +49,7 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
         }
 
         CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.DESCRIPTOR_SET_LAYOUT);
+        device.stats().onDescriptorSetLayoutCreated();
     }
 
     @Override
@@ -60,6 +61,7 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onDescriptorSetLayoutDisposed();
         CleanerRegistry.markDisposed(layoutHandle);
         vkDestroyDescriptorSetLayout(device.vkDevice(), layoutHandle, null);
     }

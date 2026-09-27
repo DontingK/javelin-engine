@@ -68,6 +68,7 @@ final class VulkanBuffer implements Buffer {
 
         // 注册 Cleaner
         CleanerRegistry.register(this, device, bufferHandle, CleanerRegistry.ResourceType.BUFFER);
+        device.stats().onBufferCreated();
     }
 
     @Override
@@ -123,6 +124,7 @@ final class VulkanBuffer implements Buffer {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onBufferDisposed();
         CleanerRegistry.markDisposed(bufferHandle);
         VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyBuffer(device.vkDevice(), bufferHandle, null);

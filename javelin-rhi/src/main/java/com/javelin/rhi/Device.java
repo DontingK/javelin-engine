@@ -61,6 +61,19 @@ public interface Device extends GPUResource {
     void submit(SubmitInfo info);
     void waitIdle();
 
+    // --- GPU 信息与渲染统计（doc/Engine_RenderStats_Design.md v0.1） ---
+    /** 设备/驱动静态信息（设备构造时从 VkPhysicalDeviceProperties 提取，只读） */
+    GPUInfo gpuInfo();
+
+    /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
+    RenderStats renderStats();
+
+    /**
+     * 帧尾快照+清零 draw 统计：引擎每帧录制收尾后显式调用。
+     * 跳帧（最小化）时 runtime 未变，重复快照使显示值保持上一实帧、不闪零。
+     */
+    void resetFrameStats();
+
     /** Vulkan 句柄 VkDevice */
     long handle();
 }

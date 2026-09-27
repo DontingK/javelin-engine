@@ -43,6 +43,7 @@ final class VulkanFence implements Fence {
         }
 
         CleanerRegistry.register(this, device, fenceHandle, CleanerRegistry.ResourceType.FENCE);
+        device.stats().onFenceCreated();
     }
 
     @Override
@@ -70,6 +71,7 @@ final class VulkanFence implements Fence {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onFenceDisposed();
         CleanerRegistry.markDisposed(fenceHandle);
         vkDestroyFence(device.vkDevice(), fenceHandle, null);
     }

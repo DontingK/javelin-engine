@@ -47,6 +47,7 @@ final class VulkanSampler implements Sampler {
         }
 
         CleanerRegistry.register(this, device, samplerHandle, CleanerRegistry.ResourceType.SAMPLER);
+        device.stats().onSamplerCreated();
     }
 
     @Override
@@ -63,6 +64,7 @@ final class VulkanSampler implements Sampler {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onSamplerDisposed();
         CleanerRegistry.markDisposed(samplerHandle);
         vkDestroySampler(device.vkDevice(), samplerHandle, null);
     }

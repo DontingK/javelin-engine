@@ -1,5 +1,6 @@
 package com.javelin.core;
 
+import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.debug.DebugTextColor;
 import com.javelin.core.debug.DebugText;
 import com.javelin.core.input.Input;
@@ -41,6 +42,12 @@ public class DebugTextDemo extends JavelinEngineTestBase {
     @Override
     protected void onInitialize() {
         writeStaticBlock();
+    }
+
+    @Override
+    protected void registerDefaultAppStates(AppStateManager stateManager) {
+        // 关闭默认统计 overlay：RenderStatsAppState 固定占 DebugText 行 0~7，
+        // 与本样例的行区验收样例（自动行 0/1、色表行区）叠写冲突
     }
 
     @Override

@@ -454,6 +454,11 @@ interface Device extends GPUResource {
 
     long handle();   // VkDevice
 
+    // --- GPU 信息与渲染统计（Engine_RenderStats_Design.md v0.1） ---
+    GPUInfo gpuInfo();         // 设备/驱动静态信息（设备构造时提取，只读）
+    RenderStats renderStats(); // 11 类存活资源计数 + 上一帧 draw 统计快照（drawCalls/triangles/instances/dispatches）
+    void resetFrameStats();    // 引擎每帧录制收尾后显式调用：runtime 快照进 lastFrame 并清零（跳帧重复快照，显示值稳定）
+
 }
 ```
 
@@ -687,6 +692,7 @@ record MemoryPreference(Set<MemoryUsage> required, Set<MemoryUsage> preferred) {
 | Surface / SwapChain                 | 23.3             | 呈现           |
 | Fence / Semaphore / FrameArena      | 24.1 / 17.3      | 帧同步          |
 | UploadData / MemoryPreference       | 25               | 上传 + 内存      |
+| GPUInfo / RenderStats               | Engine_RenderStats_Design.md v0.1 | 统计（构造器/dispose 打点、快照双缓冲） |
 
 
 

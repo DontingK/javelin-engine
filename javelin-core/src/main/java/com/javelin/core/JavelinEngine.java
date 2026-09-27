@@ -1,9 +1,11 @@
 package com.javelin.core;
 
+import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.appstate.AppStateSubsystem;
 import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.debug.DebugDrawTextSubsystem;
+import com.javelin.core.debug.RenderStatsAppState;
 import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
 import com.javelin.core.render.FrameDescription;
@@ -63,6 +65,8 @@ public class JavelinEngine {
     protected Window window;
     protected AssetManager assetManager;
     protected SubsystemManager subsystemManager;
+    /** AppState 子系统引用（registerSubsystem 注册时留存：默认挂载口与子类挂载便捷入口） */
+    protected AppStateSubsystem appStateSubsystem;
 
     // RHI 初始化序列（阶段①：从测试类搬入，工厂可覆盖）
     private Instance instance;
@@ -112,6 +116,10 @@ public class JavelinEngine {
 
         subsystemManager.initAll(this);
 
+        // 引擎级默认 AppState（渲染统计 overlay）：initAll 后状态管理器已就绪，
+        // 首帧 earlyUpdate 处理挂卸队列即生效
+        registerDefaultAppStates(appStateSubsystem.getStateManager());
+
 
         Scene scene = loadScene();
         setScene(scene);
@@ -121,9 +129,18 @@ public class JavelinEngine {
         // 注册序 = earlyUpdate 调度序：Input 先于 AppState，
         // 输入边沿翻转（帧边界发布）先完成，后继消费方读到一致快照
         subsystemManager.register(new InputSubsystem());
-        subsystemManager.register(new AppStateSubsystem());
+        appStateSubsystem = new AppStateSubsystem();
+        subsystemManager.register(appStateSubsystem);
         // DebugText：渲染贡献走 SubSystem appendOverlay 帧组装级钩子，注册序无调度影响
         subsystemManager.register(new DebugDrawTextSubsystem());
+    }
+
+    /**
+     * 默认挂载的引擎级 AppState（渲染统计 overlay 等）：initialize 在 initAll 之后调用，
+     * 挂卸队列下一帧边界生效。子类可覆盖摘除/追加（DebugTextDemo 覆盖为空以独占行区）。
+     */
+    protected void registerDefaultAppStates(AppStateManager stateManager) {
+        stateManager.attach(new RenderStatsAppState());
     }
 
     protected void onInitialize() {
@@ -147,6 +164,9 @@ public class JavelinEngine {
             subsystemManager.lateUpdate(Time.getDeltaTime());
             update();
             frameLoop.renderFrame(this::buildFrameGraph);
+            // 录制收尾：本帧统计快照归档并清零，下帧 overlay 经 renderStats() 读到本帧值；
+            // 跳帧时 runtime 未变，重复快照保持上一实帧显示、不闪零（§3.1 时序）
+            device.resetFrameStats();
         }
     }
 

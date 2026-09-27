@@ -77,6 +77,7 @@ final class VulkanTexture implements Texture {
 
         // 注册 Cleaner
         CleanerRegistry.register(this, device, imageHandle, CleanerRegistry.ResourceType.TEXTURE);
+        device.stats().onTextureCreated();
     }
 
     @Override
@@ -163,6 +164,7 @@ final class VulkanTexture implements Texture {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        device.stats().onTextureDisposed();
         if (imageViewHandle != VK_NULL_HANDLE) {
             CleanerRegistry.markDisposed(imageViewHandle);
             vkDestroyImageView(device.vkDevice(), imageViewHandle, null);

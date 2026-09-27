@@ -36,7 +36,7 @@ import org.joml.Vector3f;
  *
  * <p>运行：gradlew :javelin-core:runTest -DmainClass=com.javelin.core.SceneRenderDemo
  */
-public final class SceneRenderDemo extends JavelinEngine {
+public final class SceneRenderDemo extends JavelinEngineTestBase {
 
     /**
      * 旋转组件：onUpdate 里累积绕 Y 旋转（增量旋转，无需初始朝向）。
