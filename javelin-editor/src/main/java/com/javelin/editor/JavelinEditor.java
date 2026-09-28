@@ -9,6 +9,7 @@ import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.EditGridAppState;
+import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -80,6 +81,9 @@ public class JavelinEditor extends JavelinEngine {
         Node node = new Node();
         node.setName("Editor Camera Node");
         editorCamera = node.addComponent(Camera.class);
+        // 编辑器观察网格 ±4000（GRID_SIZE 8000）：默认 far=1000 会把远端地面裁掉
+        //（用户高空实测"看到边界"的真凶——非着色器淡出），拉到 10000 覆盖俯瞰距离
+        editorCamera.setFar(10000.0f);
         // 斜俯视位姿：原点上方后侧 45° 低头看向原点（applyPose 走 transformDirection
         // 正向提取，rotationX 符号即标准右手直觉）
         Transform transform = node.getTransform();
@@ -88,6 +92,8 @@ public class JavelinEditor extends JavelinEngine {
         editorGameScene.add(node);
 
         appStateSubsystem.getStateManager().attach(new EditGridAppState());
+        // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
+        appStateSubsystem.getStateManager().attach(new EditorCameraAppState());
     }
 
 

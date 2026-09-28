@@ -46,23 +46,32 @@ public class EditGridAppState extends AbsEditorAppState {
     /** 网格层数（step = 1 / 10 / 100） */
     private static final int LAYER_COUNT = 3;
 
-    /** 网格总尺寸（三层共用） */
-    private static final float GRID_SIZE = 2000.0f;
+    /** 网格总尺寸（三层共用；2026-09-27 用户实测反馈 2000 高度 400 露边 → 扩 4 倍） */
+    private static final float GRID_SIZE = 8000.0f;
 
     /** 各层格子步长（日志/节点名用） */
     private static final int[] GRID_STEPS = {1, 10, 100};
 
     /** 三层网格分割数（线距 = GRID_SIZE / divisions） */
-    private static final int[] DIVISIONS = {2000, 200, 20};
+    private static final int[] DIVISIONS = {8000, 800, 80};
 
-    /** 层间过渡高度阈值：第一层 Y&lt;10 全显；40 起第二层淡入、200 起第三层淡入 */
-    private static final float[] FADE_THRESHOLDS = {10.0f, 40.0f, 200.0f};
+    /**
+     * 层间过渡高度阈值（2026-09-27 屏上调参台实测定稿后固化，调参台已拆除）：
+     * {1, 80, 600}——T0=1 为用户实测定稿（低空即进入层 1→2 交叉）；
+     * 口径：淡出完成点 ≈ 8px、满显峰值屏内 6~9 格（FOV 60°、屏高 720 下
+     * 1 世界单位 ≈ 624/h px）：1 米格 [T0,T1] 淡出，10 米格 T1 满显、
+     * [T1,T2] 淡出，100 米格 T2 满显。
+     */
+    private static final float[] FADE_THRESHOLDS = {1.0f, 80.0f, 600.0f};
 
-    /** 径向淡出起始系数（fadeStart = max(10, cameraY * 1.5)） */
-    private static final float FADE_START_FACTOR = 1.5f;
+    /** 径向淡出起始系数（fadeStart = max(10, min(fadeEnd-100, cameraY × 本系数))） */
+    private static final float FADE_START_FACTOR = 2.0f;
 
-    /** 径向淡出结束系数（fadeEnd = max(50, cameraY * 4.0)） */
-    private static final float FADE_END_FACTOR = 4.0f;
+    /** 径向淡出结束系数（fadeEnd = max(50, min(FADE_END_CLIP, cameraY × 本系数))） */
+    private static final float FADE_END_FACTOR = 6.0f;
+
+    /** 径向淡出上限（网格半径 1000 内收 50：高空也不露网格硬边） */
+    private static final float FADE_END_CLIP = GRID_SIZE * 0.5f - 50.0f;
 
     /** 径向淡出最小起始半径 */
     private static final float FADE_START_MIN = 10.0f;
@@ -142,13 +151,15 @@ public class EditGridAppState extends AbsEditorAppState {
         camera.getNode().getTransform().getWorldPosition(camWorldPos);
         float cameraY = camWorldPos.y;
 
-        // 径向淡出范围随相机高度缩放：近处实线、远处渐隐
-        float fadeStart = Math.max(FADE_START_MIN, cameraY * FADE_START_FACTOR);
-        float fadeEnd = Math.max(FADE_END_MIN, cameraY * FADE_END_FACTOR);
+        // 径向淡出范围随相机高度缩放：近处实线、远处渐隐；
+        // end 夹紧在网格边缘内收 50（高空不露硬边），start 再夹在 end 前 100 以内
+        // （高度较高后 y×起系数会追上夹紧的 end，须防 start ≥ end 倒挂）
+        float fadeEnd = Math.max(FADE_END_MIN, Math.min(FADE_END_CLIP, cameraY * FADE_END_FACTOR));
+        float fadeStart = Math.max(FADE_START_MIN, Math.min(fadeEnd - 100.0f, cameraY * FADE_START_FACTOR));
 
         // 三层 alpha：细网格随高度淡出，粗网格交叉淡入
-        float t01 = clamp01((cameraY - FADE_THRESHOLDS[0]) / (FADE_THRESHOLDS[1] - FADE_THRESHOLDS[0]));
-        float t12 = clamp01((cameraY - FADE_THRESHOLDS[1]) / (FADE_THRESHOLDS[2] - FADE_THRESHOLDS[1]));
+        float t01 = clamp01((cameraY - FADE_THRESHOLDS[0]) / Math.max(1.0f, FADE_THRESHOLDS[1] - FADE_THRESHOLDS[0]));
+        float t12 = clamp01((cameraY - FADE_THRESHOLDS[1]) / Math.max(1.0f, FADE_THRESHOLDS[2] - FADE_THRESHOLDS[1]));
         float[] alphas = {1.0f - t01, t01 * (1.0f - t12), t12};
 
         if (!updateLogged) {
