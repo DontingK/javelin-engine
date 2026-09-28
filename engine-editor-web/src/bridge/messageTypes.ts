@@ -6,4 +6,6 @@
 export interface CallbackMessageDataMap {
   /** 初始化完成。 */
   'init': null
+  /** 动态事件类型（/event 协议）：键 = Java 侧 BridgeEvent 的 bridgeType()，数据 = bridgePayload。 */
+  [eventType: string]: unknown
 }

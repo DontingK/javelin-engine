@@ -66,11 +66,13 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import MenuBar from './layout/MenuBar.vue'
 import StatusBar from './layout/StatusBar.vue'
 import DockContainer from './layout/DockContainer.vue'
 import SplitPanel from '../../components/common/SplitPanel.vue'
 import { useEditorLayout, type DockContainerName } from './composables/useEditorLayout.ts'
+import { publishEvent, subscribeEvent } from '../../service/eventService.ts'
 
 /**
  * 编辑器布局页面。
@@ -101,6 +103,12 @@ const onCloseLeft = createCloseHandler('left')
 const onCloseRight = createCloseHandler('right')
 const onCloseBottom = createCloseHandler('bottom')
 const onCloseCenter = createCloseHandler('center')
+
+onMounted(async () => {
+  // 事件桥自检：订阅 pong 后发 ping；全链通时 DevTools console 应见回声
+  await subscribeEvent('bridge.pong', (data) => console.log('[eventBridge] 全链通', data))
+  await publishEvent('bridge.ping', {})
+})
 </script>
 
 <style scoped>
