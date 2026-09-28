@@ -1,13 +1,20 @@
 # 编辑器模块架构设计（v0.1）
 
 > 本文档描述 `javelin-editor` 模块的整体架构。模块尚在快速演进期，文档随代码同步更新。
-> 最近一次全面梳理：2026-09-25（含本次窗口接入引擎的改造）。
+> 最近一次全面梳理：2026-09-25（含本次窗口接入引擎的改造）；2026-09-28 增补设计基准（完全参考 Unity）。
 
 ## 1. 定位与边界
 
 `javelin-editor` 是 Javelin Engine 的桌面编辑器，技术栈为 **Swing + JCEF（Java Chromium Embedded）**：
 前端 UI 是跑在 CEF 里的 Web 页面（Vite  dev server，如 `http://localhost:5173/page/main.html`），
 后端是 JVM 内的引擎运行时。一块 AWT `Canvas` 嵌入主窗口作为 Vulkan 渲染呈现面。
+
+**设计基准：完全参考 Unity**（拍板 2026-09-28）。编辑器的交互口径、面板组织、命名与
+概念体系以 Unity Editor 为准绳——已对齐先例：Scene 视图相机控制（`EditorCameraAppState`）、
+`viewportRect`（0-1 左下原点）、Layer/Tag/LayerMask、Hierarchy/Inspector/Project/Console
+面板命名、Node≈GameObject 的场景模型。后续编辑器功能设计遇行为分歧时，**以 Unity 的
+做法为默认答案**；仅当引擎架构差异（CEF/Web UI 栈、挖洞式视口等）确实无法对齐时才
+自行设计，并在对应设计档注明偏离点与理由。
 
 核心职责：
 
