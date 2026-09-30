@@ -16,6 +16,9 @@ public class EditorScene implements Scene {
     private File gameSceneFile;
     private GameScene editorScene;
 
+    /** 场景脏标记（结构编辑命令置位；保存功能落地后经 clearDirty 复位，volatile：桥线程读/引擎线程写） */
+    private volatile boolean dirty;
+
     private SceneModel sceneModel = SceneModel.SCENE;
 
     /** SCENE 模式合并结果复用列表：getRenderables 被 SceneRenderBridge 每帧 pull，预分配+clear 复用，勿包装返回 */
@@ -24,6 +27,34 @@ public class EditorScene implements Scene {
     public void setGameScene(GameScene gameScene, File file) {
         this.gameScene = gameScene;
         this.gameSceneFile = file;
+    }
+
+    /**
+     * 用户场景本体（场景树/编辑命令的作用对象；编辑器辅助对象在 editorScene，不外溢给场景树）。
+     */
+    public GameScene getGameScene() {
+        return gameScene;
+    }
+
+    /**
+     * 场景脏标记（前端标题 {@code *} 显示源，经 /scene/tree 拉取）。
+     */
+    public boolean isDirty() {
+        return dirty;
+    }
+
+    /**
+     * 置脏（场景结构编辑命令在引擎线程调用）。
+     */
+    public void markDirty() {
+        dirty = true;
+    }
+
+    /**
+     * 清脏（保存成功后调用，保存功能未落地前无调用方）。
+     */
+    public void clearDirty() {
+        dirty = false;
     }
 
     public GameScene getEditorScene() {

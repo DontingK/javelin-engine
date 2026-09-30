@@ -35,6 +35,15 @@ public final class EditorSelection {
     }
 
     /**
+     * 当前选中 Node id（场景树拉取回传前端对齐选中态用）。
+     *
+     * @return 无选中时 null
+     */
+    public static Integer getSelectedNodeId() {
+        return selectedNodeId;
+    }
+
+    /**
      * 设置场景树选中。
      *
      * @param nodeId 选中 Node id，null 清除（前端上报/视口拾取调用）

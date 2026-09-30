@@ -11,6 +11,7 @@ import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
+import com.javelin.editor.appstate.SceneWatchAppState;
 import com.javelin.editor.menu.EditorMenuSetup;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
@@ -35,6 +36,10 @@ import java.io.File;
 public class JavelinEditor extends JavelinEngine {
 
     private static final Logger log = LoggerFactory.getLogger(JavelinEditor.class);
+
+    /** 当前编辑器实例（桥方法/命令等无状态 POJO 的实例入口，对齐 MainFrame.getInstance 先例） */
+    private static JavelinEditor instance;
+
     private final JavelinSetting setting;
     private final MetaManager metaManager;
     private final AssetManager assetManager;
@@ -51,6 +56,7 @@ public class JavelinEditor extends JavelinEngine {
                          AssetImportPipeline assetImportPipeline,
                          BuiltinAssetReleaser builtinAssetReleaser) {
         super(setting);
+        instance = this;
         this.setting = setting;
         this.project = project;
         this.metaManager = metaManager;
@@ -98,6 +104,8 @@ public class JavelinEditor extends JavelinEngine {
             // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
             stateManager.attach(new EditorCameraAppState());
         }
+        // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
+        stateManager.attach(new SceneWatchAppState());
         // 菜单/命令装配（场景无关：DevTools 恒可用；场景未就绪时网格开关安全 no-op）
         EditorMenuSetup.setup(stateManager, gridState);
     }
@@ -131,6 +139,20 @@ public class JavelinEditor extends JavelinEngine {
 
     public GameScene getEditorGameScene() {
         return editorScene.getEditorScene();
+    }
+
+    /**
+     * 当前编辑器实例（null = 未创建，桥方法转「未就绪」语义用）。
+     */
+    public static JavelinEditor getInstance() {
+        return instance;
+    }
+
+    /**
+     * 编辑器场景容器（用户场景/编辑子场景/脏标记的持有者——场景树与编辑命令的入口）。
+     */
+    public EditorScene getEditorScene() {
+        return editorScene;
     }
 
     public Camera getEditorCamera() {

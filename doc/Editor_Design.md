@@ -193,6 +193,9 @@ EditorApp.main()
 | AssetImport-Worker 池 | 导入任务（CPU 核数） | `waitImportFinished()` 轮询等待 |
 
 跨线程共享状态主要经 MetaManager 的 ConcurrentHashMap 缓存与导入任务队列。
+跨线程场景访问统一走 `JavelinEngine.submitTask(Runnable)`（任意线程提交、
+mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场景变更通知由
+`SceneWatchAppState` 快照 diff 自动发现（0.25s 节流，基线静默），写入方零通知义务。
 
 ## 9. 已知问题与风险（检查结论）
 
@@ -212,6 +215,12 @@ EditorApp.main()
 ## 10. 演进方向
 
 - 二期：编辑器基本功能（场景编辑 UI ↔ 引擎 Scene 回写，待编辑器 UI 栈拍板）
+  ——**场景树对接已落地（2026-09-30，待实测验收）**：HierarchyPanel 真数据
+  （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、
+  hierarchy 右键域首批命令（create.empty/delete，只写不发通知）、
+  SceneWatchAppState 快照 diff 自动通知（结构→scene.changed 重拉整树 /
+  改名→scene.nodeRenamed 定点）、DropdownMenu.vue Web 右键菜单
+  （boundary 夹紧防视口 Canvas 遮挡）；Inspector/project 面板对接待续。
 - ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

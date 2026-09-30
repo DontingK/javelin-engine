@@ -38,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 引擎外壳（Engine_Design.md 2.1；阶段①引擎接线 RHI + 阶段③渲染收口）。
@@ -78,6 +79,9 @@ public class JavelinEngine {
     /** 当前场景（setScene 设置；null = 无场景，直注册模式） */
     protected Scene scene;
     private final SceneRenderBridge sceneRenderBridge = new SceneRenderBridge();
+
+    /** 主线程待执行任务（submitTask 提交，mainLoop 帧首消费） */
+    private final ConcurrentLinkedQueue<Runnable> pendingTasks = new ConcurrentLinkedQueue<>();
 
     private long lastFrameTime;
 
@@ -152,6 +156,9 @@ public class JavelinEngine {
         lastFrameTime = System.nanoTime();
         while (!window.closeRequested()) {
             window.pollEvents();
+            // 异步任务帧首消费（主线程）：任意线程 submitTask 提交，帧边界串行执行，
+            // 早于 Time 计时——任务耗时计入本帧 dt
+            runPendingTasks();
             // 3. 计算 deltaTime
             long currentTime = System.nanoTime();
             float deltaTime = (currentTime - lastFrameTime) / 1_000_000_000.0f;
@@ -167,6 +174,31 @@ public class JavelinEngine {
             // 录制收尾：本帧统计快照归档并清零，下帧 overlay 经 renderStats() 读到本帧值；
             // 跳帧时 runtime 未变，重复快照保持上一实帧显示、不闪零（§3.1 时序）
             device.resetFrameStats();
+        }
+    }
+
+    /**
+     * 异步提交任务到引擎主线程（帧边界执行：mainLoop 每帧 pollEvents 后、子系统
+     * 场景更新前消费，任意线程可调）。跨线程的场景/资源读写作任务经此收敛到主线程
+     * 串行化；需要结果的调用方自行组合 CompletableFuture 等待。
+     *
+     * @param task 任务体（null 忽略）
+     */
+    public void submitTask(Runnable task) {
+        if (task != null) {
+            pendingTasks.add(task);
+        }
+    }
+
+    /** 帧首清空任务队列（异常隔离：单任务失败记日志不拖垮帧循环） */
+    private void runPendingTasks() {
+        Runnable task;
+        while ((task = pendingTasks.poll()) != null) {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                log.error("异步任务执行出错", t);
+            }
         }
     }
 
