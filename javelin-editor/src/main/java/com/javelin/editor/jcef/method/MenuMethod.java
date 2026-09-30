@@ -17,7 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 菜单桥方法：/menu/list（结构拉取）、/menu/open（顶栏 Swing 弹窗）。
+ * 菜单桥方法：/menu/list（结构拉取）、/menu/open（Swing 弹窗，顶栏/面板右键共用——
+ * 菜单渲染统一 Swing，Web 浮层菜单会被视口 Canvas 盖）。
  * 命令执行见 {@link com.javelin.editor.jcef.method.CommandMethod}（设计档 Editor_Menu_Design §6）。
  *
  * @author javelin
@@ -30,7 +31,9 @@ public class MenuMethod {
 
     /**
      * 菜单结构拉取：menuId 省略 = 顶栏（仅 id/label）；指定域 = 项列表
-     * （含即时求值的 enabled/checked——右键域每次拉取，状态天然新鲜）。
+     * （含即时求值的 enabled/checked。v0.4 菜单统一 Swing 后右键不再走此拉取
+     * ——Swing 弹窗显示前 Java 侧自求值；分支保留作协议面，供将来 Web 直触发
+     * 入口（工具按钮等）取状态）。
      */
     @BridgeMethod("/list")
     public List<MenuItemVo> list(MenuListPar par) {
@@ -68,7 +71,9 @@ public class MenuMethod {
     }
 
     /**
-     * 顶栏菜单弹出（web 坐标，Java 侧 EDT 弹 Swing JPopupMenu）。
+     * 菜单弹出（顶栏标签/面板右键共用，web 坐标，Java 侧 EDT 弹 Swing JPopupMenu
+     * ——菜单渲染统一 Swing，heavyweight popup 天然浮于视口 Canvas 之上）。
+     * 坐标语义：顶栏=标签左缘/顶栏下缘，右键=鼠标点。
      */
     @BridgeMethod("/open")
     public void open(MenuOpenPar par) {

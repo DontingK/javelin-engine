@@ -16,13 +16,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 顶栏菜单 Swing 弹窗（设计档 Editor_Menu_Design §5.1）。
+ * 菜单 Swing 弹窗（顶栏/面板右键共用，设计档 Editor_Menu_Design §5——v0.4 起菜单
+ * 渲染统一 Swing：Web 浮层菜单会被视口 Canvas 盖，按位置判定不可靠）。
  *
- * <p>web 顶栏标签点击 → /menu/open 传 web 坐标（x = 标签左缘、y = 顶栏下缘）——
- * CEF 组件铺满 contentPane，web 坐标即 contentPane 坐标（同 rectChange 口径），
- * 直接 popup.show(contentPane, x, y)。Swing heavyweight popup 天然浮于视口 Canvas
- * （挖洞遮挡约束下的顶栏渲染形态）。显示前（popupMenuWillBecomeVisible）逐项求值
- * enabled/checked。桥线程调用，invokeLater 跳 EDT 弹窗，永不阻塞。</p>
+ * <p>web 顶栏标签点击或面板右键 → /menu/open 传 web 坐标（顶栏 = 标签左缘/
+ * 顶栏下缘，右键 = 鼠标点）——CEF 组件铺满 contentPane，web 坐标即 contentPane
+ * 坐标（同 rectChange 口径），直接 popup.show(contentPane, x, y)。Swing
+ * heavyweight popup 天然浮于视口 Canvas（挖洞遮挡约束下唯一的菜单渲染形态）。
+ * 显示前（popupMenuWillBecomeVisible）逐项求值 enabled/checked。桥线程调用，
+ * invokeLater 跳 EDT 弹窗，永不阻塞。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -41,11 +43,11 @@ public final class MenuPopupFactory {
     }
 
     /**
-     * 弹出顶栏菜单。
+     * 弹出菜单（顶栏/面板右键共用）。
      *
-     * @param menuId 菜单域 id
-     * @param x      web 坐标 x（标签左缘）
-     * @param y      web 坐标 y（顶栏下缘）
+     * @param menuId 菜单域 id（顶栏菜单 id 或右键域如 ctx.hierarchy）
+     * @param x      web 坐标 x（顶栏=标签左缘、右键=鼠标 x）
+     * @param y      web 坐标 y（顶栏=顶栏下缘、右键=鼠标 y）
      */
     public static void show(String menuId, int x, int y) {
         if (menuId == null || menuId.isBlank()) {

@@ -1,10 +1,13 @@
-# 编辑器菜单与命令系统设计（v0.3）
+# 编辑器菜单与命令系统设计（v0.4）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
-> + 双轨渲染（顶栏 Swing 弹窗 / 面板 Web 右键）。
+> + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
 > 定稿：2026-09-28。讨论沉淀路径：菜单遮挡约束 → 渲染形态 → engine2 体系对照 → 融合方案；
 > v0.2：菜单域收敛为**三类**（顶栏 / 场景树 / project），右键两域设**上下文域基类**；
-> v0.3：命令定义形态改为**类实现 MenuCommand 接口（三域基类）**，lambda 保留为快捷通道。
+> v0.3：命令定义形态改为**类实现 MenuCommand 接口（三域基类）**，lambda 保留为快捷通道；
+> v0.4：**渲染判定规则作废、菜单统一 Swing**——2026-09-30 实测层级面板右键 Web 菜单
+> （已做 boundary 夹紧）仍被视口 Canvas 遮挡，「按浮层位置判定渲染方式」不可靠，
+> `DropdownMenu.vue` Web 右键路径删除、右键域并入 `/menu/open` Swing 链路。
 
 ## 1. 背景与约束
 
@@ -17,25 +20,25 @@
 AWT `Canvas`（Vulkan 呈现面）作为独立组件**浮在 CEF 之上**、只占视口矩形（rectChange 驱动）。
 
 推论：**Web 页面内画的任何浮层（下拉菜单、居中弹窗）延伸进视口矩形，就会被上层的
-Canvas 盖住**。顶栏菜单的下拉必然覆盖视口区域，因此顶栏菜单不能用纯 Web 渲染——
-这是原 engine2 代码里「弹 Swing 子菜单」TODO 注释的真实动因。
+Canvas 盖住**。
 
-由此得到本系统的渲染判定规则：
+由此得到本系统的渲染规则（v0.4 收敛）：
 
-| 浮层位置 | 渲染方式 |
-|---|---|
-| 不进视口矩形（层级/项目面板等左右栏区域） | Web 自渲染 |
-| 必须盖视口（顶栏下拉、跨全窗口的浮层） | Swing 原生弹窗（heavyweight popup 天然浮于 Canvas 上） |
+**菜单浮层一律 Swing 原生弹窗**（heavyweight popup 天然浮于 Canvas 之上，不按位置判定）。
+v0.1~v0.3 曾按「浮层位置」判定（不进视口矩形 → Web 自渲染、必盖视口 → Swing），
+2026-09-30 实测推翻：层级面板右键 Web 菜单已做 boundary 夹紧（菜单浮层限制在面板
+矩形内）仍被视口 Canvas 盖住——面板与视口相邻，按位置判定在实践中兜不住，菜单一律
+Swing、Web 浮层菜单全面禁用。
 
 同类潜在坑备案：Web 居中模态弹窗（现有 `ConfirmDialog`/`PromptDialog`）将来若覆盖
-视口区域会撞同一堵墙，届时按上表规则处理。
+视口区域会撞同一堵墙（届时同走 Swing 弹窗口径处理）。
 
 ### 1.2 多入口统一
 
 动作的触发入口（现有与规划）：
 
 1. 顶栏菜单（Swing 弹窗）
-2. 面板右键菜单（Web 渲染）
+2. 面板右键菜单（Swing 弹窗）
 3. 快捷键（预留，见 §9）
 4. 面板工具按钮（预留）
 
@@ -55,7 +58,7 @@ engine2 有成熟的 Swing 面板右键菜单体系（`engine-editor/.../menu`�
 | `setPanel(this)` 注入上下文 | ❌ 弃 | 域基类读全局选中状态（§3.2） | 动作强绑 panel 则顶栏/web/快捷键进不来；上下文全局化后四入口同一命令 |
 | 注解声明 + `addGroup` 硬编码顺序（两处咬合） | ❌ 弃 | 声明式结构单源 | engine2 加一个菜单项要动三处（建类/标注解/改组装）；单源后一处 |
 | 一动作一个类（30+ 文件） | ⚠️ 简化 | lambda 集中注册 | 模板代码占比高、注解 value 与 `name()` 双份真相、包扫描是已知性能坑；命令量大后再考虑类化，注册协议不变 |
-| 面板右键 = JPopupMenu | ⚠️ 换轨 | 面板右键走 Web 渲染 | §1.1 判定规则：面板在左右栏不进视口；Swing 弹窗只保留顶栏一处 |
+| 面板右键 = JPopupMenu | ✅ 回归 | 面板右键同样 Swing JPopupMenu | v0.4：Web 右键实测仍被 Canvas 盖（§1.1），v0.2「换轨走 Web」结论推翻 |
 | 无命令 id / 无 checked / 无 shortcut | ❌ 补 | Command 字段补齐 | Web 触发（桥协议）、勾选命令（网格开关）、快捷键显示都需要 |
 
 ## 3. 命令层（Command / CommandService）
@@ -104,7 +107,7 @@ CommandService.register(Command.of("id", "标签").action(...).build());       /
 
 这是对 engine2 `PanelMenu.setPanel` 注入的替代：engine2 的 panel 在 Swing 侧、上下文从
 panel 实例取；engine5 的 panel 在 web 侧，上下文从全局选中状态取——**基类只读不持有**，
-单一数据源，四个触发入口（顶栏/web 右键/快捷键/按钮）行为一致。命令仍不持有 panel /
+单一数据源，四个触发入口（顶栏/面板右键/快捷键/按钮）行为一致。命令仍不持有 panel /
 Swing 组件 / web 上下文引用。
 
 ### 3.3 线程契约
@@ -148,16 +151,19 @@ MenuRegistry.menu("ctx.project", "项目面板右键")
   供面板右键拉取）；
 - 启动期一次性构建（`EditorMenuSetup`），不做动态增删（§9）。
 
-## 5. 渲染双轨
+## 5. 渲染（统一 Swing）
+
+v0.4 起所有菜单浮层一律 Swing JPopupMenu（§1.1）；Web 侧只做触发转发（顶栏标签渲染、
+右键坐标上报），不渲染菜单本体。顶栏与面板右键共用同一条 `/menu/open` →
+`MenuPopupFactory` 链路，仅坐标语义不同。
 
 ### 5.1 顶栏菜单：Web 标签 + Swing 弹窗
 
 1. Web 顶栏（`MenuBar.vue`）挂载时 `/menu/list`（无 menuId）拉顶栏菜单
    `{id, label}` 列表渲染标签——观感与 Web 主题一致；
 2. 点击标签 → `/menu/open {menuId, x, y}`（x = 标签左缘、y = 顶栏下缘，Web 坐标）；
-3. Java：坐标换算 `MainFrame.getLocationOnScreen() + (x, y)`
-   （Web CSS 像素与 Swing 逻辑像素 1:1，同 rectChange 口径；换算与弹窗均在 EDT 执行）
-   → `JPopupMenu.show(contentPane, x, y)`；
+3. Java：web 坐标即 contentPane 坐标（CEF 组件铺满 contentPane，同 rectChange 口径），
+   EDT 上直接 `JPopupMenu.show(contentPane, x, y)`；
 4. `popupMenuWillBecomeVisible` 时逐项求值 enabled/checked 刷新置灰/勾选；
 5. 菜单项 `ActionListener` → `CommandService.execute(id)`。
 
@@ -165,22 +171,26 @@ MenuRegistry.menu("ctx.project", "项目面板右键")
 深字 `--editor-text` / 浅灰边 `--editor-border`）；hover 高亮留 LAF 默认（JMenuItem 无
 selection setter，UIManager 键属 LAF 私有不瞎写），不深入 LAF 定制（§9）。
 
-### 5.2 面板右键菜单：Web 自渲染
+### 5.2 面板右键菜单：Swing 定点弹窗（v0.4）
 
-1. 面板右键 → `/menu/list {menuId: "ctx.xxx"}` 拉取该域结构
-   （含**即时求值**的 enabled/checked——每次右键重新拉取，状态天然新鲜）；
-2. Web 渲染菜单（通用下拉组件，`DropdownMenu.vue`）；
-3. 点击 → `/command/execute {id}`，执行结果经 callJava 响应返回。
+1. 面板右键 → 先选中上报（如 `/scene/select`——EditorSelection volatile 直写，返回即
+   对 EDT 可见；enabled 求值读 Java 侧选中，须先落上报防弹窗求值读到旧态）；
+2. `/menu/open {menuId: "ctx.xxx", x: clientX, y: clientY}`（右键 = 鼠标点；
+   web 坐标 = contentPane 坐标，同顶栏口径）；
+3. Java：EDT 弹 JPopupMenu 于鼠标位置，显示前（`popupMenuWillBecomeVisible`）
+   逐项求值 enabled/checked——瞬态状态显示瞬间算一次，天然新鲜；
+4. 菜单项 `ActionListener` → `CommandService.execute(id)`（Java 侧直执行，不回 Web）。
 
-面板区域不进视口矩形（§1.1 判定规则），全程 Web，无遮挡问题。
+（v0.2~v0.3 本节为「Web 自渲染 + `DropdownMenu.vue` boundary 夹紧」，2026-09-30 实测
+夹紧后仍被视口 Canvas 盖，路径已删除——见 §1.1。）
 
 ## 6. 桥协议
 
 | 方法 | 参数 | 返回/行为 |
 |---|---|---|
-| `/menu/list` | `{menuId?}`（省略 = 顶栏） | 菜单结构数组 `MenuItemVo[]` |
-| `/menu/open` | `{menuId, x, y}` | Swing 弹窗（无返回数据） |
-| `/command/execute` | `{id}` | 命令执行（异常走桥层错误协议） |
+| `/menu/list` | `{menuId?}`（省略 = 顶栏） | 菜单结构数组 `MenuItemVo[]`（menuId 分支 v0.4 后无 Web 消费方，保留作协议面） |
+| `/menu/open` | `{menuId, x, y}` | Swing 弹窗（顶栏/右键域共用，无返回数据） |
+| `/command/execute` | `{id}` | 命令执行（异常走桥层错误协议；Swing 菜单项 Java 侧直执行不经此，本方法留作 Web 直触发入口） |
 
 命令上下文不进桥参数——`/command/execute` 只传命令 id，上下文由命令经域基类读
 Java 侧选中状态（§3.2）；前端的选中上报随场景树 / project 对接任务落地。
@@ -206,7 +216,7 @@ public class MenuItemVo {        // 顶层与子项同构
 
 | 状态类型 | 机制 | 说明 |
 |---|---|---|
-| 瞬态（enabled / checked） | 弹出时/拉取时求值 | 菜单瞬态显示，显示瞬间算一次永远新鲜，零同步成本 |
+| 瞬态（enabled / checked） | Swing 弹窗显示前求值 | 菜单瞬态显示，显示瞬间算一次永远新鲜，零同步成本 |
 | 持久（场景 dirty、编辑模式） | 事件桥推送 | 影响常驻 UI（标题 `*` 等），走 BridgeEvent |
 
 ## 8. 首批命令与菜单
@@ -219,8 +229,8 @@ public class MenuItemVo {        // 顶层与子项同构
 顶栏菜单域按 Unity 组织（文件 / 编辑 / 资产 / 游戏对象 / 组件 / 工具 / 窗口 / 帮助），
 首期只落有命令的域、空域不渲染——先落「工具」一域。注：Unity 无「视图」顶级菜单，
 Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏——我们暂以「工具」域承载，
-待将来场景视图工具栏落地后再对位迁移（届时须先过 §1.1 遮挡判定：浮进视口矩形的
-工具栏不能走 web）。
+待将来场景视图工具栏落地后再对位迁移（届时注意 §1.1 遮挡约束：工具栏浮进视口矩形
+不能走 Web）。
 
 场景树 / project 右键域的命令、域基类与前端选中上报，随场景树、project 对接任务
 落地（菜单协议与域基类设计已就绪，首批只做顶栏命令）。
@@ -252,7 +262,7 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 | 件 | 职责 |
 |---|---|
 | `MenuBar.vue` 改造 | 拉取顶栏标签 + 点击转发 `/menu/open` |
-| `DropdownMenu.vue` 新建 | 通用下拉/右键菜单组件（面板右键用，场景树任务首消费） |
+| `DropdownMenu.vue` | ~~新建（v0.1 落地，v0.4 删除）~~ Web 右键渲染路径随统一 Swing 作废 |
 
 **验证**：跑编辑器 → 顶栏「视图」下拉出现两项且浮于视口之上 → DevTools 可打开（见
 ping/pong 回声）→ 网格显示勾选切换生效（视口网格出现/消失）。

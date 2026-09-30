@@ -1,5 +1,5 @@
 <template>
-  <div ref="panelEl" class="panel hierarchy-panel">
+  <div class="panel hierarchy-panel">
     <JavelinTree
         v-if="scene"
         :data="treeData"
@@ -19,25 +19,15 @@
       </template>
     </JavelinTree>
     <div v-else class="empty-tip">场景加载中…</div>
-    <DropdownMenu
-        v-if="menu.visible"
-        :items="menu.items"
-        :x="menu.x"
-        :y="menu.y"
-        :boundary="panelEl"
-        @select="onMenuSelect"
-        @close="closeMenu"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, reactive, ref} from 'vue'
+import {computed, onMounted, onUnmounted, ref} from 'vue'
 import JavelinTree from '../../../components/common/tree/JavelinTree.vue'
-import DropdownMenu from '../../../components/common/DropdownMenu.vue'
 import {setSelectedEntityId} from '../composables/useSelection.ts'
 import {loadSceneTree, selectNode} from '../../../service/sceneService.ts'
-import {executeCommand, listMenuItems, type MenuItemVo} from '../../../service/menuService.ts'
+import {openMenu} from '../../../service/menuService.ts'
 import {subscribeEvent, unsubscribeEvent} from '../../../service/eventService.ts'
 import type {TreeNode} from '../../../components/common/types.ts'
 const boxIcon = '/icon/box.svg'
@@ -58,20 +48,13 @@ interface GameSceneVo {
  * <p>展示用户场景（EditorScene.gameScene）的节点层级：树快照经 /scene/tree 拉取
  * （ready=false 时节流重试兜底启动竞态）；选中经 /scene/select 上报 Java 侧
  * EditorSelection 单源；结构变更经 scene.changed 事件驱动重新拉取（命令为
- * fire-and-forget，状态以拉取为准）；右键菜单拉取 ctx.hierarchy 域、点击转
- * /command/execute，Web 自渲染（面板不进视口矩形，设计档 Editor_Menu_Design §5.2）。</p>
+ * fire-and-forget，状态以拉取为准）；右键经 /menu/open 传 ctx.hierarchy 域 id +
+ * 鼠标坐标弹 Swing 菜单（菜单渲染统一 Swing——Web 浮层会被视口 Canvas 盖，
+ * 设计档 Editor_Menu_Design §5.2），菜单项点击在 Java 侧直执行命令。</p>
  */
 
 const scene = ref<GameSceneVo | null>(null)
 const selectedId = ref<number | undefined>(undefined)
-/** 面板根 DOM（右键菜单夹紧边界——菜单浮层须留在面板矩形内，防延伸进视口被 Canvas 盖） */
-const panelEl = ref<HTMLElement | null>(null)
-const menu = reactive<{ visible: boolean; items: MenuItemVo[]; x: number; y: number }>({
-  visible: false,
-  items: [],
-  x: 0,
-  y: 0
-})
 
 /** 场景未就绪重试（启动竞态：引擎装配可能晚于页面挂载，对齐 MenuBar 节流重试口径） */
 const MAX_RETRY = 30
@@ -146,12 +129,12 @@ function applySelection(node: TreeNode): void {
 }
 
 /**
- * 选中上报（写 Java 侧 EditorSelection 单源；选中场景根 = 清除 Node 选中——
- * 场景根非 Node，上报 null）。
+ * 选中上报（写 Java 侧 EditorSelection 单源，volatile 直写返回即生效；选中场景根 =
+ * 清除 Node 选中——场景根非 Node，上报 null）。
  *
  * @param node 当前节点数据
- * @returns 上报 promise（右键路径 await 后再拉菜单——enabled 求值读 Java 侧选中，
- *          须先落上报防拉到旧状态）
+ * @returns 上报 promise（右键路径 await 后再弹菜单——Swing 菜单显示前求值 enabled 读
+ *          Java 侧选中，须先落上报防求值读到旧态）
  */
 function reportSelection(node: TreeNode): Promise<void> {
   return selectNode(isSceneRoot(node) ? null : node.id as number)
@@ -168,8 +151,10 @@ function onSelect(node: TreeNode): void {
 }
 
 /**
- * 处理节点右键事件：先选中并上报（右键即选中，Unity 语义），再拉取 ctx.hierarchy
- * 域菜单结构（每次右键重新拉取，enabled/checked 即时求值）并弹出 Web 菜单。
+ * 处理节点右键事件：先选中并上报（右键即选中，Unity 语义），再经 /menu/open 传
+ * ctx.hierarchy 域 id + 鼠标坐标（web 坐标 = contentPane 坐标，同顶栏口径），
+ * Java 侧 EDT 于鼠标位置弹 Swing JPopupMenu（统一 Swing 渲染，heavyweight popup
+ * 浮于视口 Canvas 之上）；菜单项点击由 Java 侧 ActionListener 直执行命令。
  *
  * @param node 当前节点数据
  * @param event 鼠标事件
@@ -178,32 +163,10 @@ async function onContextMenu(node: TreeNode, event: MouseEvent): Promise<void> {
   applySelection(node)
   try {
     await reportSelection(node)
-    const items = await listMenuItems('ctx.hierarchy')
-    if (items.length === 0) {
-      return
-    }
-    menu.items = items
-    menu.x = event.clientX
-    menu.y = event.clientY
-    menu.visible = true
+    await openMenu('ctx.hierarchy', event.clientX, event.clientY)
   } catch (e) {
     console.warn('[HierarchyPanel] 右键菜单链路失败', e)
   }
-}
-
-/**
- * 菜单项点击：转 /command/execute（命令动场景走 Java 侧帧队列，树刷新经
- * scene.changed 事件回来，不等执行结果）。
- *
- * @param item 菜单项
- */
-function onMenuSelect(item: MenuItemVo): void {
-  closeMenu()
-  executeCommand(item.id).catch(e => console.warn('[HierarchyPanel] 命令执行失败', e))
-}
-
-function closeMenu(): void {
-  menu.visible = false
 }
 
 function isSceneRoot(node: TreeNode | null): boolean {

@@ -219,8 +219,9 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、
   hierarchy 右键域首批命令（create.empty/delete，只写不发通知）、
   SceneWatchAppState 快照 diff 自动通知（结构→scene.changed 重拉整树 /
-  改名→scene.nodeRenamed 定点）、DropdownMenu.vue Web 右键菜单
-  （boundary 夹紧防视口 Canvas 遮挡）；Inspector/project 面板对接待续。
+  改名→scene.nodeRenamed 定点）、hierarchy 右键菜单统一走 Swing
+  （/menu/open 传域 id+鼠标坐标弹 JPopupMenu，v0.4 定档——Web 右键浮层实测仍被
+  视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector/project 面板对接待续。
 - ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

@@ -3,8 +3,7 @@ import { callJava } from '../bridge/jcefBridge.ts'
 /**
  * 菜单项 VO（对应 Java 侧 MenuItemVo）。
  *
- * <p>顶栏拉取时仅填 id/label；右键域拉取时全量即时求值。
- * separator 为 true 时其余字段无效。</p>
+ * <p>顶栏拉取时仅填 id/label。separator 为 true 时其余字段无效。</p>
  */
 export interface MenuItemVo {
   /** 菜单 id（顶栏拉取）或命令 id（域拉取） */
@@ -35,30 +34,20 @@ export function listMenus(): Promise<MenuItemVo[]> {
 }
 
 /**
- * 拉取指定菜单域结构（右键域用：含即时求值的 enabled/checked，
- * 每次右键重新拉取，状态天然新鲜）。
+ * 弹出菜单（顶栏标签/面板右键共用，菜单渲染统一 Swing）：Java 侧 EDT 弹
+ * Swing JPopupMenu（heavyweight popup 浮于视口 Canvas 之上，见设计档
+ * Editor_Menu_Design §5）。
  *
- * @param menuId 菜单域 id（如 ctx.hierarchy）
- * @returns 菜单项数组
- */
-export function listMenuItems(menuId: string): Promise<MenuItemVo[]> {
-  return callJava<MenuItemVo[]>('/menu/list', {menuId})
-}
-
-/**
- * 弹出顶栏菜单：Java 侧换算坐标后弹 Swing JPopupMenu
- * （heavyweight popup 浮于视口 Canvas 之上，见设计档 Editor_Menu_Design §5.1）。
- *
- * @param menuId 菜单域 id
- * @param x web 坐标 x（标签左缘；web 坐标 = contentPane 坐标）
- * @param y web 坐标 y（顶栏下缘）
+ * @param menuId 菜单域 id（顶栏菜单 id 或右键域如 ctx.hierarchy）
+ * @param x web 坐标 x（顶栏=标签左缘、右键=鼠标 x；web 坐标 = contentPane 坐标）
+ * @param y web 坐标 y（顶栏=顶栏下缘、右键=鼠标 y）
  */
 export function openMenu(menuId: string, x: number, y: number): Promise<void> {
   return callJava<void>('/menu/open', {menuId, x: Math.round(x), y: Math.round(y)})
 }
 
 /**
- * 执行命令（右键菜单/按钮共用入口）。
+ * 执行命令（面板工具按钮等 Web 直触发入口用；Swing 菜单项由 Java 侧直执行不经此）。
  *
  * @param id 命令 id
  * @returns 是否找到并执行
