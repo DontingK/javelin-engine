@@ -50,7 +50,8 @@ public class JcefCreator {
         CefMessageRouter router = CefMessageRouter.create();
         router.addHandler(jsJavaBridgeHandler, true);
         client.addMessageRouter(router);
-//        client.addContextMenuHandler(new JcefContextMenuHandler());
+        // 清空默认右键菜单（Chromium 原生刷新/后退/检查等），右键交互归自定义体系
+        client.addContextMenuHandler(new JcefContextMenuHandler());
     }
 
     public static CefClient createClient() {

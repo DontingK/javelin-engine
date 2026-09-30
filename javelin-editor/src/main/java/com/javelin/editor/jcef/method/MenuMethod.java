@@ -1,0 +1,92 @@
+package com.javelin.editor.jcef.method;
+
+
+import com.javelin.editor.jcef.bridge.BridgeMethod;
+import com.javelin.editor.jcef.domain.par.MenuListPar;
+import com.javelin.editor.jcef.domain.par.MenuOpenPar;
+import com.javelin.editor.jcef.domain.vo.MenuItemVo;
+import com.javelin.editor.menu.Command;
+import com.javelin.editor.menu.CommandService;
+import com.javelin.editor.menu.MenuDef;
+import com.javelin.editor.menu.MenuPopupFactory;
+import com.javelin.editor.menu.MenuRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 菜单桥方法：/menu/list（结构拉取）、/menu/open（顶栏 Swing 弹窗）。
+ * 命令执行见 {@link com.javelin.editor.jcef.method.CommandMethod}（设计档 Editor_Menu_Design §6）。
+ *
+ * @author javelin
+ * @create 2026/9/28
+ **/
+@BridgeMethod("/menu")
+public class MenuMethod {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(MenuMethod.class);
+
+    /**
+     * 菜单结构拉取：menuId 省略 = 顶栏（仅 id/label）；指定域 = 项列表
+     * （含即时求值的 enabled/checked——右键域每次拉取，状态天然新鲜）。
+     */
+    @BridgeMethod("/list")
+    public List<MenuItemVo> list(MenuListPar par) {
+        if (par == null || par.menuId == null || par.menuId.isBlank()) {
+            List<MenuItemVo> tops = new ArrayList<>();
+            for (MenuDef def : MenuRegistry.topMenus()) {
+                MenuItemVo vo = new MenuItemVo();
+                vo.id = def.getId();
+                vo.label = def.getLabel();
+                tops.add(vo);
+            }
+            return tops;
+        }
+        MenuDef def = MenuRegistry.get(par.menuId);
+        if (def == null) {
+            LOGGER.warn("菜单域未注册: {}", par.menuId);
+            return new ArrayList<>();
+        }
+        List<MenuItemVo> items = new ArrayList<>();
+        for (MenuDef.MenuEntry entry : def.getEntries()) {
+            if (entry.isSeparator()) {
+                MenuItemVo vo = new MenuItemVo();
+                vo.separator = true;
+                items.add(vo);
+                continue;
+            }
+            Command command = CommandService.get(entry.getCommandId());
+            if (command == null) {
+                LOGGER.warn("菜单项命令未注册，跳过: {}#{}", def.getId(), entry.getCommandId());
+                continue;
+            }
+            items.add(toVo(command));
+        }
+        return items;
+    }
+
+    /**
+     * 顶栏菜单弹出（web 坐标，Java 侧 EDT 弹 Swing JPopupMenu）。
+     */
+    @BridgeMethod("/open")
+    public void open(MenuOpenPar par) {
+        if (par == null) {
+            return;
+        }
+        MenuPopupFactory.show(par.menuId, par.x, par.y);
+    }
+
+    /** 命令 → VO（即时求值） */
+    private static MenuItemVo toVo(Command command) {
+        MenuItemVo vo = new MenuItemVo();
+        vo.id = command.getId();
+        vo.label = command.getLabel();
+        vo.shortcut = command.getShortcut();
+        vo.enabled = command.isEnabled();
+        vo.checkable = command.isCheckable();
+        vo.checked = command.isChecked();
+        return vo;
+    }
+}

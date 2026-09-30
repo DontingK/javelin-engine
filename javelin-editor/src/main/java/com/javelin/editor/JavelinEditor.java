@@ -2,6 +2,7 @@ package com.javelin.editor;
 
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.math.Color;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
@@ -10,6 +11,7 @@ import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
+import com.javelin.editor.menu.EditorMenuSetup;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -71,29 +73,33 @@ public class JavelinEditor extends JavelinEngine {
 
     @Override
     protected void onInitialize() {
-
+        AppStateManager stateManager = appStateSubsystem.getStateManager();
         GameScene editorGameScene = getEditorGameScene();
+        EditGridAppState gridState = null;
         if (editorGameScene == null) {
             // loadScene 失败（场景文件缺失/解析错）时编辑子场景未建：跳过编辑器装配，帧循环退化为清屏
             log.warn("编辑器场景未就绪（loadScene 失败），跳过编辑器相机与网格装配");
-            return;
-        }
-        Node node = new Node();
-        node.setName("Editor Camera Node");
-        editorCamera = node.addComponent(Camera.class);
-        // 编辑器观察网格 ±4000（GRID_SIZE 8000）：默认 far=1000 会把远端地面裁掉
-        //（用户高空实测"看到边界"的真凶——非着色器淡出），拉到 10000 覆盖俯瞰距离
-        editorCamera.setFar(10000.0f);
-        // 斜俯视位姿：原点上方后侧 45° 低头看向原点（applyPose 走 transformDirection
-        // 正向提取，rotationX 符号即标准右手直觉）
-        Transform transform = node.getTransform();
-        transform.setLocalPosition(new Vector3f(0, 30, -30));
-        transform.setLocalRotation(new Quaternionf().rotationX((float) Math.toRadians(45)));
-        editorGameScene.add(node);
+        } else {
+            Node node = new Node();
+            node.setName("Editor Camera Node");
+            editorCamera = node.addComponent(Camera.class);
+            // 编辑器观察网格 ±4000（GRID_SIZE 8000）：默认 far=1000 会把远端地面裁掉
+            //（用户高空实测"看到边界"的真凶——非着色器淡出），拉到 10000 覆盖俯瞰距离
+            editorCamera.setFar(10000.0f);
+            // 斜俯视位姿：原点上方后侧 45° 低头看向原点（applyPose 走 transformDirection
+            // 正向提取，rotationX 符号即标准右手直觉）
+            Transform transform = node.getTransform();
+            transform.setLocalPosition(new Vector3f(0, 30, -30));
+            transform.setLocalRotation(new Quaternionf().rotationX((float) Math.toRadians(45)));
+            editorGameScene.add(node);
 
-        appStateSubsystem.getStateManager().attach(new EditGridAppState());
-        // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
-        appStateSubsystem.getStateManager().attach(new EditorCameraAppState());
+            gridState = new EditGridAppState();
+            stateManager.attach(gridState);
+            // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
+            stateManager.attach(new EditorCameraAppState());
+        }
+        // 菜单/命令装配（场景无关：DevTools 恒可用；场景未就绪时网格开关安全 no-op）
+        EditorMenuSetup.setup(stateManager, gridState);
     }
 
 
