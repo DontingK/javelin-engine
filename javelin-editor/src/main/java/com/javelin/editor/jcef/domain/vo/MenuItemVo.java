@@ -6,7 +6,8 @@ import java.util.List;
  * /menu/list 菜单结构 VO（设计档 Editor_Menu_Design §6）。
  *
  * <p>顶栏拉取时仅填 id/label；右键域拉取时全量即时求值。
- * separator=true 表示分隔符（其余字段无效）。children 为子菜单预留（当前扁平）。</p>
+ * separator=true 表示分隔符（其余字段无效）。children 为子菜单（结构项：
+ * 仅 label + children 递归，无命令 id；null = 叶命令项）。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -26,6 +27,6 @@ public class MenuItemVo {
     public boolean checked;
     /** 置灰（即时求值） */
     public boolean enabled;
-    /** 子菜单（预留） */
+    /** 子菜单（结构项：仅 label + children 递归，无命令 id；null = 叶命令项） */
     public List<MenuItemVo> children;
 }

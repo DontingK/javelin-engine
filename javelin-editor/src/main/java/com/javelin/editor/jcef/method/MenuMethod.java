@@ -33,7 +33,8 @@ public class MenuMethod {
      * 菜单结构拉取：menuId 省略 = 顶栏（仅 id/label）；指定域 = 项列表
      * （含即时求值的 enabled/checked。v0.4 菜单统一 Swing 后右键不再走此拉取
      * ——Swing 弹窗显示前 Java 侧自求值；分支保留作协议面，供将来 Web 直触发
-     * 入口（工具按钮等）取状态）。
+     * 入口（工具按钮等）取状态）。子菜单递归填 children（结构项：label +
+     * children，无命令 id）。
      */
     @BridgeMethod("/list")
     public List<MenuItemVo> list(MenuListPar par) {
@@ -52,22 +53,7 @@ public class MenuMethod {
             LOGGER.warn("菜单域未注册: {}", par.menuId);
             return new ArrayList<>();
         }
-        List<MenuItemVo> items = new ArrayList<>();
-        for (MenuDef.MenuEntry entry : def.getEntries()) {
-            if (entry.isSeparator()) {
-                MenuItemVo vo = new MenuItemVo();
-                vo.separator = true;
-                items.add(vo);
-                continue;
-            }
-            Command command = CommandService.get(entry.getCommandId());
-            if (command == null) {
-                LOGGER.warn("菜单项命令未注册，跳过: {}#{}", def.getId(), entry.getCommandId());
-                continue;
-            }
-            items.add(toVo(command));
-        }
-        return items;
+        return toVos(def.getId(), def.getEntries());
     }
 
     /**
@@ -93,5 +79,32 @@ public class MenuMethod {
         vo.checkable = command.isCheckable();
         vo.checked = command.isChecked();
         return vo;
+    }
+
+    /** 条目列表 → VO 列表（递归：子菜单填 children，即时求值） */
+    private static List<MenuItemVo> toVos(String path, List<MenuDef.MenuEntry> entries) {
+        List<MenuItemVo> items = new ArrayList<>();
+        for (MenuDef.MenuEntry entry : entries) {
+            if (entry.isSeparator()) {
+                MenuItemVo vo = new MenuItemVo();
+                vo.separator = true;
+                items.add(vo);
+                continue;
+            }
+            if (entry.isSubmenu()) {
+                MenuItemVo vo = new MenuItemVo();
+                vo.label = entry.getSubmenuLabel();
+                vo.children = toVos(path + ">" + entry.getSubmenuLabel(), entry.getChildren());
+                items.add(vo);
+                continue;
+            }
+            Command command = CommandService.get(entry.getCommandId());
+            if (command == null) {
+                LOGGER.warn("菜单项命令未注册，跳过: {}#{}", path, entry.getCommandId());
+                continue;
+            }
+            items.add(toVo(command));
+        }
+        return items;
     }
 }

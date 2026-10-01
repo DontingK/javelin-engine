@@ -41,7 +41,7 @@ public final class MenuRegistry {
         }
         MenuDef def = new MenuDef(id, label);
         MENUS.put(id, def);
-        return new MenuBuilder(def);
+        return new MenuBuilder(def.getEntries());
     }
 
     /**

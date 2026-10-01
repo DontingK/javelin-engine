@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.4）
+# 编辑器菜单与命令系统设计（v0.5）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -8,6 +8,12 @@
 > v0.4：**渲染判定规则作废、菜单统一 Swing**——2026-09-30 实测层级面板右键 Web 菜单
 > （已做 boundary 夹紧）仍被视口 Canvas 遮挡，「按浮层位置判定渲染方式」不可靠，
 > `DropdownMenu.vue` Web 右键路径删除、右键域并入 `/menu/open` Swing 链路。
+> v0.5（2026-10-01）：**子菜单支持**——MenuRegistry 结构项（label + children 任意嵌套）、
+> Swing JMenu 递归渲染（每层打开瞬间求值 enabled/checked）、MenuItemVo.children 填充
+> （/menu/list 协议面）；层级右键域按 Unity Create 口径组「创建」子菜单；弹窗最小宽度
+> 垫宽（MIN_WIDTH=140，项少不局促）；**层级右键域 Unity 壳对齐**（未实现命令占位
+> 注册置灰，§4；pasteAsChild/duplicate 暂不注册，随功能落地再加）+ 菜单项快捷键
+> accelerator 右对齐显示（仅弹窗期间生效，§5）。
 
 ## 1. 背景与约束
 
@@ -138,14 +144,27 @@ MenuRegistry.menu("tools", "工具")
         .separator()
         .item("tools.devtools");
 MenuRegistry.menu("ctx.hierarchy", "场景树右键")   // 右键域：无顶层标签，右键拉取用
-        .item("hierarchy.create.empty")
-        ...
+        .submenu("创建", create -> create          // 子菜单：consumer 降层，层级任意嵌套
+                .item("hierarchy.create.empty"))
+        .separator()
+        .item("hierarchy.copy")
+        .item("hierarchy.paste")
+        .separator()
+        .item("hierarchy.rename")
+        .separator()
+        .item("hierarchy.delete");
 MenuRegistry.menu("ctx.project", "项目面板右键")
         .item("project.new.folder")
         ...
 ```
 
 - 菜单项只存命令 id（不存在则组装时记 warn 跳过——命令未注册不算错误，容忍分批落地）；
+- 子菜单为**结构项**（仅 label + 子项列表，无命令 id）：`submenu(label, consumer)` 降层
+  组装、层级任意嵌套（Unity Create 口径）；子项全未注册的空壳子菜单组装/拉取时跳过不显示；
+- **未实现命令占位注册**（v0.5，Unity 壳对齐）：菜单结构一次对齐 Unity——未实现命令以
+  域包占位类 `UnimplementedMenuCommand`（enabled 恒 false）注册，菜单项置灰显示；
+  功能落地时以同 id 实类替换 EditorMenuSetup 注册行，菜单结构不动。「未注册即 warn
+  跳过」机制保留，用于真实漏注册场景，不再承担"暂未实现"语义；
 - 菜单域**三类**（现在只有这三类，见 §3.2）：**顶栏菜单**（有顶层标签，供 `/menu/list`
   顶栏渲染）与两个**右键域**（`ctx.hierarchy` 场景树、`ctx.project` 项目面板，无顶层标签，
   供面板右键拉取）；
@@ -156,6 +175,13 @@ MenuRegistry.menu("ctx.project", "项目面板右键")
 v0.4 起所有菜单浮层一律 Swing JPopupMenu（§1.1）；Web 侧只做触发转发（顶栏标签渲染、
 右键坐标上报），不渲染菜单本体。顶栏与面板右键共用同一条 `/menu/open` →
 `MenuPopupFactory` 链路，仅坐标语义不同。
+子菜单 = `JMenu` 递归嵌套（JMenu extends JMenuItem，直接 add 进 JPopupMenu；子菜单
+浮层同由 PopupFactory 决定重量级，浮于视口 Canvas 无虞）——每层挂各自的
+`popupMenuWillBecomeVisible`，子菜单项在该层**打开瞬间**求值 enabled/checked。
+菜单项 shortcut 文本转 KeyStroke 设为 accelerator（右对齐显示；绑定在菜单项自身
+WHEN_IN_FOCUSED_WINDOW InputMap——BasicMenuItemUI.updateAcceleratorBinding，仅弹窗
+显示期间生效、收起即无宿主，无全局触发，符合「shortcut 第一期仅显示」；解析失败
+记 warn 跳过显示）。
 
 ### 5.1 顶栏菜单：Web 标签 + Swing 弹窗
 
@@ -170,6 +196,9 @@ v0.4 起所有菜单浮层一律 Swing JPopupMenu（§1.1）；Web 侧只做触�
 样式：JPopupMenu 对齐 web 浅色主题（style.css `--editor-*` 色板：白底 `--editor-surface` /
 深字 `--editor-text` / 浅灰边 `--editor-border`）；hover 高亮留 LAF 默认（JMenuItem 无
 selection setter，UIManager 键属 LAF 私有不瞎写），不深入 LAF 定制（§9）。
+弹窗最小宽度 140px（`MenuPopupFactory.MIN_WIDTH`，顶层与子菜单同口径）——Swing 弹窗
+按 preferred 尺寸开窗，`setMinimumSize` 不参与开窗尺寸计算，故 preferred 宽不足时
+直接改写 preferred 宽、高度保持自然值。
 
 ### 5.2 面板右键菜单：Swing 定点弹窗（v0.4）
 
@@ -204,7 +233,7 @@ public class MenuItemVo {        // 顶层与子项同构
     public boolean checkable;    // 是否勾选命令（渲染形态：勾选框）
     public boolean checked;      // 当前勾选态（仅 checkable 有意义，即时求值）
     public boolean enabled;      // 置灰（即时求值）
-    public List<MenuItemVo> children;   // 子菜单，预留（当前扁平）
+    public List<MenuItemVo> children;   // 子菜单（结构项：仅 label + children 递归，无命令 id）
 }
 ```
 
@@ -225,6 +254,11 @@ public class MenuItemVo {        // 顶层与子项同构
 |---|---|---|---|
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
+| `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
+| `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
+| `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——阻塞于 .scene 序列化（剪贴板格式） |
+| `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |
+| `hierarchy.rename` | 重命名 | 场景树右键 | 占位置灰——待树内编辑 UI（scene.nodeRenamed 定点通知已就绪） |
 
 顶栏菜单域按 Unity 组织（文件 / 编辑 / 资产 / 游戏对象 / 组件 / 工具 / 窗口 / 帮助），
 首期只落有命令的域、空域不渲染——先落「工具」一域。注：Unity 无「视图」顶级菜单，
@@ -232,8 +266,9 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 待将来场景视图工具栏落地后再对位迁移（届时注意 §1.1 遮挡约束：工具栏浮进视口矩形
 不能走 Web）。
 
-场景树 / project 右键域的命令、域基类与前端选中上报，随场景树、project 对接任务
-落地（菜单协议与域基类设计已就绪，首批只做顶栏命令）。
+场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.5 起域结构按 Unity 壳
+组织，未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。project 右键域的
+命令、域基类与前端选中上报，随 project 对接任务落地（域基类设计已就绪）。
 
 ## 9. 预留（明确不做）
 
@@ -252,9 +287,10 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 | `MenuCommand` + 三域包（`menu.top` / `menu.hierarchy` / `menu.project`，域基类与域命令同包） | §3.1/§3.2 命令类形态契约；`menu` 根包 = 框架件 |
 | `Command` / `CommandService` | §3.1 数据内核与注册执行（register(MenuCommand) 适配 + Command.of lambda 通道） |
 | `EditorSelection`（`selection` 包） | §3.2 全局选中状态单源（写入方随场景树 / project 任务接线） |
-| `MenuRegistry` | §4 声明式结构 |
+| `MenuRegistry` | §4 声明式结构（含子菜单嵌套） |
+| `UnimplementedMenuCommand`（menu.hierarchy） | §4 未实现命令占位注册（enabled 恒 false 置灰，功能落地时替换注册行） |
 | `EditorMenuSetup` | 启动期组装（`JavelinEditor.onInitialize` 调用）：注册命令类 + 搭菜单 |
-| `MenuPopupFactory` | §5.1 JPopupMenu 构建 + 状态求值 + 坐标换算 |
+| `MenuPopupFactory` | §5 JPopupMenu/JMenu 递归构建 + 分层状态求值 + 坐标换算 |
 | `MenuMethod`（`jcef/method`）+ `MenuItemVo`（`domain/vo`） | §6 桥协议 |
 
 **前端（engine-editor-web）**
@@ -264,5 +300,8 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 | `MenuBar.vue` 改造 | 拉取顶栏标签 + 点击转发 `/menu/open` |
 | `DropdownMenu.vue` | ~~新建（v0.1 落地，v0.4 删除）~~ Web 右键渲染路径随统一 Swing 作废 |
 
-**验证**：跑编辑器 → 顶栏「视图」下拉出现两项且浮于视口之上 → DevTools 可打开（见
-ping/pong 回声）→ 网格显示勾选切换生效（视口网格出现/消失）。
+**验证**：跑编辑器 → 顶栏「工具」下拉出现两项且浮于视口之上 → DevTools 可打开（见
+ping/pong 回声）→ 网格显示勾选切换生效（视口网格出现/消失）→ 层级面板右键出现
+「创建 ▸」子菜单（浮于视口之上），点开执行创建空物体、树自动刷新。
+→ 层级面板右键菜单呈 Unity 壳结构：复制/粘贴/重命名置灰不可点、快捷键右对齐显示
+（Ctrl+C/Ctrl+V/F2），删除项随选中态置灰/恢复。

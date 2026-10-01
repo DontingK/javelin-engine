@@ -33,6 +33,11 @@ public class DeleteMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
+    public String shortcut() {
+        return "Del";
+    }
+
+    @Override
     public Boolean enabled() {
         return getSelectedNode() != null;
     }

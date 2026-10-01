@@ -6,8 +6,8 @@ import java.util.List;
 /**
  * 菜单域定义：顶栏菜单或右键域（设计档 Editor_Menu_Design §4）。
  *
- * <p>项列表为有序命令引用 + 分隔符，声明式单源——顺序/分割线一处说清。
- * 右键域 id 以 "ctx." 前缀约定（如 ctx.hierarchy）。</p>
+ * <p>项列表为有序命令引用 + 分隔符 + 子菜单（层级任意嵌套），声明式单源——
+ * 顺序/分割线/子菜单归属一处说清。右键域 id 以 "ctx." 前缀约定（如 ctx.hierarchy）。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -40,32 +40,63 @@ public final class MenuDef {
     }
 
     /**
-     * 菜单项：命令引用或分隔符。
+     * 菜单项：命令引用、分隔符或子菜单头。
      */
     public static final class MenuEntry {
-        /** 引用的命令 id；null = 分隔符 */
+        /** 引用的命令 id；null = 非命令项（分隔符/子菜单） */
         private final String commandId;
+        /** 子菜单显示标签；null = 非子菜单项 */
+        private final String submenuLabel;
+        /** 子菜单项列表（仅子菜单项非 null；组装期经 {@link MenuBuilder} 填充） */
+        private final List<MenuEntry> children;
 
-        private MenuEntry(String commandId) {
+        private MenuEntry(String commandId, String submenuLabel, List<MenuEntry> children) {
             this.commandId = commandId;
+            this.submenuLabel = submenuLabel;
+            this.children = children;
         }
 
         /** 命令项 */
         public static MenuEntry command(String commandId) {
-            return new MenuEntry(commandId);
+            return new MenuEntry(commandId, null, null);
         }
 
         /** 分隔符 */
         public static MenuEntry separator() {
-            return new MenuEntry(null);
+            return new MenuEntry(null, null, null);
+        }
+
+        /**
+         * 子菜单头：结构项（无命令 id），children 为空可变列表、组装期填充。
+         *
+         * @param label 子菜单显示标签
+         */
+        public static MenuEntry submenu(String label) {
+            if (label == null || label.isBlank()) {
+                throw new IllegalArgumentException("子菜单 label 不能为空");
+            }
+            return new MenuEntry(null, label, new ArrayList<>());
         }
 
         public String getCommandId() {
             return commandId;
         }
 
+        public String getSubmenuLabel() {
+            return submenuLabel;
+        }
+
+        /** 子菜单项列表（仅子菜单项非 null；内部列表直通，组装期 MenuBuilder 写，读方按只读约定遍历） */
+        public List<MenuEntry> getChildren() {
+            return children;
+        }
+
         public boolean isSeparator() {
-            return commandId == null;
+            return commandId == null && submenuLabel == null;
+        }
+
+        public boolean isSubmenu() {
+            return submenuLabel != null;
         }
     }
 }

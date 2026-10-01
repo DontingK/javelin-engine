@@ -1,19 +1,25 @@
 package com.javelin.editor.menu;
 
+import java.util.List;
+import java.util.function.Consumer;
+
 /**
- * 菜单构建器：{@link MenuRegistry#menu(String, String)} 的链式组装入口。
+ * 菜单构建器：{@link MenuRegistry#menu(String, String)} 的链式组装入口，
+ * 亦作子菜单组装器（{@link #submenu(String, Consumer)} 降层复用）。
  *
- * <p>item 只存命令 id；命令未注册不算错误（组装/拉取时 warn 跳过，容忍分批落地）。</p>
+ * <p>item 只存命令 id；命令未注册不算错误（组装/拉取时 warn 跳过，容忍分批落地）。
+ * submenu 为结构项（label + 子项列表），层级任意嵌套。</p>
  *
  * @author javelin
  * @create 2026/9/28
  */
 public final class MenuBuilder {
 
-    private final MenuDef def;
+    /** 组装目标列表：顶层 = 菜单域项列表，子菜单 = 该子菜单的项列表 */
+    private final List<MenuDef.MenuEntry> target;
 
-    MenuBuilder(MenuDef def) {
-        this.def = def;
+    MenuBuilder(List<MenuDef.MenuEntry> target) {
+        this.target = target;
     }
 
     /**
@@ -23,7 +29,7 @@ public final class MenuBuilder {
      * @return this
      */
     public MenuBuilder item(String commandId) {
-        def.getEntries().add(MenuDef.MenuEntry.command(commandId));
+        target.add(MenuDef.MenuEntry.command(commandId));
         return this;
     }
 
@@ -33,7 +39,21 @@ public final class MenuBuilder {
      * @return this
      */
     public MenuBuilder separator() {
-        def.getEntries().add(MenuDef.MenuEntry.separator());
+        target.add(MenuDef.MenuEntry.separator());
+        return this;
+    }
+
+    /**
+     * 追加子菜单：降层组装子项，consumer 返回后回到本层继续链式。
+     *
+     * @param label    子菜单显示标签
+     * @param children 子项组装（item/separator/submenu 均可用，层级任意嵌套）
+     * @return this
+     */
+    public MenuBuilder submenu(String label, Consumer<MenuBuilder> children) {
+        MenuDef.MenuEntry entry = MenuDef.MenuEntry.submenu(label);
+        target.add(entry);
+        children.accept(new MenuBuilder(entry.getChildren()));
         return this;
     }
 }
