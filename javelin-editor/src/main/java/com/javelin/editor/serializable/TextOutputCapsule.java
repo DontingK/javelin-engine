@@ -90,7 +90,9 @@ public class TextOutputCapsule implements OutputCapsule {
             entries.put(key, "@null");
             return;
         }
-        if (value instanceof Asset ga && ga.getGuid() != null) {
+        // 根对象被图内字段引用（如 Node.scene → GameScene）走 @ref 对象 id 而非
+        // @guid（图内根引用 vs 外部资产语义，2026-10-02 拍板，见 TextExporter.isRoot）
+        if (value instanceof Asset ga && ga.getGuid() != null && !exporter.isRoot(ga)) {
             entries.put(key, "@guid:" + ga.getGuid());
             return;
         }

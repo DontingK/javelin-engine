@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.5）
+# 编辑器菜单与命令系统设计（v0.6）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -14,6 +14,11 @@
 > 垫宽（MIN_WIDTH=140，项少不局促）；**层级右键域 Unity 壳对齐**（未实现命令占位
 > 注册置灰，§4；pasteAsChild/duplicate 暂不注册，随功能落地再加）+ 菜单项快捷键
 > accelerator 右对齐显示（仅弹窗期间生效，§5）。
+> v0.6（2026-10-01）：**「文件」顶栏域首个命令 file.save（保存场景 Ctrl+S）**——
+> 随 .scene 序列化落地（Engine_Scene_Design §9）：TextExporter 文本协议写回
+> EditorScene.gameSceneFile，保存走 submitTask 帧边界，成功 clearDirty +
+> 发布 scene.changed（前端树根星号消失）；另存为/打开/新建场景随下期落地（拍板
+> 2026-10-01：首期仅保存）。
 
 ## 1. 背景与约束
 
@@ -252,16 +257,18 @@ public class MenuItemVo {        // 顶层与子项同构
 
 | id | label | 菜单 | 语义 |
 |---|---|---|---|
+| `file.save` | 保存 | 文件 | TextExporter 写回 gameSceneFile（.scene 文本协议），成功 clearDirty + scene.changed 推送（2026-10-01 落地，随 Engine_Scene_Design §9 .scene 序列化） |
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
-| `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——阻塞于 .scene 序列化（剪贴板格式） |
+| `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |
 | `hierarchy.rename` | 重命名 | 场景树右键 | 占位置灰——待树内编辑 UI（scene.nodeRenamed 定点通知已就绪） |
 
 顶栏菜单域按 Unity 组织（文件 / 编辑 / 资产 / 游戏对象 / 组件 / 工具 / 窗口 / 帮助），
-首期只落有命令的域、空域不渲染——先落「工具」一域。注：Unity 无「视图」顶级菜单，
+首期只落有命令的域、空域不渲染——已落「文件」（v0.6，仅保存）、「工具」两域。
+注：Unity 无「视图」顶级菜单，
 Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏——我们暂以「工具」域承载，
 待将来场景视图工具栏落地后再对位迁移（届时注意 §1.1 遮挡约束：工具栏浮进视口矩形
 不能走 Web）。
@@ -272,8 +279,14 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 
 ## 9. 预留（明确不做）
 
-- **快捷键全局触发**：`Command.shortcut` 第一期仅显示。全局触发需要 Web keydown →
-  命令桥触发或引擎输入系统全局接入，专门一轮设计；
+- **快捷键全局触发——Web 层通道已落地（2026-10-02，Ctrl+S 验收驱动；同日拍板
+  改为前端直接绑定）**：`shortcutService.ts` 前端静态绑定表（不走菜单结构拉取
+  ——零竞态零解析；新命令快捷键加一行，命令本体/菜单显示仍归 Java 侧单源），
+  window keydown（capture）匹配 → preventDefault（阻断 CEF 默认行为如保存网页
+  对话框）→ `/command/execute` 直触发。文本输入目标与 e.repeat 不拦截；置灰
+  命令触发为安全 no-op。**覆盖边界：焦点在 Web 面板内**；焦点在视口 Canvas 时
+  键盘进引擎输入系统不经 Web——引擎侧全局接入（Input 边沿 → 命令桥）为开放项，
+  随「编辑器输入统一」任务设计；
 - 菜单/命令动态增删、命令权限过滤、最近文件列表；
 - Swing LAF 深度定制；
 - 「一动作一类」组织形式（命令量上来后再评估，注册协议不变）。
@@ -299,6 +312,7 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 |---|---|
 | `MenuBar.vue` 改造 | 拉取顶栏标签 + 点击转发 `/menu/open` |
 | `DropdownMenu.vue` | ~~新建（v0.1 落地，v0.4 删除）~~ Web 右键渲染路径随统一 Swing 作废 |
+| `shortcutService.ts` | §9 Web 层全局快捷键（前端静态绑定表直接触发 → `/command/execute`，2026-10-02） |
 
 **验证**：跑编辑器 → 顶栏「工具」下拉出现两项且浮于视口之上 → DevTools 可打开（见
 ping/pong 回声）→ 网格显示勾选切换生效（视口网格出现/消失）→ 层级面板右键出现

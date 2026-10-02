@@ -31,6 +31,8 @@ public class BinaryExporter implements Exporter {
     private final IdentityHashMap<Object, BinaryOutput> outputMap = new IdentityHashMap<>();
     private final ArrayList<BinaryOutput> outputs = new ArrayList<>();
     private int nextId = 0;
+    /** 本导出的根对象（Asset 分流用：图内根引用走对象 id 而非 GUID，见 isRoot） */
+    private Serializable root;
 
     public BinaryExporter(File outputFile) {
         this.outputFile = outputFile;
@@ -50,6 +52,7 @@ public class BinaryExporter implements Exporter {
         outputMap.clear();
         outputs.clear();
         nextId = 0;
+        this.root = serializable;
 
         // 收集对象图
         getOutput(serializable);
@@ -114,6 +117,18 @@ public class BinaryExporter implements Exporter {
                 throw new IOException("导出二进制文件失败: " + outputFile.getAbsolutePath(), e);
             }
         }
+    }
+
+    /**
+     * 引用值是否为本导出的根对象（实例同一性）。
+     *
+     * <p>供 Capsule 的 Asset 分流判定：根对象被图内字段引用时（如 Node.scene →
+     * GameScene）走对象 id 引用而非 GUID——图内根引用语义 vs 外部资产 GUID 语义
+     *（2026-10-02 拍板；按实例判定而非 guid 比较，规避 null guid 撞车与同 guid
+     * 异实例的歧义）。读侧按落盘类型标记分流，零改动。</p>
+     */
+    boolean isRoot(Object value) {
+        return value == root;
     }
 
     BinaryOutputCapsule getOutput(Serializable value) {

@@ -5,6 +5,7 @@ import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
+import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.menu.top.DevToolsMenuCommand;
 import com.javelin.editor.menu.top.GridMenuCommand;
 
@@ -37,6 +38,7 @@ public final class EditorMenuSetup {
      *                    安全 no-op（checked 恒 false，execute 记 warn）
      */
     public static void setup(AppStateManager stateManager, EditGridAppState gridState) {
+        CommandService.register(new SaveSceneMenuCommand());
         CommandService.register(new DevToolsMenuCommand());
         CommandService.register(new GridMenuCommand(stateManager, gridState));
         CommandService.register(new CreateEmptyMenuCommand());
@@ -46,6 +48,10 @@ public final class EditorMenuSetup {
         CommandService.register(new UnimplementedMenuCommand("hierarchy.copy", "复制", "Ctrl+C"));
         CommandService.register(new UnimplementedMenuCommand("hierarchy.paste", "粘贴", "Ctrl+V"));
         CommandService.register(new UnimplementedMenuCommand("hierarchy.rename", "重命名", "F2"));
+
+        // 文件域首期仅「保存」（2026-10-01 拍板：另存为/打开/新建场景随下期落地）
+        MenuRegistry.menu("file", "文件")
+                .item("file.save");
 
         MenuRegistry.menu("tools", "工具")
                 .item("tools.grid")

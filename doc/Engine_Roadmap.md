@@ -74,6 +74,12 @@
 - **产出**：编辑器应用骨架 + 上述最小闭环；
 - **验收**：搭建场景 → 摆放/移动物体 → 保存 → 重载还原（用户运行）。
 
+进度（2026-10-01）：**.scene 序列化已落地**（Engine_Scene_Design §9——GameScene/
+Node/Component/Transform/Camera/MeshRenderer write/read + ResolveAware 收尾钩子
++ 文本通道保存命令 file.save/Ctrl+S，单测 SceneSerializationTest 待用户运行、
+编辑器实测「建树 → 保存 → 重启还原」待验收）；MeshRenderer 材质引用闭环与
+`.mat` 格式仍待做（§9.4 已知限制）。
+
 ---
 
 ## 3. 三期：光照
@@ -96,7 +102,7 @@
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞/Ray 未开始（编辑器窗口层已就绪：EditorApp 接引擎 + CanvasSurface，见 Editor_Design） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞/Ray 未开始（编辑器窗口层已就绪：EditorApp 接引擎 + CanvasSurface，见 Editor_Design）；.scene 序列化✅ 已落地（2026-10-01，§2.4 进度） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

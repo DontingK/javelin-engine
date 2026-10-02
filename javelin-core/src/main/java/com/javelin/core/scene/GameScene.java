@@ -24,6 +24,10 @@ import java.util.List;
  * 返回组件列表，由引擎层每帧 pull 翻译成 RenderCamera/RenderObject 喂
  * RenderingSystem（push 注册路径其 javadoc 已预留）。</p>
  *
+ * <p>生命周期（2026-10-02 拍板）：awake/enable/disable/start/update 由
+ * {@link #update} 帧驱动状态机统一驱动（挂入/翻转下帧生效）；onDestroy 为
+ * 摘出场景时的唯一即时触发点（Unity 卸载同步语义）。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
@@ -31,13 +35,16 @@ import java.util.List;
 public class GameScene extends AbsAsset implements Scene {
 
     private String name;
-    private final List<Node> rootNodes = new ArrayList<>();
+    // 非 final：序列化反序列化需回写（红线 9）；rootNodes 类型用 ArrayList 直通
+    //（红线 10：序列化集合字段直传字段本体，不经包装）
+    private ArrayList<Node> rootNodes = new ArrayList<>();
     /**
      * 全部已挂入组件（update 驱动顺序 ≈ 挂入顺序，设计文档 4 节）
      */
-    private final List<Component> components = new ArrayList<>();
-    private final List<Camera> cameras = new ArrayList<>();
-    private final List<Renderable> renderables = new ArrayList<>();
+    // 类型用 ArrayList 直通（红线 10：序列化集合字段直传字段本体，不经包装）
+    private ArrayList<Component> components = new ArrayList<>();
+    private List<Camera> cameras = new ArrayList<>();
+    private List<Renderable> renderables = new ArrayList<>();
 
     public GameScene() {
     }
@@ -76,9 +83,9 @@ public class GameScene extends AbsAsset implements Scene {
      * 子树挂入（setParent 自动入场景与 add 共用的内部路径）。
      *
      * <p>归属检查（子树任一节点已属其他场景 → IllegalStateException）；
-     * 仅对本次新挂入的节点注册组件并触发生命周期：先整树 onAwake（层级序）
-     * 再整树 onEnable（Unity 语义：Awake 全部先于 Enable）；
-     * 已在本场景的节点跳过（幂等，不重复回调）。</p>
+     * 仅对本次新挂入的节点设置归属并注册组件。生命周期<b>不在此触发</b>——
+     * 由 {@link #update} 帧驱动状态机统一驱动（挂入后下帧 awake/enable，
+     * 2026-10-02 拍板）；已在本场景的节点跳过（幂等，不重复注册）。</p>
      */
     void attachSubtree(Node root) {
         List<Node> subtree = collectSubtree(root);
@@ -88,7 +95,6 @@ public class GameScene extends AbsAsset implements Scene {
                         "节点已归属场景[" + node.scene.getName() + "]: " + node.getName());
             }
         }
-        List<Node> fresh = new ArrayList<>();
         for (Node node : subtree) {
             if (node.scene != null) {
                 continue;
@@ -96,22 +102,6 @@ public class GameScene extends AbsAsset implements Scene {
             node.scene = this;
             for (Component component : node.components()) {
                 register(component);
-            }
-            fresh.add(node);
-        }
-        // onAwake 对整棵树触发（Unity 语义： inactive 对象也执行 Awake）；
-        // onEnable 仅对层级激活的节点
-        for (Node node : fresh) {
-            for (Component component : node.components()) {
-                component.onAwake();
-            }
-        }
-        for (Node node : fresh) {
-            if (!node.isActiveInHierarchy()) {
-                continue;
-            }
-            for (Component component : node.components()) {
-                component.onEnable();
             }
         }
     }
@@ -132,14 +122,18 @@ public class GameScene extends AbsAsset implements Scene {
     /**
      * 整棵子树离开场景（remove 与 setParent 摘除共用的内部路径）。
      *
-     * <p>层级序 onDisable（仅层级激活的节点）→ onDestroy，注销组件注册表，
-     * 清除归属。调用后节点回到裸状态，可重新 add 或挂入其他场景。</p>
+     * <p>生命周期收尾（<b>唯一脱离 update 状态机的即时触发点</b>，Unity 卸载同步
+     * 语义，2026-10-02 拍板）：按通知态 onDisable（仅 notifyEnabled 的）→
+     * 全部 onDestroy，注销组件注册表，清归属并重置生命周期状态——节点回到
+     * 裸状态（awaked/notifyEnabled/started 全 false），可重新挂入且生命周期
+     * 整轮重跑。</p>
      */
     void detachSubtree(Node root) {
         List<Node> subtree = collectSubtree(root);
         for (Node node : subtree) {
-            if (node.isActiveInHierarchy()) {
-                for (Component component : node.components()) {
+            for (Component component : node.components()) {
+                if (component.notifyEnabled) {
+                    component.notifyEnabled = false;
                     component.onDisable();
                 }
             }
@@ -152,6 +146,7 @@ public class GameScene extends AbsAsset implements Scene {
         for (Node node : subtree) {
             for (Component component : node.components()) {
                 unregister(component);
+                resetLifecycle(component);
             }
             node.scene = null;
         }
@@ -159,17 +154,42 @@ public class GameScene extends AbsAsset implements Scene {
     }
 
     /**
-     * 每帧驱动：对 active 且 enabled 的组件先补 onStart（每组件仅一次）再 onUpdate。
+     * 每帧驱动：生命周期状态机（三遍序，保持 Unity「Awake 全先于 Enable 全先于
+     * Start/Update」的阶段序）。
+     *
+     * <p>遍 1 awake（不判激活——Unity: inactive 对象也执行 Awake）；
+     * 遍 2 通知态对齐（应激活 = enabled 且节点层级激活，翻转触发 onEnable/
+     * onDisable——setActive/setEnabled 的回调联动统一走这里，<b>下帧生效</b>，
+     * 2026-10-02 拍板）；遍 3 start + update（仅通知态开着的）。</p>
      */
     @Override
     public void update(float tpf) {
         for (int i = 0; i < components.size(); i++) {
             Component component = components.get(i);
-            if (!component.isActiveAndEnabled()) {
+            if (!component.awaked) {
+                component.awaked = true;
+                component.onAwake();
+            }
+        }
+        for (int i = 0; i < components.size(); i++) {
+            Component component = components.get(i);
+            if (component.isActiveAndEnabled()) {
+                if (!component.notifyEnabled) {
+                    component.notifyEnabled = true;
+                    component.onEnable();
+                }
+            } else if (component.notifyEnabled) {
+                component.notifyEnabled = false;
+                component.onDisable();
+            }
+        }
+        for (int i = 0; i < components.size(); i++) {
+            Component component = components.get(i);
+            if (!component.notifyEnabled) {
                 continue;
             }
-            if (!component.isStarted()) {
-                component.markStarted();
+            if (!component.started) {
+                component.started = true;
                 component.onStart();
             }
             component.onUpdate(tpf);
@@ -195,45 +215,11 @@ public class GameScene extends AbsAsset implements Scene {
     // ═══ Node 联动钩子（package-private，同包调用） ═══
 
     /**
-     * 已挂入节点上 addComponent：注册并触发 onAwake → onEnable（Unity AddComponent 语义）。
+     * 已挂入节点上 addComponent：注册进组件注册表。生命周期由 update 状态机
+     * 下帧驱动（原即时 Awake/Enable 语义随 2026-10-02 帧驱动拍板移除）。
      */
-    void onComponentAttached(Node node, Component component) {
+    void onComponentAttached(Component component) {
         register(component);
-        component.onAwake();
-        if (node.isActiveInHierarchy()) {
-            component.onEnable();
-        }
-    }
-
-    /**
-     * 已挂入节点 setActive 翻转：子树内逐节点比对翻转前后的层级生效状态，触发 onEnable/onDisable。
-     */
-    void onActiveToggled(Node toggled) {
-        boolean oldSelfActive = !toggled.isActive();
-        boolean ancestorsActive = true;
-        Transform parent = toggled.getTransform().getParent();
-        if (parent != null) {
-            ancestorsActive = parent.getNode().isActiveInHierarchy();
-        }
-        fireActiveChanged(toggled, toggled, oldSelfActive, ancestorsActive, ancestorsActive);
-    }
-
-    private void fireActiveChanged(Node toggled, Node node, boolean oldSelfActive,
-                                   boolean parentWasActive, boolean parentNowActive) {
-        boolean was = parentWasActive && (node == toggled ? oldSelfActive : node.isActive());
-        boolean now = parentNowActive && node.isActive();
-        if (was && !now) {
-            for (Component component : node.components()) {
-                component.onDisable();
-            }
-        } else if (!was && now) {
-            for (Component component : node.components()) {
-                component.onEnable();
-            }
-        }
-        for (Transform child : node.getTransform()) {
-            fireActiveChanged(toggled, child.getNode(), oldSelfActive, was, now);
-        }
     }
 
     // ═══ 内部 ═══
@@ -270,13 +256,50 @@ public class GameScene extends AbsAsset implements Scene {
         }
     }
 
+    /** 摘出场景时重置生命周期状态（裸态可重挂，整轮重跑） */
+    private static void resetLifecycle(Component component) {
+        component.awaked = false;
+        component.notifyEnabled = false;
+        component.started = false;
+    }
+
     @Override
     public void write(OutputCapsule output) {
-
+        // guid/lastModified 内嵌自述（2026-10-01 拍板；管线真值源仍是伴生 .meta，
+        // 编辑器加载时同步进本字段，双源一致）
+        super.write(output);
+        output.write("name", name);
+        // 树根直传——Node 递归展开 Transform/Component 对象图，框架 identity
+        // 去重保共享回链（node/parent 双向引用）
+        output.write("rootNodes", rootNodes);
+        // 注册表主表直传（update 顺序=序列化时点顺序；与 Node.components 引用同一
+        // 批组件实例，identity 去重后共享保持）。cameras/renderables 为其 instanceof
+        // 分流投影，read 时重建（renderables 元素接口未继承 Serializable 走不了列表
+        // 泛型通道，分流表本身也是派生数据）
+        output.write("components", components);
     }
 
     @Override
     public void read(InputCapsule input) {
-
+        super.read(input);
+        name = input.readString("name");
+        ArrayList<Node> roots = input.readArrayList("rootNodes", Node.class);
+        rootNodes = roots != null ? roots : new ArrayList<>();
+        // 注册表主表回写
+        ArrayList<Component> componentList = input.readArrayList("components", Component.class);
+        components = componentList != null ? componentList : new ArrayList<>();
+        // cameras/renderables 分流表重建（register 的 instanceof 口径——元素实例在
+        // 导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套 populate，
+        // 时序安全；红线 10 辨析见设计档 §9.3）
+        cameras = new ArrayList<>();
+        renderables = new ArrayList<>();
+        for (Component component : components) {
+            if (component instanceof Camera) {
+                cameras.add((Camera) component);
+            }
+            if (component instanceof Renderable) {
+                renderables.add((Renderable) component);
+            }
+        }
     }
 }

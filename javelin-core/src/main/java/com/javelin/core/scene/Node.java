@@ -1,5 +1,6 @@
 package com.javelin.core.scene;
 
+import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.obj.ObjectId;
 import com.javelin.core.reflective.ReflectiveFactory;
 import com.javelin.core.scene.component.Transform;
@@ -20,15 +21,18 @@ import java.util.List;
  * @author Javelin Engine Team
  * @since 1.0.0
  */
+@Reflective
 public class Node extends ObjectId implements Serializable {
 
     private String name;
     private boolean active = true;
     private Layer layer;
-    private final List<Tag> tags;
+    // 非 final：序列化反序列化需回写（红线 9）
+    private List<Tag> tags;
 
-    private final Transform transform;
-    private final List<Component> components;
+    private Transform transform;
+    // 类型用 ArrayList 直通（红线 10：序列化集合字段直传字段本体，不经包装）
+    private ArrayList<Component> components;
 
     /** 归属场景（GameScene.add 设置，remove 清除；package-private，由 GameScene 维护） */
     Scene scene;
@@ -51,21 +55,15 @@ public class Node extends ObjectId implements Serializable {
     /**
      * 节点自身的激活状态（不影响子节点自身状态；层级生效见 isActiveInHierarchy）。
      *
-     * <p>已挂入场景的节点翻转激活状态会级联触发子树组件的
-     * onEnable/onDisable（由 GameScene 驱动，设计文档 4 节）。</p>
+     * <p>翻转后子树组件的 onEnable/onDisable 由 GameScene.update 状态机在
+     * <b>下帧</b>联动（帧驱动生命周期，2026-10-02 拍板，设计文档 4 节）。</p>
      */
     public boolean isActive() {
         return active;
     }
 
     public void setActive(boolean active) {
-        if (this.active == active) {
-            return;
-        }
         this.active = active;
-        if (scene != null) {
-            asGameScene().onActiveToggled(this);
-        }
     }
 
     /**
@@ -93,8 +91,8 @@ public class Node extends ObjectId implements Serializable {
     /**
      * 添加组件（经 ReflectiveFactory 零反射创建，组件类须 @Reflective + 公开无参构造）。
      *
-     * <p>生命周期回调（onAwake/onEnable 等）由场景挂入与主循环驱动，
-     * 裸节点上添加不触发回调。</p>
+     * <p>生命周期回调统一由 GameScene.update 状态机驱动（已挂入的下帧
+     * awake/enable，帧驱动拍板 2026-10-02）。</p>
      *
      * <p>Transform 由构造时自动持有，不允许重复添加。</p>
      */
@@ -106,7 +104,7 @@ public class Node extends ObjectId implements Serializable {
         component.setNode(this);
         components.add(component);
         if (scene != null) {
-            asGameScene().onComponentAttached(this, component);
+            asGameScene().onComponentAttached(component);
         }
         return component;
     }
@@ -200,13 +198,67 @@ public class Node extends ObjectId implements Serializable {
         return tags;
     }
 
+    /**
+     * 序列化数据面：name/active/components（含 Transform）/transform + layer、tags 投影。
+     *
+     * <p>layer 存索引（Layer 是启动时从设置构建的静态注册表，用户可改层名——
+     * 索引稳定）、tags 存名字符串列表（Tag 为私有构造驻留值对象，非对象图节点）——
+     * 红线 10 辨析：投影字段不涉及对象图引用同一性，read 侧 Layer.of/Tag.of
+     * 为静态查表，不依赖嵌套对象 populate，时序安全。</p>
+     *
+     * <p>{@code scene}（场景归属）落盘为<b>根对象引用</b>——框架对「引用到导出根
+     * 的 Asset 实例」走对象 id 而非 GUID（图内根引用语义，2026-10-02 拍板，见
+     * TextExporter/BinaryExporter.isRoot），read 直接恢复归属，无需任何收尾修复。
+     * {@code ObjectId.id}（进程内自增）不落盘：每次加载重新分配（编辑器选中/命令
+     * 按运行时 id 反查，树拉取自然对齐）。子树导出（copy/paste）时 scene 引用
+     * 指向旧场景实例（非导出根）——走 GUID 查不到恢复为 null，粘贴 setParent
+     * 挂接时经 attachSubtree 全新挂入，行为自洽。</p>
+     */
     @Override
     public void write(OutputCapsule output) {
-
+        output.write("name", name);
+        output.write("active", active);
+        output.write("layer", layer != null ? layer.getValue() : 0);
+        ArrayList<String> tagNames = new ArrayList<>(tags.size());
+        for (Tag tag : tags) {
+            tagNames.add(tag.getName());
+        }
+        output.writeArrayString("tagNames", tagNames);
+        // components 含 Transform（构造时自动挂载）；transform 字段与列表元素为
+        // 同一实例，框架 identity 去重后落盘同一 id 引用
+        output.write("components", components);
+        output.write("transform", transform);
+        // 场景归属：根引用走 id（导出根=GameScene 时 @ref:0 / TYPE_OBJECT）
+        output.write("scene", scene);
     }
 
     @Override
     public void read(InputCapsule input) {
+        name = input.readString("name");
+        active = input.readBoolean("active");
+        layer = readLayer(input.readInt("layer"));
+        ArrayList<String> names = input.readArrayString("tagNames");
+        tags = new ArrayList<>();
+        if (names != null) {
+            for (String tagName : names) {
+                if (tagName != null) {
+                    tags.add(Tag.of(tagName));
+                }
+            }
+        }
+        ArrayList<Component> componentList = input.readArrayList("components", Component.class);
+        components = componentList != null ? componentList : new ArrayList<>();
+        transform = input.readSerializable("transform", Transform.class);
+        scene = input.readSerializable("scene", GameScene.class);
+    }
 
+    /**
+     * 索引读回（Layer.of(int) 越界抛 AIOOBE，兜底 DEFAULT；layers 数组长度 31）。
+     */
+    private static Layer readLayer(int index) {
+        if (index >= 0 && index < 31) {
+            return Layer.of(index);
+        }
+        return Layer.DEFAULT;
     }
 }

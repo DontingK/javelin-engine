@@ -14,8 +14,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 场景系统单元测试：挂入/摘除生命周期、组件注册表、update 驱动、
- * setActive 级联、setParent 自动入/出场景、Transform 层级与防环。
+ * 场景系统单元测试：挂入/摘除、组件注册表、update 帧驱动生命周期状态机
+ *（2026-10-02 拍板：awake/enable/disable/start/update 下帧生效，destroy 摘出
+ * 即时）、setParent 自动入/出场景、Transform 层级与防环。
  *
  * <p>测试组件经 {@code @Reflective} 走编译期注册（testAnnotationProcessor，
  * 落在 com.javelin.game.reflective.ReflectiveRegistration）。</p>
@@ -94,19 +95,23 @@ public class GameSceneTest {
     // ═══ 挂入（add / attachSubtree） ═══
 
     @Test
-    void addFiresAwakeBeforeEnableInHierarchyOrder() {
+    void updateDrivesAwakeBeforeEnableInHierarchyOrder() {
         Node root = nodeWithProbe("root");
         Node child = nodeWithProbe("child");
         child.getTransform().setParent(root.getTransform());
 
         scene.add(root);
-
-        assertEquals(List.of("awake:root", "awake:child", "enable:root", "enable:child"), EVENTS);
-        assertEquals(1, probeOf(root).awakeCount);
-        assertEquals(1, probeOf(root).enableCount);
+        // 挂入即时：归属 + 注册（生命周期不触发——帧驱动拍板）
+        assertEquals(0, probeOf(root).awakeCount);
         assertSame(scene, root.getScene());
         assertSame(scene, child.getScene());
         assertTrue(scene.getRootNodes().contains(root));
+
+        scene.update(0.016f);
+        // 三遍序（Unity 阶段序）：全部 awake → 全部 enable → start
+        assertEquals(List.of("awake:root", "awake:child", "enable:root", "enable:child"), EVENTS);
+        assertEquals(1, probeOf(root).awakeCount);
+        assertEquals(1, probeOf(root).enableCount);
     }
 
     @Test
@@ -129,7 +134,8 @@ public class GameSceneTest {
         child.getTransform().setParent(root.getTransform());
 
         scene.add(root);
-        scene.add(root);   // 重复 add 不重复回调
+        scene.add(root);   // 重复 add 不重复注册（awaked 状态字段防重 fire）
+        scene.update(0.016f);
 
         assertEquals(1, probeOf(root).awakeCount);
         assertEquals(1, probeOf(root).enableCount);
@@ -151,12 +157,16 @@ public class GameSceneTest {
         root.setActive(false);
 
         scene.add(root);
+        scene.update(0.016f);
 
         assertEquals(1, probeOf(root).awakeCount);
         assertEquals(0, probeOf(root).enableCount);
+        assertEquals(0, probeOf(root).updateCount);
 
         root.setActive(true);
+        scene.update(0.016f);
         assertEquals(1, probeOf(root).enableCount);
+        assertEquals(1, probeOf(root).updateCount);
     }
 
     // ═══ update 驱动 ═══
@@ -167,6 +177,8 @@ public class GameSceneTest {
         scene.add(root);
 
         scene.update(0.016f);
+        assertEquals(1, probeOf(root).awakeCount);
+        assertEquals(1, probeOf(root).enableCount);
         assertEquals(1, probeOf(root).startCount);
         assertEquals(1, probeOf(root).updateCount);
 
@@ -189,40 +201,74 @@ public class GameSceneTest {
 
         scene.update(0.016f);
 
+        // awake 不判激活（Unity: inactive 对象也执行 Awake；enabled=false 同理）
+        assertEquals(1, probeOf(disabled).awakeCount);
+        assertEquals(1, probeOf(inactive).awakeCount);
         assertEquals(0, probeOf(disabled).updateCount);
         assertEquals(0, probeOf(inactive).updateCount);
         assertEquals(1, probeOf(normal).updateCount);
     }
 
-    // ═══ setActive 级联 ═══
+    // ═══ setActive/setEnabled 翻转（下帧状态机联动） ═══
 
     @Test
-    void setActiveCascadesEnableDisableThroughSubtree() {
+    void setActiveTogglesSubtreeLifecycleNextFrame() {
         Node root = nodeWithProbe("root");
         Node child = nodeWithProbe("child");
         child.getTransform().setParent(root.getTransform());
         scene.add(root);
+        scene.update(0.016f);
+        assertEquals(1, probeOf(root).enableCount);
+        assertEquals(1, probeOf(child).enableCount);
 
         root.setActive(false);
+        scene.update(0.016f);
         assertEquals(1, probeOf(root).disableCount);
         assertEquals(1, probeOf(child).disableCount);
 
         root.setActive(true);
+        scene.update(0.016f);
         assertEquals(2, probeOf(root).enableCount);
         assertEquals(2, probeOf(child).enableCount);
 
-        // 子节点自身失活：此前已被父节点级联 disable 过一次，这是第 2 次
+        // 子节点自身失活（父激活：其 disable 为自身状态翻转）
         child.setActive(false);
+        scene.update(0.016f);
         assertEquals(2, probeOf(child).disableCount);
 
-        // 子节点自身失活后，父节点翻转不影响它
+        // 子节点自身失活后，父节点失活不再对它重复 disable（通知态已是关）
         root.setActive(false);
+        scene.update(0.016f);
         assertEquals(2, probeOf(root).disableCount);
         assertEquals(2, probeOf(child).disableCount);
 
         root.setActive(true);
+        scene.update(0.016f);
         assertEquals(3, probeOf(root).enableCount);
         assertEquals(2, probeOf(child).enableCount);
+    }
+
+    @Test
+    void setEnabledTogglesComponentLifecycleNextFrame() {
+        Node root = nodeWithProbe("root");
+        scene.add(root);
+        scene.update(0.016f);
+        assertEquals(1, probeOf(root).enableCount);
+        assertEquals(1, probeOf(root).updateCount);
+
+        // setEnabled 回调联动（原即时语义的缺口，帧驱动状态机统一修复）
+        probeOf(root).setEnabled(false);
+        scene.update(0.016f);
+        assertEquals(1, probeOf(root).disableCount);
+        assertEquals(1, probeOf(root).updateCount);
+
+        probeOf(root).setEnabled(true);
+        scene.update(0.016f);
+        assertEquals(2, probeOf(root).enableCount);
+        assertEquals(2, probeOf(root).updateCount);
+        // awake/start 每轮挂入只一次（disable/enable 往复不重触发）
+        assertEquals(1, probeOf(root).awakeCount);
+        assertEquals(1, probeOf(root).startCount);
     }
 
     // ═══ setParent 自动入/出场景 ═══
@@ -237,14 +283,14 @@ public class GameSceneTest {
         grandChild.getTransform().setParent(leaf.getTransform());
         leaf.getTransform().setParent(root.getTransform());
 
-        // 整棵裸子树自动入场景，含生命周期
+        // 整棵裸子树自动入场景（归属即时；生命周期下帧驱动）
         assertSame(scene, leaf.getScene());
         assertSame(scene, grandChild.getScene());
+
+        scene.update(0.016f);
         assertEquals(1, probeOf(leaf).awakeCount);
         assertEquals(1, probeOf(leaf).enableCount);
         assertEquals(1, probeOf(grandChild).awakeCount);
-
-        scene.update(0.016f);
         assertEquals(1, probeOf(leaf).updateCount);
         assertEquals(1, probeOf(grandChild).updateCount);
     }
@@ -257,10 +303,12 @@ public class GameSceneTest {
         grandChild.getTransform().setParent(leaf.getTransform());
         leaf.getTransform().setParent(root.getTransform());
         scene.add(root);
+        scene.update(0.016f);
 
         leaf.getTransform().setParent(null);
 
-        // 摘除即出场景：整棵子树（含孙节点）注销并触发 onDisable/onDestroy
+        // 摘除即出场景：整棵子树（含孙节点）注销并即时触发 onDisable（按通知态）
+        // /onDestroy（帧驱动生命周期唯一即时触发点）
         assertNull(leaf.getScene());
         assertNull(grandChild.getScene());
         assertEquals(1, probeOf(leaf).disableCount);
@@ -308,6 +356,26 @@ public class GameSceneTest {
         assertNull(root.getTransform().getParent());
 
         assertThrows(IllegalStateException.class, () -> scene.remove(root));
+    }
+
+    @Test
+    void reattachRerunsFullLifecycle() {
+        Node root = nodeWithProbe("root");
+        scene.add(root);
+        scene.update(0.016f);
+        assertEquals(1, probeOf(root).awakeCount);
+        assertEquals(1, probeOf(root).enableCount);
+
+        scene.remove(root);
+        assertEquals(1, probeOf(root).destroyCount);
+
+        // 摘出重置生命周期状态：重挂后整轮重跑（awake/enable 重新计）
+        scene.add(root);
+        scene.update(0.016f);
+        assertEquals(2, probeOf(root).awakeCount);
+        assertEquals(2, probeOf(root).enableCount);
+        assertEquals(2, probeOf(root).updateCount);
+        assertEquals(1, probeOf(root).destroyCount);
     }
 
     // ═══ Node/Component 基础 ═══

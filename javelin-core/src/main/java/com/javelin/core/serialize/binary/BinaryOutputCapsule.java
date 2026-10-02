@@ -175,7 +175,9 @@ public class BinaryOutputCapsule implements OutputCapsule, BinaryOutput {
             return;
         }
         try {
-            if(value instanceof Asset asset){
+            // 根对象被图内字段引用（如 Node.scene → GameScene）走对象 id 引用
+            // 而非 GUID（图内根引用 vs 外部资产语义，2026-10-02 拍板，见 BinaryExporter.isRoot）
+            if(value instanceof Asset asset && !exporter.isRoot(asset)){
                 writeKeyAndType(key, TYPE_ASSET);
                 writeString(asset.getGuid());
                 return;

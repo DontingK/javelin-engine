@@ -73,6 +73,7 @@ import DockContainer from './layout/DockContainer.vue'
 import SplitPanel from '../../components/common/SplitPanel.vue'
 import { useEditorLayout, type DockContainerName } from './composables/useEditorLayout.ts'
 import { publishEvent, subscribeEvent } from '../../service/eventService.ts'
+import { initGlobalShortcuts } from '../../service/shortcutService.ts'
 
 /**
  * 编辑器布局页面。
@@ -105,6 +106,8 @@ const onCloseBottom = createCloseHandler('bottom')
 const onCloseCenter = createCloseHandler('center')
 
 onMounted(async () => {
+  // 全局快捷键（Web 层通道：顶栏域命令 shortcut 匹配 → /command/execute 直触发）
+  initGlobalShortcuts()
   // 事件桥自检：订阅 pong 后发 ping；全链通时 DevTools console 应见回声
   await subscribeEvent('bridge.pong', (data) => console.log('[eventBridge] 全链通', data))
   await publishEvent('bridge.ping', {})

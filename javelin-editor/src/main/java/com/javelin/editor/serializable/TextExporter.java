@@ -24,6 +24,8 @@ public class TextExporter implements Exporter {
     private final List<Object> orderedObjects = new ArrayList<>();
     private final Map<Object, TextOutputCapsule> capsuleMap = new IdentityHashMap<>();
     private int nextId = 0;
+    /** 本导出的根对象（Asset 分流用：图内根引用走对象 id 而非 GUID，见 isRoot） */
+    private Serializable root;
 
     public TextExporter(File outputFile) {
         this.outputFile = outputFile;
@@ -35,6 +37,7 @@ public class TextExporter implements Exporter {
         orderedObjects.clear();
         capsuleMap.clear();
         nextId = 0;
+        this.root = serializable;
 
         getObjectId(serializable);
 
@@ -102,6 +105,17 @@ public class TextExporter implements Exporter {
         }
 
         return id;
+    }
+
+    /**
+     * 引用值是否为本导出的根对象（实例同一性）。
+     *
+     * <p>供 Capsule 的 Asset 分流判定：根对象被图内字段引用时（如 Node.scene →
+     * GameScene）走 @ref 对象 id 而非 @guid——图内根引用语义 vs 外部资产 GUID 语义
+     *（2026-10-02 拍板，与 BinaryExporter 同款口径）。读侧按落盘标记分流，零改动。</p>
+     */
+    boolean isRoot(Object value) {
+        return value == root;
     }
 
     private void preRegisterArrayElements(Object array) {

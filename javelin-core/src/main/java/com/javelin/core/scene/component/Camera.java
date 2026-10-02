@@ -8,6 +8,8 @@ import com.javelin.core.render.ProjectionType;
 import com.javelin.core.scene.Layer;
 import com.javelin.core.scene.LayerMask;
 import com.javelin.core.scene.Component;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
 
 /**
  * 相机组件（对应 RHI 9 节 RenderView）。
@@ -140,5 +142,49 @@ public class Camera extends Component {
 
     public void setMain(boolean main) {
         this.main = main;
+    }
+
+    /**
+     * 序列化数据面：全部用户数据字段（无资产引用——RenderView 由引擎内部生成不回存）。
+     *
+     * <p>projectionType/clearFlags 走 Enum 通道（name() 落盘）；backgroundColor/
+     * viewportRect 为可空值对象（null = 跟随全局/全屏的合法语义）。</p>
+     */
+    @Override
+    public void write(OutputCapsule output) {
+        super.write(output);
+        output.write("projectionType", projectionType);
+        output.write("fov", fov);
+        output.write("orthographicSize", orthographicSize);
+        output.write("near", near);
+        output.write("far", far);
+        output.write("cullingMask", cullingMask);
+        output.write("backgroundColor", backgroundColor);
+        output.write("clearFlags", clearFlags);
+        output.write("viewportRect", viewportRect);
+        output.write("main", main);
+        output.write("depth", depth);
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        super.read(input);
+        ProjectionType type = input.readEnum("projectionType", ProjectionType.class);
+        if (type != null) {
+            projectionType = type;
+        }
+        fov = input.readFloat("fov");
+        orthographicSize = input.readFloat("orthographicSize");
+        near = input.readFloat("near");
+        far = input.readFloat("far");
+        cullingMask = input.readInt("cullingMask");
+        backgroundColor = input.readSerializable("backgroundColor", Color.class);
+        ClearFlags flags = input.readEnum("clearFlags", ClearFlags.class);
+        if (flags != null) {
+            clearFlags = flags;
+        }
+        viewportRect = input.readSerializable("viewportRect", Rect.class);
+        main = input.readBoolean("main");
+        depth = input.readFloat("depth");
     }
 }

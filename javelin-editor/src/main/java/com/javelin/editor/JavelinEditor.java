@@ -17,6 +17,7 @@ import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
 import com.javelin.editor.importer.AssetImportPipeline;
+import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.MetaManager;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.scene.EditorScene;
@@ -128,6 +129,13 @@ public class JavelinEditor extends JavelinEngine {
         TextImporter textImporter = new TextImporter(file, assetManager);
         try {
             GameScene gameScene = textImporter.importData(GameScene.class);
+            // guid 同步（2026-10-01 拍板）：.meta 为管线真值源，同步进 gameScene
+            // 供保存时内嵌自述（GameScene.write super.write）；旧文件无内嵌字段，
+            // read 恢复 null——此处统一从伴生 .meta 补
+            AssetMeta meta = metaManager.getMeta(file);
+            if (meta != null && meta.getGuid() != null) {
+                gameScene.setGuid(meta.getGuid());
+            }
             editorScene.setGameScene(gameScene, file);
             editorScene.setEditorScene(new GameScene("editor"));
             return editorScene;

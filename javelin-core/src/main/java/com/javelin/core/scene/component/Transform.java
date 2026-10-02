@@ -2,13 +2,14 @@ package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.scene.Component;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 
 /**
  * 变换组件（每个 Node 必有且唯一，构造时自动挂载）。
@@ -25,14 +26,16 @@ import java.util.List;
 public class Transform extends Component implements Iterable<Transform> {
 
     private Transform parent;
-    private final List<Transform> children = new ArrayList<>();
+    // 非 final：序列化反序列化需回写（红线 9）
+    // 类型用 ArrayList 直通（红线 10：序列化集合字段不经包装，直传字段本体）
+    private ArrayList<Transform> children = new ArrayList<>();
 
-    private final Vector3f localPosition = new Vector3f();
-    private final Quaternionf localRotation = new Quaternionf();
-    private final Vector3f localScale = new Vector3f(1.0f, 1.0f, 1.0f);
+    private Vector3f localPosition = new Vector3f();
+    private Quaternionf localRotation = new Quaternionf();
+    private Vector3f localScale = new Vector3f(1.0f, 1.0f, 1.0f);
 
-    private final Matrix4f localMatrix = new Matrix4f();
-    private final Matrix4f localToWorld = new Matrix4f();
+    private Matrix4f localMatrix = new Matrix4f();
+    private Matrix4f localToWorld = new Matrix4f();
     private boolean dirty = true;
 
     public Transform() {
@@ -146,5 +149,35 @@ public class Transform extends Component implements Iterable<Transform> {
         for (Transform child : children) {
             child.markDirty();
         }
+    }
+
+    /**
+     * 序列化数据面：parent/children 双向回链（树形本体）+ local TRS。
+     *
+     * <p>localMatrix/localToWorld/dirty 为运行时派生缓存不落盘——read 后
+     * dirty 默认 true，首次 getLocalToWorld 重算。children 直传字段本体
+     *（红线 10，框架 id 引用保共享）；read 直接回写 parent/children
+     * <b>不走 setParent</b>——不触发 onParentChanged 场景联动（反序列化不触发
+     * 生命周期，语义见设计档 §9.3；started 由 update 首帧补发 onStart）。</p>
+     */
+    @Override
+    public void write(OutputCapsule output) {
+        super.write(output);
+        output.write("parent", parent);
+        output.write("children", children);
+        output.write("localPosition", localPosition);
+        output.write("localRotation", localRotation);
+        output.write("localScale", localScale);
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        super.read(input);
+        parent = input.readSerializable("parent", Transform.class);
+        ArrayList<Transform> childList = input.readArrayList("children", Transform.class);
+        children = childList != null ? childList : new ArrayList<>();
+        localPosition = input.readVector3f("localPosition");
+        localRotation = input.readQuaternionf("localRotation");
+        localScale = input.readVector3f("localScale");
     }
 }

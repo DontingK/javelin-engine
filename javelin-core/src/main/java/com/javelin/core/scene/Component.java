@@ -12,8 +12,9 @@ import com.javelin.core.serialize.Serializable;
  * 覆写生命周期回调，且组件类必须标 {@code @Reflective}（公开无参构造），
  * 由 ReflectiveFactory 零反射创建（GraalVM AOT，禁反射）。</p>
  *
- * <p>生命周期回调由场景挂入/主循环统一驱动（见场景设计文档第 3、4 节），
- * 裸节点上 addComponent 不触发任何回调。</p>
+ * <p>生命周期回调由 GameScene.update 帧驱动状态机统一驱动（挂入/启停下帧
+ * 生效，见场景设计文档第 4 节）；onDestroy 为摘出场景时的唯一即时触发点
+ *（2026-10-02 拍板）。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -22,8 +23,14 @@ public abstract class Component extends ObjectId implements Serializable {
 
     private Node node;
     private boolean enabled = true;
-    /** onStart 是否已触发（每组件生命周期内只一次，由 GameScene.update 驱动） */
-    private boolean started;
+    // ── 生命周期状态（运行态不落盘；由 GameScene.update 帧驱动状态机维护，
+    //    2026-10-02 拍板：回调统一由 update 驱动，摘出场景时重置回裸态）──
+    /** onAwake 是否已触发（每轮挂入只一次；不判激活——Unity: inactive 对象也 Awake） */
+    boolean awaked;
+    /** 通知态：onEnable 已触发且当前应激活（真值 = enabled 且节点层级激活） */
+    boolean notifyEnabled;
+    /** onStart 是否已触发（每轮挂入只一次） */
+    boolean started;
 
     /**
      * 所属节点（addComponent 时绑定，裸组件为 null）。
@@ -54,22 +61,11 @@ public abstract class Component extends ObjectId implements Serializable {
         return enabled && node != null && node.isActiveInHierarchy();
     }
 
-    /**
-     * onStart 是否已触发（package-private，GameScene.update 驱动用）。
-     */
-    boolean isStarted() {
-        return started;
-    }
-
-    void markStarted() {
-        started = true;
-    }
-
-    /** 首次激活（挂入场景时）触发一次。 */
+    /** 首轮 update 触发一次（不判激活，Unity: inactive 对象也执行 Awake）。 */
     protected void onAwake() {
     }
 
-    /** 激活后触发（挂入场景、setActive(true) 恢复时）。 */
+    /** 通知态由否转是时触发（update 状态机对齐 enabled && 层级激活）。 */
     protected void onEnable() {
     }
 
@@ -81,21 +77,30 @@ public abstract class Component extends ObjectId implements Serializable {
     protected void onUpdate(float dt) {
     }
 
-    /** 失活时触发（setActive(false)、移出场景）。 */
+    /** 通知态由是转否时触发（update 状态机；摘出场景时即时收尾）。 */
     protected void onDisable() {
     }
 
-    /** 销毁时触发（移出场景、场景卸载）。 */
+    /** 销毁时触发（移出场景——即时，脱离 update 状态机的唯一例外）。 */
     protected void onDestroy() {
     }
 
+    /**
+     * 序列化数据面：{@code enabled}（用户数据）+ {@code node}（所属节点回链）。
+     *
+     * <p>node 回链双向落盘（框架 id 引用保 identity/循环）——反序列化后场景树遍历
+     * （GameScene.collectSubtree 经 Transform.getNode）依赖它恢复。{@code started}
+     * 为运行态不落盘（update 首帧按需补发 onStart）。</p>
+     */
     @Override
     public void write(OutputCapsule output) {
-
+        output.write("enabled", enabled);
+        output.write("node", node);
     }
 
     @Override
     public void read(InputCapsule input) {
-
+        enabled = input.readBoolean("enabled");
+        node = input.readSerializable("node", Node.class);
     }
 }

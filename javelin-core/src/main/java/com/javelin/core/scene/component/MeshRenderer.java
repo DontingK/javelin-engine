@@ -5,6 +5,8 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.Component;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
 
 /**
  * 网格渲染组件（合并设计，无 MeshFilter）。
@@ -56,5 +58,32 @@ public class MeshRenderer extends Component implements Renderable {
 
     public void setReceiveShadow(boolean receiveShadow) {
         this.receiveShadow = receiveShadow;
+    }
+
+    /**
+     * 序列化数据面：mesh/material 资产引用直传 + 双 shadow 布尔。
+     *
+     * <p>资产引用走框架既有语义：guid 非空 → 按 GUID 引用（编辑器主路径，
+     * 引用 Library 导入资产）；guid 为空 → @ref 内嵌对象图（Mesh 数据完整可
+     * 兜底共享；Material 尚无 write 实现，内嵌仅剩 guid/lastModified——引用
+     * 闭环阻塞 .mat 任务，见 Engine_Scene_Design §8 已知限制）。mesh/material
+     * 为 null 时走 Unity missing-mesh/material 语义（读回 null 不渲染）。</p>
+     */
+    @Override
+    public void write(OutputCapsule output) {
+        super.write(output);
+        output.write("mesh", mesh);
+        output.write("material", material);
+        output.write("castShadow", castShadow);
+        output.write("receiveShadow", receiveShadow);
+    }
+
+    @Override
+    public void read(InputCapsule input) {
+        super.read(input);
+        mesh = input.readSerializable("mesh", Mesh.class);
+        material = input.readSerializable("material", Material.class);
+        castShadow = input.readBoolean("castShadow");
+        receiveShadow = input.readBoolean("receiveShadow");
     }
 }
