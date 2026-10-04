@@ -32,9 +32,11 @@ import java.util.TreeMap;
  * <p>序列化（Capsule 二进制协议，.smesh 导入产物，2026-09-26 落地；重构拍板：
  * <b>字段类型即序列化实体类型，存储形态 = 序列化形态，零转换零重建</b>）——
  * CPU 数据 = {@code attributes}（{@link MeshAttributeData} 节点列表，name 唯一）+
- * {@code indices}；uploaded/layout/GPU 句柄等运行态不落盘。write/read 不写资产
- * guid/lastModified（引擎约定：产物不内嵌 guid，资产身份由资产管理层管理，
- * 与 Shader/GameScene 同款）。</p>
+ * {@code indices}；uploaded/layout/GPU 句柄等运行态不落盘。write/read 调
+ * super 内嵌 guid/lastModified（2026-10-04 拍板修正：<b>产物自描述 guid、
+ * 与 Shader 同款</b>——加载实例自带 guid，字段引用序列化走对象 guid 分流；
+ * 曾按「不调 super、产物不内嵌 guid」落，致空壳坑，见 Engine_Scene_Design
+ * §9.3）。</p>
  *
  * <p>资产身份（用户拍板 2026-09-26）：extends {@link AbsAsset} 后即为 {@code Asset}，
  * 产物可经 AssetManager 按路径/GUID 加载（"core/mesh/plane.smesh" 等）。</p>
@@ -68,8 +70,14 @@ public class Mesh extends AbsAsset {
 
     // ═══ 序列化（字段直通，read 只回写引用——红线 10） ═══
 
+    /**
+     * 产物格式（2026-10-04 拍板修正）：super（guid/lastModified）+ attributes/
+     * indices/topology/keepCpuCopy——与 Shader 同款，产物自描述 guid。旧格式
+     * 产物无 guid 键：super.read 优雅回 null（等价旧行为），删产物重导即迁移。
+     */
     @Override
     public void write(OutputCapsule output) {
+        super.write(output);
         output.write("attributes", attributes);
         output.write("indices", indices);
         output.write("topology", topology);
@@ -78,6 +86,7 @@ public class Mesh extends AbsAsset {
 
     @Override
     public void read(InputCapsule input) {
+        super.read(input);
         ArrayList<MeshAttributeData> nodes = input.readArrayList("attributes", MeshAttributeData.class);
         attributes = nodes != null ? nodes : new ArrayList<>();
         indices = input.readIntArray("indices");

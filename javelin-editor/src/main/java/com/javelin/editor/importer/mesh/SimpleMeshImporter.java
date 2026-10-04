@@ -161,6 +161,9 @@ public class SimpleMeshImporter implements AssetImporter {
             if (guid == null || guid.isEmpty()) {
                 guid = task.getMeta().getGuid();
             }
+            // 产物自描述 guid（2026-10-04 拍板，与 ShaderImporter 同款）：Mesh.write
+            // 调 super 内嵌——加载实例自带 guid，字段引用序列化走对象 guid 分流
+            mesh.setGuid(guid);
             File libraryDir = project.getLibrary();
             if (!libraryDir.exists()) {
                 libraryDir.mkdirs();

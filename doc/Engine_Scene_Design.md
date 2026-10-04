@@ -301,13 +301,17 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
   **guid 引用读侧修正（2026-10-04）**：文本 guid 引用不带类名，字段声明类型是
   唯一类型来源——TextInputCapsule 曾硬编码 Asset.class 接口回解（ReflectiveFactory
   实例化接口即崩），场景首条文本 guid 引用实测暴露，改传调用方 type。
-- **资产身份盖章（2026-10-04 实测暴露；方案存档、实现暂缺）**：Library 产物
-  不内嵌 guid（Mesh/Shader 产物格式拍板），加载实例 guid 为 null 则字段引用
-  序列化无 guid 分流可走——上传后 CPU 副本已释放的 Mesh 会被内嵌成空壳
-  （attributes 空 / indices null，重载不可见；default.scene 清理时实证，本次
-  场景数据已手工换 @guid 修复）。方案 = `AssetLibManager.loadGuidInstance`
-  加载时回填 guid（mesh/shader 引用统一走 guid 回解、运行态隔离在落盘之外）；
-  曾实现后提交时已不在工作区——存盘侧 mesh guid 回填暂缺，再落地时恢复实现。
+- **Mesh 产物自描述 guid（用户拍板 2026-10-04 终定：Mesh 序列化调 super）**：
+  `Mesh.write/read` 调 `AbsAsset` super（guid/lastModified 内嵌产物）+
+  `SimpleMeshImporter` 导出前 `mesh.setGuid(guid)`（取源文件头，与
+  ShaderImporter 同款）——加载实例自带 guid，字段引用（MeshRenderer.mesh）
+  走对象 guid 分流落 @guid，空壳坑（对象无 guid → 内嵌上传后 CPU 副本已
+  释放的空 Mesh，Ctrl+S 两次实证）闭环。前史：09-26 曾拍板「write/read 不调
+  super、产物不内嵌 guid」，当日 javadoc 误注「与 Shader 同款」（Shader 实
+  调 super）——两格式分叉即空壳根因；10-04 加载侧盖章（回填对象）两度尝试
+  被否、写侧反查方案实现后撤回，终定产物侧对齐。**旧格式产物无 guid 键**：
+  super.read 优雅回 null（等价旧行为），删 Library 产物强制重导即迁移
+  （plane 产物已删）。
 
 ### 9.4 已知限制与开放项
 
