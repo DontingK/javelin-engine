@@ -129,7 +129,9 @@ public class EditorCameraAppState extends AbsEditorAppState {
                 float dx = Input.mouseDeltaX();
                 float dy = Input.mouseDeltaY();
                 if (dx != 0.0f || dy != 0.0f) {
-                    yaw += dx * LOOK_SPEED;
+                    // dx 取负：RH lookAt 下面向 +Z 时屏幕右 = -X，yaw+ 朝 +X（屏幕左）——
+                    // 鼠标右拖须朝屏幕右转（2026-10-04 实测修正原方向反）
+                    yaw -= dx * LOOK_SPEED;
                     pitch = clampPitch(pitch + dy * LOOK_SPEED);
                     poseChanged = true;
                 }
@@ -225,7 +227,7 @@ public class EditorCameraAppState extends AbsEditorAppState {
         float py = position.y + pivotOffset.y;
         float pz = position.z + pivotOffset.z;
 
-        yaw += dx * LOOK_SPEED;
+        yaw -= dx * LOOK_SPEED;
         pitch = clampPitch(pitch + dy * LOOK_SPEED);
 
         // 相机 = 焦点 - 新视向 × 距离（视线由 writeBack 的 yaw/pitch 旋转保证正对焦点）
@@ -278,9 +280,11 @@ public class EditorCameraAppState extends AbsEditorAppState {
         out.set((float) (Math.sin(yaw) * cosP), (float) -Math.sin(pitch), (float) (Math.cos(yaw) * cosP));
     }
 
-    /** 解析式水平右向：+Z 视向的右手 90°（yaw-pitch 无 roll，右向恒水平） */
+    /** 解析式屏幕右向 = forward×up（RH lookAt side 口径——本引擎面向 +Z 时屏幕右 = -X，
+     *  与 Unity 左手系直觉相反；原 +X 版即 A/D 反向根因，2026-10-04 实测修正。
+     *  yaw-pitch 无 roll，右向恒水平） */
     private void computeRight(Vector3f out) {
-        out.set((float) Math.cos(yaw), 0.0f, (float) -Math.sin(yaw));
+        out.set((float) -Math.cos(yaw), 0.0f, (float) Math.sin(yaw));
     }
 
     /** 解析式相机 up：rotationY(yaw).rotateX(pitch) 作用于 +Y（陡俯视下平移仍保屏幕感） */

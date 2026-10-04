@@ -3,6 +3,7 @@ package com.javelin.editor.menu;
 import com.javelin.core.appstate.AppStateManager;
 import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
+import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
@@ -16,7 +17,8 @@ import com.javelin.editor.menu.top.GridMenuCommand;
  * menu.project，域基类与该域命令同包）；集中显式注册，不做注解扫描——菜单结构顺序
  * 仍由 MenuRegistry 单源声明。首批「工具」域两命令：tools.devtools /
  * tools.grid（checked 切换网格开关）；「场景树右键」域 Unity 壳对齐（v0.5）：
- * 已实现 hierarchy.create.empty（入「创建」子菜单）/ hierarchy.delete，未实现项
+ * 已实现 hierarchy.create.empty / hierarchy.create.plane（入「创建」子菜单，Unity
+ * 3D Object → Plane 口径）/ hierarchy.delete，未实现项
  * hierarchy.copy / hierarchy.paste / hierarchy.rename 以 {@link UnimplementedMenuCommand}
  * 占位注册置灰，功能落地时逐个替换为实类注册行。顶栏菜单域按 Unity 组织，其余域
  * 随功能落地逐域补。</p>
@@ -42,6 +44,7 @@ public final class EditorMenuSetup {
         CommandService.register(new DevToolsMenuCommand());
         CommandService.register(new GridMenuCommand(stateManager, gridState));
         CommandService.register(new CreateEmptyMenuCommand());
+        CommandService.register(new CreatePlaneMenuCommand());
         CommandService.register(new DeleteMenuCommand());
         // Unity 壳占位（未实现置灰）：copy/paste 阻塞于 .scene 序列化（剪贴板格式），
         // rename 待树内编辑 UI——落地时替换为实类注册行
@@ -60,7 +63,8 @@ public final class EditorMenuSetup {
 
         MenuRegistry.menu("ctx.hierarchy", "场景树右键")
                 .submenu("创建", create -> create
-                        .item("hierarchy.create.empty"))
+                        .item("hierarchy.create.empty")
+                        .item("hierarchy.create.plane"))
                 .separator()
                 .item("hierarchy.copy")
                 .item("hierarchy.paste")

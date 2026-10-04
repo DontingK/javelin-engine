@@ -8,7 +8,7 @@ import com.javelin.core.serialize.OutputCapsule;
 /**
  * guid资源
  */
-public class AbsAsset extends ObjectId implements Asset {
+public abstract class AbsAsset extends ObjectId implements Asset {
     private String guid;
     private long lastModified;
 

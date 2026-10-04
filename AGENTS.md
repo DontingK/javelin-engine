@@ -59,13 +59,13 @@
 | `RHI_Design_Shader.md` | 分卷四：Shader 多 Pass 与 Material 实例模型、着色器文件语法（.shader） |
 | `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
 | `Engine_Assets_Design.md` | 引擎资产设计（v0.2）：Mesh 类、VertexAttribute、VertexLayout |
-| `Engine_Material_Design.md` | 引擎材质设计（v0.1）：Shader/Material 数据模型、§4 渲染侧桥接（已落地 2026-09-25） |
-| `Engine_Scene_Design.md` | 引擎场景设计（v0.3）：组件模型、Node/Component/Scene、RenderingSystem；§4 生命周期帧驱动状态机（2026-10-02 拍板：awake/enable/disable/start/update 由 update 三遍序驱动下帧生效、destroy 摘出即时、setEnabled 联动缺口修复）；§9 .scene 序列化（✅ 2026-10-01 落地、2026-10-02 拍板 read 全量恢复零收尾：scene 落盘根 id 引用（框架 Asset 分流对根实例走 id）+ 注册表直传/分流重建、生命周期状态不落盘 update 首帧自然驱动、Tag/layer 投影、红线 10 辨析、Material 引用已知限制） |
+| `Engine_Material_Design.md` | 引擎材质设计（v0.1）：Shader/Material 数据模型、§4 渲染侧桥接（已落地 2026-09-25）；Material write/read + 条目存储（2026-10-04，.scene 内嵌材质往返闭环；.mat 资产格式仍待） |
+| `Engine_Scene_Design.md` | 引擎场景设计（v0.3）：组件模型、Node/Component/Scene、RenderingSystem；§4 生命周期帧驱动状态机（2026-10-02 拍板：awake/enable/disable/start/update 由 update 三遍序驱动下帧生效、destroy 摘出即时、setEnabled 联动缺口修复）；§9 .scene 序列化（✅ 2026-10-01 落地、2026-10-04 实测验收通过、2026-10-02 拍板 read 全量恢复零收尾：scene 落盘根 id 引用（框架 Asset 分流对根实例走 id）+ 注册表直传/分流重建、生命周期状态不落盘 update 首帧自然驱动、Tag/layer 投影、红线 10 辨析、Material 内嵌数据面已通（2026-10-04）剩 .mat 资产格式） |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线 |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题 |
-| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.6）：**命令=类实现 MenuCommand（三域基类：顶栏/场景树/project，右键域提供选中 Node/文件上下文）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、**MenuRegistry 声明式结构（含子菜单任意嵌套，v0.5）**、**菜单渲染统一 Swing 弹窗（v0.4 拍板：Web 浮层菜单实测仍被视口 Canvas 盖，不按位置判定；v0.5 子菜单 JMenu 递归 + 每层打开瞬间求值 + 快捷键 accelerator 显示 + 层级右键 Unity 壳占位命令置灰）**、v0.6「文件」域 file.save 保存场景（随 .scene 序列化落地）、engine2 对照取舍、三桥方法协议（/menu/list /menu/open /command/execute） |
+| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.6）：**命令=类实现 MenuCommand（三域基类：顶栏/场景树/project，右键域提供选中 Node/文件上下文）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、**MenuRegistry 声明式结构（含子菜单任意嵌套，v0.5）**、**菜单渲染统一 Swing 弹窗（v0.4 拍板：Web 浮层菜单实测仍被视口 Canvas 盖，不按位置判定；v0.5 子菜单 JMenu 递归 + 每层打开瞬间求值 + 快捷键 accelerator 显示 + 层级右键 Unity 壳占位命令置灰）**、v0.6「文件」域 file.save 保存场景（随 .scene 序列化落地）、engine2 对照取舍、三桥方法协议（/menu/list /menu/open /command/execute）；v0.5 子菜单与 v0.6 file.save/Ctrl+S 已实测验收（2026-10-04）；创建域补 hierarchy.create.plane（内置 plane.smesh 共享加载 + default.shader 运行期材质实例，2026-10-04） |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |

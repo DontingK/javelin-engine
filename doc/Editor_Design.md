@@ -215,7 +215,7 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 ## 10. 演进方向
 
 - 二期：编辑器基本功能（场景编辑 UI ↔ 引擎 Scene 回写，待编辑器 UI 栈拍板）
-  ——**场景树对接已落地（2026-09-30，待实测验收）**：HierarchyPanel 真数据
+  ——**场景树对接已落地（2026-09-30，2026-10-04 用户实测验收通过）**：HierarchyPanel 真数据
   （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、
   hierarchy 右键域首批命令（create.empty/delete，只写不发通知）、
   SceneWatchAppState 快照 diff 自动通知（结构→scene.changed 重拉整树 /

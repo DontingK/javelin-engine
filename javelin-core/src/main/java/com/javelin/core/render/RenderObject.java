@@ -28,8 +28,8 @@ public class RenderObject {
     }
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask) {
-        if (mesh == null || material == null) {
-            throw new IllegalArgumentException("mesh / material must not be null");
+        if (mesh == null || material == null || material.getShader() == null) {
+            throw new IllegalArgumentException("mesh / material / material.shader must not be null");
         }
         this.mesh = mesh;
         this.material = material;

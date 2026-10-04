@@ -261,6 +261,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
+| `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |

@@ -231,6 +231,25 @@
 - **出处**：2026-09-27 InputCameraDemo 移动卡顿排查，用户 A/B 确认；排障链：
   per-second 观测先排帧率（数据干净）→ 单变量 A/B（vsync off 顺滑）→ 定位呈现节律。
 
+### 22. frontFace 绕序推理漏算第二次镜像：投影 Y 翻转 + Vulkan 窗口 y 向下相互抵消 ★推理链级
+
+- **症状**：编辑器 plane（XZ 地面）始终只从下方可见；反转顶点索引后现象不变
+  （产物 hexdump 实证确为新索引）。两次观察互相矛盾——任何依赖绕序的剔除
+  不可能对两种绕序给出同一可见侧，矛盾本身即推理链有漏。
+- **根因**：推理链只数了一次镜像——「投影 m11 取负（GL NDC → Vulkan NDC）后
+  CCW 资产呈 CW，故 frontFace 应取 CW」。漏算：Vulkan 窗口映射
+  y_w=(y_ndc+1)/2·H 且 y 轴**向下**，相对 GL 的 y-up 放置又是一次垂直镜像——
+  **两次镜像抵消，整条管线与 OpenGL 等效**：frontFace=CCW + Cull Back ⇒
+  可见面 = 几何法向侧（RenderingSystem 实传 CCW 一直正确；FrontFace.java
+  误注「引擎约定 CW」即此漏算，2026-10-04 已更正）。
+- **修法/验证**：资产按 CCW 授权（法向侧可见；MultiCameraDemo quad 同口径
+  自证——0,1,2 绕序几何法向 +Z、从 +Z 可见）。附带坑：源反转后产物 stale
+  不重导（import 只补缺失产物、不检测源变更）会让人误判「索引翻转无效」——
+  改 .smesh 源后必须删 Library 产物强制重导。
+- **出处**：2026-10-04 编辑器 plane 朝向全天排查（CreatePlaneMenuCommand 落地
+  日起）；两次矛盾观察点破推理链，VulkanCommandBuffer 正高度视口 + 投影翻转
+  双证据定案。
+
 ---
 
 ## 六、排障方法论（沉淀）

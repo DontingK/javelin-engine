@@ -89,7 +89,11 @@ public class TextInputCapsule implements InputCapsule {
         if (v.startsWith("@guid:")) {
             String guid = v.substring(6);
             if (importer.getAssetManager() != null) {
-                return (T) importer.getAssetManager().loadGuid(guid, Asset.class);
+                // 传字段声明类型（调用方 readSerializable 的 type，如 Shader/Mesh）——
+                // 文本 guid 引用不带类名，声明类型是唯一类型来源。曾硬编码 Asset.class
+                // 接口：loadGuidInstance 经 ReflectiveFactory 实例化接口直接
+                // 「未注册的类」崩（2026-10-04 场景首条文本 guid 引用实测暴露）
+                return (T) importer.getAssetManager().loadGuid(guid, (Class<Asset>) type);
             }
             throw new IllegalStateException("无法解析 GUID 引用，未配置 AssetManager: " + guid);
         }

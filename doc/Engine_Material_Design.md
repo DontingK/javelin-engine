@@ -45,6 +45,7 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 
 - `Shader.write/read`：super（guid/lastModified）+ `shaderName` + `properties`（ArrayList，声明序）+ `passes`（ArrayList，声明序）；
 - `ShaderPass / MaterialProperty / PassState` 实现 `Serializable` + `@Reflective`（补 ReflectiveFactory 注册），SPIR-V 为 byte[]、PassState 枚举走 name() 字符串、`colorMask` 存 int 位掩码（枚举集不直接序列化——list 元素类名要 @Reflective 注册，绕开）。
+- **Material.write/read 已落地（2026-10-04，.scene 内嵌数据面）**：super（guid/lastModified）+ `shader`（Asset 引用走框架 guid 分流：guid 非空经 AssetManager 解回、空走图内嵌）+ `values`/`textures` 条目列表直通（`MaterialValueEntry`/`MaterialTextureEntry`——Capsule 无 Map 通道，HashMap 存储重构为 name 唯一条目列表，存储形态 = 序列化形态同 Mesh 拍板）。内嵌材质（guid 空）经 .scene 文本通道全数据面往返；.mat 资产格式（材质 guid 化共享、Inspector 编辑载体）仍待（§6）。
 
 **坑点存档（AGENTS 红线 10 出处，2026-09-26 调试得出）**：
 
@@ -68,7 +69,7 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 - **"用户侧零 GPU 暴露"原则**（用户拍板 2026-09-25）：资产公开 API 不出现 RHI 句柄——Texture2D 的 getGpu/setGpu、Mesh 的 vertexBuffer/indexBuffer/indexType/indexCount 全部 package-private，GPU 代码只存在于同包桥接类（**上传逻辑全在桥接**：MeshUpload/TextureUpload 持有 device 逻辑，Mesh/Texture2D 是纯 CPU 数据容器）；`Mesh.layout()`（VertexLayout 描述值，PSO 键）例外公开，类比 Texture2D 的 format 元数据；
 - **冻结语义（拍板 2026-09-25）**：上传后资产不可变——Mesh 修改抛异常（既有），Texture2D 补齐守卫（setPixels/setFilterMode/setWrapMode 上传后抛 IllegalStateException，堵"改了静默失效"洞）；动态顶点/像素更新（骨骼、粒子、物理形变）将来走专门的动态缓冲路径，不经重传；
 - MeshRenderer 的 `mesh`/`material` 字段已补（场景渲染接入，2026-09-25）：null = 不渲染（missing 语义），SceneRenderBridge pull 翻译；
-- AbsAsset 提供 guid/lastModified；~~.shader 侧 Serializable 协议待补~~——**已落地（2026-09-26，§3.1）**；.mat 的协议随 .mat 格式另行定义。
+- AbsAsset 提供 guid/lastModified；~~.shader 侧 Serializable 协议待补~~——**已落地（2026-09-26，§3.1）**；~~.mat 的协议随 .mat 格式另行定义~~——**Material write/read 已先随 .scene 内嵌落地（2026-10-04，§3.1），.mat 资产格式仍待（§6）**。
 
 ## 6. 不做（P2）
 

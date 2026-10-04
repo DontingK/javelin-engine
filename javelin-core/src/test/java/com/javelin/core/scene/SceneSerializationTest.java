@@ -3,6 +3,9 @@ package com.javelin.core.scene;
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.assets.Asset;
 import com.javelin.core.assets.AssetManager;
+import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.MaterialProperty;
+import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.MeshRenderer;
@@ -15,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -78,24 +83,26 @@ public class SceneSerializationTest {
         }
     }
 
-    /** 资产引用通道 stub：guid → 固定 Mesh 实例（验证引用共享恢复，不落盘资产本体） */
+    /** 资产引用通道 stub：guid → 固定实例（验证引用共享恢复，不落盘资产本体） */
     private static final class StubAssetManager implements AssetManager {
-        private final Mesh mesh;
+        private final Map<String, Asset> assets = new HashMap<>();
 
-        StubAssetManager(Mesh mesh) {
-            this.mesh = mesh;
+        StubAssetManager(Asset... assets) {
+            for (Asset asset : assets) {
+                this.assets.put(asset.getGuid(), asset);
+            }
         }
 
         @Override
         @SuppressWarnings("unchecked")
         public <T extends Asset> T loadGuid(String guid, Class<T> assetClass) {
-            return (T) mesh;
+            return (T) assets.get(guid);
         }
 
         @Override
         @SuppressWarnings("unchecked")
         public <T extends Asset> T loadGuidInstance(String guid, Class<T> assetClass) {
-            return (T) mesh;
+            return (T) assets.get(guid);
         }
 
         @Override
@@ -231,6 +238,10 @@ public class SceneSerializationTest {
         MeshRenderer parentRenderer = parent.addComponent(MeshRenderer.class);
         parentRenderer.setMesh(mesh);
         parentRenderer.setCastShadow(false);
+        // 材质 guid 引用（二进制通道 Asset 分流）：经 AssetManager 解回同一实例
+        Material material = new Material();
+        material.setGuid("material-guid-1");
+        parentRenderer.setMaterial(material);
         Node child = new Node();
         child.setName("child");
         MeshRenderer childRenderer = child.addComponent(MeshRenderer.class);
@@ -241,7 +252,8 @@ public class SceneSerializationTest {
         File file = new File(tempDir, "asset-ref.bin");
         new BinaryExporter(file).export(scene);
 
-        GameScene loaded = new BinaryImporter(file, new StubAssetManager(mesh)).importData(GameScene.class);
+        GameScene loaded = new BinaryImporter(file, new StubAssetManager(mesh, material))
+                .importData(GameScene.class);
 
         Node loadedParent = loaded.getRootNodes().get(0);
         Node loadedChild = loadedParent.getTransform().getChild(0).getNode();
@@ -251,11 +263,40 @@ public class SceneSerializationTest {
         // guid 引用经 AssetManager 解回同一实例：跨 renderer 共享保持
         assertSame(mesh, loadedParentRenderer.getMesh());
         assertSame(mesh, loadedChildRenderer.getMesh());
-        // material 引用 null（Unity missing 语义，不渲染）
-        assertNull(loadedParentRenderer.getMaterial());
+        // 材质 guid 引用解回同一实例；子 renderer 无材质 null（Unity missing 语义，不渲染）
+        assertSame(material, loadedParentRenderer.getMaterial());
+        assertNull(loadedChildRenderer.getMaterial());
         assertFalse(loadedParentRenderer.isCastShadow());
         assertTrue(loadedChildRenderer.isCastShadow());
         // 可渲染注册表（Renderable instanceof 分流）
         assertEquals(2, loaded.getRenderables().size());
+    }
+
+    @Test
+    void materialDataRoundTripRestoresShaderRefAndValues() throws Exception {
+        Shader shader = Shader.builder("TestShader")
+                .property(MaterialProperty.color("_Color", "Color", 1.0f, 1.0f, 1.0f, 1.0f))
+                .property(MaterialProperty.floatProp("_Float", "Float", 0.5f))
+                .build();
+        shader.setGuid("shader-guid-1");
+
+        Material material = new Material(shader);
+        material.setColor("_Color", 0.2f, 0.4f, 0.6f, 1.0f);
+        material.setFloat("_Float", 0.75f);
+
+        // 根级导出（根实例走 id 内嵌）：材质数据面 write/read 直接过堂；
+        // shader 字段为非根 Asset 引用 → guid 分流 → AssetManager 解回
+        File file = new File(tempDir, "material.bin");
+        new BinaryExporter(file).export(material);
+        Material loaded = new BinaryImporter(file, new StubAssetManager(shader))
+                .importData(Material.class);
+
+        assertSame(shader, loaded.getShader());
+        float[] color = loaded.getColor("_Color");
+        assertEquals(0.2f, color[0], 1e-6f);
+        assertEquals(0.4f, color[1], 1e-6f);
+        assertEquals(0.6f, color[2], 1e-6f);
+        assertEquals(1.0f, color[3], 1e-6f);
+        assertEquals(0.75f, loaded.getFloat("_Float"), 1e-6f);
     }
 }

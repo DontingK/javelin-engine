@@ -298,12 +298,31 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
 - **文本通道**：编辑器 .scene 源文件走 TextExporter（文本协议，Editor_Design §7
   既有拍板）；文本/二进制的资产引用语义差异——文本侧 guid 为 null 时 @ref 内嵌
   完整对象，二进制侧 Asset 恒走 TYPE_ASSET（null guid 写 null 引用丢失）。
+  **guid 引用读侧修正（2026-10-04）**：文本 guid 引用不带类名，字段声明类型是
+  唯一类型来源——TextInputCapsule 曾硬编码 Asset.class 接口回解（ReflectiveFactory
+  实例化接口即崩），场景首条文本 guid 引用实测暴露，改传调用方 type。
+- **资产身份盖章（2026-10-04 实测暴露；方案存档、实现暂缺）**：Library 产物
+  不内嵌 guid（Mesh/Shader 产物格式拍板），加载实例 guid 为 null 则字段引用
+  序列化无 guid 分流可走——上传后 CPU 副本已释放的 Mesh 会被内嵌成空壳
+  （attributes 空 / indices null，重载不可见；default.scene 清理时实证，本次
+  场景数据已手工换 @guid 修复）。方案 = `AssetLibManager.loadGuidInstance`
+  加载时回填 guid（mesh/shader 引用统一走 guid 回解、运行态隔离在落盘之外）；
+  曾实现后提交时已不在工作区——存盘侧 mesh guid 回填暂缺，再落地时恢复实现。
 
 ### 9.4 已知限制与开放项
 
-- **Material 引用闭环阻塞 .mat 任务**：Material 尚无 write/read（内嵌只剩
-  guid/lastModified），编辑器内 MeshRenderer 的材质引用按 guid 落盘（缺失走
-  Unity missing-material 语义 null 不渲染），随 .mat 格式落地补全；
+- **Material 内嵌数据面已通（2026-10-04 同日两步）、剩 .mat 资产格式**：上午
+  NPE 暴露旧缺口——Material 无 write 时期重载读回 shader-null 残实例（原表述
+  「读回 null 不渲染」与框架行为不符）流入 RenderObject.forwardPass 即崩；
+  RenderObject 构造器显式判空（**用户拍板：残材质 = 文件损坏口径，显式报错
+  不静默跳过——曾补的 SceneRenderBridge `getShader()==null` missing 判定按同
+  拍板撤除，missing 语义仅覆盖 mesh/material 为 null**）；随即 **Material
+  write/read 落地**根治——shader 走框架 guid 分流（guid 非空经 AssetManager
+  解回）、values/textures 重构为条目列表直通（Capsule 无 Map 通道，
+  MaterialValueEntry/MaterialTextureEntry，同 Mesh 拍板存储形态 = 序列化形态）
+  ——内嵌材质保存重载完整渲染（plane 闭环，用户驱动：「保存时是怎么样，读取
+  出来应该都是一样的」）。剩 **.mat 资产格式**：材质 guid 化共享/实例化、
+  Inspector 编辑载体；
 - **子树剪贴板（copy/paste）**：序列化数据面已通（Node 图 round-trip 成立），
   剪贴板机制随命令落地——导出前须置根 transform.parent=null（避免父链整棵拖进
   图）并清子树 node.scene=null（旧场景非导出根走 GUID 查不到恢复 null，粘贴
@@ -314,6 +333,8 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
   「编辑器跑 Game」任务接线（引入 SceneImporter 或改直接读源文件，届时拍板）。
 
 ### 9.5 验收
+
+**状态：✅ 2026-10-04 用户实测验收通过**（单测 + 编辑器「建树 → 保存 → 重启还原」）。
 
 - 单测 `SceneSerializationTest`（javelin-core，二进制通道 round-trip）：树结构与
   双向回链 / guid 内嵌 / 投影恢复 / 归属 read 直恢复+注册表 read 重建+生命周期
