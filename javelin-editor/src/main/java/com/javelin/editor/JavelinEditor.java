@@ -3,7 +3,6 @@ package com.javelin.editor;
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.appstate.AppStateManager;
-import com.javelin.core.math.Color;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
@@ -13,6 +12,7 @@ import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.appstate.EditorAxesAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.appstate.SceneWatchAppState;
+import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
 import com.javelin.editor.menu.EditorMenuSetup;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
@@ -23,7 +23,6 @@ import com.javelin.editor.meta.MetaManager;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.serializable.TextImporter;
-import com.javelin.editor.settings.EditorSettings;
 import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.settings.SettingsManager;
 import com.javelin.editor.window.cef.MainFrame;
@@ -107,6 +106,8 @@ public class JavelinEditor extends JavelinEngine {
             stateManager.attach(new EditorCameraAppState());
             // 坐标轴诊断线（+X 红 / +Y 绿 / +Z 蓝，plane 朝向排查用；编辑器子场景不入树不落盘）
             stateManager.attach(new EditorAxesAppState());
+            // 变换 Gizmo（移动工具三轴指示，跟随选中；缩放/旋转形态与拖拽后续扩展）
+            stateManager.attach(new TransformGizmoAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());

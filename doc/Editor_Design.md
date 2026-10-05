@@ -2,6 +2,7 @@
 
 > 本文档描述 `javelin-editor` 模块的整体架构。模块尚在快速演进期，文档随代码同步更新。
 > 最近一次全面梳理：2026-09-25（含本次窗口接入引擎的改造）；2026-09-28 增补设计基准（完全参考 Unity）。
+> 2026-10-04 §10 增补变换 Gizmo v0.1（移动三轴）落地记录；2026-10-05 §10 更新为工具族架构（事件驱动选中 + 距离自适应 + 引擎渲染激活过滤）。
 
 ## 1. 定位与边界
 
@@ -12,7 +13,8 @@
 **设计基准：完全参考 Unity**（拍板 2026-09-28）。编辑器的交互口径、面板组织、命名与
 概念体系以 Unity Editor 为准绳——已对齐先例：Scene 视图相机控制（`EditorCameraAppState`）、
 `viewportRect`（0-1 左下原点）、Layer/Tag/LayerMask、Hierarchy/Inspector/Project/Console
-面板命名、Node≈GameObject 的场景模型。后续编辑器功能设计遇行为分歧时，**以 Unity 的
+面板命名、Node≈GameObject 的场景模型、变换 Gizmo 移动三轴（`TransformGizmoAppState`，
+RGB=XYZ、Global 世界轴口径）。后续编辑器功能设计遇行为分歧时，**以 Unity 的
 做法为默认答案**；仅当引擎架构差异（CEF/Web UI 栈、挖洞式视口等）确实无法对齐时才
 自行设计，并在对应设计档注明偏离点与理由。
 
@@ -222,6 +224,27 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   改名→scene.nodeRenamed 定点）、hierarchy 右键菜单统一走 Swing
   （/menu/open 传域 id+鼠标坐标弹 JPopupMenu，v0.4 定档——Web 右键浮层实测仍被
   视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector/project 面板对接待续。
+- **变换 Gizmo v0.1 视觉版已落地（2026-10-04；2026-10-05 用户重构为工具族架构）**：
+  `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
+  基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh
+  +Y 箭头复用旋转出 X/Z：X 绕 Z -90°、Z 绕 X +90°；gizmo.shader unlit 纯色
+  `_Color` 按轴红/绿/蓝，Cull Off 容忍外部工具导出混合绕序）。`gizmoNode`
+  常驻编辑子场景（不入用户树、不落盘），工具子树挂其下；选中**事件驱动**——
+  `SceneSelectEvent`（scene.select，payload nodeId）经 EditorSelection
+  setSelectedNodeId 收口发布（桥上报/创建命令自动选中一处全覆盖）；位置跟随写
+  gizmoNode（工具无关）；**距离自适应缩放** = 相机距离 / TOOLS_SCALE ×
+  scaleFactor()（屏幕恒定尺寸口径）。显隐与工具切换走节点 setActive——配套
+  **引擎侧渲染过滤**（SceneRenderBridge 按 isActiveInHierarchy 过滤，Unity
+  inactive 口径，2026-10-05 拍板；setActive 只影响生命周期状态机藏不住渲染）。
+  **置顶（两层深度语义，用户拍板 2026-10-05 定稿）**：GizmoPass 挂管线末尾
+  （addPass——RenderPipeline 本轮补齐 removePass，「增删/插入」闭环）——颜色
+  LOAD 保画 + 深度 CLEAR：gizmo 对外恒在场景之上不被遮挡（编辑操作对象始终
+  可见）、内部箭头互有层次（ZWrite On 自写自测、画序内遮挡正确）；同日曾试
+  深度 LOAD（被场景遮挡的立体咬合口径）按定稿需求切回，将来遮挡透视感可加
+  Greater 鬼影变体递进；绘制对象按 gizmo.shader 实例身份过滤（材质
+  getShader 同一性，全工具共用；不走 Layer——层表为二进制设置文件驱动，
+  现有项目无 Gizmo 层需迁移）。
+  轴拾取拖拽（依赖引擎 Ray/视口拾取，二期）与缩放/旋转工具形态待续。
 - ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

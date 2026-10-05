@@ -383,6 +383,10 @@ public class JavelinEngine {
         return renderPipeline;
     }
 
+    public AssetManager getAssetManager() {
+        return assetManager;
+    }
+
     protected void update() {
 
     }

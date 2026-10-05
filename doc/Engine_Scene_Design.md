@@ -147,8 +147,12 @@ class MeshRenderer extends Component {
 ```
 
 - **几何共享靠资产引用**（同一 Mesh 对象被多个 MeshRenderer 引用），**渲染差异靠材质实例**——不需要单独的 MeshFilter 组件；
-- `mesh`/`material` 为 null 时不渲染（missing 语义）；SceneRenderBridge 每帧 pull 翻译
-  （getRenderables → RenderObject），mesh/material 身份变化 = 注销重注（v0.1）；
+- `mesh`/`material` 为 null 时不渲染（missing 语义）；节点层级不激活同样不渲染
+  （Unity inactive 口径，2026-10-05 拍板：SceneRenderBridge 翻译时按
+  `isActiveInHierarchy` 过滤——setActive 只影响生命周期状态机藏不住渲染，
+  此处是唯一关卡；激活翻转即时注销防旧 RenderObject 残留）；SceneRenderBridge
+  每帧 pull 翻译（getRenderables → RenderObject），mesh/material 身份变化 =
+  注销重注（v0.1）；
 - 未来 `SkinnedMeshRenderer` 对称扩展（自带 `SkinnedMesh` 字段），不依赖本设计。
 
 ### 5.2 Camera（对应 RHI 9 节 RenderView）

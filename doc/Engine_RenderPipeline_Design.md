@@ -217,7 +217,20 @@ interface RenderPass {
 ```
 
 - 管线 = 有序 `RenderPass` 列表：`buildGraph` 按序调用各 Pass 的 `addToGraph`；
-- **扩展（RHI 14.3 方式 1）**：向 `pipeline.passes()` 指定下标插入自定义 Pass（如 SSR 插于光照后、透明前）——「插入位置」即原钩子点的语义，不再设命名枚举（原 PipelineHook 已于 2026-09-25 移除：零调用方 + v0.1 下 POST_LIGHTING 等点位别名映射已造成漏触发）；清空列表自行填充 = 方式 2 完全自定义；
+- **扩展（RHI 14.3 方式 1）**：经 `addPass(pass)`（列表尾追加）/ `addPass(pass, afterPass)`
+  （插于命名 Pass 之后）/ `removePass(pass)`（摘除，2026-10-05 补齐「增删/插入」之删）
+  组编自定义 Pass（如 SSR 插于光照后、透明前）——「插入位置」即原钩子点的语义，
+  不再设命名枚举（原 PipelineHook 已于 2026-09-25 移除：零调用方 + v0.1 下
+  POST_LIGHTING 等点位别名映射已造成漏触发）；清空列表自行填充 = 方式 2 完全自定义；
+- **末尾置顶 Pass 形态（先例：编辑器 GizmoPass，2026-10-05 定稿）**：颜色 LOAD
+  保画，深度二选一——**CLEAR = 恒置顶**（对清空深度按 LEqual 绘制即恒前，CompareOp
+  无 ALWAYS、Unity ZTest Always 不可用，清深是唯一等效形态，与相机 DEPTH_ONLY
+  叠加分支同语义；**两层深度语义**：置顶层内部物体靠 ZWrite On 自写自测保留
+  互遮挡，对外丢弃深度是故意的）；**LOAD = 场景深度咬合**（Pass 间共享深度
+  附件，对 Opaque 遗留深度正常测试——被场景遮挡，立体 cues 正确）。GizmoPass
+  现行 CLEAR（需求=gizmo 不被场景遮挡但内部有层次；LOAD 试行一日被否）。
+  收尾物体须在回调内过滤（按材质着色器身份等），否则全列表重绘会覆盖透明
+  物体；末位 Pass 写深度不影响下游；
 - 列表组成变化 = structureHash 正常失效（RHI 18.5）；Pass 实现**只准做声明 + 录制**，不碰屏障/布局（22.4 迁移纪律）。
 
 ### 6.3 每视口管线选择

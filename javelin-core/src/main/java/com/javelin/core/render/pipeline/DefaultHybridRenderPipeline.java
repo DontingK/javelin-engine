@@ -32,9 +32,10 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
 
     private final List<RenderPass> passes = new ArrayList<>();
     private final PostProcessChain postProcess = new PostProcessChain();
-    private final OpaqueForwardPass opaque = new OpaqueForwardPass();
+    private final OpaqueForwardPass opaque;
 
     public DefaultHybridRenderPipeline() {
+        opaque=new OpaqueForwardPass();
         passes.add(opaque);
         passes.add(new TransparentForwardPass());
     }
@@ -53,14 +54,6 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
         opaque.setClearColor(clearColor);
     }
 
-    /**
-     * 管线 Pass 有序列表（扩展点，RHI 14.3 方式 1）：插入自定义 Pass = 指定位置，
-     * 清空后自行填充 = 完全自定义管线（方式 2）。
-     */
-    public List<RenderPass> passes() {
-        return passes;
-    }
-
     @Override
     public void buildGraph(RenderGraphBuilder graph, PipelineContext ctx) {
         // v0.1：后处理空链直通 + 单相机省略 Composite（设计文档 3.3/4.7）——
@@ -68,5 +61,25 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
         for (RenderPass pass : passes) {
             pass.addToGraph(graph, ctx);
         }
+    }
+
+    @Override
+    public void addPass(RenderPass pass) {
+        passes.add(pass);
+    }
+
+    @Override
+    public void addPass(RenderPass pass, String afterPass) {
+        for (int i = 0; i < passes.size(); i++) {
+            if (passes.get(i).name().equalsIgnoreCase(afterPass)) {
+                passes.add(i+1,pass);
+            }
+        }
+
+    }
+
+    @Override
+    public void removePass(RenderPass pass) {
+        passes.remove(pass);
     }
 }

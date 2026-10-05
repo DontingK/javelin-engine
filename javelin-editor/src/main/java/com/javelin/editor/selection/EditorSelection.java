@@ -2,6 +2,8 @@ package com.javelin.editor.selection;
 
 import com.javelin.core.obj.ObjectCache;
 import com.javelin.core.scene.Node;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.SceneSelectEvent;
 
 import java.io.File;
 
@@ -9,8 +11,8 @@ import java.io.File;
  * 编辑器全局选中状态单源（菜单域基类上下文源，设计档 Editor_Menu_Design §3.2）。
  *
  * <p>场景树选中存 Node id（取用经 {@link ObjectCache} 弱引用反查），project 选中存
- * 文件/目录路径。写入方：前端经桥上报（场景树/project 对接任务接线）、将来视口拾取。
- * 当前无写入方——读取恒为无选中（null），域基类与命令先可编译落地。</p>
+ * 文件/目录路径。写入方：前端经桥上报（场景树已接线）、创建命令自动选中、将来
+ * 视口拾取；setSelectedNodeId 为收口发布点（SceneSelectEvent，见事件包）。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -44,12 +46,15 @@ public final class EditorSelection {
     }
 
     /**
-     * 设置场景树选中。
+     * 设置场景树选中（收口发布点）。
      *
      * @param nodeId 选中 Node id，null 清除（前端上报/视口拾取调用）
      */
     public static void setSelectedNodeId(Integer nodeId) {
         selectedNodeId = nodeId;
+        // 选中变更事件收口发布（本方法是唯一写入点：桥上报、创建命令自动选中、
+        // 将来拾取都过此）；publish 任意线程可调（异步单线程泵分发）
+        EditorEventBus.publish(new SceneSelectEvent(nodeId));
     }
 
     /**

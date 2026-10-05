@@ -1,5 +1,6 @@
 package com.javelin.core.render.pipeline;
 
+import com.javelin.core.render.pipeline.pass.RenderPass;
 import com.javelin.rhi.RenderGraphBuilder;
 
 /**
@@ -15,4 +16,12 @@ public interface RenderPipeline {
 
     /** 为本视口向图追加 Pass 链 */
     void buildGraph(RenderGraphBuilder graph, PipelineContext ctx);
+    void addPass(RenderPass pass);
+    void addPass(RenderPass pass,String afterPass);
+
+    /**
+     * 移除 Pass（设计 6.2「增删/插入」之删；列表组成变化 = 图缓存 structureHash
+     * 正常失效，同 addPass）。
+     */
+    void removePass(RenderPass pass);
 }

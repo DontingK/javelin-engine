@@ -134,6 +134,17 @@ public final class SceneRenderBridge {
             if (!(renderable instanceof MeshRenderer mr)) {
                 continue;
             }
+            // 节点层级不激活不渲染（Unity inactive 口径，用户拍板 2026-10-05：渲染
+            // pull 侧统一过滤——setActive 只影响生命周期状态机藏不住渲染，此处是
+            // 唯一过滤点。已注册的即时注销防残留：仅跳过注册会让旧 RenderObject
+            // 帧帧续命，激活翻转必须走到 removeRenderer）
+            if (!mr.getNode().isActiveInHierarchy()) {
+                RenderObject stale = renderers.remove(mr);
+                if (stale != null) {
+                    rs.removeRenderer(stale);
+                }
+                continue;
+            }
             RenderObject ro = renderers.get(mr);
             boolean identityChanged = ro != null
                     && (ro.mesh() != mr.getMesh() || ro.material() != mr.getMaterial());

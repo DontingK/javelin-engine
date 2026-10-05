@@ -36,7 +36,7 @@ public class EditorAxesAppState extends AbsEditorAppState {
     private static final String GRID_SHADER_PATH = "editor/shader/editor-grid.shader";
 
     /** 轴长（世界单位） */
-    private static final float AXIS_LEN = 10.0f;
+    private static final float AXIS_LEN = 1.0f;
 
     /** 三根轴节点（onDetach 时从编辑器场景摘除） */
     private final Node[] axisNodes = new Node[3];
