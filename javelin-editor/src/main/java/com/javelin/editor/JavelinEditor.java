@@ -171,6 +171,26 @@ public class JavelinEditor extends JavelinEngine {
         return editorCamera;
     }
 
+    /**
+     * 视口（游戏画布）逻辑宽度——AWT 逻辑坐标口径，与 Input.mouseX/Y 同一空间
+     * （屏幕点 → 世界射线的归一化换算用；逻辑/物理等比，纵横比不受 dpi 影响）。
+     * 画布未创建返回 0。
+     */
+    public int viewportWidth() {
+        if (window instanceof MainFrame mainFrame && mainFrame.getCanvas() != null) {
+            return mainFrame.getCanvas().getWidth();
+        }
+        return 0;
+    }
+
+    /** 视口（游戏画布）逻辑高度（口径同 {@link #viewportWidth()}）；画布未创建返回 0 */
+    public int viewportHeight() {
+        if (window instanceof MainFrame mainFrame && mainFrame.getCanvas() != null) {
+            return mainFrame.getCanvas().getHeight();
+        }
+        return 0;
+    }
+
     public static void main(String[] args) {
         ProjectFrame projectWindow = new ProjectFrame();
         projectWindow.setSize(1280, 720);

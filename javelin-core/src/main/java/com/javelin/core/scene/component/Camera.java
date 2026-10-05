@@ -3,6 +3,7 @@ package com.javelin.core.scene.component;
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.math.Color;
 import com.javelin.core.math.Rect;
+import com.javelin.core.physics.Ray;
 import com.javelin.core.render.ClearFlags;
 import com.javelin.core.render.ProjectionType;
 import com.javelin.core.scene.Layer;
@@ -10,6 +11,8 @@ import com.javelin.core.scene.LayerMask;
 import com.javelin.core.scene.Component;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
 
 /**
  * 相机组件（对应 RHI 9 节 RenderView）。
@@ -45,6 +48,13 @@ public class Camera extends Component {
     private boolean main;
     /** 渲染深度（值越大越晚渲染，可覆盖在小值相机画面之上——小地图/画中画用） */
     private float depth;
+
+    // screenToRay 复用缓冲（运行态不落盘、单线程每查复用）
+    private Vector3f rayOrigin = new Vector3f();
+    private Vector3f rayForward = new Vector3f();
+    private Vector3f rayUp = new Vector3f();
+    private Vector3f rayRight = new Vector3f();
+    private Vector3f rayDirection = new Vector3f();
 
     public ProjectionType getProjectionType() {
         return projectionType;
@@ -142,6 +152,71 @@ public class Camera extends Component {
 
     public void setMain(boolean main) {
         this.main = main;
+    }
+
+    /**
+     * 屏幕点 → 世界射线（Unity {@code Camera.ScreenPointToRay} 口径——经本相机
+     * {@code viewportRect} 归一化，仅透视投影）。
+     *
+     * <p>坐标约定：screenX/Y 为渲染目标像素坐标（原点左上、y 向下——本引擎鼠标
+     * 坐标口径；Unity 左下原点的差异在内部吸收）；归一化经 viewportRect
+     *（null = 全屏），视口外的点映射到 NDC [−1,1] 之外（射线指向视锥外，
+     * 调用方按需先判包含）。符号口径（渲染侧同源）：<b>屏幕右向 = forward×up</b>
+     *（RH：面向 +Z 屏幕右 = −X——EditorCameraAppState 2026-10-04 实测修正同源，
+     * 拾取换算必守，用 localX 会左右镜像）；投影已含 Vulkan Y 翻转
+     *（view +y 上 ↔ NDC −y），屏幕顶 = NDC −1 = 视线上方。</p>
+     *
+     * @param screenX     屏幕像素 x（渲染目标坐标）
+     * @param screenY     屏幕像素 y（原点左上）
+     * @param targetWidth 渲染目标宽（与 screenX/Y 同坐标系，须 &gt; 0）
+     * @param targetHeight 渲染目标高（须 &gt; 0）
+     * @param out         输出射线（origin=相机世界位置，direction 归一化）
+     * @return out
+     * @throws UnsupportedOperationException 正交投影（后置）
+     * @throws IllegalStateException 相机未挂节点（无世界位姿）
+     */
+    public Ray screenToRay(float screenX, float screenY, float targetWidth, float targetHeight, Ray out) {
+        if (projectionType != ProjectionType.PERSPECTIVE) {
+            throw new UnsupportedOperationException("正交投影的 screenToRay 后置（当前仅透视）");
+        }
+        if (getNode() == null) {
+            throw new IllegalStateException("相机未挂节点，无世界位姿可换算");
+        }
+        Matrix4f localToWorld = getNode().getTransform().getLocalToWorld();
+        localToWorld.getTranslation(rayOrigin);
+        rayForward.set(0, 0, 1);
+        localToWorld.transformDirection(rayForward);
+        rayForward.normalize();
+        rayUp.set(0, 1, 0);
+        localToWorld.transformDirection(rayUp);
+        rayUp.normalize();
+        rayRight.set(rayForward).cross(rayUp).normalize();
+
+        // 视口像素区域（Unity viewportRect [0,1] 原点左下 y 向上 → 原点左上换算；
+        // null = 全屏）
+        Rect rect = viewportRect;
+        float rectX = rect != null ? rect.x : 0.0f;
+        float rectY = rect != null ? rect.y : 0.0f;
+        float rectW = rect != null ? rect.width : 1.0f;
+        float rectH = rect != null ? rect.height : 1.0f;
+        float vpLeft = rectX * targetWidth;
+        float vpTop = (1.0f - rectY - rectH) * targetHeight;
+        float vpW = rectW * targetWidth;
+        float vpH = rectH * targetHeight;
+
+        float ndcX = 2.0f * (screenX - vpLeft) / vpW - 1.0f;
+        float ndcY = 2.0f * (screenY - vpTop) / vpH - 1.0f;
+
+        float tanHalfFov = (float) Math.tan(Math.toRadians(fov) * 0.5f);
+        float aspect = vpW / vpH;
+        // 世界方向 = forward + right·hX + up·hY；竖直分量取 −ndcY（Vulkan Y 翻转）
+        float hX = ndcX * tanHalfFov * aspect;
+        float hY = -ndcY * tanHalfFov;
+        rayDirection.set(rayForward);
+        rayDirection.add(rayRight.x * hX, rayRight.y * hX, rayRight.z * hX);
+        rayDirection.add(rayUp.x * hY, rayUp.y * hY, rayUp.z * hY);
+        rayDirection.normalize();
+        return out.set(rayOrigin, rayDirection);
     }
 
     /**

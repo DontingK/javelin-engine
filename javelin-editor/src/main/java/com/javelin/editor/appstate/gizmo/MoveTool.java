@@ -6,6 +6,7 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.scene.Node;
+import com.javelin.core.scene.component.CylinderCollider;
 import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
 import org.joml.Quaternionf;
@@ -23,6 +24,11 @@ import org.slf4j.LoggerFactory;
  * 用户树、不落盘、GAME 模式自动不可见）。尺度不自持：由 TransformGizmoAppState
  * 距离自适应统一下发（× scaleFactor()），不随选中物体缩放（Unity 移动轴口径）。</p>
  *
+ * <p>三轴各挂 {@code CylinderCollider}（fitFromMesh 贴合箭头包围圆柱）——轴拖拽
+ * 判定的拾取准备，Ray 期接入；届时按抓取舒适度评估判定半径是否加粗。
+ * 轴节点经 userData 打轴标（key={@link Axis#USER_DATA_KEY}）供 hover/拖拽
+ * 判别轴，不解析节点名。</p>
+ *
  * <p>init 只做资源与子树构建；选中跟随/显隐暂由 TransformGizmoAppState
  * 驱动，工具管理器改造时迁入 update。</p>
  *
@@ -33,10 +39,14 @@ public class MoveTool extends TransformTools {
 
     private static final Logger log = LoggerFactory.getLogger(MoveTool.class);
 
-    /** 内置移动轴网格 loadAsset 路径（builtin-asset-editor/mesh/axisY.smesh 释放到 .javelin/assets 后的相对路径） */
+    /**
+     * 内置移动轴网格 loadAsset 路径（builtin-asset-editor/mesh/axisY.smesh 释放到 .javelin/assets 后的相对路径）
+     */
     private static final String AXIS_MESH_PATH = "editor/mesh/axisY.smesh";
 
-    /** 内置 Gizmo 着色器 loadAsset 路径（unlit 纯色，_Color 按轴下发；包内可见——TransformGizmoAppState 加载同实例传 GizmoPass 做材质过滤） */
+    /**
+     * 内置 Gizmo 着色器 loadAsset 路径（unlit 纯色，_Color 按轴下发；包内可见——TransformGizmoAppState 加载同实例传 GizmoPass 做材质过滤）
+     */
     static final String GIZMO_SHADER_PATH = "editor/shader/gizmo.shader";
 
     @Override
@@ -63,9 +73,11 @@ public class MoveTool extends TransformTools {
                 {0.0f, 0.0f, 1.0f},
         };
         String[] names = {"MoveToolAxis-X", "MoveToolAxis-Y", "MoveToolAxis-Z"};
+        Axis[] axes = {Axis.X, Axis.Y, Axis.Z};
         for (int i = 0; i < 3; i++) {
             Node node = new Node();
             node.setName(names[i]);
+            node.getUserData().put(Axis.USER_DATA_KEY, axes[i]);
             Transform transform = node.getTransform();
             if (i == 0) {
                 transform.setLocalRotation(new Quaternionf().rotationZ((float) Math.toRadians(-90.0)));
@@ -79,8 +91,11 @@ public class MoveTool extends TransformTools {
             material.setColor("_Color", colors[i][0], colors[i][1], colors[i][2], 1.0f);
             renderer.setMaterial(material);
             renderer.setCastShadow(false);
+            // 轴拾取碰撞体：Y 对齐圆柱贴合箭头包围盒，随节点旋转指向各轴
+            CylinderCollider collider = node.addComponent(CylinderCollider.class);
+            collider.fitFromMesh(axisMesh);
         }
-        log.info("移动工具已创建（三轴复用 axisY 箭头，红/绿/蓝 = X/Y/Z，尺度随驱动侧距离自适应）");
+        log.info("移动工具已创建（三轴复用 axisY 箭头 + CylinderShape 拾取碰撞体，红/绿/蓝 = X/Y/Z，尺度随驱动侧距离自适应）");
     }
 
     @Override
@@ -90,7 +105,7 @@ public class MoveTool extends TransformTools {
 
     @Override
     protected float scaleFactor() {
-        return 1/9.8f;
+        return 1 / 9.8f;
     }
 
     @Override

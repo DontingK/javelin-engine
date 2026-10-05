@@ -69,6 +69,7 @@
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |
+| `Engine_Collision_Design.md` | 引擎碰撞设计（v0.1 草案待拍板）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ L1 场景查询/L2 物理系统预留（缩放=射线逆变换吸收、t 即世界距离不变量、JOML 例程适配性已核——球相交 tca 变体不满足 t 契约需自写）；已拍板：碰撞体=组件（负责形状）、刚体=独立组件后置（2026-10-05）；L0 形状相交+Collider 查询管线已实现并单测验收全绿（2026-10-05，片①②④；BoxShape 自写 slab、Cylinder 取最小边界穿越点、Collider collideShape 统一管线含法线矩阵回换）；CylinderCollider 已建并挂编辑器三移动轴（fitFromMesh 贴合箭头包围圆柱，拖拽判定 Ray 期接入，2026-10-05） |
 
 ### 实现进度文档
 

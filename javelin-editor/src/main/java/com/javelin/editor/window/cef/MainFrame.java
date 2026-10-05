@@ -186,4 +186,9 @@ public class MainFrame extends CefFrame implements Window {
         canvas.setDpi(dpi);
         SwingUtilities.invokeAndWait((Runnable) () -> canvas.setBounds(rectPar.x, rectPar.y, rectPar.width, rectPar.height));
     }
+
+    /** 游戏画布（未创建返回 null）——拾取换算取画布逻辑尺寸用（与 Input.mouseX/Y 同空间） */
+    public CanvasSurface getCanvas() {
+        return canvas;
+    }
 }

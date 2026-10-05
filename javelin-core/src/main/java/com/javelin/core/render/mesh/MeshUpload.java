@@ -103,6 +103,8 @@ public final class MeshUpload {
 
         mesh.layout = buildLayout(canonical, stride);
         mesh.uploaded = true;
+        // CPU 副本即将释放，先把 bounds 算好钉死（此后 getBounds 无数据可算）
+        mesh.getBounds();
         if (!mesh.keepCpuCopy) {
             mesh.attributes.clear();
             mesh.indices = null;

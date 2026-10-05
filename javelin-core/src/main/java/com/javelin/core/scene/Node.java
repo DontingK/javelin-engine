@@ -9,7 +9,9 @@ import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 场景节点（容器，Unity 心智）。
@@ -34,6 +36,7 @@ public class Node extends ObjectId implements Serializable {
     // 类型用 ArrayList 直通（红线 10：序列化集合字段直传字段本体，不经包装）
     private ArrayList<Component> components;
 
+    private Map<Object,Object> userData=new HashMap<>();
     /** 归属场景（GameScene.add 设置，remove 清除；package-private，由 GameScene 维护） */
     Scene scene;
 
@@ -260,5 +263,9 @@ public class Node extends ObjectId implements Serializable {
             return Layer.of(index);
         }
         return Layer.DEFAULT;
+    }
+
+    public Map<Object, Object> getUserData() {
+        return userData;
     }
 }

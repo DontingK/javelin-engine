@@ -2,11 +2,15 @@ package com.javelin.editor.appstate.gizmo;
 
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.appstate.AppStateManager;
+import com.javelin.core.input.Input;
+import com.javelin.core.physics.Ray;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Collider;
+import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.AbsEditorAppState;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.SceneSelectEvent;
@@ -40,6 +44,12 @@ import java.util.ArrayList;
  * LOAD 保画 + 深度 CLEAR，两层深度语义（用户拍板 2026-10-05）：gizmo 对外恒在
  * 场景之上不被遮挡（编辑操作对象始终可见）、内部箭头互有层次（ZWrite On 自写
  * 自测）；绘制对象按 gizmo.shader 实例身份过滤（全部变换工具共用该 shader）。</p>
+ *
+ * <p>射线检测（2026-10-05）：update 每帧把鼠标（视口逻辑坐标）经
+ * {@link Camera#screenToRay}（Unity ScreenPointToRay 口径，viewportRect 归一化）
+ * 换算成世界射线，打活动工具子树的碰撞体取最近命中；{@link #getHoveredNode()}
+ * 暴露命中轴 Node（hover 变更打日志）、{@link #getHoveredAxis()} 经 userData
+ * 标判别轴——轴拖拽判定的地基。</p>
  *
  * @author javelin
  * @create 2026/10/4
@@ -92,6 +102,14 @@ public class TransformGizmoAppState extends AbsEditorAppState {
      * 工具缩放复用向量（每帧下发，避免分配）
      */
     private final Vector3f scaleVec = new Vector3f();
+
+    // 射线检测复用缓冲（每帧零分配）：世界射线 + 屏幕换算基向量 + 命中量
+    private final Ray pickRay = new Ray();
+    private final Vector3f hitPointBuf = new Vector3f();
+    private final Vector3f hitNormalBuf = new Vector3f();
+
+    /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新） */
+    private Node hoveredNode;
 
     @Override
     public void onAttach(AppStateManager stateManager, JavelinEngine engine) {
@@ -151,6 +169,7 @@ public class TransformGizmoAppState extends AbsEditorAppState {
             gizmoNode = null;
         }
         targetNode = null;
+        hoveredNode = null;
         super.onDetach(stateManager);
     }
 
@@ -190,6 +209,22 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 update(tool, scale * tool.scaleFactor());
             }
         }
+
+        // ── 射线检测（拖拽判定地基）：鼠标 → 世界射线 → 活动工具碰撞体 → 命中轴 Node ──
+        int viewportW = javelinEditor.viewportWidth();
+        int viewportH = javelinEditor.viewportHeight();
+        if (viewportW > 0 && viewportH > 0) {
+            editorCamera.screenToRay(Input.mouseX(), Input.mouseY(), viewportW, viewportH, pickRay);
+            Node detected = raycastToolNodes();
+            if (detected != hoveredNode) {
+                hoveredNode = detected;
+                if (detected != null) {
+                    log.info("射线检测命中轴节点：{}", detected.getName());
+                } else {
+                    log.info("射线检测离开轴节点");
+                }
+            }
+        }
     }
 
     /**
@@ -199,6 +234,53 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         transformTools.update();
         scaleVec.set(scale, scale, scale);
         transformTools.getToolNode().getTransform().setLocalScale(scaleVec);
+    }
+
+    /**
+     * 射线检测当前命中的轴 Node（null = 未命中/未激活；update 每帧刷新）——
+     * 拖拽判定的消费口。
+     */
+    public Node getHoveredNode() {
+        return hoveredNode;
+    }
+
+    /**
+     * 当前射线检测命中的轴（轴节点 userData 标，key={@link Axis#USER_DATA_KEY}；
+     * null = 未命中或命中未打标的柄——旋转/缩放工具的柄将来可不打轴标只判节点）。
+     * 轴判别不解析节点名。
+     */
+    public Axis getHoveredAxis() {
+        if (hoveredNode == null) {
+            return null;
+        }
+        Object axis = hoveredNode.getUserData().get(Axis.USER_DATA_KEY);
+        return axis instanceof Axis a ? a : null;
+    }
+
+    /**
+     * 活动工具子树的碰撞体射线检测（{@link #pickRay}）：最近命中返回所在轴
+     * Node，未命中返回 null（t 以 pickRay.direction 实长为单位，跨轴可比）。
+     */
+    private Node raycastToolNodes() {
+        Node hitNode = null;
+        float bestT = -1f;
+        for (TransformTools tool : tools) {
+            Node toolNode = tool.getToolNode();
+            if (toolNode == null || !toolNode.isActive()) {
+                continue;
+            }
+            for (Transform child : toolNode.getTransform()) {
+                Node childNode = child.getNode();
+                for (Collider collider : childNode.getComponents(Collider.class)) {
+                    float t = collider.collideWithRay(pickRay, hitPointBuf, hitNormalBuf);
+                    if (t >= 0f && (bestT < 0f || t < bestT)) {
+                        bestT = t;
+                        hitNode = childNode;
+                    }
+                }
+            }
+        }
+        return hitNode;
     }
 
     /**

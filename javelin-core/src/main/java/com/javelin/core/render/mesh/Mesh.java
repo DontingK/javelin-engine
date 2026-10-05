@@ -2,6 +2,7 @@ package com.javelin.core.render.mesh;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.assets.AbsAsset;
+import com.javelin.core.physics.collision.Aabb;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.rhi.Buffer;
@@ -67,6 +68,9 @@ public class Mesh extends AbsAsset {
     List<MeshAttributeData> canonicalAttributes;
     boolean uploaded;
     boolean keepCpuCopy;
+    /** 本地包围盒（POSITION set 即失效清除+有效数据即算；运行态不落盘——read 路径不可派生（红线 10），
+     *  导入产物首次 getBounds 惰性算，MeshUpload 释放 CPU 副本前钉死，碰撞档 §5） */
+    private Aabb bounds;
 
     // ═══ 序列化（字段直通，read 只回写引用——红线 10） ═══
 
@@ -142,6 +146,15 @@ public class Mesh extends AbsAsset {
             attributes.add(node);
         }
         canonicalAttributes = null;
+        if (VertexAttribute.POSITION.name().equals(attribute.name())) {
+            // set 即失效：先清除旧缓存（空/短数据 setFromPoints 不改变当前盒——不得残留旧盒），
+            // 数据有效则随即重算
+            bounds = null;
+            float[] positions = node.getData();
+            if (positions.length >= 3) {
+                bounds = new Aabb().setFromPoints(positions);
+            }
+        }
     }
 
     public boolean isUploaded() {
@@ -244,6 +257,24 @@ public class Mesh extends AbsAsset {
     public int vertexCount() {
         float[] positions = positions();
         return positions == null ? 0 : positions.length / 3;
+    }
+
+    /**
+     * 本地空间包围盒（POSITION 扫描缓存，Mesh.bounds 回归——碰撞档 §5）。
+     *
+     * <p>setPositions 即失效清除+有效数据即算（空/短数据 → null，不残留旧盒）；
+     *  导入产物（read 不派生——红线 10 嵌套字段此时可未
+     * populate）首次取时惰性计算（CPU 副本尚在）；MeshUpload 释放 CPU 副本前
+     * 调用钉死。无 POSITION 且 CPU 副本已释放时返回 null。</p>
+     */
+    public Aabb getBounds() {
+        if (bounds == null) {
+            float[] positions = positions();
+            if (positions != null && positions.length >= 3) {
+                bounds = new Aabb().setFromPoints(positions);
+            }
+        }
+        return bounds;
     }
 
     // ═══ 包内共享（MeshUpload/MeshDraw 消费；勿跨包使用） ═══

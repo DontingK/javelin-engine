@@ -59,4 +59,5 @@ public abstract class TransformTools {
     protected float scaleFactor() {
         return 1f;
     }
+
 }
