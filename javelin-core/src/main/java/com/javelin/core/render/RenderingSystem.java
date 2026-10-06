@@ -37,9 +37,11 @@ import com.javelin.rhi.types.Format;
 import com.javelin.rhi.types.FrontFace;
 import com.javelin.rhi.types.PolygonMode;
 import com.javelin.rhi.types.PrimitiveTopology;
+import com.javelin.rhi.types.SampleCount;
 import com.javelin.rhi.types.SamplerAddressMode;
 import com.javelin.rhi.types.SamplerMipmapMode;
 import com.javelin.rhi.types.ShaderStage;
+import com.javelin.rhi.types.TextureType;
 import com.javelin.rhi.types.TextureUsage;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -125,6 +127,11 @@ public final class RenderingSystem implements AutoCloseable {
 
     // 每相机深度纹理（视口独立，RHI 19.4-2）
     private final Map<String, Texture> depthTextures = new HashMap<>();
+    // 每视口 MSAA 附件（视口独立，同 depthFor 模式；AA 关时惰性创建永不发生）
+    private final Map<String, Texture> msaaColorTextures = new HashMap<>();
+    private final Map<String, Texture> msaaDepthTextures = new HashMap<>();
+    /** 生效采样档（构造期由引擎钳制后传入；COUNT_1 = AA 关） */
+    private final SampleCount effectiveSamples;
     private int depthWidth;
     private int depthHeight;
 
@@ -135,15 +142,28 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     public RenderingSystem(Device device, FrameLoop frameLoop, int frameSlots) {
+        this(device, frameLoop, frameSlots, SampleCount.COUNT_1);
+    }
+
+    /**
+     * @param sampleCount 生效 MSAA 采样档（引擎启动期钳制后传入；
+     *                    COUNT_1 = 关闭。运行期切换需 PSO/附件失效协议，后置）
+     */
+    public RenderingSystem(Device device, FrameLoop frameLoop, int frameSlots,
+                           SampleCount sampleCount) {
         if (device == null || frameLoop == null) {
             throw new IllegalArgumentException("device / frameLoop must not be null");
         }
         if (frameSlots < 1) {
             throw new IllegalArgumentException("frameSlots must be >= 1, got: " + frameSlots);
         }
+        if (sampleCount == null) {
+            throw new IllegalArgumentException("sampleCount must not be null");
+        }
         this.device = device;
         this.frameLoop = frameLoop;
         this.frameSlots = frameSlots;
+        this.effectiveSamples = sampleCount;
 
         this.uboBuffer = device.createBuffer(
                 new BufferDesc(frameSlots * SLOT_SIZE, Set.of(BufferUsage.UNIFORM),
@@ -176,6 +196,8 @@ public final class RenderingSystem implements AutoCloseable {
         cameras.remove(camera);
         if (camera != null) {
             depthTextures.remove(camera.name());
+            msaaColorTextures.remove(camera.name());
+            msaaDepthTextures.remove(camera.name());
         }
     }
 
@@ -211,10 +233,20 @@ public final class RenderingSystem implements AutoCloseable {
      */
     public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
                                         PrimitiveTopology topology) {
+        return pipelineFor(material, layout, topology, SampleCount.COUNT_1);
+    }
+
+    /**
+     * 带 MSAA 采样档的 PSO 取用（scene 场景 Pass 按 isMsaaPath 传
+     * passSamples；overlay 家族恒 COUNT_1）。PSO rasterizationSamples 必须
+     * 与渲染附件采样数一致，故采样档进缓存键（同材质双档并存不串）。
+     */
+    public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
+                                        PrimitiveTopology topology, SampleCount samples) {
         checkOpen();
         Shader shader = material.getShader();
         String key = System.identityHashCode(shader) + ":" + layout.hashCode()
-                + ":" + topology;
+                + ":" + topology + ":" + samples;
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
             return cached;
@@ -240,7 +272,8 @@ public final class RenderingSystem implements AutoCloseable {
                 List.of(colorAttachmentFormat()), depthFormat(),
                 List.of(frameLayoutDesc(), emptySetLayoutDesc(), materialLayoutDesc(shader)),
                 PUSH_SIZE,
-                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR));
+                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
+                samples);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
         log.info("material PSO created: shader={} pass={} layout={} topology={}",
@@ -275,6 +308,41 @@ public final class RenderingSystem implements AutoCloseable {
         return depthTextures.computeIfAbsent(cameraName, n ->
                 device.createTexture(TextureDesc.depth2D(depthFormat(), depthWidth, depthHeight,
                         Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT)), null));
+    }
+
+    /**
+     * 每视口 MSAA 颜色附件（视口独立；仅 AA 开启时创建，AA 关恒 null——
+     * 上层以 null 判定走 1x 直写）。首次访问按当前交换链尺寸创建，resize 换绑。
+     */
+    public Texture msaaColorFor(String cameraName) {
+        if (effectiveSamples == SampleCount.COUNT_1) {
+            return null;
+        }
+        return msaaColorTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                new TextureDesc(TextureType.TYPE_2D, colorAttachmentFormat(), depthWidth, depthHeight,
+                        1, 1, 1, effectiveSamples, Set.of(TextureUsage.COLOR_ATTACHMENT),
+                        MemoryPreference.deviceLocal()),
+                null));
+    }
+
+    /**
+     * 每视口 MSAA 深度附件（与 msaaColorFor 成对同档——同一次渲染通道内
+     * 附件采样数必须一致，验证层抓混搭）。AA 关恒 null。
+     */
+    public Texture msaaDepthFor(String cameraName) {
+        if (effectiveSamples == SampleCount.COUNT_1) {
+            return null;
+        }
+        return msaaDepthTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                new TextureDesc(TextureType.TYPE_2D, depthFormat(), depthWidth, depthHeight,
+                        1, 1, 1, effectiveSamples, Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT),
+                        MemoryPreference.deviceLocal()),
+                null));
+    }
+
+    /** 生效采样档（COUNT_1 = AA 关） */
+    public SampleCount effectiveSampleCount() {
+        return effectiveSamples;
     }
 
     // ═══ 每帧收集（逻辑侧帧首；单线程退化下由图声明回调驱动） ═══
@@ -469,6 +537,8 @@ public final class RenderingSystem implements AutoCloseable {
         if (!depthTextures.isEmpty()) {
             log.info("depth size changed: {}x{} → {}x{}, rebind all view depths", depthWidth, depthHeight, w, h);
             depthTextures.clear();
+            msaaColorTextures.clear();
+            msaaDepthTextures.clear();
         }
         depthWidth = w;
         depthHeight = h;
@@ -498,6 +568,10 @@ public final class RenderingSystem implements AutoCloseable {
         materialLayouts.clear();
         depthTextures.values().forEach(Texture::dispose);
         depthTextures.clear();
+        msaaColorTextures.values().forEach(Texture::dispose);
+        msaaColorTextures.clear();
+        msaaDepthTextures.values().forEach(Texture::dispose);
+        msaaDepthTextures.clear();
         frameSet.dispose();
         frameSetLayout.dispose();
         emptySetLayout.dispose();

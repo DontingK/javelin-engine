@@ -104,7 +104,8 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             // 多重采样
             VkPipelineMultisampleStateCreateInfo multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack);
             multisample.sType$Default();
-            multisample.rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
+            // 与渲染附件采样数同源（dynamic rendering 附件 samples 不一致是验证层错误）
+            multisample.rasterizationSamples(VulkanTexture.toVkSampleCount(desc.sampleCount()));
             multisample.sampleShadingEnable(false);
 
             // 深度模板

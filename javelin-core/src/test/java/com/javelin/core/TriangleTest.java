@@ -23,6 +23,7 @@ import com.javelin.rhi.types.Format;
 import com.javelin.rhi.types.FrontFace;
 import com.javelin.rhi.types.PolygonMode;
 import com.javelin.rhi.types.PrimitiveTopology;
+import com.javelin.rhi.types.SampleCount;
 import com.javelin.rhi.types.ShaderStage;
 
 import java.nio.ByteBuffer;
@@ -147,7 +148,7 @@ public final class TriangleTest extends RhiTestBase {
                         ColorComponentFlags.B, ColorComponentFlags.A),
                 List.of(backbufferFormat), null,
                 List.of(), 0,
-                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR));
+                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR), SampleCount.COUNT_1);
         return device.createGraphicsPipeline(desc);
     }
 

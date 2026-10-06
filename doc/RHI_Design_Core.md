@@ -459,6 +459,10 @@ interface Device extends GPUResource {
     RenderStats renderStats(); // 11 类存活资源计数 + 上一帧 draw 统计快照（drawCalls/triangles/instances/dispatches）
     void resetFrameStats();    // 引擎每帧录制收尾后显式调用：runtime 快照进 lastFrame 并清零（跳帧重复快照，显示值稳定）
 
+    // --- MSAA 能力（2026-10-06 抗锯齿链路；limits 位掩码解码，COUNT_1 规范恒支持） ---
+    Set<SampleCount> supportedColorSampleCounts();   // 颜色附件支持档位（引擎钳制用）
+    Set<SampleCount> supportedDepthSampleCounts();   // 深度附件支持档位（与色彩档共同约束）
+
 }
 ```
 
@@ -605,6 +609,8 @@ interface PassDef {   // 声明式：读写意图 + 回调（22.3 ResourceUsage�
     void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c);  // 写：Attachment.Color
 
     void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c, RHIScissor clearRegion);  // 区域清屏（多相机视口，第 6 节）
+
+    void addColorOutput(Texture t, RHILoadOp op, RHIClearColor c, Texture resolveTarget);  // MSAA resolve（2026-10-06：t 必须多采样、resolveTarget 必须 COUNT_1 同尺寸，通道结束硬件 AVERAGE 降采样；resolveTarget 按本 Pass 颜色附件写参与依赖/屏障/structureHash）
 
     void addDepthOutput(Texture t, RHILoadOp op, RHIClearDepthStencil c);
 

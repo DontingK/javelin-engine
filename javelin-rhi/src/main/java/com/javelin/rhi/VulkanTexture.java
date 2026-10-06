@@ -243,7 +243,8 @@ final class VulkanTexture implements Texture {
         };
     }
 
-    private static int toVkSampleCount(com.javelin.rhi.types.SampleCount count) {
+    /** 包内可见：VulkanGraphicsPipeline 的 PSO rasterizationSamples 同源换算 */
+    static int toVkSampleCount(com.javelin.rhi.types.SampleCount count) {
         return switch (count) {
             case COUNT_1 -> VK_SAMPLE_COUNT_1_BIT;
             case COUNT_2 -> VK_SAMPLE_COUNT_2_BIT;

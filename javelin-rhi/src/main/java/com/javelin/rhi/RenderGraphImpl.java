@@ -6,6 +6,7 @@ import com.javelin.rhi.data.RHILoadOp;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.exception.RHIException;
+import com.javelin.rhi.types.SampleCount;
 import com.javelin.rhi.types.TextureLayout;
 
 import java.util.ArrayDeque;
@@ -76,6 +77,10 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 h = mix(h, a.texture().handle());
                 h = mix(h, a.kind().ordinal() + 1);
                 h = mix(h, a.loadOp().ordinal() + 1);
+                if (a.resolveTexture() != null) {
+                    h = mix(h, a.resolveTexture().handle());
+                    h = mix(h, 0x2E50L); // resolve 声明标记（与读/Storage 标记区分）
+                }
                 RHIScissor region = a.clearRegion();
                 if (region != null) {
                     h = mix(h, region.x());
@@ -121,6 +126,10 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             Map<Long, Boolean> usage = new LinkedHashMap<>();  // handle → 是否写（写优先于读）
             for (CompiledGraph.Attachment a : p.attachments) {
                 usage.merge(a.texture().handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
+                if (a.resolveTexture() != null) {
+                    // resolve 终点按写参与依赖（WAW：后续直写该纹理的 Pass 排在本 Pass 后）
+                    usage.merge(a.resolveTexture().handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
+                }
             }
             for (Texture t : p.storageWrites) {
                 usage.merge(t.handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
@@ -198,6 +207,13 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                         : TextureLayout.COLOR_ATTACHMENT;
                 barriers.put(a.texture().handle(),
                         new CompiledGraph.Barrier(a.texture(), target, true));
+                if (a.resolveTexture() != null) {
+                    // resolve 终点写入：屏障到 COLOR_ATTACHMENT（write=true → backbuffer
+                    // 终态 PRESENT_SRC 转换与 wroteBackbuffer 判定自动覆盖）
+                    barriers.merge(a.resolveTexture().handle(),
+                            new CompiledGraph.Barrier(a.resolveTexture(), TextureLayout.COLOR_ATTACHMENT, true),
+                            RenderGraphImpl::mergeBarrier);
+                }
             }
             for (Texture t : p.storageWrites) {
                 barriers.merge(t.handle(),
@@ -432,6 +448,34 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             checkAttachmentArgs(texture, loadOp, clearValue == null);
             attachments.add(new CompiledGraph.Attachment(
                     texture, CompiledGraph.Attachment.Kind.DEPTH, loadOp, clearValue));
+        }
+
+        @Override
+        public void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue,
+                                   Texture resolveTarget) {
+            checkAttachmentArgs(texture, loadOp, clearValue == null);
+            if (resolveTarget == null) {
+                throw new IllegalArgumentException("Resolve target must not be null");
+            }
+            if (resolveTarget == texture) {
+                throw new IllegalArgumentException("Resolve target must differ from the MSAA attachment");
+            }
+            if (texture.desc().sampleCount() == SampleCount.COUNT_1) {
+                throw new IllegalArgumentException(
+                        "MSAA resolve requires a multisampled attachment, got COUNT_1: " + texture);
+            }
+            if (resolveTarget.desc().sampleCount() != SampleCount.COUNT_1) {
+                throw new IllegalArgumentException("Resolve target must be single-sampled (COUNT_1): "
+                        + resolveTarget);
+            }
+            if (resolveTarget.desc().width() != texture.desc().width()
+                    || resolveTarget.desc().height() != texture.desc().height()) {
+                throw new IllegalArgumentException("Resolve target dimensions must match the MSAA attachment: "
+                        + texture.desc().width() + "x" + texture.desc().height() + " vs "
+                        + resolveTarget.desc().width() + "x" + resolveTarget.desc().height());
+            }
+            attachments.add(new CompiledGraph.Attachment(
+                    texture, CompiledGraph.Attachment.Kind.COLOR, loadOp, clearValue, null, resolveTarget));
         }
 
         private void checkAttachmentArgs(Texture texture, RHILoadOp loadOp, boolean clearNull) {

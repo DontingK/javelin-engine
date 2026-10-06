@@ -15,6 +15,7 @@ import java.nio.LongBuffer;
 import java.util.List;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.VK12.*;
 import static org.lwjgl.vulkan.VK13.*;
 import static org.lwjgl.vulkan.VK14.*;
 
@@ -188,6 +189,23 @@ final class VulkanCommandBuffer implements CommandBuffer {
                 : toVkLoadOp(attachment.loadOp()));
         info.storeOp(VK_ATTACHMENT_STORE_OP_STORE);
         info.clearValue(toVkClearValue(attachment.clearValue(), stack));
+        // MSAA resolve：多采样色彩附件通道结束时硬件按 AVERAGE 降采样写入 resolve target
+        // （resolve 布局与屏障计划同 COLOR_ATTACHMENT；v0.1 深度不做 resolve）
+        Texture resolveTarget = attachment.resolveTexture();
+        if (resolveTarget != null) {
+            long resolveView;
+            if (resolveTarget instanceof VulkanTexture vkTex) {
+                resolveView = vkTex.ensureView();
+            } else if (resolveTarget instanceof VulkanSwapChain.SwapChainTexture scTex) {
+                resolveView = scTex.ensureView();
+            } else {
+                resolveView = resolveTarget.handle();
+            }
+            info.resolveImageView(resolveView);
+            info.resolveImageLayout(VulkanBarrierGenerator.toVkImageLayout(
+                    com.javelin.rhi.types.TextureLayout.COLOR_ATTACHMENT));
+            info.resolveMode(VK_RESOLVE_MODE_AVERAGE_BIT);
+        }
     }
 
     private static int toVkLoadOp(RHILoadOp loadOp) {

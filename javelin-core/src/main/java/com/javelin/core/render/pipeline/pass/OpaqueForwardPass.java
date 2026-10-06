@@ -7,6 +7,7 @@ import com.javelin.core.render.ClearFlags;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.rhi.RenderGraphBuilder;
 import com.javelin.rhi.Texture;
+import com.javelin.rhi.types.SampleCount;
 import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIClearDepthStencil;
 import com.javelin.rhi.data.RHILoadOp;
@@ -43,9 +44,18 @@ public class OpaqueForwardPass extends AbstractForwardPass {
         Texture target = ctx.colorTarget();
         Texture depth = ctx.depth();
         RenderingSystem rs = ctx.renderingSystem();
+        boolean msaa = isMsaaPath(ctx);
+        SampleCount samples = passSamples(ctx);
         graph.addGraphicsPass(view.name() + "_Opaque", pass -> {
             ClearFlags flags = view.clearFlags();
-            if (flags == ClearFlags.DEPTH_ONLY) {
+            if (msaa) {
+                // MSAA 路径（v0.1 仅全屏 SOLID_COLOR 视口）：多采样附件全量清屏 +
+                // 通道结束硬件 resolve 回 1x 终点；深度为多采样配对（同一次渲染
+                // 通道附件采样数必须一致）；分屏/stacking 判定见 isMsaaPath
+                RHIClearColor clear = view.clearColor() != null ? view.clearColor() : clearColor;
+                pass.addColorOutput(ctx.msaaColor(), RHILoadOp.CLEAR, clear, target);
+                pass.addDepthOutput(ctx.msaaDepth(), RHILoadOp.CLEAR, new RHIClearDepthStencil(1.0f, 0));
+            } else if (flags == ClearFlags.DEPTH_ONLY) {
                 // 只清深度：颜色 LOAD 保留已有画面——叠加相机合成（全屏 UI/Gizmo 层，配 depth 排序）
                 pass.addColorOutput(target, RHILoadOp.LOAD, null);
                 pass.addDepthOutput(depth, RHILoadOp.CLEAR, new RHIClearDepthStencil(1.0f, 0));
@@ -80,10 +90,10 @@ public class OpaqueForwardPass extends AbstractForwardPass {
                 }
                 // set0 绑定需要已绑 PSO 提供布局：先用首个物体 PSO 建立（全部材质 PSO 的
                 // set0 同为帧布局，后续 drawObject 按材质/layout 切 PSO 不影响已绑描述符）
-                cmd.bindPipeline(entryPipeline(rs, objects.get(0)));
+                cmd.bindPipeline(entryPipeline(rs, objects.get(0), samples));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : objects) {
-                    drawObject(cmd, rs, ro, tpf);
+                    drawObject(cmd, rs, ro, tpf, samples);
                 }
             });
         });

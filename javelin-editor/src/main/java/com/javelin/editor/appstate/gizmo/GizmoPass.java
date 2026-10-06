@@ -10,6 +10,7 @@ import com.javelin.rhi.RenderGraphBuilder;
 import com.javelin.rhi.Texture;
 import com.javelin.rhi.data.RHIClearDepthStencil;
 import com.javelin.rhi.data.RHILoadOp;
+import com.javelin.rhi.types.SampleCount;
 
 import java.util.List;
 
@@ -88,11 +89,12 @@ public class GizmoPass extends OpaqueForwardPass {
                     return; // 本视口无 gizmo（无选中/GAME 模式）——空 Pass 常态
                 }
                 // set0 绑定需要已绑 PSO 提供布局：先用首个 gizmo 物体 PSO 建立
-                cmd.bindPipeline(entryPipeline(rs, first));
+                // （overlay 恒 1x：直写 backbuffer，不随场景 MSAA 变档）
+                cmd.bindPipeline(entryPipeline(rs, first, SampleCount.COUNT_1));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : objects) {
                     if (isGizmo(ro)) {
-                        drawObject(cmd, rs, ro, tpf);
+                        drawObject(cmd, rs, ro, tpf, SampleCount.COUNT_1);
                     }
                 }
             });

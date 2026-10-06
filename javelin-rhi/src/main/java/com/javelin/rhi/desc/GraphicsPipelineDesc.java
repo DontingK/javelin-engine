@@ -54,6 +54,10 @@ public final class GraphicsPipelineDesc {
     // 动态状态
     private final Set<DynamicState> dynamicStates;
 
+    // 多重采样（MSAA：PSO rasterizationSamples 必须与本 Pass 附件采样数一致，
+    // 不一致是验证层错误；COUNT_1 = 无 MSAA，与既有路径等价）
+    private final SampleCount sampleCount;
+
     public GraphicsPipelineDesc(
             ShaderDesc vertexShader, ShaderDesc fragmentShader,
             VertexLayout inputLayout, PrimitiveTopology topology,
@@ -65,7 +69,7 @@ public final class GraphicsPipelineDesc {
             Set<ColorComponentFlags> colorWriteMask,
             List<Format> colorAttachmentFormats, Format depthAttachmentFormat,
             List<DescriptorSetLayoutDesc> descriptorSetLayouts, int pushConstantSize,
-            Set<DynamicState> dynamicStates) {
+            Set<DynamicState> dynamicStates, SampleCount sampleCount) {
         if (vertexShader == null) {
             throw new IllegalArgumentException("vertexShader must not be null");
         }
@@ -84,6 +88,9 @@ public final class GraphicsPipelineDesc {
         if (colorWriteMask == null) {
             colorWriteMask = Set.of(ColorComponentFlags.R, ColorComponentFlags.G,
                     ColorComponentFlags.B, ColorComponentFlags.A);
+        }
+        if (sampleCount == null) {
+            sampleCount = SampleCount.COUNT_1;
         }
         this.vertexShader = vertexShader;
         this.fragmentShader = fragmentShader;
@@ -109,6 +116,7 @@ public final class GraphicsPipelineDesc {
         this.descriptorSetLayouts = List.copyOf(descriptorSetLayouts);
         this.pushConstantSize = pushConstantSize;
         this.dynamicStates = Set.copyOf(dynamicStates);
+        this.sampleCount = sampleCount;
     }
 
     // --- getters ---
@@ -137,6 +145,7 @@ public final class GraphicsPipelineDesc {
     public List<DescriptorSetLayoutDesc> descriptorSetLayouts() { return descriptorSetLayouts; }
     public int pushConstantSize() { return pushConstantSize; }
     public Set<DynamicState> dynamicStates() { return dynamicStates; }
+    public SampleCount sampleCount() { return sampleCount; }
 
     @Override
     public boolean equals(Object o) {
@@ -165,7 +174,8 @@ public final class GraphicsPipelineDesc {
                 && depthAttachmentFormat == that.depthAttachmentFormat
                 && descriptorSetLayouts.equals(that.descriptorSetLayouts)
                 && pushConstantSize == that.pushConstantSize
-                && dynamicStates.equals(that.dynamicStates);
+                && dynamicStates.equals(that.dynamicStates)
+                && sampleCount == that.sampleCount;
     }
 
     @Override
@@ -194,6 +204,7 @@ public final class GraphicsPipelineDesc {
         result = 31 * result + descriptorSetLayouts.hashCode();
         result = 31 * result + pushConstantSize;
         result = 31 * result + dynamicStates.hashCode();
+        result = 31 * result + sampleCount.hashCode();
         return result;
     }
 
@@ -207,6 +218,7 @@ public final class GraphicsPipelineDesc {
                 + ", colors=" + colorAttachmentFormats
                 + ", depthFmt=" + depthAttachmentFormat
                 + ", sets=" + descriptorSetLayouts.size()
-                + ", pushConst=" + pushConstantSize + "}";
+                + ", pushConst=" + pushConstantSize
+                + ", samples=" + sampleCount + "}";
     }
 }

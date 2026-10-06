@@ -35,6 +35,7 @@ import com.javelin.rhi.types.Format;
 import com.javelin.rhi.types.FrontFace;
 import com.javelin.rhi.types.PolygonMode;
 import com.javelin.rhi.types.PrimitiveTopology;
+import com.javelin.rhi.types.SampleCount;
 import com.javelin.rhi.types.ShaderStage;
 import com.javelin.rhi.types.TextureUsage;
 import org.slf4j.Logger;
@@ -146,7 +147,8 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
                 null,
                 List.of(colorFormat), null,
                 List.of(fontSetLayoutDesc), 0,
-                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR)));
+                // overlay 恒 1x（直写 backbuffer，不随场景 MSAA 变档）
+                Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR), SampleCount.COUNT_1));
 
         resize(engine.frameLoop().swapChain().width(), engine.frameLoop().swapChain().height());
         ready = true;

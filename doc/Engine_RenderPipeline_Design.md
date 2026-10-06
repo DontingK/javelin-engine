@@ -173,6 +173,8 @@ pipeline.postProcess().remove("Bloom");
 | 资源 | 格式 | 尺寸 | 归属 | 生命周期 | v0.1 |
 |------|------|------|------|---------|------|
 | depth | D32_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ✅ |
+| msaaColor | 同 backbuffer 格式 | 交换链大小 | 每视口 | 随视口创建，resize 重建（AA 关恒不创建） | ✅（2026-10-06） |
+| msaaDepth | D32_SFLOAT | 交换链大小 | 每视口 | 随视口创建，resize 重建（AA 关恒不创建） | ✅（2026-10-06） |
 | shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ❌ |
 | GBuffer×3 | 见 4.2 | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ |
 | lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌（直写 backbuffer） |
@@ -184,6 +186,38 @@ pipeline.postProcess().remove("Bloom");
 - resize → 重建 + 图缓存 structureHash 失效（RHI 23.6-3），由 FrameLoop 的 recreate 路径咬合；
 - **命名规范**：`{ViewName}_{资源名}`（如 `Main_GBufferAlbedo`），对接 RHI `setDebugName`（13.3），RenderDoc 抓帧可直接辨认；
 - 资源创建/销毁只走 RHI 资源生命周期（Cleaner 两帧规则），引擎不裸建 VkImage。
+
+### 5.3 MSAA 抗锯齿（2026-10-06 拍板并落地，四片连做，已实测验收）
+
+**路线拍板**：离屏 MSAA 附件 + Vulkan 原生 resolve attachment + overlay 恒 1x。
+不走 swapchain MSAA（桌面基本不支持）、不自建 blit pass、不动后处理链
+（FXAA 将来直接加 AntialiasingMode 枚举值）。
+
+- **设置面**：`JavelinSetting.antialiasing`（`AntialiasingMode`：OFF/MSAA_2/MSAA_4/
+  MSAA_8，默认 OFF）。按 name 落盘、与 RHI `SampleCount` 值域解耦；旧设置文件缺键
+  保默认。启动期消费（vsync 同口径），运行期切换需 PSO/附件失效协议，后置。
+- **RHI 面**：`GraphicsPipelineDesc.sampleCount`（rasterizationSamples 同源接线，进
+  equals/hashCode/缓存语义）+ `PassDef.addColorOutput(msaa, loadOp, clear, resolveTarget)`
+  新重载（`Attachment.resolveTexture`：resolve 终点按本 Pass 颜色附件<b>写</b>参与
+  依赖推导/屏障计划/structureHash，backbuffer 终态 PRESENT_SRC 转换自动覆盖）+
+  执行器填 `VkRenderingAttachmentInfo` resolve 三件套（AVERAGE）+
+  `Device.supportedColor/DepthSampleCounts()`（limits 位掩码解码）。
+- **引擎面**：`JavelinEngine.resolveAntialiasingSamples()` 启动钳制（色彩+深度双支持
+  约束，8→4→2→1 逐档降级，降档一次性 WARN）→ `RenderingSystem(device, frameLoop,
+  slots, SampleCount)` 新构造 → `msaaColorFor/msaaDepthFor`（视口独立，depthFor 同款
+  惰性创建/resize 换绑/Cleaner 销毁，AA 关恒 null）→ `PipelineContext.msaaColor/
+  msaaDepth` → Opaque/Transparent MSAA 分支（多采样附件全量 CLEAR/LOAD + 通道结束
+  resolve 回 colorTarget；PSO 采样档进 pipelineFor 缓存键，旧三参签名委托 COUNT_1）。
+- **v0.1 边界（isMsaaPath 统一判定，Opaque/Transparent 必须同判定——附件集合一致，
+  MSAA 内容 LOAD 叠加与深度复用都依赖上游同路）**：stacking 相机（DEPTH_ONLY/
+  DONT_CLEAR）、targetOverride 预览视口、区域清屏分屏视口均降级 1x 直写——MSAA
+  附件内容保活/区域 resolve 语义后置。Gizmo/DebugText overlay 零改动恒 1x（文本/
+  gizmo 抗锯齿化反而糊；`ctx.depth()` 保持 1x 语义供 overlay 使用）。
+- **坑（Vulkan_Pitfalls 候选）**：同一次 beginRendering 内附件采样数必须一致 + PSO
+  rasterizationSamples 必须等于附件 samples（两处验证层都抓）；深度不做 resolve
+  （AVERAGE 对深度非法，且场景深度仅 MSAA Pass 内部消费）；Opaque/Transparent 各
+  resolve 一次是全量覆盖、幂等正确（MSAA 内容始终全量），末 pass storeOp
+  DONT_CARE 带宽优化留后调。
 
 ## 6. 编排机制
 
@@ -202,6 +236,8 @@ class PipelineContext {
     FrameContext frame;                 // 场景快照 + 各 RenderList + UBO1 写入句柄
     Texture backbuffer;                 // 本帧终点（单相机可不进 ctx，由 FrameLoop 包进 graphFactory）
     Texture depth;                      // 本视口深度
+    Texture msaaColor;                  // 本视口 MSAA 颜色附件（null = AA 关；与 msaaDepth 成对，5.3）
+    Texture msaaDepth;                  // 本视口 MSAA 深度附件（overlay 家族仍用 1x depth）
     // Deferred 阶段扩展：gbuffer×3 / lightingRT / shadowMap
 }
 ```
@@ -274,6 +310,9 @@ interface RenderPass {
 - tiled/clustered 计算光照（LightingPass 计算化）、SSR 等光照后扩展 Pass 示例（插入 Pass 列表）；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；
 - UI Pass 组、环境（天空盒/雾，Scene.environment）。
+- MSAA 后置项（5.3）：stacking 相机/预览视口/分屏区域清屏的 MSAA 路径、运行期切换
+  档位（PSO/附件失效协议）、FXAA 档、区域清屏与 resolve 组合重载、末 pass storeOp
+  DONT_CARE 带宽优化。
 
 ## 10. 文档衔接
 

@@ -1,5 +1,6 @@
 package com.javelin.editor.window.cef;
 
+import com.javelin.core.settings.AntialiasingMode;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -45,7 +46,7 @@ public class ProjectLoadingFrame extends CefFrame {
 
                 SwingUtilities.invokeAndWait((Runnable) () -> getInstance().dispose());
                 JavelinSetting setting = new JavelinSetting();
-
+                setting.setAntialiasing(AntialiasingMode.MSAA_8);
                 JavelinEditor editorApp = new JavelinEditor(gradleProject, setting, metaManager, assetManager, assetImportPipeline, builtinAssetReleaser);
                 editorApp.start();
 

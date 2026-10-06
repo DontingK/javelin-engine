@@ -25,6 +25,12 @@ public class JavelinSetting implements Serializable {
      */
     private Color backgroundColor = new Color(0.05f, 0.05f, 0.08f, 1f);
 
+    /**
+     * 抗锯齿模式（v0.1 仅 MSAA 档：离屏 MSAA 附件 + resolve 回 backbuffer，
+     * overlay 恒 1x；引擎启动期消费，运行期切换后置）。默认关闭。
+     */
+    private AntialiasingMode antialiasing = AntialiasingMode.OFF;
+
     public int getWidth() {
         return width;
     }
@@ -68,6 +74,17 @@ public class JavelinSetting implements Serializable {
         this.backgroundColor = backgroundColor;
     }
 
+    public AntialiasingMode getAntialiasing() {
+        return antialiasing;
+    }
+
+    public void setAntialiasing(AntialiasingMode antialiasing) {
+        if (antialiasing == null) {
+            throw new IllegalArgumentException("antialiasing must not be null");
+        }
+        this.antialiasing = antialiasing;
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("width",width);
@@ -75,6 +92,7 @@ public class JavelinSetting implements Serializable {
         output.write("title",title);
         output.write("vsync",vsync);
         output.write("backgroundColor",backgroundColor);
+        output.write("antialiasing",antialiasing);
     }
 
     @Override
@@ -87,6 +105,11 @@ public class JavelinSetting implements Serializable {
         Color bg=input.readSerializable("backgroundColor", Color.class);
         if (bg != null) {
             backgroundColor = bg;
+        }
+        // 旧设置文件无此键时保留默认（readEnum 缺键返回 null）
+        AntialiasingMode aa=input.readEnum("antialiasing", AntialiasingMode.class);
+        if (aa != null) {
+            antialiasing = aa;
         }
     }
 }

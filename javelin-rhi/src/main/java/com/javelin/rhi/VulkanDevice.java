@@ -4,12 +4,15 @@ import com.javelin.rhi.desc.*;
 import com.javelin.rhi.exception.VulkanException;
 import com.javelin.rhi.render.RenderSurface;
 import com.javelin.rhi.types.BufferUsage;
+import com.javelin.rhi.types.SampleCount;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import java.nio.FloatBuffer;
 import java.nio.LongBuffer;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -302,6 +305,30 @@ final class VulkanDevice implements Device {
     @Override
     public GPUInfo gpuInfo() {
         return gpuInfo;
+    }
+
+    // --- MSAA 能力（VkPhysicalDeviceLimits 位掩码解码，引擎抗锯齿档位钳制用） ---
+
+    @Override
+    public Set<SampleCount> supportedColorSampleCounts() {
+        return decodeSampleCounts(physicalDevice.properties().limits().framebufferColorSampleCounts());
+    }
+
+    @Override
+    public Set<SampleCount> supportedDepthSampleCounts() {
+        return decodeSampleCounts(physicalDevice.properties().limits().framebufferDepthSampleCounts());
+    }
+
+    /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */
+    private static Set<SampleCount> decodeSampleCounts(int vkBits) {
+        EnumSet<SampleCount> out = EnumSet.of(SampleCount.COUNT_1);
+        if ((vkBits & VK_SAMPLE_COUNT_2_BIT) != 0) out.add(SampleCount.COUNT_2);
+        if ((vkBits & VK_SAMPLE_COUNT_4_BIT) != 0) out.add(SampleCount.COUNT_4);
+        if ((vkBits & VK_SAMPLE_COUNT_8_BIT) != 0) out.add(SampleCount.COUNT_8);
+        if ((vkBits & VK_SAMPLE_COUNT_16_BIT) != 0) out.add(SampleCount.COUNT_16);
+        if ((vkBits & VK_SAMPLE_COUNT_32_BIT) != 0) out.add(SampleCount.COUNT_32);
+        if ((vkBits & VK_SAMPLE_COUNT_64_BIT) != 0) out.add(SampleCount.COUNT_64);
+        return Collections.unmodifiableSet(out);
     }
 
     @Override

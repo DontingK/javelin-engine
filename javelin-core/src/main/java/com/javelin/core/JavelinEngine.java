@@ -18,6 +18,7 @@ import com.javelin.core.render.pipeline.RenderPipeline;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.SceneRenderBridge;
+import com.javelin.core.settings.AntialiasingMode;
 import com.javelin.core.settings.GameSettings;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.settings.SettingManager;
@@ -34,10 +35,12 @@ import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHILoadOp;
 import com.javelin.rhi.desc.SwapChainDesc;
 import com.javelin.rhi.render.RenderSurface;
+import com.javelin.rhi.types.SampleCount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -218,7 +221,9 @@ public class JavelinEngine {
             for (RenderView view : desc.views()) {
                 renderPipeline.buildGraph(graph, new PipelineContext(
                         renderingSystem, view, desc, backbuffer,
-                        renderingSystem.depthFor(view.name())));
+                        renderingSystem.depthFor(view.name()),
+                        renderingSystem.msaaColorFor(view.name()),
+                        renderingSystem.msaaDepthFor(view.name())));
             }
             if (desc.views().isEmpty()) {
                 graph.addGraphicsPass("ClearOnly", pass ->
@@ -319,7 +324,49 @@ public class JavelinEngine {
      * 渲染系统工厂：默认 null（纯清屏）；游戏/演示子类覆盖创建并注册相机与渲染对象。
      */
     protected RenderingSystem createRenderingSystem() {
-        return new RenderingSystem(device(), frameLoop());
+        return new RenderingSystem(device(), frameLoop(), 2, resolveAntialiasingSamples());
+    }
+
+    /**
+     * 抗锯齿档位钳制：设置档 → 设备色彩+深度附件支持位掩码共同约束（MSAA
+     * 附件成对出现），不支持则逐档降级，降档一次性日志。启动期消费
+     * （vsync 同口径）；运行期切换需 PSO/MSAA 附件失效协议，后置。
+     */
+    private SampleCount resolveAntialiasingSamples() {
+        AntialiasingMode mode = setting.getAntialiasing();
+        if (mode == AntialiasingMode.OFF) {
+            return SampleCount.COUNT_1;
+        }
+        SampleCount requested = switch (mode.samples()) {
+            case 2 -> SampleCount.COUNT_2;
+            case 4 -> SampleCount.COUNT_4;
+            case 8 -> SampleCount.COUNT_8;
+            default -> throw new IllegalStateException("unexpected antialiasing samples: " + mode.samples());
+        };
+        Set<SampleCount> color = device.supportedColorSampleCounts();
+        Set<SampleCount> depth = device.supportedDepthSampleCounts();
+        SampleCount effective = requested;
+        while (effective != SampleCount.COUNT_1
+                && !(color.contains(effective) && depth.contains(effective))) {
+            effective = downgradeSampleCount(effective);
+        }
+        if (effective != requested) {
+            log.warn("antialiasing 降档: mode={} 设备 color={} depth={} 生效={}",
+                    mode, color, depth, effective == SampleCount.COUNT_1 ? "OFF" : effective);
+        } else {
+            log.info("antialiasing 生效: {}", mode);
+        }
+        return effective;
+    }
+
+    /** 采样档降级链（8→4→2→1） */
+    private static SampleCount downgradeSampleCount(SampleCount current) {
+        return switch (current) {
+            case COUNT_64, COUNT_32, COUNT_16 -> SampleCount.COUNT_8;
+            case COUNT_8 -> SampleCount.COUNT_4;
+            case COUNT_4 -> SampleCount.COUNT_2;
+            case COUNT_2, COUNT_1 -> SampleCount.COUNT_1;
+        };
     }
 
     protected RenderPipeline createRenderPipeline() {

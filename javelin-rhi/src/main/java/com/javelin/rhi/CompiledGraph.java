@@ -240,18 +240,26 @@ public final class CompiledGraph {
         private final RHILoadOp loadOp;
         private final RHIClearValue clearValue;
         private final RHIScissor clearRegion;
+        /** resolve 终点（仅 MSAA 色彩附件非 null：通道结束硬件降采样写入；v0.1 深度不做 resolve） */
+        private final Texture resolveTexture;
 
         public Attachment(Texture texture, Kind kind, RHILoadOp loadOp, RHIClearValue clearValue) {
-            this(texture, kind, loadOp, clearValue, null);
+            this(texture, kind, loadOp, clearValue, null, null);
         }
 
         public Attachment(Texture texture, Kind kind, RHILoadOp loadOp, RHIClearValue clearValue,
                           RHIScissor clearRegion) {
+            this(texture, kind, loadOp, clearValue, clearRegion, null);
+        }
+
+        public Attachment(Texture texture, Kind kind, RHILoadOp loadOp, RHIClearValue clearValue,
+                          RHIScissor clearRegion, Texture resolveTexture) {
             this.texture = texture;
             this.kind = kind;
             this.loadOp = loadOp;
             this.clearValue = clearValue;
             this.clearRegion = clearRegion;
+            this.resolveTexture = resolveTexture;
         }
 
         public Texture texture() {
@@ -276,6 +284,11 @@ public final class CompiledGraph {
          */
         public RHIScissor clearRegion() {
             return clearRegion;
+        }
+
+        /** resolve 终点（null = 无 resolve；见构造 javadoc） */
+        public Texture resolveTexture() {
+            return resolveTexture;
         }
     }
 

@@ -104,12 +104,14 @@ final class VulkanPhysicalDevice {
                                                   RHIDevicePrefs prefs,
                                                   long surfaceHandle,
                                                   MemoryStack stack) {
-        // 属性
-        VkPhysicalDeviceProperties props = VkPhysicalDeviceProperties.malloc(stack);
+        // 属性/特性：堆分配（无栈参 calloc）——引用被实例带出本方法后跨栈帧长期存活；
+        // 栈上分配会在 select 栈帧弹出后被后续 stackPush 复用覆写（GPUInfo 构造期早读
+        // 侥幸正确，limits/samplerAnisotropy 后期读全是覆写数据——MSAA 能力误判
+        // [COUNT_1] 的根因，2026-10-06）
+        VkPhysicalDeviceProperties props = VkPhysicalDeviceProperties.calloc();
         vkGetPhysicalDeviceProperties(physDevice, props);
 
-        // 特性
-        VkPhysicalDeviceFeatures feats = VkPhysicalDeviceFeatures.malloc(stack);
+        VkPhysicalDeviceFeatures feats = VkPhysicalDeviceFeatures.calloc();
         vkGetPhysicalDeviceFeatures(physDevice, feats);
 
         // 必需特性检查

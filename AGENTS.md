@@ -16,6 +16,7 @@
 8. 禁止使用record类
 9. **资产/序列化类字段禁止 `final`**：`Serializable` / `Asset`（AbsAsset 子类）反序列化需回写字段；不可变/只读靠 API 面保证——构建走 Builder、不暴露公开修改方法，不靠 `final`。无独立序列化协议、随宿主重建的纯值对象不受此限
 10. **序列化 write 禁止包装写入、read 禁止派生嵌套字段**：`write()` 里集合/数组字段必须**直传字段本体**（`output.write("x", field)`），不许 `new ArrayList<>(field)`、unmodifiable 视图等任何包装——包装切断对象图引用同一性，共享引用会丢失。集合字段类型就用序列化实体类型（`ArrayList` 直通）。`read()` 只回写字段引用，不许解引用嵌套元素字段做派生结构（BinaryImporter 按 id 升序 populate，根对象先于嵌套对象，此时嵌套字段全是 null）。详见 Engine_Material_Design.md §3 坑点存档
+11. **git 提交信息尽量简洁**：主题行 + 少量紧凑单行 bullet；细节归设计文档/记忆，不在提交里展开
 
 ---
 
@@ -62,7 +63,7 @@
 | `Engine_Material_Design.md` | 引擎材质设计（v0.1）：Shader/Material 数据模型、§4 渲染侧桥接（已落地 2026-09-25）；Material write/read + 条目存储（2026-10-04，.scene 内嵌材质往返闭环；.mat 资产格式仍待） |
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.3）：组件模型、Node/Component/Scene、RenderingSystem；§4 生命周期帧驱动状态机（2026-10-02 拍板：awake/enable/disable/start/update 由 update 三遍序驱动下帧生效、destroy 摘出即时、setEnabled 联动缺口修复）；§9 .scene 序列化（✅ 2026-10-01 落地、2026-10-04 实测验收通过、2026-10-02 拍板 read 全量恢复零收尾：scene 落盘根 id 引用（框架 Asset 分流对根实例走 id）+ 注册表直传/分流重建、生命周期状态不落盘 update 首帧自然驱动、Tag/layer 投影、红线 10 辨析、Material 内嵌数据面已通（2026-10-04）剩 .mat 资产格式） |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
-| `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线 |
+| `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线；§5.3 MSAA 抗锯齿（2026-10-06 四片落地并实测验收：AntialiasingMode 设置→RHI resolve attachment→引擎视口 MSAA 附件，isMsaaPath v0.1 边界——stacking/预览/分屏降 1x、overlay 恒 1x；首验收揪出 VulkanPhysicalDevice props/feats 栈分配带出栈帧覆写坑=Vulkan_Pitfalls #23，改堆分配根治） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题；§10 演进方向：变换 Gizmo v0.1 工具族+**拖拽（2026-10-06：TransformTools 拖拽三段式契约、LMB 平面相交法、视觉三态——hover 高亮黄/近平行不可选变灰，待实测验收）** + 物体拾取终态拍板=GPU ID-buffer（2026-10-06：不依赖用户 Collider/不隐藏挂碰撞体，RHI 前置 uint 附件+读回、后置实现）+ Transform 变更检测（2026-10-06：scene.nodeTransformChanged 第三类定点事件，TransformWatchAppState 帧级快照 diff、写入方零通知义务、拖拽自动置脏，待验收） |
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.6）：**命令=类实现 MenuCommand（三域基类：顶栏/场景树/project，右键域提供选中 Node/文件上下文）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、**MenuRegistry 声明式结构（含子菜单任意嵌套，v0.5）**、**菜单渲染统一 Swing 弹窗（v0.4 拍板：Web 浮层菜单实测仍被视口 Canvas 盖，不按位置判定；v0.5 子菜单 JMenu 递归 + 每层打开瞬间求值 + 快捷键 accelerator 显示 + 层级右键 Unity 壳占位命令置灰）**、v0.6「文件」域 file.save 保存场景（随 .scene 序列化落地）、engine2 对照取舍、三桥方法协议（/menu/list /menu/open /command/execute）；v0.5 子菜单与 v0.6 file.save/Ctrl+S 已实测验收（2026-10-04）；创建域补 hierarchy.create.plane（内置 plane.smesh 共享加载 + default.shader 运行期材质实例，2026-10-04） |

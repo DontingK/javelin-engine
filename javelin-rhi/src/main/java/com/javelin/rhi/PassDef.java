@@ -47,6 +47,26 @@ public interface PassDef {
                         RHIScissor clearRegion);
 
     /**
+     * 声明多采样颜色附件输出，并声明 resolve 终点（MSAA 抗锯齿）。
+     *
+     * <p>texture 必须为多采样纹理（sampleCount > 1），resolveTarget 必须单采样
+     * （COUNT_1）且尺寸与附件一致；渲染通道结束时硬件按 AVERAGE 模式降采样写入
+     * resolveTarget（Vulkan 原生 resolve attachment，VkRenderingAttachmentInfo）。
+     * resolveTarget 按本 Pass 的颜色附件<b>写</b>参与依赖推导与屏障计划
+     * （终态 PRESENT_SRC 转换由此白拿）。
+     *
+     * <p>v0.1 边界：区域清屏（clearRegion）与 resolve 不组合（多相机分屏走视口独立
+     * MSAA 附件全量清屏，无需区域清屏版）；深度附件不做 resolve（场景深度仅在
+     * MSAA Pass 内部消费，overlay 家族用自己的 1x 深度）。
+     *
+     * @param loadOp        附件本体的 LOAD / CLEAR / DONT_CARE
+     * @param clearValue    loadOp 为 CLEAR 时必填，否则必须为 null
+     * @param resolveTarget 单采样 resolve 终点（禁止与 texture 同一实例）
+     */
+    void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue,
+                        Texture resolveTarget);
+
+    /**
      * 声明深度附件输出（写：Attachment.Depth）。
      *
      * @param loadOp    LOAD / CLEAR / DONT_CARE

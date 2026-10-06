@@ -250,6 +250,24 @@
   日起）；两次矛盾观察点破推理链，VulkanCommandBuffer 正高度视口 + 投影翻转
   双证据定案。
 
+### 23. `MemoryStack` 上的 struct 被实例字段长期持有：栈帧弹出后读全是覆写垃圾 ★生命周期级
+
+- **症状**：设备能力/属性**后期**读取结果离谱——如 `supportedColorSampleCounts()`
+  恒返回 `[COUNT_1]`（MSAA 档位被误判降级 OFF），桌面 GPU 明显不可能；而 GPUInfo
+  （构造时早读）显示完全正常，极具迷惑性。
+- **根因**：`VulkanPhysicalDevice.evaluate` 里 `VkPhysicalDeviceProperties.malloc(stack)` /
+  `VkPhysicalDeviceFeatures.malloc(stack)` **栈上分配**，引用却被 `VulkanPhysicalDevice`
+  实例字段带出方法。`select` 栈帧弹出后，该内存区被后续 `stackPush`（设备创建/交换链
+  创建）复用覆写：构造期早读（GPUInfo 快照）侥幸踩在覆写前；初始化后期读
+  （limits、`features.samplerAnisotropy()`——后者一直是静默垃圾数据）读到的全是覆写后的
+  内容（本次实测为全零）。
+- **修法**：跨栈帧长期持有的 struct 一律**无栈参堆分配**（`calloc()`/`malloc()`，
+  生命周期随 Java 引用走 GC）；`MemoryStack` 只给「帧内即用即弃」的数据。排查指纹：
+  同一来源某处读数恒为零/恒默认、另一处早读却正确 = 栈帧生命周期嫌疑。
+- **出处**：2026-10-06 MSAA 抗锯齿首验收——日志 `antialiasing 降档: 设备
+  color=[COUNT_1] depth=[COUNT_1]` 实锤（同日修复：props/feats 改无栈参 `calloc()`
+  堆分配；全库排查确认其余 `Vk*` 实例字段均为 handle 包装器无自有内存）。
+
 ---
 
 ## 六、排障方法论（沉淀）

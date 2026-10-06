@@ -1,6 +1,9 @@
 package com.javelin.rhi;
 
 import com.javelin.rhi.desc.*;
+import com.javelin.rhi.types.SampleCount;
+
+import java.util.Set;
 
 /**
  * 逻辑设备接口。
@@ -64,6 +67,13 @@ public interface Device extends GPUResource {
     // --- GPU 信息与渲染统计（doc/Engine_RenderStats_Design.md v0.1） ---
     /** 设备/驱动静态信息（设备构造时从 VkPhysicalDeviceProperties 提取，只读） */
     GPUInfo gpuInfo();
+
+    // --- MSAA 能力（VkPhysicalDeviceLimits 位掩码解码，引擎抗锯齿档位钳制用） ---
+    /** 颜色附件支持的采样档位（规范保证含 COUNT_1，返回不可变集） */
+    Set<SampleCount> supportedColorSampleCounts();
+
+    /** 深度附件支持的采样档位（规范保证含 COUNT_1，返回不可变集） */
+    Set<SampleCount> supportedDepthSampleCounts();
 
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();

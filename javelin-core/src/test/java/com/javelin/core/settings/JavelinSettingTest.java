@@ -13,7 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * JavelinSetting 序列化 round-trip：backgroundColor（嵌套 Color）+ vsync 补序列化。
+ * JavelinSetting 序列化 round-trip：backgroundColor（嵌套 Color）+ vsync +
+ * antialiasing（枚举档，取值分支全覆盖）。
  */
 public class JavelinSettingTest {
 
@@ -28,6 +29,7 @@ public class JavelinSettingTest {
         source.setTitle("Test");
         source.setVsync(false);
         source.setBackgroundColor(Color.fromHex("#1A2B3C"));
+        source.setAntialiasing(AntialiasingMode.MSAA_4);
 
         File file = tempDir.resolve("javelin.settings").toFile();
         new BinaryExporter(file).export(source);
@@ -38,6 +40,7 @@ public class JavelinSettingTest {
         assertEquals("Test", restored.getTitle());
         assertTrue(!restored.isVsync());
         assertEquals(Color.fromHex("#1A2B3C"), restored.getBackgroundColor());
+        assertEquals(AntialiasingMode.MSAA_4, restored.getAntialiasing());
     }
 
     @Test
@@ -55,5 +58,19 @@ public class JavelinSettingTest {
         });
         JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
         assertEquals(new Color(0.05f, 0.05f, 0.08f, 1f), restored.getBackgroundColor());
+        assertEquals(AntialiasingMode.OFF, restored.getAntialiasing());
+    }
+
+    @Test
+    public void antialiasingAllValuesRoundTrip() throws Exception {
+        // 每个取值分支都过一遍（BLEND_NAMES 去下划线教训：验收样例须覆盖每个取值分支）
+        for (AntialiasingMode mode : AntialiasingMode.values()) {
+            JavelinSetting source = new JavelinSetting();
+            source.setAntialiasing(mode);
+            File file = tempDir.resolve("aa-" + mode.name() + ".settings").toFile();
+            new BinaryExporter(file).export(source);
+            JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
+            assertEquals(mode, restored.getAntialiasing());
+        }
     }
 }
