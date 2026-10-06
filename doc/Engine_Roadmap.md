@@ -51,16 +51,16 @@
 ### 2.2 碰撞检查
 
 - **目标**：场景对象的相交查询（游戏逻辑 + 编辑器拾取共用）；
-- **前置**：**Aabb 回归**——视锥剔除后置时随 Mesh.bounds 一起删除，碰撞与 Ray 都需包围盒回来（Mesh 补"从 positions 算 Aabb"，设计归碰撞档 §5）；`Engine_Collision_Design.md`（**v0.1 草案待拍板 2026-10-05**：L0 纯数学先行——Ray/形状/Aabb + 缩放=射线逆变换吸收；**已拍板：碰撞体=组件（负责形状）、刚体=独立组件后置**；形状持有形态 D7 与查询 API 面归 L1 Ray 期定）；
+- **前置**：**Aabb 回归**——视锥剔除后置时随 Mesh.bounds 一起删除，碰撞与 Ray 都需包围盒回来（Mesh 补"从 positions 算 Aabb"，设计归碰撞档 §5）——**✅ 已随碰撞片③回归（2026-10-05）**；`Engine_Collision_Design.md`（v0.1：**L0 纯数学 + Collider 组件族已落地、片①②③④全片单测验收关账（2026-10-06）**——Ray/形状/Aabb + 缩放=射线逆变换吸收；**已拍板：碰撞体=组件（负责形状）、刚体=独立组件后置**；场景级查询 API 面归 L1 Ray 期定）；
 - **产出**：碰撞体组件 + 窄相查询 API（盒/球/射线公共部分）；
-- **验收**：两物体相交/分离查询正确的最小 Demo；
+- **验收**：~~两物体相交/分离查询正确的最小 Demo~~——**✅ 单测全绿已验收（2026-10-06）**（L0 解析解对照 + Collider 管线缩放往返），场景级拾取 Demo 归 §2.3 Ray 一并验收；
 - **待定拍板**：只做窄相查询（自研，推荐——拾取与逻辑查询够用）还是连带阶段⑥物理库选型（刚体动力学）一起定。
 
 ### 2.3 Ray
 
 - **目标**：屏幕点 → 世界射线（逆 viewProj）→ 射 vs 碰撞体 → RaycastHit；
 - **前置**：②的碰撞体与包围盒；
-- **产出**：Ray/RaycastHit 数据类型 + Camera 屏幕射线生成 + 场景级 raycast 查询；
+- **产出**：Ray/RaycastHit 数据类型 + Camera 屏幕射线生成 + 场景级 raycast 查询（**Ray 已随碰撞 L0 落地**（2026-10-05 片①）；**Camera.screenToRay 已进核心并单测验收**——2026-10-05 随 Gizmo 轴拾取落地、CameraTest 2026-10-06 验收，Unity ScreenPointToRay 口径）；
 - **验收**：点击拾取场景物体正确（为编辑器拾取闭环）。
 
 ### 2.4 编辑器基本
@@ -78,6 +78,8 @@
 Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零收尾
 + 文本通道保存命令 file.save/Ctrl+S）；MeshRenderer 材质引用闭环与
 `.mat` 格式仍待做（§9.4 已知限制）。
+
+**拾取方案拍板（2026-10-06 用户）**：物体拾取终态 = **GPU ID-buffer**（编辑器专用 pass 写 ID 附件、点击读回像素——不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体，Unity 编辑器同路线）；RHI 前置 = 拾取附件 + 图像读回路径，**后置实现、非当前排期**（详见 Editor_Design §10）。运行时场景级 raycast（Collider 注册表）仍归 §2.3 Ray 期，两 API 并存；过渡期是否先落 CPU 数学拾取为开放项。
 
 ---
 
@@ -101,7 +103,7 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞/Ray 未开始（编辑器窗口层已就绪：EditorApp 接引擎 + CanvasSurface，见 Editor_Design）；.scene 序列化✅ 已落地并验收（2026-10-01 落地、2026-10-04 验收，§2.4 进度） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本推进中：窗口层就绪 + .scene 序列化✅（2026-10-04 验收）+ Gizmo v0.1 轴拾取+拖拽✅（拖拽 2026-10-06 落地待实测验收，Editor_Design §10） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
@@ -110,7 +112,8 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 - RHI 遗留：Buffer staging 上传（deviceLocal）、描述符池环形、backbuffer 句柄入 structureHash；
 - 场景：environment/sun（三期灯光一并定）、.scene 序列化（二期编辑器前置）；
 - 资产：动态 Mesh/动态纹理专项（设计要点已记录，材质档 §6 / 资产档 §2.8）；
-- 渲染优化：视锥剔除（Aabb 回归时一并）、遮挡剔除/GPU Instancing/LOD（P2）。
+- 渲染优化：视锥剔除（Aabb/Mesh.bounds 已随碰撞片③回归 2026-10-05，剔除本身仍后置）、遮挡剔除/GPU Instancing/LOD（P2）；
+- 编辑器：物体拾取 GPU ID-buffer（**终态拍板 2026-10-06**——RHI 前置：R32Uint 拾取附件 + 图像读回路径；实现后置非当前排期，见 Editor_Design §10）。
 
 ---
 

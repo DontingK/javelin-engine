@@ -12,6 +12,7 @@ import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.appstate.EditorAxesAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.appstate.SceneWatchAppState;
+import com.javelin.editor.appstate.TransformWatchAppState;
 import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
 import com.javelin.editor.menu.EditorMenuSetup;
 import com.javelin.core.settings.JavelinSetting;
@@ -111,6 +112,10 @@ public class JavelinEditor extends JavelinEngine {
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());
+        // Transform 变更检测（帧级快照 diff，只盯当前选中节点——消费方=Inspector 选中面板；
+        // 写入方零通知义务，实变自动发现推送 scene.nodeTransformChanged + 置脏；挂载序在
+        // TransformGizmoAppState 之后——拖拽 apply 当帧检出同帧通知）
+        stateManager.attach(new TransformWatchAppState());
         // 菜单/命令装配（场景无关：DevTools 恒可用；场景未就绪时网格开关安全 no-op）
         EditorMenuSetup.setup(stateManager, gridState);
     }

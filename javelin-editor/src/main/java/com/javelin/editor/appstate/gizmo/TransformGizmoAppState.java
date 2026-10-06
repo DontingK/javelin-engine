@@ -3,6 +3,8 @@ package com.javelin.editor.appstate.gizmo;
 import com.javelin.core.JavelinEngine;
 import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.input.Input;
+import com.javelin.core.input.KeyCode;
+import com.javelin.core.input.MouseButton;
 import com.javelin.core.physics.Ray;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.scene.GameScene;
@@ -47,9 +49,24 @@ import java.util.ArrayList;
  *
  * <p>射线检测（2026-10-05）：update 每帧把鼠标（视口逻辑坐标）经
  * {@link Camera#screenToRay}（Unity ScreenPointToRay 口径，viewportRect 归一化）
- * 换算成世界射线，打活动工具子树的碰撞体取最近命中；{@link #getHoveredNode()}
+ * 换算成世界射线，打活动工具子树的碰撞体取最近命中；命中候选再经
+ * {@link TransformTools#isSelectable} 工具裁决（2026-10-06：移动轴与视线趋于
+ * 平行端视时不可选——屏幕上轴退化为点、拖拽投影病态）；{@link #getHoveredNode()}
  * 暴露命中轴 Node（hover 变更打日志）、{@link #getHoveredAxis()} 经 userData
  * 标判别轴——轴拖拽判定的地基。</p>
+ *
+ * <p>拖拽（2026-10-06）：LMB 输入状态机——按下命中柄（hover 当帧结果）交所属
+ * 工具 {@link TransformTools#beginDrag}，按住每帧 {@link TransformTools#updateDrag}
+ * （hover 锁定拖拽轴不重检测），释放 {@link TransformTools#endDrag}；Alt+LMB 归
+ * 相机环绕不抢（拖拽中按 Alt 与环绕并动为已知边缘）、按下与释放同帧（极速点击）
+ * 直接收尾防拖拽态卡死、拖拽绑定开始时目标（选中变更/目标失效强制结束防跳变）。
+ * 拖拽数学归工具层（MoveTool 平面相交法）。跟随后于拖拽 apply——同帧跟手。</p>
+ *
+ * <p>视觉状态（2026-10-06）：hover 与拖拽统一走驱动侧每帧
+ * {@link TransformTools#updateVisuals} 同步（同步式而非 enter/leave 事件式——
+ * 松开拖拽时鼠标往往仍悬停轴上，事件式会错误熄灭；拖拽中 hover 锁定即被拖轴；
+ * viewDir = 相机→选中目标方向，与鼠标位置无关，供工具计算不可选轴变灰，判定
+ * 与 isSelectable 同源）。gizmo 整体隐藏（无目标）时清 hover 并熄灭高亮防残留。</p>
  *
  * @author javelin
  * @create 2026/10/4
@@ -108,8 +125,17 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     private final Vector3f hitPointBuf = new Vector3f();
     private final Vector3f hitNormalBuf = new Vector3f();
 
-    /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新） */
+    /** 视线方向复用向量（相机→选中目标、归一化；轴可选性/变灰基准——与鼠标位置无关） */
+    private final Vector3f viewDir = new Vector3f();
+
+    /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新，拖拽中锁定不刷新） */
     private Node hoveredNode;
+
+    /** 拖拽中的工具（null = 未拖拽；LMB 边沿驱动 begin/end、持续态驱动 updateDrag） */
+    private TransformTools dragTool;
+
+    /** 拖拽绑定的目标（beginDrag 时锁定；拖拽中选中变更即强制结束防目标跳变） */
+    private Node dragTarget;
 
     @Override
     public void onAttach(AppStateManager stateManager, JavelinEngine engine) {
@@ -170,6 +196,12 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         }
         targetNode = null;
         hoveredNode = null;
+        if (dragTool != null) {
+            // 摘除时仍在拖拽（应用关闭等）——工具恢复轴高亮等收尾
+            dragTool.endDrag();
+            dragTool = null;
+        }
+        dragTarget = null;
         super.onDetach(stateManager);
     }
 
@@ -189,32 +221,59 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         GameScene userScene = userGameScene();
         boolean hasTarget = target != null && userScene != null && target.getScene() == userScene;
 
+        if (!hasTarget && dragTool != null) {
+            forceEndDrag(); // 拖拽中目标失效（删除节点/场景卸载）——工具收尾防残留
+        } else if (dragTool != null && dragTarget != target) {
+            forceEndDrag(); // 拖拽中选中变更（层级面板等外部改选）——按绑定目标收尾防跳变
+        }
+
         if (gizmoNode.isActive() != hasTarget) {
             gizmoNode.setActive(hasTarget);
         }
         if (!hasTarget) {
+            if (hoveredNode != null) {
+                // gizmo 整体隐藏时清 hover 并熄灭高亮（防残留：再次亮起时旧高亮闪一帧）。
+                // viewDir 为上帧值——隐藏期间不渲染，重显同帧即按新视线收敛
+                hoveredNode = null;
+                for (TransformTools tool : tools) {
+                    tool.updateVisuals(null, viewDir);
+                }
+            }
             return;
         }
 
-        // 跟随目标：gizmoNode 一次写（工具无关；setLocalPosition 拷贝语义不外泄复用向量）
+        // 视线方向 = 相机 → 选中目标（轴可选性/变灰基准，与鼠标位置无关——用户拍板
+        // 2026-10-06：用鼠标射线会把屏幕边缘的射线偏角算进夹角，变灰随鼠标位置漂移）。
+        // 取本帧拖拽 apply 前的目标位置（方向用途，拖拽位移误差无感）；目标贴相机
+        // （距离≈0）退化回退相机前向
         target.getTransform().getWorldPosition(targetWorldPos);
-        gizmoNode.getTransform().setLocalPosition(targetWorldPos);
-
-        // 距离自适应缩放（屏幕恒定尺寸口径）
         editorCamera.getNode().getTransform().getWorldPosition(camWorldPos);
-        float scale = Math.abs(targetWorldPos.distance(camWorldPos)) / TOOLS_SCALE;
-        for (TransformTools tool : tools) {
-            Node toolNode = tool.getToolNode();
-            if (toolNode != null && toolNode.isActive()) {
-                update(tool, scale * tool.scaleFactor());
-            }
+        viewDir.set(targetWorldPos).sub(camWorldPos);
+        if (viewDir.lengthSquared() < 1e-8f) {
+            editorCamera.getNode().getTransform().getLocalToWorld().transformDirection(viewDir.set(0, 0, 1)).normalize();
+        } else {
+            viewDir.normalize();
         }
 
-        // ── 射线检测（拖拽判定地基）：鼠标 → 世界射线 → 活动工具碰撞体 → 命中轴 Node ──
+        // 鼠标 → 世界射线（hover 命中与拖拽平面求交用；screenToRay 方向归一化 → t 即世界距离）
         int viewportW = javelinEditor.viewportWidth();
         int viewportH = javelinEditor.viewportHeight();
-        if (viewportW > 0 && viewportH > 0) {
+        boolean viewportValid = viewportW > 0 && viewportH > 0;
+        if (viewportValid) {
             editorCamera.screenToRay(Input.mouseX(), Input.mouseY(), viewportW, viewportH, pickRay);
+        }
+
+        // ── 拖拽状态机（纯 LMB：按下命中柄开始、持续 apply、释放结束；Alt+LMB 归相机环绕） ──
+        if (dragTool != null) {
+            if (Input.wasMouseReleased(MouseButton.LEFT)) {
+                dragTool.endDrag();
+                dragTool = null;
+                dragTarget = null;
+            } else if (viewportValid) {
+                dragTool.updateDrag(target, pickRay); // hover 锁定拖拽轴，不重检测
+            }
+        } else if (viewportValid) {
+            // hover 检测（每帧刷新，拖拽判定地基）
             Node detected = raycastToolNodes();
             if (detected != hoveredNode) {
                 hoveredNode = detected;
@@ -223,6 +282,47 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 } else {
                     log.info("射线检测离开轴节点");
                 }
+            }
+
+            // LMB 按下命中柄 → 交所属工具开始拖拽（Alt 按下时左键归相机环绕不抢）
+            if (Input.wasMousePressed(MouseButton.LEFT) && hoveredNode != null
+                    && !Input.isDown(KeyCode.LEFT_ALT)) {
+                TransformTools owner = toolOf(hoveredNode);
+                if (owner != null) {
+                    // camWorldPos 本帧已在视线方向计算处取值
+                    if (owner.beginDrag(hoveredNode, target, pickRay, camWorldPos)) {
+                        dragTool = owner;
+                        dragTarget = target;
+                        if (Input.wasMouseReleased(MouseButton.LEFT)) {
+                            // 按下与释放同帧（极速点击）——立即收尾防拖拽态卡死
+                            dragTool.endDrag();
+                            dragTool = null;
+                            dragTarget = null;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 视觉状态同步（hover 与拖拽共用一通道：拖拽中 hover 锁定=被拖轴、松开时鼠标仍
+        // 悬停则高亮自然保持；viewDir 供工具计算不可选轴变灰——与鼠标位置无关）。
+        // 节点归属哪个工具哪个亮，其余收 null——跨工具互不干扰
+        TransformTools highlightOwner = hoveredNode != null ? toolOf(hoveredNode) : null;
+        for (TransformTools tool : tools) {
+            tool.updateVisuals(tool == highlightOwner ? hoveredNode : null, viewDir);
+        }
+
+        // 跟随目标：gizmoNode 一次写（工具无关；拖拽 apply 先于此——同帧跟手不滞后一帧；
+        // setLocalPosition 拷贝语义不外泄复用向量）
+        target.getTransform().getWorldPosition(targetWorldPos);
+        gizmoNode.getTransform().setLocalPosition(targetWorldPos);
+
+        // 距离自适应缩放（屏幕恒定尺寸口径；camWorldPos 本帧已在视线方向计算处取值）
+        float scale = Math.abs(targetWorldPos.distance(camWorldPos)) / TOOLS_SCALE;
+        for (TransformTools tool : tools) {
+            Node toolNode = tool.getToolNode();
+            if (toolNode != null && toolNode.isActive()) {
+                update(tool, scale * tool.scaleFactor());
             }
         }
     }
@@ -260,6 +360,9 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     /**
      * 活动工具子树的碰撞体射线检测（{@link #pickRay}）：最近命中返回所在轴
      * Node，未命中返回 null（t 以 pickRay.direction 实长为单位，跨轴可比）。
+     * 命中候选再经 {@link TransformTools#isSelectable} 工具裁决（视线基准 =
+     * {@link #viewDir}，如移动轴与视线近平行端视不可选）——不可选候选视同
+     * 未命中，更远的可选候选仍可胜出。
      */
     private Node raycastToolNodes() {
         Node hitNode = null;
@@ -273,7 +376,7 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 Node childNode = child.getNode();
                 for (Collider collider : childNode.getComponents(Collider.class)) {
                     float t = collider.collideWithRay(pickRay, hitPointBuf, hitNormalBuf);
-                    if (t >= 0f && (bestT < 0f || t < bestT)) {
+                    if (t >= 0f && (bestT < 0f || t < bestT) && tool.isSelectable(childNode, viewDir)) {
                         bestT = t;
                         hitNode = childNode;
                     }
@@ -281,6 +384,28 @@ public class TransformGizmoAppState extends AbsEditorAppState {
             }
         }
         return hitNode;
+    }
+
+    /**
+     * 拖拽/悬停节点所属工具（沿 Transform 父链找 toolNode 同一性；
+     * null = 不属任何工具——射线只打工具子树，理论不可达的防御）。
+     */
+    private TransformTools toolOf(Node node) {
+        for (TransformTools tool : tools) {
+            for (Transform t = node.getTransform(); t != null; t = t.getParent()) {
+                if (t.getNode() == tool.getToolNode()) {
+                    return tool;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 强制结束拖拽（目标失效/选中变更——工具收尾（恢复轴高亮等）+ 状态清空） */
+    private void forceEndDrag() {
+        dragTool.endDrag();
+        dragTool = null;
+        dragTarget = null;
     }
 
     /**

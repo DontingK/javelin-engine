@@ -3,6 +3,7 @@
 > 本文档描述 `javelin-editor` 模块的整体架构。模块尚在快速演进期，文档随代码同步更新。
 > 最近一次全面梳理：2026-09-25（含本次窗口接入引擎的改造）；2026-09-28 增补设计基准（完全参考 Unity）。
 > 2026-10-04 §10 增补变换 Gizmo v0.1（移动三轴）落地记录；2026-10-05 §10 更新为工具族架构（事件驱动选中 + 距离自适应 + 引擎渲染激活过滤）。
+> 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，待实测验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，待实测验收）。
 
 ## 1. 定位与边界
 
@@ -221,9 +222,17 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、
   hierarchy 右键域首批命令（create.empty/delete，只写不发通知）、
   SceneWatchAppState 快照 diff 自动通知（结构→scene.changed 重拉整树 /
-  改名→scene.nodeRenamed 定点）、hierarchy 右键菜单统一走 Swing
+  改名→scene.nodeRenamed 定点 / **变换→scene.nodeTransformChanged 定点——
+  TransformWatchAppState 帧级快照 diff（2026-10-06 落地待验收，用户拍板：
+  帧级检测/载荷带新 TRS/置脏/**只盯当前选中节点**——消费方=Inspector 选中
+  面板，全场景遍历无消费方；写入方零通知义务，选中节点实变自动发现同帧推送
+  + 场景置脏星号亮；SceneSelectEvent 驱动 volatile 选中节点、选中变更静默
+  重建基线、归属校验覆盖已删/卸载——机制细节见类 javadoc）**）、
+  hierarchy 右键菜单统一走 Swing
   （/menu/open 传域 id+鼠标坐标弹 JPopupMenu，v0.4 定档——Web 右键浮层实测仍被
-  视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector/project 面板对接待续。
+  视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector/project 面板对接待续
+  （Inspector 将消费 scene.nodeTransformChanged，并配节点数据拉取口做
+  pull-on-mount 兜底）。
 - **变换 Gizmo v0.1 视觉版已落地（2026-10-04；2026-10-05 用户重构为工具族架构）**：
   `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
   基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh
@@ -244,7 +253,50 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   Greater 鬼影变体递进；绘制对象按 gizmo.shader 实例身份过滤（材质
   getShader 同一性，全工具共用；不走 Layer——层表为二进制设置文件驱动，
   现有项目无 Gizmo 层需迁移）。
-  轴拾取拖拽（依赖引擎 Ray/视口拾取，二期）与缩放/旋转工具形态待续。
+  **拖拽落地（2026-10-06，待实测验收）**：TransformTools 契约增拖拽三段式
+  `beginDrag(axisNode, target, pickRay, camWorldPos) / updateDrag(target, pickRay) /
+  endDrag()`——驱动侧管输入状态机（LMB 边沿/持续态、hover 检测与锁定、目标
+  有效性），工具自持拖拽几何、按各自语义 apply（旋转/缩放将来各自实现）。
+  驱动侧状态机：LMB 按下命中柄（hover 当帧结果）交所属工具 beginDrag、按住
+  每帧 updateDrag（hover 锁定拖拽轴不重检测）、释放 endDrag；**Alt+LMB 归相机
+  环绕不抢**（拖拽中按 Alt 与环绕并动为已知边缘）；按下/释放同帧（极速点击）
+  直接收尾防拖拽态卡死；拖拽绑定开始时目标——**选中变更/目标失效强制结束**
+  防跳变（含 onDetach 收尾）。MoveTool **平面相交法**（Unity 同款）：拖拽平面
+  = 过锚点（按下时目标世界位置）、含拖拽轴、对相机最正交（法线 = 视线去掉轴
+  分量，轴与视线近平行回退世界基向量）；每帧鼠标射线与平面求交，交点沿轴的
+  投影差 = 世界位移（screenToRay 方向归一化 → 投影即世界距离；初始投影 offset
+  补偿，按下瞬间零位移不跳）；轴方向 = 轴箭头节点世界 +Y（X/Z 经节点旋转指向，
+  距离自适应均匀缩放 normalize 后方向不变——将来 Local 模式 gizmoNode 随节点
+  旋转后同一代码直通）；世界位移经父世界矩阵逆回写 local（父旋转/缩放下世界
+  平移 ≠ local 平移，每帧重取防父链陈旧）。
+  **视觉三态（2026-10-06 用户需求：hover 变色 + 不可选变灰）**：hover 与拖拽
+  统一走驱动侧每帧 `updateVisuals(highlightedNode, viewDir)` 同步契约（同步式
+  而非 enter/leave 事件式——松开拖拽时鼠标往往仍悬停轴上，事件式会错误熄灭；
+  拖拽中 hover 锁定即被拖轴）；**viewDir = 相机→选中目标方向、与鼠标位置无关**
+  （用户拍板 2026-10-06——首版误用鼠标射线：屏幕边缘的射线偏角会被算进夹角，
+  变灰随鼠标位置漂移）；三态 = 正常 RGB / 高亮黄（hover 与拖拽共用）/
+  不可选灰——不可选判定与 isSelectable 同源（视觉与可选性一致）、优先级
+  高亮 &gt; 变灰（hover 入口已被可选性闸门，高亮轴必可选）；工具按状态数组
+  幂等写色（每轴独立 Material 实例，MaterialBlock 每次调用重打包 setColor
+  即时生效）；gizmo 整体隐藏（无目标）时清 hover 并熄灭高亮防残留。
+  **轴近平行不可选（2026-10-06 用户需求）**：`isSelectable` 契约（默认 true、
+  工具按几何语义裁决——旋转柄几何相反正对最好抓）：移动轴与视线 |cos| 夹角
+  超阈值（0.985 ≈ 10°，实测可调）时不可选并变灰（0.5 灰，实测可调）——屏幕上
+  轴端视退化为点、拖拽投影被 1/sin 放大病态（俯视场景时 Y 轴让位 XZ 拖拽不被
+  误抓）；射线检测按此过滤命中候选（不可选视同未命中、更远可选候选仍可胜出）。
+  位置跟随后于拖拽 apply——同帧跟手不滞后一帧。缩放/旋转工具形态待续；拾取
+  判定半径抓取舒适度加粗为实测后调项。
+- **编辑器物体拾取终态拍板（2026-10-06 用户）：GPU ID-buffer，后置实现**——编辑器专用拾取 pass
+  渲染场景时每个可拾取物体把自己的 pick ID（帧内稳定分配，0=背景/未命中）写进离屏整数附件
+  （R32Uint，深度测试照常——近者胜），点击帧读回该像素 ID 即得选中对象（Unity 编辑器同路线，
+  像素级精确、大网格零拾取代价）。**不依赖用户物体挂 Collider、不给物体隐藏挂载网格碰撞体**
+  ——编辑器需求不进用户场景数据面（gizmo 轴挂 CylinderCollider 是编辑器自有节点，性质不同）。
+  RHI 前置=拾取附件 + 图像读回路径（CopyImageToBuffer→staging→map，可 1×1 region 按点击坐标拷贝）；
+  **实现后置、非当前排期**。过渡期是否先落 CPU 数学拾取（screenToRay→世界 Aabb 粗筛→
+  逆变换进本地→三角形 MT 精判比 t——碰撞 L0 零件已全验收齐备）为**开放项**（大网格性能梯度：
+  万级三角形 ~1ms、百万级几十 ms；另有 Mesh CPU 副本坑）。运行时场景级 raycast（Collider 组件
+  注册表，Unity Physics.Raycast 语义——无 Collider 即打不中）归 Ray 期，与编辑器拾取两条 API
+  并存不冲突。
 - ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

@@ -1,6 +1,6 @@
 # 引擎碰撞设计（Engine Collision Design）
 
-> 版本：v0.1（2026-10-05，**草案——§1 决策表待用户拍板后定稿**）
+> 版本：v0.1（2026-10-05 草案；**实现片①②③④已全片单测验收（2026-10-06）**——§1 决策表 D1~D7 仍待用户拍板后定稿）
 > 范围：二期②「碰撞检查」的**纯数学层（L0）**——Ray、碰撞形状、相交例程、包围盒。游戏逻辑查询、编辑器拾取（二期③ Ray）与后期物理系统共用的几何地基。
 > 定位：本文设计 L0 并**预留**上层依赖形状；场景级 raycast（L1）设计归 Ray 期、物理系统（L2）选型后立项，各归其档，本文不展开其内部。
 > 配套：`doc/Engine_Roadmap.md` §2.2/§2.3；物理步进挂点见 `Engine_Design.md` §2.2/§3。
@@ -31,7 +31,7 @@ L2 物理系统（后期，选型后立项：自研/物理库）
 │  PhysicsSubsystem：earlyUpdate 步进 → 碰撞事件 → lateUpdate 回写 Transform（Engine_Design §2.2）
 │  刚体 world：body = L0 形状（多体共享）+ 自持变换 + 动力学量
 ▲ pull Collider/RigidBody 组件注册表构 body
-L1 场景查询（二期③ Ray + 编辑器拾取，设计归 Ray 期）
+L1 场景查询（二期③ Ray + 编辑器轴拾取，设计归 Ray 期）
 │  Collider 组件族（已拍板：碰撞体=组件、负责形状）+ 屏幕点→世界射线（逆 viewProj）+ 场景 raycast → RaycastHit
 ▲ 全部几何计算委托
 L0 纯数学（本档，现在做）：com.javelin.core.physics(.collision)
@@ -55,7 +55,7 @@ L0 纯数学（本档，现在做）：com.javelin.core.physics(.collision)
 | `CylinderShape` | 同上 | `radius`/`height`、轴向本地 Y；**已实现**（2026-10-05 用户提前派发，原片④后置）——无限圆柱二次方程根按 y∈[−h/2,h/2] 裁剪 + 上下端盖平面根按盘内判定，取 t≥0 最小边界穿越点（凸体统一入口/出射语义），自研（JOML 无此例程，§4.4） |
 | `Aabb` | `collision` | `min`/`max`；`setFromPoints(float[] xyz)`（Mesh.bounds 数据源）、`transform(Matrix4fc, Aabb out)`（**行和公式实现**——§5 勘误）、`rayIntersect(Ray, Vector2f nearFar)` 包 JOML（返回语义已核源码）。**不实现 CollisionShape**——语义=保守粗筛包围，非精确碰撞几何 |
 
-L1 契约：**Collider 组件族查询管线已实现**（片② 2026-10-05，`scene.component` 包：`Collider` 基类收 `center`（全碰撞体共有）+ `collideShape` 统一管线——逆矩阵变换射线（origin 扣 center、direction 不归一化 §4.2）→ 形状例程 → 命中点加 center 经 M 回换、法线经法线矩阵变换后归一化；`BoxCollider`/`SphereCollider`/`CylinderCollider`（2026-10-05 编辑器移动轴拾取需要）每查把组件参数同步进缓存形状实例（D7-B：组件字段即参数，免脏标记）后委托管线，write/read 数据面齐（center 基类 + 参数子类））；**Rigidbody 组件**（拍板：独立组件、后置）、`RaycastHit`（point/normal/distance + Node/Component 引用）、场景级 raycast 查询面——归 Ray 期与编辑器拾取一起定。
+L1 契约：**Collider 组件族查询管线已实现**（片② 2026-10-05，`scene.component` 包：`Collider` 基类收 `center`（全碰撞体共有）+ `collideShape` 统一管线——逆矩阵变换射线（origin 扣 center、direction 不归一化 §4.2）→ 形状例程 → 命中点加 center 经 M 回换、法线经法线矩阵变换后归一化；`BoxCollider`/`SphereCollider`/`CylinderCollider`（2026-10-05 编辑器移动轴拾取需要）每查把组件参数同步进缓存形状实例（D7-B：组件字段即参数，免脏标记）后委托管线，write/read 数据面齐（center 基类 + 参数子类））；**Rigidbody 组件**（拍板：独立组件、后置）、`RaycastHit`（point/normal/distance + Node/Component 引用）、场景级 raycast 查询面——归 Ray 期定（运行时查询线；编辑器**物体**拾取已拍板改道 GPU ID-buffer 不经射线，2026-10-06，Editor_Design §10——轴拾取仍走本线）。
 
 ## 4. 射线契约与缩放数学（本档地基）
 
@@ -119,6 +119,7 @@ M·p_l = M·(M⁻¹·o_w) + t·(M·(M⁻¹·d̂_w)) = o_w + t·d̂_w
 
 - **单测**（javelin-core，解析解对照，用户运行）：每形状 命中/未命中/切线掠过/负 t 身后/origin 在形状内部/**非归一化方向 t=世界距离**（直证 §4.2）/非均匀缩放往返（本地命中回世界 vs 世界空间直算一致）；
   **✅ 已落地全绿（2026-10-05 用户运行验收）**：SphereShapeTest/BoxShapeTest/CylinderShapeTest = 8+8+13 用例；
+  **✅ 片③已验收（2026-10-06 用户运行）**：AabbTest 9 + MeshBoundsTest 4 + ColliderTest 19（片② 13 + 拟合 3 + Cylinder 拾取形态 3）——片①②③④全片关账；
 - **Demo**：L1 落地时按 Roadmap §2.3 点击拾取验收（本档无 Demo）。
 
 ## 8. 实现分片建议（拍板后按片派发，每片验收=单测绿）
@@ -127,10 +128,12 @@ M·p_l = M·(M⁻¹·o_w) + t·(M·(M⁻¹·d̂_w)) = o_w + t·d̂_w
 |----|------|
 | ① | Ray + CollisionShape + SphereShape + BoxShape + 单测（**✅ 已验收 2026-10-05**） |
 | ② | Collider 组件 `collideWithRay` 实现（世界→本地变换+center 偏移+形状委托+世界回换）+ 单测（含非均匀缩放往返）（**✅ 已验收 2026-10-05**——ColliderTest 13 用例：恒等/平移/旋转/缩放往返/全不变量/法线矩阵 invert().transpose() 交叉验证/射线不被改写/裸组件守卫/参数即时生效） |
-| ③ | Aabb + Mesh.bounds 回归 + 世界 Aabb + Collider.fitFromMesh 实现（Box 精确/Sphere 保守，数据源走 bounds）+ 单测（**已实现 2026-10-05，待单测验收**——AabbTest 9 用例含 8 角点对照基准与 JOML 语义、MeshBoundsTest 3 用例含 roundtrip 惰性、ColliderTest 增 3 用例含拟合→查询闭环与显式报错） |
+| ③ | Aabb + Mesh.bounds 回归 + 世界 Aabb + Collider.fitFromMesh 实现（Box 精确/Sphere 保守，数据源走 bounds）+ 单测（**✅ 已验收 2026-10-06**——AabbTest 9 用例含 8 角点对照基准与 JOML 语义、MeshBoundsTest 4 用例含 roundtrip 惰性与残留回归、ColliderTest 增 3 用例含拟合→查询闭环与显式报错） |
 | ④ | CylinderShape 自研数学 + 单测（**✅ 已验收 2026-10-05**，用户提前派发实现） |
 
-三角网格拾取不设片——随 L1 编辑器拾取实测再定（D4）。
+三角网格拾取不设片——编辑器物体拾取已拍板终态走 **GPU ID-buffer**（2026-10-06 用户：离屏 ID 附件+点击读回，Editor_Design §10，原 D4「随 L1 编辑器拾取实测再定」就此定案）：三角网格（MeshCollider）不再为编辑器拾取服务，归运行时物理需求（L2 立项时再定）；L1 射线线只剩运行时场景 raycast 与 gizmo 轴拾取（编辑器自有 Collider）。
+
+**片①②③④全片验收完毕（2026-10-06 用户运行单测）——碰撞 v0.1 实现关账**；首个消费方=编辑器移动轴拾取（CylinderCollider，拖拽判定随 Gizmo 期），场景级 raycast 归 Ray 期。
 
 ## 9. 边界与已知取舍
 
