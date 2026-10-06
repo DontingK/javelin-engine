@@ -31,6 +31,15 @@ public class JavelinSetting implements Serializable {
      */
     private AntialiasingMode antialiasing = AntialiasingMode.OFF;
 
+    /**
+     * 引擎帧率上限（mainLoop 帧末限帧）。0 = 不限制（默认）。
+     *
+     * <p>vsync（MAILBOX 呈现）下建议设为刷新率 × ~1.1：MAILBOX 生产端不限速、
+     * 由本字段兜底；余量是承重的——限得恰好等于刷新率会偶发「vblank 无新帧→
+     * 旧帧重复显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
+     */
+    private int maxFps = 0;
+
     public int getWidth() {
         return width;
     }
@@ -85,6 +94,14 @@ public class JavelinSetting implements Serializable {
         this.antialiasing = antialiasing;
     }
 
+    public int getMaxFps() {
+        return maxFps;
+    }
+
+    public void setMaxFps(int maxFps) {
+        this.maxFps = Math.max(0, maxFps);
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("width",width);
@@ -93,6 +110,7 @@ public class JavelinSetting implements Serializable {
         output.write("vsync",vsync);
         output.write("backgroundColor",backgroundColor);
         output.write("antialiasing",antialiasing);
+        output.write("maxFps",maxFps);
     }
 
     @Override
@@ -111,5 +129,7 @@ public class JavelinSetting implements Serializable {
         if (aa != null) {
             antialiasing = aa;
         }
+        // 旧设置文件缺键 readInt=0，恰为本字段默认语义（0=不限制）——无迁移坑
+        maxFps = Math.max(0, input.readInt("maxFps"));
     }
 }

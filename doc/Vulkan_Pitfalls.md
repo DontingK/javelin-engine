@@ -209,27 +209,41 @@
 
 ## 五·五、呈现与帧节律
 
-### 21. FIFO 锁帧下移动顿挫——帧率数据全干净 ★
+### 21. FIFO 窗口模式顿挫——DWM 合成节拍「踩线/错过」双稳 ★终局
 
-- **症状**：InputCameraDemo 按住 W 移动有肉眼顿挫；每秒性能日志
-  `180 fps | worst 7.8 ms | avg 5.6 ms`——平均恰好 1/180s（显示器刷新率锁帧），
-  worst « 2×avg（无任何一帧错过 vsync 周期）。**不掉帧、无 GC 尖刺、渲染本身 <6ms**，
-  帧率维度全部排除；
-- **根因**：FIFO 显示节拍严格固定（5.56ms/格），主循环 dt 却带 ±2ms 级
-  线程唤醒抖动；位移按 dt 积分 → 帧间步进忽大忽小（worst/avg ≈ 40% 差异）——
-  节拍没断但步伐不匀，肉眼即顿挫；叠加 vsync 1-2 帧输入→显示延迟加重手感。
-  **帧率高 ≠ 节律好，worst/avg 比值是顿挫的观测指标**；
-- **修法/验证**：A/B 隔离——`setting.setVsync(false)`（IMMEDIATE）后
-  `[perf] ~10000 fps | avg 0.1 ms`，移动顺滑，实锤 FIFO/DWM 呈现节奏；
-  引擎侧候选（待做，按性价比）：① present mode 接 MAILBOX
-  （`SwapChainDesc.PresentMode` 枚举已有值，`JavelinEngine.createSwapChainDesc`
-  只做 vsync→FIFO/IMMEDIATE 二值映射，需加配置位 + swapchain 图像数 2→3）；
-  ② vsync 锁帧下 dt 平滑/固定步长（模拟步进与真实 dt 解耦）；③ 独占全屏；
-- **观测工具**：InputCameraDemo.update() 的 per-second `[perf]` 日志
-  （fps / worst 单帧 / avg），读法——avg ≈ 1/刷新率 = FIFO 宽帧；
-  worst « 2×avg = 节律问题而非掉帧；
-- **出处**：2026-09-27 InputCameraDemo 移动卡顿排查，用户 A/B 确认；排障链：
-  per-second 观测先排帧率（数据干净）→ 单变量 A/B（vsync off 顺滑）→ 定位呈现节律。
+- **症状**：vsync 开（FIFO）下移动/环视/自动旋转顿挫，观感「轻微回退/卡顿」；
+  **刷新率越低越严重**（180Hz 轻微、144Hz 更差、60Hz 最重——连自旋都明显卡）；
+  编辑器与纯引擎 demo（InputCameraDemo）皆复现。帧率维度数据全干净：
+  dt avg≈1/刷新率、无超期帧、无 GC/逻辑/录制尖刺（帧节奏日志佐证）。
+- **根因**（推断，与全部观察自洽；2026-09-27 初判「dt 抖动→步伐不匀」已被
+  2026-10-06 实验否决）：FIFO 呈现走 DWM 窗口合成路径，present 落地时刻贴
+  合成节拍呈「踩线/错过」双稳——错过一次该帧再等一个完整刷新周期（显示
+  2×周期时长）；**错过代价 = 刷新周期长度**，故刷新率越低越严重（60Hz 一次
+  错过 = 16.7ms，观感等效掉半帧率）。vsync 关（IMMEDIATE）与 MAILBOX 顺滑
+  同源：显示端每节拍取最新完整帧，无「排下一班」语义。
+- **排除链**（2026-10-06 四轮单变量）：帧内数据链静态审查（UBO1 帧槽双缓冲/
+  Transform 惰性重算/图缓存每帧重绑回调）无时间倒挂；交换链图像数 min+1→+2
+  无效（驱动按刷新节奏释放图像，图像数不改变释放节奏）；dt EMA 平滑无效
+  （且右键拖拽同样卡——dt 假设双重否决）；MAILBOX 立愈（180/60Hz 双验证）。
+- **修法**：vsync 映射改 MAILBOX（`JavelinEngine.createSwapChainDesc`；表面
+  不支持时 `VulkanSwapChain` 自动回退 FIFO，`presentMode()` 返回实际生效值
+  可观测）。正式形态拍板中：MAILBOX + 引擎限帧器，**限帧目标必须高于刷新率
+  留余量（如 ×1.1）**——限在刷新率会重新制造「vblank 无新帧→旧帧重复显示」
+  把 FIFO 的病请回来；限速需粗睡+末段精自旋（Windows sleep 精度毫秒级不够）。
+  FIFO 保留显式档位（低刷屏/独占全屏场景）。
+- **观测工具**：排查期临时仪表（帧节奏聚合/丢帧单帧/FrameLoop 帧阶段计时）已按
+  用户指令摘除（2026-10-07）；常驻保留 `FrameLoop` 启动行
+  `swapchain: images=N, present=X`（presentMode 为实际生效值——vsync→MAILBOX
+  回退 FIFO 只有此处可见）与 demo 每秒 `[perf]`。读法——avg ≈ 1/刷新率 =
+  FIFO 宽帧；worst « 2×avg = 节律问题而非掉帧。
+- **限帧器使用边界（2026-10-07 实测）**：`maxFps` 限在刷新率之下（180Hz 屏限 60）
+  → 每帧显示节拍数（3:1）被 ±1ms 级产出抖动扰成 2/3/4 拍——轻微不匀（单次上限
+  1 节拍 ≈ 5.6ms，远轻于 FIFO@60 的 16.7ms）。正确用法：maxFps = 刷新率 × ~1.1
+  （每节拍有新帧、显示均匀）或 0（不限）；要真 60fps 观感动显示器刷新率、别动 maxFps。
+- **出处**：2026-09-27 InputCameraDemo 首查（vsync off 顺滑 A/B 实锤呈现层，
+  初判 dt 抖动）；2026-10-06 终局——编辑器/demo 双复现、四轮单变量实验、
+  刷新率梯度（144/60Hz 加重）、60Hz 最恶劣工况 MAILBOX 顺滑，用户逐轮实测
+  确认。
 
 ### 22. frontFace 绕序推理漏算第二次镜像：投影 Y 翻转 + Vulkan 窗口 y 向下相互抵消 ★推理链级
 

@@ -70,6 +70,9 @@ public final class FrameLoop implements AutoCloseable {
             states[i] = new FrameState(device);
         }
         this.swapChain = device.createSwapChain(desc);
+        // 呈现配置读数：presentMode 为实际生效值（vsync→MAILBOX 不支持时静默回退
+        // FIFO，回退只有此处可见——Vulkan_Pitfalls #21 观测口）
+        log.info("swapchain: images={}, present={}", swapChain.imageCount(), swapChain.presentMode());
         // 交换链已按当前尺寸创建：同步 resize 确认值，
         // 避免 GLFWRenderSurface 初始 ack=-1 导致首帧无意义的 recreate
         surface.acknowledgeResize();

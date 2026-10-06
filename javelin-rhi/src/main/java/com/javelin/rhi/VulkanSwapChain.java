@@ -33,6 +33,8 @@ final class VulkanSwapChain implements SwapChain {
 
     private long swapchainHandle;
     private SwapChainDesc desc;
+    /** 实际生效的呈现模式（create 期选定；请求模式不支持回退 FIFO 时此处可见真相） */
+    private SwapChainDesc.PresentMode selectedPresentMode;
     private int width;
     private int height;
     private List<Texture> images;
@@ -113,6 +115,11 @@ final class VulkanSwapChain implements SwapChain {
                     break;
                 }
             }
+            selectedPresentMode = selectedMode == VK_PRESENT_MODE_MAILBOX_KHR
+                    ? SwapChainDesc.PresentMode.MAILBOX
+                    : selectedMode == VK_PRESENT_MODE_IMMEDIATE_KHR
+                            ? SwapChainDesc.PresentMode.IMMEDIATE
+                            : SwapChainDesc.PresentMode.FIFO;
 
             // 查询 capabilities
             VkSurfaceCapabilitiesKHR caps = VkSurfaceCapabilitiesKHR.malloc(stack);
@@ -121,8 +128,12 @@ final class VulkanSwapChain implements SwapChain {
                 throw new VulkanException(result, "Failed to get surface capabilities");
             }
 
-            // 图像数：min + 1，不超过 max（0 = 无上限）
-            int imageCount = caps.minImageCount() + 1;
+            // 图像数：min + 2（2026-10-06 vsync 卡顿诊断实验）：min+1 时 FIFO 呈现队列
+            // 深度仅 ~1，DWM 合成占用再吃一格后 CPU 距 vblank 近乎零余量——唤醒抖动
+            // ±1.5ms 即可在某刷新边界队列排空、上一帧画面重复显示一个周期（感知为
+            // 轻微回退/卡顿）。+2 多一格缓冲吸收抖动；实验证实后再拍正式形态。
+            // 不超过 max（0 = 无上限）
+            int imageCount = caps.minImageCount() + 2;
             if (caps.maxImageCount() > 0 && imageCount > caps.maxImageCount()) {
                 imageCount = caps.maxImageCount();
             }
@@ -228,7 +239,7 @@ final class VulkanSwapChain implements SwapChain {
 
     @Override
     public SwapChainDesc.PresentMode presentMode() {
-        return desc.presentMode();
+        return selectedPresentMode;
     }
 
     @Override

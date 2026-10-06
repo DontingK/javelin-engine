@@ -88,6 +88,12 @@ public class JavelinEngine {
 
     private long lastFrameTime;
 
+    /** 限帧末段精自旋余量（1.5ms）：Windows Thread.sleep 毫秒级精度，高刷限帧不兜底会帧期过冲 */
+    private static final long LIMITER_SPIN_MARGIN_NANOS = 1_500_000L;
+
+    /** 限帧锚点（上一帧限帧结束时刻；帧超时不追帧，无债务累积） */
+    private long limiterAnchorNanos;
+
     public JavelinEngine(JavelinSetting setting) {
         this.setting = setting;
     }
@@ -119,7 +125,8 @@ public class JavelinEngine {
         frameLoop = createFrameLoop(surface);
         renderingSystem = createRenderingSystem();
         renderPipeline = createRenderPipeline();
-        log.info("RHI initialized: {}x{}, vsync={}", window.width(), window.height(), setting.isVsync());
+        log.info("RHI initialized: {}x{}, vsync={}, maxFps={}",
+                window.width(), window.height(), setting.isVsync(), setting.getMaxFps());
 
         subsystemManager.initAll(this);
 
@@ -157,6 +164,7 @@ public class JavelinEngine {
     private void mainLoop() {
         Time.init();
         lastFrameTime = System.nanoTime();
+        limiterAnchorNanos = lastFrameTime;
         while (!window.closeRequested()) {
             window.pollEvents();
             // 异步任务帧首消费（主线程）：任意线程 submitTask 提交，帧边界串行执行，
@@ -177,6 +185,7 @@ public class JavelinEngine {
             // 录制收尾：本帧统计快照归档并清零，下帧 overlay 经 renderStats() 读到本帧值；
             // 跳帧时 runtime 未变，重复快照保持上一实帧显示、不闪零（§3.1 时序）
             device.resetFrameStats();
+            limitFrameRate();
         }
     }
 
@@ -203,6 +212,40 @@ public class JavelinEngine {
                 log.error("异步任务执行出错", t);
             }
         }
+    }
+
+    /**
+     * 引擎帧率限制（mainLoop 帧末，{@code setting.maxFps}，0 = 不限制）：按上一帧
+     * 限帧结束时刻 + 1/maxFps 为目标等待。粗睡 + 末段 {@link Thread#onSpinWait()}
+     * 精自旋——Windows Thread.sleep 毫秒级精度，高刷限帧不兜底会帧期过冲；锚点取
+     * 等待结束时刻，帧超时不追帧（无债务累积、节奏自愈）。vsync(MAILBOX) 下建议
+     * maxFps = 刷新率 × ~1.1：限得恰好等于刷新率会偶发「vblank 无新帧→旧帧重复
+     * 显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
+     */
+    private void limitFrameRate() {
+        int maxFps = setting.getMaxFps();
+        if (maxFps <= 0) {
+            limiterAnchorNanos = System.nanoTime();   // 免限帧也保鲜锚点（运行期改设置首帧即生效）
+            return;
+        }
+        long target = limiterAnchorNanos + 1_000_000_000L / maxFps;
+        long remaining = target - System.nanoTime();
+        if (remaining > 0) {
+            long sleepNanos = remaining - LIMITER_SPIN_MARGIN_NANOS;
+            if (sleepNanos >= 1_000_000L) {   // 不足 1ms 直接进自旋（Windows 计时粒度）
+                try {
+                    Thread.sleep(sleepNanos / 1_000_000L, (int) (sleepNanos % 1_000_000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    limiterAnchorNanos = System.nanoTime();
+                    return;
+                }
+            }
+            while (System.nanoTime() < target) {
+                Thread.onSpinWait();
+            }
+        }
+        limiterAnchorNanos = System.nanoTime();
     }
 
     /** 图声明回调：acquire 之后调用，backbuffer 为入参（RHI 24.1） */
@@ -299,10 +342,13 @@ public class JavelinEngine {
         return RHIDevicePrefs.defaults();
     }
 
-    /** vsync → FIFO（必支持）；关闭 vsync → IMMEDIATE（Engine_Implementation_Plan 开放项落定） */
+    /** vsync → MAILBOX（2026-10-06 拍板：FIFO+DWM 窗口合成「踩线/错过」双稳见
+     *  Vulkan_Pitfalls #21，MAILBOX 替换语义免疫；生产端不限速由 maxFps 限帧兜底；
+     *  表面不支持时 VulkanSwapChain 自动回退 FIFO）；关闭 vsync → IMMEDIATE
+     *  （Engine_Implementation_Plan 开放项落定） */
     protected SwapChainDesc createSwapChainDesc() {
         SwapChainDesc.PresentMode presentMode = setting.isVsync()
-                ? SwapChainDesc.PresentMode.FIFO
+                ? SwapChainDesc.PresentMode.MAILBOX
                 : SwapChainDesc.PresentMode.IMMEDIATE;
         return new SwapChainDesc(window.width(), window.height(),
                 presentMode, SwapChainDesc.ColorSpace.SRGB, 0, setting.isVsync());

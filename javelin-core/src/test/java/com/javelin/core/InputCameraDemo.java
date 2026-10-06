@@ -20,6 +20,7 @@ import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
+import com.javelin.core.settings.AntialiasingMode;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.tool.shaderc.ShaderStage;
@@ -61,7 +62,9 @@ public final class InputCameraDemo extends JavelinEngineTestBase {
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
         setting.setTitle("Javelin - InputCameraDemo");
-        setting.setVsync(false);
+        setting.setVsync(true);
+        setting.setMaxFps(180);
+        setting.setAntialiasing(AntialiasingMode.MSAA_8);
         new InputCameraDemo(setting).start();
     }
 
