@@ -62,7 +62,7 @@ public class CreatePlaneMenuCommand extends HierarchyMenuCommand {
 
     @Override
     public String label() {
-        return "创建 Plane";
+        return "平面";
     }
 
     @Override

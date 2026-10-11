@@ -204,7 +204,7 @@ function onChildContextMenu(node: TreeNode, event: MouseEvent): void {
 .javelin-tree-node__content {
   display: flex;
   align-items: center;
-  padding: 4px 6px;
+  padding: 2px 6px;
   border-radius: 3px;
   cursor: default;
   width: max-content;
@@ -215,9 +215,16 @@ function onChildContextMenu(node: TreeNode, event: MouseEvent): void {
   background: var(--editor-surface-light);
 }
 
-.javelin-tree-node__content--selected {
-  background: var(--editor-surface-light);
-  box-shadow: inset 2px 0 0 0 var(--editor-text-dim);
+/* 选中行 = accent 蓝底白字（Unity 选中高亮口径）；并集选择器压过 :hover 的
+   灰底（同悬停选中行不回灰），展开箭头同步换半透明白 */
+.javelin-tree-node__content--selected,
+.javelin-tree-node__content--selected:hover {
+  background: var(--editor-accent);
+  color: #fff;
+}
+
+.javelin-tree-node__content--selected .javelin-tree-node__toggle {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .javelin-tree-node__toggle,

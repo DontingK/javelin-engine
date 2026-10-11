@@ -1,6 +1,7 @@
 package com.javelin.editor.menu;
 
 import com.javelin.editor.window.cef.MainFrame;
+import com.javelin.editor.swing.SvgIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,12 +37,15 @@ public final class MenuPopupFactory {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MenuPopupFactory.class);
 
-    /** 对齐 web 浅色主题（style.css --editor-* 色板；hover 高亮留 LAF 默认，不做深度定制） */
+    /** 对齐 web 浅色主题（style.css --editor-* 默认档；深色档 html[data-theme=dark] 切换落地时
+     *  此三常量须改读主题——Swing 不读 CSS；hover 高亮留 LAF 默认，不做深度定制） */
     private static final Color POPUP_BG = new Color(0xFF, 0xFF, 0xFF);      // --editor-surface
-    private static final Color POPUP_FG = new Color(0x34, 0x3A, 0x40);      // --editor-text
-    private static final Color POPUP_BORDER = new Color(0xDE, 0xE2, 0xE6);  // --editor-border
+    private static final Color POPUP_FG = new Color(0x33, 0x37, 0x3D);      // --editor-text
+    private static final Color POPUP_BORDER = new Color(0xD0, 0xD4, 0xD8);  // --editor-border
     /** 菜单最小宽度（px）：项少/字短时垫宽（顶层与子菜单同口径），可调 */
     private static final int MIN_WIDTH = 140;
+    /** 菜单图标尺寸（px，菜单行标准档） */
+    private static final int ICON_SIZE = 16;
 
     private MenuPopupFactory() {
         // 静态门面禁止实例化
@@ -121,6 +125,7 @@ public final class MenuPopupFactory {
             item.setBackground(POPUP_BG);
             item.setForeground(POPUP_FG);
             accelerator(item, command);
+            icon(item, command);
             item.addActionListener(e -> CommandService.execute(command.getId()));
             refresh(item, command);
             popup.add(item);
@@ -172,6 +177,22 @@ public final class MenuPopupFactory {
         KeyStroke stroke = toKeyStroke(command.getShortcut());
         if (stroke != null) {
             item.setAccelerator(stroke);
+        }
+    }
+
+    /**
+     * 菜单项图标（/icon/{name}.svg 经 SvgIcon 渲染）。勾选命令不配——勾选标记
+     * 与图标同槽渲染会挤占（Unity 口径勾选项无图标）；资源缺失不设置（不占空位，
+     * 也避免 SvgIcon 缺资源时逐帧 paint 警告）。
+     */
+    private static void icon(JMenuItem item, Command command) {
+        String name = command.getIcon();
+        if (name == null || command.isCheckable()) {
+            return;
+        }
+        SvgIcon svgIcon = SvgIcon.of(name, ICON_SIZE);
+        if (svgIcon.isAvailable()) {
+            item.setIcon(svgIcon);
         }
     }
 

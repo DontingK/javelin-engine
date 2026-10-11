@@ -114,7 +114,7 @@ onMounted(() => {
 }
 
 .menu-root.active .menu-label {
-  background: #ffffff;
+  background: var(--editor-surface);
   color: var(--editor-text-heading);
   box-shadow: inset 0 0 0 1px var(--editor-border);
 }

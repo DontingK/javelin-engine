@@ -23,6 +23,7 @@ public class UnimplementedMenuCommand extends HierarchyMenuCommand {
     private final String id;
     private final String label;
     private final String shortcut;
+    private final String icon;
 
     /**
      * @param id       命令 id（Unity 对齐命名，如 "hierarchy.copy"）
@@ -30,12 +31,23 @@ public class UnimplementedMenuCommand extends HierarchyMenuCommand {
      * @param shortcut 快捷键文本（仅显示，可空）
      */
     public UnimplementedMenuCommand(String id, String label, String shortcut) {
+        this(id, label, shortcut, null);
+    }
+
+    /**
+     * @param id       命令 id（Unity 对齐命名，如 "hierarchy.copy"）
+     * @param label    显示文本
+     * @param shortcut 快捷键文本（仅显示，可空）
+     * @param icon     图标名（classpath /icon/{name}.svg，可空 = 无图标）
+     */
+    public UnimplementedMenuCommand(String id, String label, String shortcut, String icon) {
         if (id == null || id.isBlank() || label == null || label.isBlank()) {
             throw new IllegalArgumentException("命令 id 与 label 不能为空: " + id);
         }
         this.id = id;
         this.label = label;
         this.shortcut = shortcut;
+        this.icon = icon;
     }
 
     @Override
@@ -51,6 +63,11 @@ public class UnimplementedMenuCommand extends HierarchyMenuCommand {
     @Override
     public String shortcut() {
         return shortcut;
+    }
+
+    @Override
+    public String icon() {
+        return icon;
     }
 
     /** 恒置灰：占位命令不可用（未实现项显示但灰，Unity 壳对齐） */

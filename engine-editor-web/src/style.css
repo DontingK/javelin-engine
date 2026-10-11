@@ -1,16 +1,16 @@
-/* Javelin Web Editor - 基础主题与全局样式 */
+/* Javelin Web Editor - 基础主题与全局样式（默认浅色；深色档见 html[data-theme='dark']） */
 
 :root {
-  --editor-bg: #f8f9fa;
+  --editor-bg: #e9eaec;
   --editor-surface: #ffffff;
-  --editor-surface-light: #f1f3f5;
-  --editor-border: #dee2e6;
-  --editor-text: #343a40;
-  --editor-text-dim: #868e96;
-  --editor-text-heading: #212529;
-  --editor-accent: #0d6efd;
-  --editor-accent-hover: #0b5ed7;
-  --editor-status-bg: #e9ecef;
+  --editor-surface-light: #f2f3f5;
+  --editor-border: #d0d4d8;
+  --editor-text: #33373d;
+  --editor-text-dim: #7d838c;
+  --editor-text-heading: #1c2126;
+  --editor-accent: #5b8ec9;
+  --editor-accent-hover: #6fa2d7;
+  --editor-status-bg: #f0f1f3;
 
   --menu-height: 28px;
   --status-height: 22px;
@@ -23,6 +23,22 @@
   color: var(--editor-text);
   background: var(--editor-bg);
   color-scheme: light;
+}
+
+/* 深色档（Unity 风）：根节点 data-theme="dark" 启用；切换 UI 未落地前默认浅色，
+   落地时同步 MenuPopupFactory 三常量（Swing 菜单不读 CSS） */
+html[data-theme='dark'] {
+  --editor-bg: #2c2c2c;
+  --editor-surface: #383838;
+  --editor-surface-light: #2f2f2f;
+  --editor-border: #4a4a4a;
+  --editor-text: #c9c9c9;
+  --editor-text-dim: #8f8f8f;
+  --editor-text-heading: #e6e6e6;
+  --editor-accent: #4a7db5;
+  --editor-accent-hover: #5b8fc6;
+  --editor-status-bg: #262626;
+  color-scheme: dark;
 }
 
 * {

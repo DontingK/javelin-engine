@@ -33,6 +33,11 @@ public class DeleteMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
+    public String icon() {
+        return "delete";
+    }
+
+    @Override
     public String shortcut() {
         return "Del";
     }

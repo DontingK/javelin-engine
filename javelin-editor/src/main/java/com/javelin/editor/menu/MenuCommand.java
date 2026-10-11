@@ -40,4 +40,9 @@ public interface MenuCommand {
     default Boolean checked() {
         return null;
     }
+
+    /** 菜单项图标名（classpath /icon/{name}.svg，null = 无图标；勾选命令不配——勾选标记与图标同槽渲染） */
+    default String icon() {
+        return null;
+    }
 }

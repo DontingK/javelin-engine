@@ -65,6 +65,9 @@ public final class CommandService {
         if (menuCommand.checked() != null) {
             builder.checked(menuCommand::checked);
         }
+        if (menuCommand.icon() != null) {
+            builder.icon(menuCommand.icon());
+        }
         register(builder.build());
     }
 

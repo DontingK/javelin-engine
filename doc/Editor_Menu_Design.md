@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.6）
+# 编辑器菜单与命令系统设计（v0.7）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -19,6 +19,11 @@
 > EditorScene.gameSceneFile，保存走 submitTask 帧边界，成功 clearDirty +
 > 发布 scene.changed（前端树根星号消失）；另存为/打开/新建场景随下期落地（拍板
 > 2026-10-01：首期仅保存）。
+> v0.7（2026-10-11）：**菜单图标 + 层级右键 Unity 结构重排 + tools.refresh**——
+> SvgIcon（JSVG）classpath /icon/ 加载 SVG 渲染 Swing Icon、MenuCommand.icon()
+> override 即配（勾选命令不配，§5.3）；层级右键按用户清单重排为 Unity 结构
+> （剪切/复制/粘贴—删除—空对象—3D 对象/灯光/粒子/摄像机，rename 撤出、
+> 未实现项占位置灰）；工具域补 tools.refresh 刷新 web 页（§8）。
 
 ## 1. 背景与约束
 
@@ -218,6 +223,20 @@ selection setter，UIManager 键属 LAF 私有不瞎写），不深入 LAF 定�
 （v0.2~v0.3 本节为「Web 自渲染 + `DropdownMenu.vue` boundary 夹紧」，2026-09-30 实测
 夹紧后仍被视口 Canvas 盖，路径已删除——见 §1.1。）
 
+### 5.3 菜单图标（SvgIcon / JSVG，v0.7）
+
+**挂点：`MenuCommand.icon()`（default null，override 返回图标名即配）**——资源约定
+classpath `/icon/{name}.svg`（`javelin-editor/src/main/resources/icon/`，IntelliJ 系
+图标库导出）；渲染 `SvgIcon.of(name, 16)` 实现 Swing `Icon`。渲染约定：
+
+- **勾选命令不配图标**——勾选标记与图标在 JMenuItem 同一图标槽，互挤（Unity 口径
+  勾选项也无图标）；
+- **资源缺失不设置**（不占空位，也避免缺资源时逐帧 paint 警告）；
+- `SvgIcon`（`editor.swing` 包）内部缓存 `SVGDocument`（ConcurrentHashMap，同图
+  多处引用不重复解析），首次 paint 时渲染 BufferedImage；
+- 弹窗配色三常量随色板微调同步（`--editor-text`/`--editor-border` 新档），深色档
+  落地时须改读主题（Swing 不读 CSS，见 §5.1 样式注）。
+
 ## 6. 桥协议
 
 | 方法 | 参数 | 返回/行为 |
@@ -260,6 +279,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `file.save` | 保存 | 文件 | TextExporter 写回 gameSceneFile（.scene 文本协议），成功 clearDirty + scene.changed 推送（2026-10-01 落地，随 Engine_Scene_Design §9 .scene 序列化） |
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
+| `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
@@ -274,8 +294,11 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 待将来场景视图工具栏落地后再对位迁移（届时注意 §1.1 遮挡约束：工具栏浮进视口矩形
 不能走 Web）。
 
-场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.5 起域结构按 Unity 壳
-组织，未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。project 右键域的
+场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.7（2026-10-11）结构按
+用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane 已实现、
+立方体/球/三角锥占位）/灯光（定向光/点光源占位）/粒子/摄像机（占位）**，rename
+撤出（随树内编辑 UI 后置）、未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。
+project 右键域的
 命令、域基类与前端选中上报，随 project 对接任务落地（域基类设计已就绪）。
 
 ## 9. 预留（明确不做）
@@ -305,6 +328,7 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 | `UnimplementedMenuCommand`（menu.hierarchy） | §4 未实现命令占位注册（enabled 恒 false 置灰，功能落地时替换注册行） |
 | `EditorMenuSetup` | 启动期组装（`JavelinEditor.onInitialize` 调用）：注册命令类 + 搭菜单 |
 | `MenuPopupFactory` | §5 JPopupMenu/JMenu 递归构建 + 分层状态求值 + 坐标换算 |
+| `SvgIcon`（`editor.swing`）+ `resources/icon/` | §5.3 SVG 图标渲染（JSVG，Document 缓存）与图标资源 |
 | `MenuMethod`（`jcef/method`）+ `MenuItemVo`（`domain/vo`） | §6 桥协议 |
 
 **前端（engine-editor-web）**

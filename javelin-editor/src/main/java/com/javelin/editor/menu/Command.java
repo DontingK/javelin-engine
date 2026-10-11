@@ -26,6 +26,8 @@ public final class Command {
     private final Supplier<Boolean> enabled;
     /** 勾选态（null = 非勾选命令） */
     private final Supplier<Boolean> checked;
+    /** 菜单项图标名（classpath /icon/{name}.svg；null = 无图标） */
+    private final String icon;
 
     private Command(Builder builder) {
         this.id = builder.id;
@@ -34,6 +36,7 @@ public final class Command {
         this.action = builder.action;
         this.enabled = builder.enabled;
         this.checked = builder.checked;
+        this.icon = builder.icon;
     }
 
     /**
@@ -78,6 +81,11 @@ public final class Command {
         return checked != null && checked.get();
     }
 
+    /** 菜单项图标名（null = 无图标） */
+    public String getIcon() {
+        return icon;
+    }
+
     /**
      * 命令构建器。
      */
@@ -88,6 +96,7 @@ public final class Command {
         private Runnable action;
         private Supplier<Boolean> enabled;
         private Supplier<Boolean> checked;
+        private String icon;
 
         private Builder(String id, String label) {
             if (id == null || id.isBlank() || label == null || label.isBlank()) {
@@ -114,6 +123,11 @@ public final class Command {
 
         public Builder checked(Supplier<Boolean> checked) {
             this.checked = checked;
+            return this;
+        }
+
+        public Builder icon(String icon) {
+            this.icon = icon;
             return this;
         }
 
