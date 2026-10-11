@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.8）
+# 编辑器菜单与命令系统设计（v0.9）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -30,6 +30,28 @@
 > 入用户 game scene，SCENE 模式编辑器视口不受影响（EditorScene 相机按 SceneModel
 > 双模式分流：SCENE 渲染编辑器相机、GAME 渲染用户相机），Camera write/read 已通
 > 保存重载可恢复。
+> v0.9（2026-10-11）：**「构建」顶栏域落地（非 Unity 菜单结构，用户指定域）**——
+> build.compile 编译（实而先禁：引擎侧 `GradleProject.compile()` 已备，菜单入口
+> 按拍板恒置灰，启用去掉 enabled() 覆写即接通）、build.pack 打包（弹 CEF 模态
+> 对话框：独立前端页 page/pack.html，宿主=JDialog 版 CEF 容器
+> `window/cef/dialog/Dialog`（URL 传参、模态挂 MainFrame、DISPOSE_ON_CLOSE 连
+> 浏览器销毁）；「开始打包」同日接入真构建（用户落地 GradleProject.jarBuild：
+> /build/jar 桥同步执行 dumpRuntimeJars→build→**jlink 裁剪运行时**→产物组装
+> （运行时=jdeps 算模块清单+jlink 只装所需模块的 JRE 级，替代整 JDK 镜像——
+> 2026-10-11 拍板「游戏运行时只需 JRE，不带 javac/jmods 工具链」）；**日志实时推送**——
+> ConsoleOut 行经 JavaScriptBridge 定向推调用者浏览器（build.out.info/warn/error，
+> console.* 前缀保留给控制台面板，
+> 依赖桥方法 CefBrowser 参数注入新机制，见 Editor_Design §4.1），对话框日志区
+> 流式回显+自动滚底、响应到达即完成（返回值为结束标记），构建期按钮
+> loading/取消置灰；**「启动场景」下拉已接真数据**（onMounted 拉取 /build/scenes
+> ——AssetManager.listAssetPaths(".scene") 从资产索引枚举、每次先重载索引拾取
+> 运行期新导入，默认选中项目默认场景；core AssetManager 接口为此补了
+> listAssetPaths 查询方法，见 Editor_Design §6.4）；**表单参数随构建持久化进项目
+> Game/**（2026-10-11 拍板「写进 Game 再原封复制」：窗口元信息→
+> javelinSettings.settings、启动场景→game.settings 的 defaultSceneGuid 经伴生 .meta
+> 解 guid；空值/非法值跳过不覆写、构建模式仍不消费），组装阶段 **Game/ 与 Library/
+> 原封复制进产物**（GameMain 运行时从 runDir/Game 读设置、场景走 Library guid 产物）；
+> 关窗仍走 X）。
 
 ## 1. 背景与约束
 
@@ -293,9 +315,13 @@ public class MenuItemVo {        // 顶层与子项同构
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |
 | `hierarchy.rename` | 重命名 | 场景树右键 | 占位置灰——待树内编辑 UI（scene.nodeRenamed 定点通知已就绪） |
+| `build.compile` | 编译 | 构建 | 实而先禁（2026-10-11 拍板）：引擎侧 `GradleProject.compile()`（gradle compileJava）已备，菜单入口恒置灰（enabled 覆写），启用即删覆写接通；execute 记 warn 仅防桥直触发 |
+| `build.pack` | 打包 | 构建 | 弹 CEF 模态打包对话框（独立前端页 page/pack.html：启动场景/构建模式/窗口元信息表单 + 构建日志区）；「开始打包」接 `/build/jar` 桥（BuildMethod 声明 CefBrowser 参数注入调用者浏览器 → `GradleProject.jarBuild`：dumpRuntimeJars→build→jlink 裁剪 JRE 运行时→产物组装到 build/jar/，ConsoleOut 行经 JavaScriptBridge EDT hop 定向实时推送 build.out.*、前端流式回显自动滚底、响应到达即完成；桥线程池阻塞执行、失败走桥错误协议）；宿主=`window/cef/dialog/Dialog` 通用容器（EDT invokeLater 弹出）——启动场景下拉已接 /build/scenes 真数据（表单选项值消费与 AOT 形态随打包管线批次，2026-10-11 落地待验收） |
 
 顶栏菜单域按 Unity 组织（文件 / 编辑 / 资产 / 游戏对象 / 组件 / 工具 / 窗口 / 帮助），
-首期只落有命令的域、空域不渲染——已落「文件」（v0.6，仅保存）、「工具」两域。
+首期只落有命令的域、空域不渲染——已落「文件」（v0.6，仅保存）、「工具」、
+「构建」（v0.9）三域。注：「构建」非 Unity 菜单结构（Unity 的 Build Settings 在
+File 菜单下），是用户指定的独立顶级域。
 注：Unity 无「视图」顶级菜单，
 Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏——我们暂以「工具」域承载，
 待将来场景视图工具栏落地后再对位迁移（届时注意 §1.1 遮挡约束：工具栏浮进视口矩形

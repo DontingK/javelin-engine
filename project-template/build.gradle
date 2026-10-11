@@ -43,7 +43,30 @@ application {
     mainClass = 'com.javelin.core.GameMain'
     applicationName = project.name
 }
+// 新增：配置jar任务
+jar {
+    manifest {
+        attributes 'Main-Class': application.mainClass
+    }
+    archiveFileName = "game.jar"
+}
 
+tasks.register('dumpRuntimeJars') {
+    group = "custom"
+    description = "输出 runtimeClasspath 所有依赖Jar路径到 build/dependencies.txt"
+    doLast {
+        def outputFile = file("build/dependencies.txt")
+        outputFile.parentFile.mkdirs()
+
+        def lines = configurations.runtimeClasspath.files.collect { file ->
+            file.absolutePath
+        }.sort()
+
+        outputFile.text = lines.join(System.lineSeparator())
+        println("依赖Jar列表已输出到: ${outputFile.absolutePath}")
+        println("共 ${lines.size()} 个依赖文件")
+    }
+}
 graalvmNative {
     binaries {
         main {

@@ -5,20 +5,26 @@ import com.javelin.core.scene.GameScene;
 import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.settings.*;
 import com.javelin.editor.EditorEnv;
+import com.javelin.editor.console.ConsoleOut;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.util.FileUtil;
+import com.javelin.editor.util.StringUtil;
 import org.gradle.tooling.BuildLauncher;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -42,10 +48,33 @@ public class GradleProject extends Project {
     }
 
     @Override
-    public void nativeBuild(Consumer<String> out) {
+    public void nativeBuild(ConsoleOut out) {
         File file = nativeBuildOutDir();
         FileUtil.delete(file);
         runTask("nativeCompile", out);
+    }
+
+    @Override
+    public void jarBuild(ConsoleOut out) {
+        long start = System.currentTimeMillis();
+        out.info("==== jar 打包开始（项目: " + rootDir.getAbsolutePath() + "）====");
+        out.info("---- 阶段 1/5: 清理 native 产物目录 ----");
+        File file = nativeBuildOutDir();
+        FileUtil.delete(file);
+        out.info("已清理: " + file.getAbsolutePath());
+        out.info("---- 阶段 2/5: dumpRuntimeJars（导出运行时依赖清单）----");
+        runTask("dumpRuntimeJars", out);
+        out.info("---- 阶段 3/5: build（compileJava 编译 + jar 打包）----");
+        runTask("build", out);
+        out.info("---- 阶段 4/5: jlink 裁剪游戏运行时 ----");
+        dumpRuntimeByJlink(out);
+        out.info("---- 阶段 5/5: 组装产物（build/jar）----");
+        try {
+            creatOutputJarApp(out);
+            out.info("==== jar 打包完成，总耗时 " + (System.currentTimeMillis() - start) + "ms ====");
+        } catch (IOException e) {
+            out.error("产物组装失败: " + e.getMessage());
+        }
     }
 
     @Override
@@ -59,18 +88,208 @@ public class GradleProject extends Project {
      * @param task 任务名称
      * @param out  输出行回调，为 {@code null} 时不输出日志
      */
-    public void runTask(String task, Consumer<String> out) {
+    public void runTask(String task, ConsoleOut out) {
+        long start = System.currentTimeMillis();
+        if (out != null) {
+            out.info(">> Gradle 任务: " + task + "（开始）");
+        }
         try (ProjectConnection connection = getConnection()) {
             BuildLauncher launcher = connection.newBuild().forTasks(task);
             if (out != null) {
-                OutputStream stream = new LineConsumerOutputStream(out);
-                launcher.setStandardOutput(stream);
-                launcher.setStandardError(stream);
+                // stdout=info（任务执行行/编译常规输出）、stderr=error（编译报错行——
+                // 分级后前端日志区红字，打包过程失败点一眼可判）
+                launcher.setStandardOutput(new LineConsumerOutputStream(out::info));
+                launcher.setStandardError(new LineConsumerOutputStream(out::error));
             }
             launcher.run();
         } catch (Exception e) {
             LOGGER.error("执行任务失败: {}", task, e);
+            if (out != null) {
+                out.error("<< Gradle 任务失败: " + task + " —— " + e.getMessage());
+            }
             throw new RuntimeException(e);
+        }
+        if (out != null) {
+            out.info("<< Gradle 任务: " + task + " 完成，耗时 " + (System.currentTimeMillis() - start) + "ms");
+        }
+    }
+
+    private void creatOutputJarApp(ConsoleOut out) throws IOException {
+        File file = new File(rootDir, "build/jar");
+        File runtimeDir = new File(file, "runtime");
+        File dependencies = new File(rootDir, "build/dependencies.txt");
+        File lib = new File(rootDir, "build/jar/lib");
+        File gameJar = new File(rootDir, "build/libs/game.jar");
+        FileUtil.delete(file);
+        file.mkdirs();
+        lib.mkdirs();
+        out.info("产物目录: " + file.getAbsolutePath());
+
+        if (!gameJar.exists()) {
+            out.error("缺少主 jar: " + gameJar.getAbsolutePath() + "（build 任务未产出？）");
+        } else {
+            File mainTarget = new File(file, gameJar.getName());
+            FileUtil.copy(gameJar, mainTarget);
+            out.info("复制主 jar: " + gameJar.getAbsolutePath() + " -> " + mainTarget.getAbsolutePath());
+        }
+
+        if (!dependencies.exists()) {
+            out.warn("依赖清单缺失: " + dependencies.getAbsolutePath() + "（dumpRuntimeJars 未产出？）");
+        } else {
+            List<String> strings = Files.readAllLines(dependencies.toPath());
+            out.info("依赖清单: " + dependencies.getAbsolutePath() + "（" + strings.size() + " 行）");
+            for (String string : strings) {
+                if (StringUtil.isNotBlank(string)) {
+                    File libJar = new File(string);
+                    File libTarget = new File(lib, libJar.getName());
+                    FileUtil.copy(libJar, libTarget);
+                    out.info("复制依赖: " + string + " -> " + libTarget.getAbsolutePath());
+                }
+            }
+        }
+        // 运行时 = 阶段 4 的 jlink 裁剪产物（build/runtime 工作区），并入产物目录
+        File runtimeStaging = new File(rootDir, "build/runtime");
+        if (!runtimeStaging.exists()) {
+            out.warn("运行时缺失（jlink 未产出？）: " + runtimeStaging.getAbsolutePath());
+        } else {
+            FileUtil.copy(runtimeStaging, runtimeDir);
+            out.info("复制运行时: " + runtimeStaging.getAbsolutePath() + " -> " + runtimeDir.getAbsolutePath());
+        }
+
+        // Game/ 与 Library/ 原封不动并入产物（表单参数已先写入 Game → 复制即新值；
+        // Library 含场景二进制产物，运行时按 guid 加载）
+        File gameDir = new File(rootDir, "Game");
+        if (!gameDir.exists()) {
+            out.warn("Game 目录缺失: " + gameDir.getAbsolutePath());
+        } else {
+            File gameTarget = new File(file, "Game");
+            FileUtil.copy(gameDir, gameTarget);
+            out.info("复制 Game: " + gameDir.getAbsolutePath() + " -> " + gameTarget.getAbsolutePath());
+        }
+        File libraryDir = new File(rootDir, "Library");
+        if (!libraryDir.exists()) {
+            out.warn("Library 目录缺失: " + libraryDir.getAbsolutePath());
+        } else {
+            File libraryTarget = new File(file, "Library");
+            FileUtil.copy(libraryDir, libraryTarget);
+            out.info("复制 Library: " + libraryDir.getAbsolutePath() + " -> " + libraryTarget.getAbsolutePath());
+        }
+
+    }
+
+    /**
+     * jlink 裁剪游戏运行时到 {@code build/runtime}（工作区，组装阶段并入产物）。
+     *
+     * <p>模块清单由 jdeps 对 game.jar + 全部依赖 jar 分析得出（{@code jdk.unsupported}
+     * 由 LWJGL 的 sun.misc.Unsafe 引入，缺了游戏起不来——jdeps 会自动带入）；产物只含
+     * 所需模块（几十 MB），替代整 JDK 镜像（几百 MB 且带 javac/jmods 工具链——2026-10-11
+     * 拍板：运行时只需 JRE 级）。工具取编辑器自身 JDK 的 bin（编辑器须运行于完整 JDK）。</p>
+     *
+     * @param out 输出回调
+     */
+    private void dumpRuntimeByJlink(ConsoleOut out) {
+        File runtimeStaging = new File(rootDir, "build/runtime");
+        FileUtil.delete(runtimeStaging);
+
+        File gameJar = new File(rootDir, "build/libs/game.jar");
+        if (!gameJar.exists()) {
+            throw new IllegalStateException("缺少主 jar，无法分析运行时模块: " + gameJar.getAbsolutePath());
+        }
+        // jdeps 输入 = game.jar + 依赖清单全量（交叉引用可解析）
+        List<File> jars = new ArrayList<>();
+        jars.add(gameJar);
+        File dependencies = new File(rootDir, "build/dependencies.txt");
+        if (dependencies.exists()) {
+            try {
+                for (String line : Files.readAllLines(dependencies.toPath())) {
+                    if (StringUtil.isNotBlank(line)) {
+                        jars.add(new File(line.trim()));
+                    }
+                }
+            } catch (IOException e) {
+                throw new RuntimeException("读取依赖清单失败: " + dependencies.getAbsolutePath(), e);
+            }
+        }
+        List<String> jarPaths = jars.stream().map(File::getAbsolutePath).toList();
+
+        // multi-release jar（logback 等）必须显式声明分析版本，否则 jdeps 退出码 2
+        // （2026-10-11 实测：logback-core-1.5.13 触发）；版本取运行 JDK 大版本——
+        // jdeps/jlink 取自同一 JDK，裁出的运行时即此版本形态
+        String release = String.valueOf(Runtime.version().feature());
+        String[] jdepsArgs = new String[jarPaths.size() + 4];
+        jdepsArgs[0] = "--print-module-deps";
+        jdepsArgs[1] = "--ignore-missing-deps";
+        jdepsArgs[2] = "--multi-release";
+        jdepsArgs[3] = release;
+        for (int i = 0; i < jarPaths.size(); i++) {
+            jdepsArgs[i + 4] = jarPaths.get(i);
+        }
+        String modules = runJdkTool(out, "jdeps", jdepsArgs);
+        if (modules == null || modules.isBlank()) {
+            throw new IllegalStateException("jdeps 未得出模块清单（分析输出为空）");
+        }
+        out.info("jdeps 模块清单: " + modules);
+
+        runJdkTool(out, "jlink", "--add-modules", modules,
+                "--output", runtimeStaging.getAbsolutePath(),
+                "--strip-debug", "--no-man-pages", "--no-header-files", "--compress", "zip-6");
+        out.info("运行时已裁剪: " + runtimeStaging.getAbsolutePath() + "（模块: " + modules + "）");
+    }
+
+    /**
+     * 运行编辑器 JDK 的 bin 工具（jdeps/jlink），stderr 行流式转发、stdout 收集返回。
+     *
+     * @param out  输出回调（工具的警告/分析行转发用）
+     * @param tool 工具名（jdeps / jlink）
+     * @param args 参数
+     * @return stdout 全文（jdeps 取模块清单）
+     */
+    private String runJdkTool(ConsoleOut out, String tool, String... args) {
+        String javaHome = System.getProperty("java.home");
+        boolean windows = System.getProperty("os.name", "").toLowerCase().contains("windows");
+        File exe = new File(new File(javaHome, "bin"), tool + (windows ? ".exe" : ""));
+        if (!exe.exists()) {
+            throw new IllegalStateException("JDK 工具不存在: " + exe.getAbsolutePath() + "（编辑器须运行于完整 JDK）");
+        }
+        List<String> command = new ArrayList<>();
+        command.add(exe.getAbsolutePath());
+        command.addAll(List.of(args));
+        out.info(">> 运行 " + tool + " " + String.join(" ", args));
+        try {
+            Process process = new ProcessBuilder(command).start();
+            StringBuilder stdout = new StringBuilder();
+            // stderr 单独线程读（分析与告警行），防双流互等死锁
+            Thread errThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        out.info("[" + tool + "] " + line);
+                    }
+                } catch (IOException ignored) {
+                    // 进程退出导致的流截断，非错误
+                }
+            }, "jdk-tool-stderr");
+            errThread.setDaemon(true);
+            errThread.start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    stdout.append(line).append('\n');
+                }
+            }
+            int code = process.waitFor();
+            errThread.join(2000);
+            if (code != 0) {
+                throw new IllegalStateException(tool + " 退出码 " + code + "（详见日志行）");
+            }
+            return stdout.toString().trim();
+        } catch (IOException e) {
+            throw new RuntimeException("运行 " + tool + " 失败: " + exe.getAbsolutePath(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("运行 " + tool + " 被中断", e);
         }
     }
 
@@ -158,7 +377,7 @@ public class GradleProject extends Project {
         FileUtil.createFileByPath(projectDirFile, "Library").mkdirs();
         FileUtil.createFileByPath(projectDirFile, "Game").mkdirs();
     }
-    
+
     private static void createDefaultScene(File projectDirFile) {
         try {
             File scenesDir = new File(projectDirFile, "Assets/scenes");

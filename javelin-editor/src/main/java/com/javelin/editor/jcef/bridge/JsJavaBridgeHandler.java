@@ -89,9 +89,7 @@ public class JsJavaBridgeHandler extends CefMessageRouterHandlerAdapter {
                     continue;
                 }
                 String url = buildUrl(batchUrl, annotation.value(), method.getName());
-                Class<?>[] parameterTypes = method.getParameterTypes();
-                Class<?> parameterType = parameterTypes.length > 0 ? parameterTypes[0] : null;
-                JavaBridgeMethod javaBridgeMethod = new JavaBridgeMethod(method, instance, url, parameterType);
+                JavaBridgeMethod javaBridgeMethod = new JavaBridgeMethod(method, instance, url);
                 if (javaBridgeMethodMap.containsKey(url)) {
                     throw new RuntimeException("Duplicate url: " + url);
                 }
@@ -138,7 +136,7 @@ public class JsJavaBridgeHandler extends CefMessageRouterHandlerAdapter {
         String paramJson = par.substring(i + 2);
         JavaBridgeMethod javaBridgeMethod = javaBridgeMethodMap.get(url);
         if (javaBridgeMethod != null) {
-            threadPoolExecutor.execute(() -> javaBridgeMethod.handle(callback, paramJson));
+            threadPoolExecutor.execute(() -> javaBridgeMethod.handle(callback, paramJson, browser));
         } else {
             callback.failure(404, "Method not found: " + url);
         }
@@ -150,4 +148,3 @@ public class JsJavaBridgeHandler extends CefMessageRouterHandlerAdapter {
         // 查询取消时无需特殊处理
     }
 }
-

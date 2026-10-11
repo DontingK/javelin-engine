@@ -61,6 +61,15 @@ const emit = defineEmits<{
   (e: 'contextmenu', node: TreeNode, event: MouseEvent): void
 }>()
 
+/**
+ * 插槽显式声明（透传 JavelinTreeNode.icon）：声明后消费方（层级面板等）
+ * 的 #icon 解构拿到类型，且不受子组件递归推断影响。
+ */
+defineSlots<{
+  /** 图标插槽（透传给节点层：node/expanded/hasChildren） */
+  icon(props: { node: TreeNode; expanded: boolean; hasChildren: boolean }): void
+}>()
+
 function getKey(node: TreeNode): string | number {
   const value = (node as Record<string, unknown>)[props.nodeKey]
   return value == null ? '' : (value as string | number)

@@ -67,10 +67,13 @@ function initBridge(): void {
 /**
  * 注册指定类型的消息监听器。
  *
+ * <p>泛型约束交叉 {@code & string}：带字符串索引签名的类型其 {@code keyof} 含 number
+ * （数字键经索引签名合法），不剔掉会与 {@code Map<string, ...>} 键类型冲突（TS2345）。</p>
+ *
  * @param type 消息类型
  * @param callback 回调函数
  */
-function addMsgListener<T extends keyof CallbackMessageDataMap>(
+function addMsgListener<T extends keyof CallbackMessageDataMap & string>(
   type: T,
   callback: (data: CallbackMessageDataMap[T]) => void
 ): void {
@@ -86,7 +89,7 @@ function addMsgListener<T extends keyof CallbackMessageDataMap>(
  * @param type 消息类型
  * @param callback 回调函数
  */
-function removeMsgListener<T extends keyof CallbackMessageDataMap>(
+function removeMsgListener<T extends keyof CallbackMessageDataMap & string>(
   type: T,
   callback: (data: CallbackMessageDataMap[T]) => void
 ): void {

@@ -71,10 +71,12 @@ EditorApp.main()
 | `ProjectFrame` | `CefFrame` | 项目管理器；`windowClosing` 直接 dispose |
 | `ProjectLoadingFrame` | `CefFrame` | 无装饰加载页；承载资产初始化与引擎启动 |
 | `MainFrame` | `CefFrame` | 主编辑窗口；实现引擎 `Window` 接口（见 §5） |
+| `Dialog` | `JDialog` | 通用 CEF 对话框容器（`window/cef/dialog` 包，2026-10-11 落地待验收）：URL 传参构造（默认 dialog.html）、模态 `APPLICATION_MODAL` 挂 MainFrame（未创建时无主屏中央）、`DISPOSE_ON_CLOSE` 连 CefBrowser 跟手销毁；不持单例、调用方管理实例；首个消费方=构建·打包对话框（独立前端页 page/pack.html） |
 | `CefFrame` | `JFrame` | 抽象基类：封装 `CefBrowser` 创建/关闭、`loadURL`、子类布局钩子 `addJcefComponent` |
 | `CanvasSurface` | `Canvas` | 引擎 `RenderSurface` 实现（见 §5） |
 
 三个窗口各持静态 `instance` 单例（前端桥反查用）。
+`Dialog` 为运行期按需实例（无单例、关闭即 dispose 销毁浏览器，重开新建）。
 
 ## 4. 前后端桥接（jcef 包）
 
@@ -84,7 +86,10 @@ EditorApp.main()
   反射实例化后注册其中带注解的**方法**；URL 规则：`类前缀 + 方法注解值`（方法注解为空时退化为方法名）。
 - 前端发 `url::json` 格式 query，后端在专用线程池（8~16 核，队列 2000，AbortPolicy）异步执行，
   通过 `CefQueryCallback` 回传 JSON。
-- 方法封装在 `JavaBridgeMethod`：JSON 反序列化第一个参数 → 反射调用 → 序列化返回。
+- 方法封装在 `JavaBridgeMethod`：JSON 反序列化（至多一个请求参数）→ 反射调用 →
+  序列化返回；**方法可声明 `CefBrowser` 参数——注入当前调用者的浏览器实例**
+  （2026-10-11，位置任意至多一个，供 `JavaScriptBridge.send` 向调用页定向实时推送；
+  首个消费方=构建日志 `build.out.info/warn/error`——console.* 前缀保留给控制台面板）。
   异常按领域分类映射 HTTP 风格码（400 提示/校验、422 领域、500 未知、502 构建），
   并弹 tinyfd 原生错误框。当前桥方法：`JavelinMethod`（`/render/rce` 渲染区矩形）、
   `ProjectMethod`（项目管理）、`FileSystemMethod`（目录选择）。
@@ -93,7 +98,10 @@ EditorApp.main()
 ### 4.2 Java → JS：`JavaScriptBridge`
 
 静态工具，通过 `cefBrowser.executeJavaScript` 调前端 `window.__javelinBridge.onMessage(type, data)`。
-`CefFrame.send()` 是预留入口（当前注释状态）。
+`CefFrame.send()` 是预留入口（当前注释状态）。**线程口径：executeJavaScript 线程约束
+未证实，对齐 rectChange 先例一律 EDT hop 后调用**（EventBridgeForwarder 与桥方法直推
+同口径）。首个定向实时消费方=构建日志 build.out.*（BuildMethod 的 ConsoleOut 行 →
+调用者浏览器，见 §4.1；类型 `build.out.*`，console.* 前缀保留给控制台）。
 
 ### 4.3 CEF 生命周期：`JcefCreator`
 
@@ -166,6 +174,13 @@ EditorApp.main()
   **`ShaderImporter`（.shader → 解析 → #version 后注入 → shaderc 编译 → Capsule 二进制
   产物，2026-09-26 落地）**——管线中首个真正写出二进制产物的导入器，
   组成：`ShaderParser`（v0.13 语法）/ `ShaderInjector`（声明注入）/ `ShaderImporter`（编排+导出）。
+  **`SceneImporter`（.scene → TextImporter 解析验证 → BinaryExporter 二进制 GameScene
+  产物，2026-10-11 落地待验收）**——场景纳入管线：guid 真值源=伴生 .meta（.scene 首行是
+  文本协议头不能走文件头自包含，与 loadScene 同口径；meta 缺 guid 拒绝导入）；解析即验证
+  （坏档不落残产物）；保存联动=file.save 成功后 submitImport 异步重导（管线线程池，产物即时
+  新鲜）；loadScene 不动（仍读 Assets/ 文本源，产物供运行时/打包按 guid 消费）。已知边界：
+  连续快速保存的同文件导入任务可能在多 worker 交叠写同一产物（极低概率、下次保存自愈），
+  同文件任务去重归管线后续。
 - `AssetImportPipeline`：生产者 `refresh()`（扫监听目录，mtime 变化或产物缺失才提交）/
   `reimportAll()`（清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
   `ImportTask` 记录状态/耗时/错误。
@@ -176,6 +191,9 @@ EditorApp.main()
 
 `ProjectAssetLibManager extends AssetLibManager`（core）：Library 目录 + `index.asset` 加载，
 `loadIndex()` 失败降级 warn（首次打开项目无索引属正常）。
+`AssetManager` 接口含 `listAssetPaths(suffix)`（2026-10-11 补）：按后缀枚举索引
+相对路径（实现先重载 index.asset 再过滤——导入管线每次导入重写索引文件、内存表
+不自动跟进；首个消费方=打包对话框启动场景下拉 /build/scenes）。
 
 ## 7. 设置与序列化
 

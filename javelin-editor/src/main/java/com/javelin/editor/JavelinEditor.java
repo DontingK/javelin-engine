@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Properties;
 
 public class JavelinEditor extends JavelinEngine {
 
@@ -129,6 +130,18 @@ public class JavelinEditor extends JavelinEngine {
 
     public AssetManager getAssetManager() {
         return assetManager;
+    }
+
+    public AssetImportPipeline getAssetImportPipeline() {
+        return assetImportPipeline;
+    }
+
+    public Project getProject() {
+        return project;
+    }
+
+    public SettingsManager getSettingsManager() {
+        return settingsManager;
     }
 
     @Override

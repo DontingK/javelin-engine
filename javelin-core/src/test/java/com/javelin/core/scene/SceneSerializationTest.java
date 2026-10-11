@@ -114,6 +114,11 @@ public class SceneSerializationTest {
         public <T extends Asset> T loadAssetInstance(String path, Class<T> assetClass) {
             throw new UnsupportedOperationException("本 stub 仅覆盖 guid 通道");
         }
+
+        @Override
+        public java.util.List<String> listAssetPaths(String suffix) {
+            throw new UnsupportedOperationException("本 stub 仅覆盖 guid 通道");
+        }
     }
 
     @Test

@@ -7,9 +7,11 @@ import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
+import com.javelin.editor.menu.top.CompileMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.menu.top.DevToolsMenuCommand;
 import com.javelin.editor.menu.top.GridMenuCommand;
+import com.javelin.editor.menu.top.PackMenuCommand;
 import com.javelin.editor.menu.top.RefreshPageMenuCommand;
 
 /**
@@ -47,6 +49,8 @@ public final class EditorMenuSetup {
         CommandService.register(new DevToolsMenuCommand());
         CommandService.register(new GridMenuCommand(stateManager, gridState));
         CommandService.register(new RefreshPageMenuCommand());
+        CommandService.register(new CompileMenuCommand());
+        CommandService.register(new PackMenuCommand());
         CommandService.register(new CreateEmptyMenuCommand());
         CommandService.register(new CreatePlaneMenuCommand());
         CommandService.register(new CreateCameraMenuCommand());
@@ -72,6 +76,12 @@ public final class EditorMenuSetup {
                 .separator()
                 .item("tools.refresh")
                 .item("tools.devtools");
+
+        // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
+        // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）
+        MenuRegistry.menu("build", "构建")
+                .item("build.compile")
+                .item("build.pack");
 
         MenuRegistry.menu("ctx.hierarchy", "场景树右键")
                 .item("hierarchy.cut")

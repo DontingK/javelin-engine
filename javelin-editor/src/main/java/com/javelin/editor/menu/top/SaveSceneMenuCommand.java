@@ -73,6 +73,9 @@ public class SaveSceneMenuCommand extends TopMenuCommand {
             // lastModified 记保存时刻（write 内嵌落盘；下次导入按此判产物新鲜度）
             gameScene.setLastModified(System.currentTimeMillis());
             new TextExporter(file).export(gameScene);
+            // 产物联动（2026-10-11 拍板）：保存成功即提交导入任务——管线线程池异步
+            // 重导 Library 二进制产物，编辑器零卡顿；产物新鲜度供运行时/打包消费
+            editor.getAssetImportPipeline().submitImport(file);
             editorScene.clearDirty();
             // 前端树根星号随重拉消失（边沿通知，状态以拉取为准）
             EditorEventBus.publish(new SceneChangedEvent(false));

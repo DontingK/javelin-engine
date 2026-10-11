@@ -1,7 +1,10 @@
 package com.javelin.editor.project;
 
 
+import com.javelin.editor.console.ConsoleOut;
 import com.javelin.editor.util.FileUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.function.Consumer;
@@ -13,6 +16,7 @@ import java.util.function.Consumer;
  **/
 public abstract class Project {
 
+    private static final Logger log = LoggerFactory.getLogger(Project.class);
     protected final File rootDir;
 
     public Project(File rootDir) {
@@ -89,6 +93,9 @@ public abstract class Project {
     /**
      *
      */
-    public abstract void nativeBuild(Consumer<String> out);
+    public abstract void nativeBuild(ConsoleOut out);
+    public abstract void jarBuild(ConsoleOut out);
     public abstract File nativeBuildOutDir();
+
+
 }

@@ -10,7 +10,10 @@ import java.io.IOException;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -164,6 +167,22 @@ public class AssetLibManager implements AssetManager {
 
     public File getLibDir() {
         return libDir;
+    }
+
+    @Override
+    public List<String> listAssetPaths(String suffix) {
+        // 先重载索引：导入管线每次导入后重写 index.asset，内存表不自动跟进
+        // （运行期新增导入——如保存场景触发的 SceneImporter 重导——由此拾取）
+        loadIndex();
+        String lower = suffix.toLowerCase();
+        List<String> result = new ArrayList<>();
+        for (String path : pathMap.keySet()) {
+            if (path.toLowerCase().endsWith(lower)) {
+                result.add(path);
+            }
+        }
+        Collections.sort(result);
+        return result;
     }
 
     /**

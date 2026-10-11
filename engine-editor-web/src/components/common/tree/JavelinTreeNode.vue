@@ -102,6 +102,15 @@ const emit = defineEmits<{
   (e: 'contextmenu', node: TreeNode, event: MouseEvent): void
 }>()
 
+/**
+ * 插槽显式声明：本组件递归自引用（子层渲染自身），插槽类型推断会成环
+ * （TS7022 slotProps implicit any）——显式声明斩断环，递归透传与消费方同型。
+ */
+defineSlots<{
+  /** 图标插槽（随节点渲染传入） */
+  icon(props: { node: TreeNode; expanded: boolean; hasChildren: boolean }): void
+}>()
+
 const slots = useSlots()
 const isExpanded = ref(props.defaultExpanded)
 

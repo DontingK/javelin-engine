@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'page/dialog.html'),
         dialog: resolve(__dirname, 'page/main.html'),
+        pack: resolve(__dirname, 'page/pack.html'),
         projectLoading: resolve(__dirname, 'page/projectLoading.html'),
         projectManager: resolve(__dirname, 'page/projectManager.html'),
       }
