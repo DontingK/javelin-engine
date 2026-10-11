@@ -1,6 +1,8 @@
 package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsRotation;
 import com.javelin.core.scene.Component;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
@@ -30,8 +32,12 @@ public class Transform extends Component implements Iterable<Transform> {
     // 类型用 ArrayList 直通（红线 10：序列化集合字段不经包装，直传字段本体）
     private ArrayList<Transform> children = new ArrayList<>();
 
+    @InsField(label = "位置")
     private Vector3f localPosition = new Vector3f();
+    @InsRotation
+    @InsField(label = "旋转")
     private Quaternionf localRotation = new Quaternionf();
+    @InsField(label = "缩放")
     private Vector3f localScale = new Vector3f(1.0f, 1.0f, 1.0f);
 
     private Matrix4f localMatrix = new Matrix4f();
@@ -156,7 +162,7 @@ public class Transform extends Component implements Iterable<Transform> {
      *
      * <p>localMatrix/localToWorld/dirty 为运行时派生缓存不落盘——read 后
      * dirty 默认 true，首次 getLocalToWorld 重算。children 直传字段本体
-     *（红线 10，框架 id 引用保共享）；read 直接回写 parent/children
+     * （红线 10，框架 id 引用保共享）；read 直接回写 parent/children
      * <b>不走 setParent</b>——不触发 onParentChanged 场景联动（反序列化不触发
      * 生命周期，语义见设计档 §9.3；started 由 update 首帧补发 onStart）。</p>
      */

@@ -57,7 +57,7 @@ function onChange(event: Event): void {
 .ins-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   cursor: pointer;
   user-select: none;
 }

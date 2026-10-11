@@ -20,6 +20,16 @@
 
 ---
 
+## 编辑器 Web UI 设计规范（engine-editor-web）
+
+- **间距上限 2px**：面板常驻布局的所有间距（gap / padding / margin，含输入控件内部 padding）一律 ≤2px（2026-10-11 拍板「所有间距不能>2」）；≤2 的原值保留不凑成 2（如 1px 行距）。
+- 尺寸类不是间距：图标、勾选框、标签列宽、滚动条宽度等按设计值定，不受 2px 约束。
+- 浮层菜单例外：点击才出现的弹出层（如 JeSelect dropdown 列表项/头部）不适用此限——overlay 非常驻布局，按可点性定。
+- 设计基准=完全参考 Unity（Editor_Design.md §1），紧凑度对标 Unity Inspector 贴行风格。
+- 配色单点=style.css `:root` 变量，组件一律走 `var(--editor-*)`，禁止硬编码色值。
+
+---
+
 ## 查找依赖 API 方法签名（IDEA MCP）
 
 借助 IDEA MCP 确认 LWJGL / Vulkan / GLFW 等第三方库的方法签名，**优先自己查证而不是盲猜或反复询问用户**。
@@ -66,7 +76,8 @@
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线；§5.3 MSAA 抗锯齿（2026-10-06 四片落地并实测验收：AntialiasingMode 设置→RHI resolve attachment→引擎视口 MSAA 附件，isMsaaPath v0.1 边界——stacking/预览/分屏降 1x、overlay 恒 1x；首验收揪出 VulkanPhysicalDevice props/feats 栈分配带出栈帧覆写坑=Vulkan_Pitfalls #23，改堆分配根治） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题；§10 演进方向：变换 Gizmo v0.1 工具族+**拖拽（2026-10-06：TransformTools 拖拽三段式契约、LMB 平面相交法、视觉三态——hover 高亮黄/近平行不可选变灰，待实测验收）** + 物体拾取终态拍板=GPU ID-buffer（2026-10-06：不依赖用户 Collider/不隐藏挂碰撞体，RHI 前置 uint 附件+读回、后置实现）+ Transform 变更检测（2026-10-06：scene.nodeTransformChanged 第三类定点事件，TransformWatchAppState 帧级快照 diff、写入方零通知义务、拖拽自动置脏，待验收） |
-| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.6）：**命令=类实现 MenuCommand（三域基类：顶栏/场景树/project，右键域提供选中 Node/文件上下文）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、**MenuRegistry 声明式结构（含子菜单任意嵌套，v0.5）**、**菜单渲染统一 Swing 弹窗（v0.4 拍板：Web 浮层菜单实测仍被视口 Canvas 盖，不按位置判定；v0.5 子菜单 JMenu 递归 + 每层打开瞬间求值 + 快捷键 accelerator 显示 + 层级右键 Unity 壳占位命令置灰）**、v0.6「文件」域 file.save 保存场景（随 .scene 序列化落地）、engine2 对照取舍、三桥方法协议（/menu/list /menu/open /command/execute）；v0.5 子菜单与 v0.6 file.save/Ctrl+S 已实测验收（2026-10-04）；创建域补 hierarchy.create.plane（内置 plane.smesh 共享加载 + default.shader 运行期材质实例，2026-10-04） |
+| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.7）：**命令=类实现 MenuCommand（三域基类：顶栏/场景树/project，右键域提供选中 Node/文件上下文）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、**MenuRegistry 声明式结构（含子菜单任意嵌套，v0.5）**、**菜单渲染统一 Swing 弹窗（v0.4 拍板：Web 浮层菜单实测仍被视口 Canvas 盖，不按位置判定；v0.5 子菜单 JMenu 递归 + 每层打开瞬间求值 + 快捷键 accelerator 显示 + 层级右键 Unity 壳占位命令置灰）**、v0.6「文件」域 file.save 保存场景（随 .scene 序列化落地）、engine2 对照取舍、三桥方法协议（/menu/list /menu/open /command/execute）；v0.5 子菜单与 v0.6 file.save/Ctrl+S 已实测验收（2026-10-04）；创建域补 hierarchy.create.plane（内置 plane.smesh 共享加载 + default.shader 运行期材质实例，2026-10-04）；**v0.7（2026-10-11）：菜单图标 SvgIcon/JSVG（MenuCommand.icon() override 即配、勾选项不配）+ 层级右键 Unity 结构重排（剪切/复制/粘贴—删除—空对象—3D 对象/灯光/粒子/摄像机占位、rename 撤出）+ tools.refresh 刷新 web 页** |
+| `Inspector_Design.md` | 检视器设计（v0.1，2026-10-11 实测验收）：/inspector/info+setValue 全链、**@InsField 显式 opt-in 闸门 + 读 getter 写 setter 铁律**、节点头 name/active/layer/tags 编辑通道（**tags=TAG 替换式单选（"Untagged" 清空）、layer=INT→Layer.of**）、浮点显示/输入 4 位小数口径、组件白名单仅 Transform、SceneWatchAppState 快照含 layer/tags→scene.changed 星标（VO dirty 单一真源、写入方零通知义务）、Layer/Tag 选项 SettingManager 直读（设置管线 Game/↔Settings/ 遗留=Layer 下拉空待接）、UI 间距≤2 规范（AGENTS.md 专章） |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |

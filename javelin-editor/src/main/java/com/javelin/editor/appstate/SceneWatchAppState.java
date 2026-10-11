@@ -2,6 +2,7 @@ package com.javelin.editor.appstate;
 
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
+import com.javelin.core.scene.Tag;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.NodeRenamedEvent;
@@ -18,14 +19,15 @@ import java.util.Objects;
  * 场景变更检测状态（快照 diff 模型，用户拍板 2026-09-30）。
  *
  * <p>替代「写入方显式发通知」：写入方（命令/Inspector/脚本/引擎侧）只管改场景，
- * 本状态按节流周期对用户场景做单次 DFS 快照（nodeId → name + 有序 childIds，
+ * 本状态按节流周期对用户场景做单次 DFS 快照（nodeId → name + 有序 childIds + layer/tags，
  * 纯数据不持 Node 引用，无弱引用回收坑）与上次快照 diff，自动发现变更并发布
  * ——「漏发通知 = 树静默不刷新」的纪律 bug 从机制上消灭，core 零侵入。
  * 单次 DFS 全收集替代分层递进检查：数量没变结构也可能变（挪动），且比较成本
  * 远小于遍历成本，分层短路只在「完全没变」的帧省比较、不省遍历。</p>
  *
- * <p>事件分工：结构变更（节点增删/挪动/重排）发 {@link SceneChangedEvent}
- * （前端重拉整树）；名称变更发 {@link NodeRenamedEvent}（定点刷新，不重拉）。
+ * <p>事件分工：结构变更（节点增删/挪动/重排）与图层/标签变更发 {@link SceneChangedEvent}
+ * （前端重拉整树——layer/tags 树显示无变化，重拉仅为星标/VO 对齐，与保存路径
+ * scene.changed(false) 同口径）；名称变更发 {@link NodeRenamedEvent}（定点刷新，不重拉）。
  * 任何变更置 {@link EditorScene} 脏标记——现状不区分用户编辑与程序性变更，
  * 将来运行时脚本接入后按需收窄（dirty 归用户编辑命令、通知归本检测器）。</p>
  *
@@ -82,15 +84,34 @@ public class SceneWatchAppState extends AbsEditorAppState {
         for (Transform child : node.getTransform()) {
             childIds.add(child.getNode().getId());
         }
-        out.put(node.getId(), new NodeSnap(node.getName(), childIds));
+        out.put(node.getId(), new NodeSnap(node.getName(), childIds, layerOf(node), tagNames(node)));
         for (Transform child : node.getTransform()) {
             collectNode(child.getNode(), out);
         }
     }
 
-    /** diff 并发布：key 集合差 / childIds 序列变 = 结构变更；name 变 = 更名 */
+    /** layer 索引（null 兜底 0，与 Inspector 收集口径一致） */
+    private static int layerOf(Node node) {
+        return node.getLayer() != null ? node.getLayer().getValue() : 0;
+    }
+
+    /** tag 名列表（null 元素剔除；List.equals 内容判等，顺序变动误报=多一次重拉，无害） */
+    private static List<String> tagNames(Node node) {
+        List<String> names = new ArrayList<>();
+        if (node.getTags() != null) {
+            for (Tag tag : node.getTags()) {
+                if (tag != null && tag.getName() != null) {
+                    names.add(tag.getName());
+                }
+            }
+        }
+        return names;
+    }
+
+    /** diff 并发布：key 集合差 / childIds 序列变 = 结构变更；name 变 = 更名；layer/tags 变 = 元数据变更 */
     private void diff(Map<Integer, NodeSnap> prev, Map<Integer, NodeSnap> curr) {
         boolean structureChanged = !curr.keySet().equals(prev.keySet());
+        boolean metaChanged = false;
         List<NodeRenamedEvent> renames = null;
         for (Map.Entry<Integer, NodeSnap> entry : curr.entrySet()) {
             NodeSnap old = prev.get(entry.getKey());
@@ -102,6 +123,9 @@ public class SceneWatchAppState extends AbsEditorAppState {
             if (!snap.childIds.equals(old.childIds)) {
                 structureChanged = true;
             }
+            if (snap.layer != old.layer || !snap.tags.equals(old.tags)) {
+                metaChanged = true;
+            }
             if (!Objects.equals(snap.name, old.name)) {
                 if (renames == null) {
                     renames = new ArrayList<>();
@@ -109,11 +133,11 @@ public class SceneWatchAppState extends AbsEditorAppState {
                 renames.add(new NodeRenamedEvent(entry.getKey(), snap.name));
             }
         }
-        if (!structureChanged && renames == null) {
+        if (!structureChanged && !metaChanged && renames == null) {
             return;
         }
         javelinEditor.getEditorScene().markDirty();
-        if (structureChanged) {
+        if (structureChanged || metaChanged) {
             EditorEventBus.publish(new SceneChangedEvent(true));
         }
         if (renames != null) {
@@ -127,10 +151,14 @@ public class SceneWatchAppState extends AbsEditorAppState {
     private static final class NodeSnap {
         private final String name;
         private final List<Integer> childIds;
+        private final int layer;
+        private final List<String> tags;
 
-        private NodeSnap(String name, List<Integer> childIds) {
+        private NodeSnap(String name, List<Integer> childIds, int layer, List<String> tags) {
             this.name = name;
             this.childIds = childIds;
+            this.layer = layer;
+            this.tags = tags;
         }
     }
 }

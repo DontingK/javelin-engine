@@ -50,8 +50,19 @@ public class SettingManager {
         }
     }
 
+    public static TagSettings loadTagSettings() {
+        try {
+            File file = getSettingsFile(TAG_SETTINGS_FILE);
+            BinaryImporter binaryImporter = new BinaryImporter(file);
+            return binaryImporter.importData(TagSettings.class);
+        } catch (Exception e) {
+            LOGGER.warn("加载标签设置时出错: {}", e.getMessage());
+            return new TagSettings();
+        }
+    }
+
     private static File getSettingsFile(String fileName) {
-        return new File(Env.getRunDir(), "Settings" + File.separator + fileName);
+        return new File(Env.getRunDir(), "Game" + File.separator + fileName);
     }
 
 }

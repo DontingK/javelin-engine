@@ -64,7 +64,7 @@ function onChange(event: Event): void {
 <style scoped>
 .ins-select {
   width: 100%;
-  padding: 4px 8px;
+  padding: 2px;
   font-size: 13px;
   color: var(--editor-text);
   background: var(--editor-surface-light);

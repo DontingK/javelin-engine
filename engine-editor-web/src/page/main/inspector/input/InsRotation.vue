@@ -84,13 +84,13 @@ function updateAxis(axis: keyof EulerValue, value: number): void {
 .ins-rotation {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
 }
 
 .ins-rotation-euler {
   display: flex;
-  gap: 8px;
+  gap: 2px;
   width: 100%;
 }
 
@@ -99,7 +99,7 @@ function updateAxis(axis: keyof EulerValue, value: number): void {
   align-items: center;
   flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .axis-label {

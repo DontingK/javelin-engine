@@ -48,7 +48,8 @@ interface GameSceneVo {
  * <p>展示用户场景（EditorScene.gameScene）的节点层级：树快照经 /scene/tree 拉取
  * （ready=false 时节流重试兜底启动竞态）；选中经 /scene/select 上报 Java 侧
  * EditorSelection 单源；结构变更经 scene.changed 事件驱动重新拉取（命令为
- * fire-and-forget，状态以拉取为准）；右键经 /menu/open 传 ctx.hierarchy 域 id +
+ * fire-and-forget，状态以拉取为准）；名称变更经 scene.nodeRenamed 定点更新树行
+ * （SceneWatchAppState 快照 diff 检出，不重拉整树）并镜像置 dirty 星标；右键经 /menu/open 传 ctx.hierarchy 域 id +
  * 鼠标坐标弹 Swing 菜单（菜单渲染统一 Swing——Web 浮层会被视口 Canvas 盖，
  * 设计档 Editor_Menu_Design §5.2），菜单项点击在 Java 侧直执行命令。</p>
  */
@@ -180,14 +181,47 @@ const onSceneChanged = (_data: unknown): void => {
   loadScene()
 }
 
+/**
+ * 节点更名事件处理（scene.nodeRenamed）：定点更新对应树行名称（Inspector 改名、
+ * 将来 rename 命令同走此事件）；树未加载或节点已删则静默无操作。
+ */
+const onNodeRenamed = (data: { nodeId: number, name: string }): void => {
+  const sceneVo = scene.value
+  if (sceneVo == null) {
+    return
+  }
+  if (sceneVo.entities != null) {
+    updateNodeName(sceneVo.entities, data.nodeId, data.name)
+  }
+  // 镜像 Java 侧 markDirty（diff 检出改名必已置位）：星标即时出现；
+  // 保存后的 scene.changed(false) 重拉以 VO dirty 为准熄灭
+  sceneVo.dirty = true
+}
+
+/** 沿树 DFS 定点改名（命中即改） */
+function updateNodeName(nodes: TreeNode[], nodeId: number, name: string): void {
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      node.name = name
+      return
+    }
+    if (node.children != null) {
+      updateNodeName(node.children, nodeId, name)
+    }
+  }
+}
+
 onMounted(async () => {
   await subscribeEvent('scene.changed', onSceneChanged)
+  await subscribeEvent('scene.nodeRenamed', onNodeRenamed)
   loadScene()
 })
 
 onUnmounted(() => {
   disposed = true
   unsubscribeEvent('scene.changed', onSceneChanged)
+      .catch(e => console.warn('[HierarchyPanel] 事件退订失败', e))
+  unsubscribeEvent('scene.nodeRenamed', onNodeRenamed)
       .catch(e => console.warn('[HierarchyPanel] 事件退订失败', e))
 })
 </script>

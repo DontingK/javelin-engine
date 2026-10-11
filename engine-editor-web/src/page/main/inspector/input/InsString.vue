@@ -47,7 +47,7 @@ function onInput(event: Event): void {
 <style scoped>
 .ins-input {
   width: 100%;
-  padding: 4px 8px;
+  padding: 2px;
   font-size: 13px;
   color: var(--editor-text);
   background: var(--editor-surface-light);

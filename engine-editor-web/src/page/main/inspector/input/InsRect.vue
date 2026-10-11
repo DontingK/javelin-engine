@@ -82,13 +82,13 @@ function updateField(field: keyof RectValue, value: number): void {
 .ins-rect {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
 }
 
 .ins-rect-row {
   display: flex;
-  gap: 8px;
+  gap: 2px;
 }
 
 .ins-rect-field {
@@ -96,7 +96,7 @@ function updateField(field: keyof RectValue, value: number): void {
   align-items: center;
   flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .field-label {

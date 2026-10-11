@@ -1,0 +1,45 @@
+package com.javelin.editor.jcef.domain.vo;
+
+import java.util.List;
+
+/**
+ * Inspector 字段 VO：单个可检视字段（/inspector/info 下发，前端渲染一行，
+ * 值变更经 /inspector/setValue 回写）。
+ *
+ * @author javelin
+ * @create 2026/10/9
+ **/
+public class InspectorFieldVo {
+    /** 字段宿主对象 id（Node/Component，/inspector/setValue 回写锚点） */
+    public int objId;
+    /** 字段名（反射定位宿主上的字段） */
+    public String fieldName;
+    /** 显示名（@InsField.label()，空串兜底字段名） */
+    public String name;
+    /** 值类型 = {@link com.javelin.editor.inspector.InspectorValueType} 常量名，决定控件选型与 value 解析 */
+    public String valueType;
+    /** 字段当前值（按 valueType 序列化的字符串） */
+    public String value;
+    /** 滑条范围（@InsIntRange/@InsFloatRange 投影；null = 无范围约束，渲染普通输入框） */
+    public Range range;
+    /** 枚举可选项（ENUM 类型字段；其他类型为 null） */
+    public List<Option> options;
+
+    /** 滑条范围元数据（INT 场景三值为注解整型原值，渲染取整由 valueType 决定） */
+    public static class Range {
+        /** 最小值 */
+        public float min;
+        /** 最大值 */
+        public float max;
+        /** 步长 */
+        public float step;
+    }
+
+    /** 枚举选项 */
+    public static class Option {
+        /** 枚举常量名（回写值） */
+        public String value;
+        /** 显示名（@InsEnumLabel，未实现接口时为常量名） */
+        public String label;
+    }
+}

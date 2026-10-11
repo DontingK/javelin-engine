@@ -1,5 +1,6 @@
 package com.javelin.core.scene;
 
+import com.javelin.core.inspector.InsField;
 import com.javelin.core.obj.ObjectId;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
@@ -22,6 +23,8 @@ import com.javelin.core.serialize.Serializable;
 public abstract class Component extends ObjectId implements Serializable {
 
     private Node node;
+    // @InsField：分组头启用勾选的回写闸门（行渲染被 collectComponent 跳过）
+    @InsField
     private boolean enabled = true;
     // ── 生命周期状态（运行态不落盘；由 GameScene.update 帧驱动状态机维护，
     //    2026-10-02 拍板：回调统一由 update 驱动，摘出场景时重置回裸态）──

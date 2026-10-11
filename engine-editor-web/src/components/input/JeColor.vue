@@ -251,7 +251,7 @@ function parseColorString(s: string): { r: number; g: number; b: number; a: numb
 .je-color {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
 }
 
@@ -271,7 +271,7 @@ function parseColorString(s: string): { r: number; g: number; b: number; a: numb
 
 .color-input :deep(.je-input) {
   font-size: 12px;
-  padding: 3px 6px;
+  padding: 2px;
 }
 
 .native-color-picker {

@@ -11,6 +11,9 @@
         <img v-if="isIconPath" :src="icon" class="collapsible-icon-img" alt="" />
         <template v-else>{{ icon }}</template>
       </span>
+      <span v-if="$slots['header-left']" class="collapsible-header-left" @click.stop>
+        <slot name="header-left" />
+      </span>
       <span class="collapsible-title">{{ title }}</span>
     </button>
     <div v-show="isExpanded" class="collapsible-content">
@@ -25,7 +28,8 @@ import { ref, watch, computed } from 'vue'
 /**
  * 折叠面板组件。
  *
- * <p>提供可展开/收起的面板容器，常用于 Inspector 中按组件折叠属性区域。</p>
+ * <p>提供可展开/收起的面板容器，常用于 Inspector 中按组件折叠属性区域。
+ * header-left 插槽渲染标题前交互件（如组件启用勾选），已 click.stop 防误触折叠。</p>
  */
 
 interface Props {
@@ -85,9 +89,9 @@ function toggle(): void {
 .collapsible-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 2px;
   font-size: 12px;
   font-weight: 600;
   color: var(--editor-text-heading);
@@ -129,11 +133,16 @@ function toggle(): void {
   object-fit: contain;
 }
 
+.collapsible-header-left {
+  display: inline-flex;
+  align-items: center;
+}
+
 .collapsible-title {
   flex: 1;
 }
 
 .collapsible-content {
-  padding: 8px;
+  padding: 2px;
 }
 </style>

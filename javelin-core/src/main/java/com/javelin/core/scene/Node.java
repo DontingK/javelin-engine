@@ -1,6 +1,7 @@
 package com.javelin.core.scene;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.inspector.InsField;
 import com.javelin.core.obj.ObjectId;
 import com.javelin.core.reflective.ReflectiveFactory;
 import com.javelin.core.scene.component.Transform;
@@ -26,8 +27,12 @@ import java.util.Map;
 @Reflective
 public class Node extends ObjectId implements Serializable {
 
+    // @InsField：节点头（name/active/layer）手拼 VO 不进字段行，此处仅为 Inspector 回写闸门
+    @InsField
     private String name;
+    @InsField
     private boolean active = true;
+    @InsField
     private Layer layer;
     // 非 final：序列化反序列化需回写（红线 9）
     private List<Tag> tags;

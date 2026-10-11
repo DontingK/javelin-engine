@@ -91,7 +91,7 @@ function updateAxis(axis: keyof Vector3Value, value: number): void {
 <style scoped>
 .ins-vector3 {
   display: flex;
-  gap: 8px;
+  gap: 2px;
   width: 100%;
 }
 
@@ -100,7 +100,7 @@ function updateAxis(axis: keyof Vector3Value, value: number): void {
   align-items: center;
   flex: 1;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .axis-label {

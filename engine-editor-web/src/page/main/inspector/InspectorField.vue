@@ -4,64 +4,64 @@
     <div class="field-control">
       <InsBoolean
         v-if="field.valueType === 'BOOLEAN'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsEnum
         v-else-if="field.valueType === 'ENUM'"
-        :model-value="field.value"
-        :options="field.options || []"
+        :model-value="fieldValue"
+        :options="field.options ?? []"
         @update:model-value="onUpdate"
       />
       <InsInt
         v-else-if="field.valueType === 'INT'"
-        :model-value="field.value"
+        :model-value="fieldValue"
+        :min="field.range?.min"
+        :max="field.range?.max"
         @update:model-value="onUpdate"
       />
       <InsFloat
         v-else-if="field.valueType === 'FLOAT'"
-        :model-value="field.value"
+        :model-value="fieldValue"
+        :min="field.range?.min"
+        :max="field.range?.max"
+        :step="field.range?.step"
         @update:model-value="onUpdate"
       />
       <InsString
         v-else-if="field.valueType === 'STRING'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsVector3
-        v-else-if="field.valueType === 'VECTOR3'"
-        :model-value="field.value"
+        v-else-if="field.valueType === 'VEC3_F'"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsRotation
         v-else-if="field.valueType === 'ROTATION'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsRect
         v-else-if="field.valueType === 'RECT'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsLayerMask
         v-else-if="field.valueType === 'LAYER_MASK'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         :layer-names="layerNames"
         @update:model-value="onUpdate"
       />
       <InsColor
         v-else-if="field.valueType === 'COLOR'"
-        :model-value="field.value"
-        @update:model-value="onUpdate"
-      />
-      <InsClearFlags
-        v-else-if="field.valueType === 'CLEAR_FLAGS'"
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
       <InsString
         v-else
-        :model-value="field.value"
+        :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
     </div>
@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import InsBoolean from './input/InsBoolean.vue'
 import InsEnum from './input/InsEnum.vue'
 import InsInt from './input/InsInt.vue'
@@ -79,49 +80,28 @@ import InsRotation from './input/InsRotation.vue'
 import InsRect from './input/InsRect.vue'
 import InsLayerMask from './input/InsLayerMask.vue'
 import InsColor from './input/InsColor.vue'
-import InsClearFlags from './input/InsClearFlags.vue'
+import type { InspectorFieldVo } from '../../../service/inspectorService.ts'
 
 /**
- * Inspector 字段 VO（临时定义，待服务层搭建后迁移）。
- */
-interface InspectorFieldVo {
-  objectId: number
-  fieldName: string
-  name: string
-  value: string
-  valueType: string
-  options?: string[]
-}
-
-/**
- * Inspector 单个字段渲染组件。
+ * Inspector 单字段行渲染：按 valueType 分发到 Ins 输入控件。
  *
- * <p>根据 {@link InspectorFieldVo.valueType} 选择对应的 Ins 输入控件。</p>
- * <p>所有 Ins 组件的 v-model 类型为 string，与后端 InspectorFieldType 的序列化格式对应：</p>
- * <ul>
- *   <li>INT: 整数字符串</li>
- *   <li>FLOAT: 浮点数字符串</li>
- *   <li>BOOLEAN: "true" 或 "false"</li>
- *   <li>STRING: 原样字符串</li>
- *   <li>ENUM: 枚举常量名称</li>
- *   <li>VECTOR3: "x,y,z"</li>
- *   <li>ROTATION: "x,y,z"（欧拉角度，度）</li>
- *   <li>COLOR: "r,g,b,a"（0-1 浮点数）</li>
- *   <li>RECT: "x,y,width,height"</li>
- *   <li>LAYER_MASK: 整数字符串</li>
- *   <li>CLEAR_FLAGS: "color,depth,stencil,clearColor,clearDepth,clearStencil"</li>
- * </ul>
+ * <p>valueType 串 = Java 侧 InspectorValueType 常量名（严格大小写）。
+ * 所有 Ins 控件 v-model 均为 string，与 valueType 的序列化格式对应：
+ * INT/FLOAT 数字串、BOOLEAN "true"/"false"、STRING 原样、ENUM 常量名、
+ * VEC3_F "x,y,z"、ROTATION "x,y,z"（欧拉角度数）、COLOR "r,g,b,a"（0-1）、
+ * RECT "x,y,width,height"、LAYER_MASK 位掩码 int 串。</p>
+ * <p>range（@InsIntRange/@InsFloatRange 投影）非空时数值控件按滑条元数据约束，
+ * layerNames 由面板随 VO 下传（LAYER_MASK 勾选项）。</p>
  */
-
 interface Props {
   /** 字段数据。 */
   field: InspectorFieldVo
-  /** 层名称列表，用于 LAYER_MASK 类型。 */
+  /** Layer 名列表，用于 LAYER_MASK 类型。 */
   layerNames?: string[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  layerNames: () => ['Default', '', '', '', '', 'UI', '', '', 'Enemy', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+  layerNames: () => [],
 })
 
 const emit = defineEmits<{
@@ -129,9 +109,11 @@ const emit = defineEmits<{
   (e: 'update:value', value: string): void
 }>()
 
+/** 空值兜底空串（Ins 控件 modelValue 契约均为非空 string）。 */
+const fieldValue = computed<string>(() => props.field.value ?? '')
+
 /**
- * 统一处理所有 Ins 组件的更新。
- * Ins 组件的 v-model 都是 string 类型，直接透传。
+ * 统一处理所有 Ins 组件的更新（v-model 均 string，直接透传）。
  */
 function onUpdate(value: string): void {
   emit('update:value', value)
@@ -143,8 +125,8 @@ function onUpdate(value: string): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 4px 6px;
+  gap: 2px;
+  padding: 2px;
   background: var(--editor-surface-light);
   border-radius: 3px;
 }

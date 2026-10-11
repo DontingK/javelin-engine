@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 4px 8px;
+  padding: 2px;
   font-size: 13px;
   color: var(--editor-text);
   background: var(--editor-surface-light);
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
 }
 
 .trigger-arrow {
-  margin-left: 8px;
+  margin-left: 2px;
   font-size: 10px;
   opacity: 0.6;
   transition: transform 0.2s ease;
