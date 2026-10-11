@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.7）
+# 编辑器菜单与命令系统设计（v0.8）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -24,6 +24,12 @@
 > override 即配（勾选命令不配，§5.3）；层级右键按用户清单重排为 Unity 结构
 > （剪切/复制/粘贴—删除—空对象—3D 对象/灯光/粒子/摄像机，rename 撤出、
 > 未实现项占位置灰）；工具域补 tools.refresh 刷新 web 页（§8）。
+> v0.8（2026-10-11）：**hierarchy.create.camera 摄像机命令落地**（替换占位注册行）——
+> Unity Camera 口径：节点名 Main Camera / Main Camera (n)、位姿 Unity 新建默认
+> （原点无旋转）、相机参数全取组件默认（main 标志不预设——引擎侧 main 消费未落地）；
+> 入用户 game scene，SCENE 模式编辑器视口不受影响（EditorScene 相机按 SceneModel
+> 双模式分流：SCENE 渲染编辑器相机、GAME 渲染用户相机），Camera write/read 已通
+> 保存重载可恢复。
 
 ## 1. 背景与约束
 
@@ -282,6 +288,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |
+| `hierarchy.create.camera` | 摄像机 | 场景树右键 → 摄像机 | 选中节点下创建相机（无选中=根级），重名去重 Main Camera (n)，创建后选中新节点；Unity 口径=节点名 Main Camera、原点无旋转、参数全取 Camera 组件默认（fov 60°/near 0.1/far 1000/depth 0/SOLID_COLOR/全屏），main 标志不预设（引擎 main 消费未落地）；相机入用户 game scene——SCENE 模式编辑器视口不受影响（EditorScene 相机 SceneModel 双模式分流）、GAME 模式渲染用户相机，Camera 序列化已通保存可恢复（2026-10-11 落地，替换占位注册） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |
@@ -296,7 +303,8 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 
 场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.7（2026-10-11）结构按
 用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane 已实现、
-立方体/球/三角锥占位）/灯光（定向光/点光源占位）/粒子/摄像机（占位）**，rename
+立方体/球/三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
+rename
 撤出（随树内编辑 UI 后置）、未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。
 project 右键域的
 命令、域基类与前端选中上报，随 project 对接任务落地（域基类设计已就绪）。
