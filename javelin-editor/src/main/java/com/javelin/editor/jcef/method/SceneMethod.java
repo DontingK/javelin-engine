@@ -6,11 +6,15 @@ import com.javelin.core.scene.Node;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.jcef.bridge.BridgeMethod;
+import com.javelin.editor.jcef.domain.par.SceneModelPar;
 import com.javelin.editor.jcef.domain.par.SceneSelectPar;
 import com.javelin.editor.jcef.domain.vo.SceneNodeVo;
 import com.javelin.editor.jcef.domain.vo.SceneTreeVo;
 import com.javelin.editor.scene.EditorScene;
+import com.javelin.editor.scene.SceneModel;
 import com.javelin.editor.selection.EditorSelection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -21,7 +25,8 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * 场景桥方法：/scene/tree（树快照拉取）、/scene/select（选中上报，写
- * {@link EditorSelection} 单源，volatile 直写无需主线程）。
+ * {@link EditorSelection} 单源，volatile 直写无需主线程）、/scene/setModel
+ * （Scene/Game 视图模式切换，volatile 直写 {@link EditorScene}）。
  *
  * <p>树拉取经 {@link JavelinEditor#submitTask} 提交到引擎主线程帧边界组装
  * （桥线程与主线程的场景访问无竞争），CompletableFuture 回传结果、await 超时兜底。
@@ -33,6 +38,8 @@ import java.util.concurrent.TimeoutException;
  **/
 @BridgeMethod("/scene")
 public class SceneMethod {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SceneMethod.class);
 
     /** 树拉取等待上限（毫秒）：帧边界正常 ~16ms 完成，2 秒仍未完成视作主循环异常 */
     private static final long AWAIT_TIMEOUT_MILLIS = 2000;
@@ -59,6 +66,30 @@ public class SceneMethod {
     @BridgeMethod("/select")
     public void select(SceneSelectPar par) {
         EditorSelection.setSelectedNodeId(par == null ? null : par.nodeId);
+    }
+
+    /**
+     * Scene/Game 视图模式切换（中央停靠区标签页 onShow 上报，volatile 直写
+     * {@link EditorScene#setSceneModel} 无需主线程）：GAME = 渲染只拉用户场景
+     * 相机与物体（编辑器相机/网格/Gizmo 不进画面），SCENE = 合并编辑辅助。
+     */
+    @BridgeMethod("/setModel")
+    public void setModel(SceneModelPar par) {
+        String raw = par == null ? null : par.model;
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        SceneModel model;
+        try {
+            model = SceneModel.valueOf(raw.trim());
+        } catch (IllegalArgumentException e) {
+            LOGGER.warn("忽略未知视图模式: {}", raw);
+            return;
+        }
+        JavelinEditor editor = JavelinEditor.getInstance();
+        if (editor != null) {
+            editor.getEditorScene().setSceneModel(model);
+        }
     }
 
     /** 树快照组装（引擎主线程执行；场景未就绪返回 ready=false） */

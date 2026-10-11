@@ -52,3 +52,20 @@ export function loadSceneTree(): Promise<SceneTreeVo> {
 export function selectNode(nodeId: number | null): Promise<void> {
   return callJava<void>('/scene/select', {nodeId})
 }
+
+/**
+ * 视图模式（对应 Java 侧 SceneModel 枚举）：中央停靠区「场景/游戏」标签页的渲染分流。
+ */
+export type SceneModel = 'SCENE' | 'GAME'
+
+/**
+ * 切换 Scene/Game 视图模式（Java 侧 EditorScene.sceneModel 直写）。
+ *
+ * <p>GAME：视口只拉用户场景相机与物体（编辑器相机/网格/Gizmo 不进画面）；
+ * SCENE：合并编辑子场景辅助对象。面板 onShow 上报触发。</p>
+ *
+ * @param model 目标模式
+ */
+export function setSceneModel(model: SceneModel): Promise<void> {
+  return callJava<void>('/scene/setModel', {model})
+}

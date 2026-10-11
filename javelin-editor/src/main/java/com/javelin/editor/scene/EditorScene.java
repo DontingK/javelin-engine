@@ -21,7 +21,8 @@ public class EditorScene implements Scene {
     /** 场景脏标记（结构编辑命令置位；保存功能落地后经 clearDirty 复位，volatile：桥线程读/引擎线程写） */
     private volatile boolean dirty;
 
-    private SceneModel sceneModel = SceneModel.SCENE;
+    /** 视图模式（桥线程 /scene/setModel 直写、引擎线程渲染 pull 读；volatile 口径同 dirty） */
+    private volatile SceneModel sceneModel = SceneModel.SCENE;
 
     /** SCENE 模式合并结果复用列表：getRenderables 被 SceneRenderBridge 每帧 pull，预分配+clear 复用，勿包装返回 */
     private final ArrayList<Renderable> mergedRenderables = new ArrayList<>();
@@ -75,6 +76,11 @@ public class EditorScene implements Scene {
         this.editorScene = editorScene;
     }
 
+    /**
+     * 视图模式切换：GAME = 相机/物体只拉用户场景（编辑器相机/网格/Gizmo 不进画面）、
+     * SCENE = 合并编辑子场景辅助对象。桥线程 volatile 直写与渲染 pull 并发——
+     * 翻转至多一帧混态，下帧自收敛。
+     */
     public void setSceneModel(SceneModel sceneModel) {
         this.sceneModel = sceneModel;
     }
