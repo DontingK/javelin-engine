@@ -83,7 +83,9 @@ function toggle(): void {
   background: var(--editor-surface);
   border: 1px solid var(--editor-border);
   border-radius: 3px;
-  overflow: hidden;
+  /* 不裁剪：overflow hidden 会把 JeSelect 等内部下拉浮层一并裁掉（2026-10-11
+     实测）；圆角由 header 自带上圆角 + 字段行自带 3px 圆角补，折叠是 v-show
+     无动画也不依赖裁剪 */
 }
 
 .collapsible-header {
@@ -97,6 +99,7 @@ function toggle(): void {
   color: var(--editor-text-heading);
   background: var(--editor-surface-light);
   border: none;
+  border-radius: 2px 2px 0 0;
   cursor: pointer;
   user-select: none;
   text-align: left;

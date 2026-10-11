@@ -6,6 +6,8 @@ import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.SceneDirtyEvent;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -44,10 +46,18 @@ public class EditorScene implements Scene {
     }
 
     /**
-     * 置脏（场景结构编辑命令在引擎线程调用）。
+     * 置脏（引擎线程调用：结构命令经 SceneWatch 检出 / Inspector 回写 / 变换检出）。
+     * 由净变脏的翻转沿发布 scene.dirty——置脏是所有写入路径的必经点，翻转即星标
+     * 事件（用户拍板 2026-10-11「修改任何属性都应加 *」）：前端本地镜像置星、
+     * <b>不重拉树</b>（树内容未变，scene.changed 专司树刷新，两事件分工）；
+     * 已脏重复置脏不重发（每脏周期至多一响，滑条连续回写不发事件风暴）。
+     * 熄灭归保存路径 clearDirty + scene.changed(false) 重拉。
      */
     public void markDirty() {
-        dirty = true;
+        if (!dirty) {
+            dirty = true;
+            EditorEventBus.publish(new SceneDirtyEvent());
+        }
     }
 
     /**

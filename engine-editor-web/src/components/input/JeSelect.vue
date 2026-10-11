@@ -14,6 +14,7 @@
     <Transition name="dropdown">
       <div
         v-if="isOpen"
+        ref="dropdownRef"
         class="je-select-dropdown"
         :class="{ 'drop-up': dropUp }"
       >
@@ -93,6 +94,9 @@ const dropUp = ref(false)
 /** 容器元素引用。 */
 const containerRef = ref<HTMLElement | null>(null)
 
+/** 下拉面板元素引用（展开后实测高度用）。 */
+const dropdownRef = ref<HTMLElement | null>(null)
+
 /**
  * 解析当前选中值为 Set。
  */
@@ -124,17 +128,45 @@ const displayText = computed(() => {
 })
 
 /**
- * 计算下拉方向。
+ * 计算下拉方向：下方空间不足时向上展开。
+ *
+ * <p>可用空间按<b>最近裁剪祖先</b>（overflow 非 visible 的最近祖先，如 Inspector
+ * 面板滚动区）的可视矩形计——停靠布局下面板下方还有底部停靠区，拿 window 底缘
+ * 当边界会高估下方空间，导致列表下半被滚动容器裁掉（2026-10-11 实测）。无裁剪
+ * 祖先回落窗口。展开高度用实测 offsetHeight（未渲染时按列表 240 + 多选头 36
+ * 估值），两向均不足时保持向下（列表内部 max-height 自滚）。</p>
  */
 function calcDropDirection(): void {
   if (!containerRef.value) return
 
   const rect = containerRef.value.getBoundingClientRect()
-  const viewportHeight = window.innerHeight
-  const dropdownHeight = 240 + (props.multiple ? 36 : 0) // 下拉最大高度 + header
+  const clip = clippingRect()
+  const clipTop = clip ? clip.top : 0
+  const clipBottom = clip ? clip.bottom : window.innerHeight
+  const dropdownHeight = dropdownRef.value?.offsetHeight
+      ?? 240 + (props.multiple ? 36 : 0)
 
-  // 下方空间不足时向上展开
-  dropUp.value = rect.bottom + dropdownHeight > viewportHeight && rect.top > dropdownHeight
+  const spaceBelow = clipBottom - rect.bottom
+  const spaceAbove = rect.top - clipTop
+
+  dropUp.value = spaceBelow < dropdownHeight && spaceAbove >= dropdownHeight
+}
+
+/**
+ * 最近裁剪祖先的可视矩形：从容器向上找第一个 overflow 非 visible 的祖先
+ * （getBoundingClientRect 即其可视框，滚动容器=scrollport）；无则返回 null
+ * （回落窗口边界）。
+ */
+function clippingRect(): DOMRect | null {
+  let node = containerRef.value?.parentElement ?? null
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node)
+    if (style.overflow !== 'visible' || style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+      return node.getBoundingClientRect()
+    }
+    node = node.parentElement
+  }
+  return null
 }
 
 /**
@@ -148,14 +180,11 @@ function isSelected(value: string): boolean {
 }
 
 /**
- * 切换下拉面板。
+ * 切换下拉面板（方向计算与监听挂载统一在 watch(isOpen)）。
  */
 function toggleDropdown(): void {
   if (!props.disabled) {
     isOpen.value = !isOpen.value
-    if (isOpen.value) {
-      nextTick(calcDropDirection)
-    }
   }
 }
 
@@ -221,6 +250,26 @@ function onResize(): void {
   }
 }
 
+/**
+ * 任一祖先容器滚动时重算（捕获监听——面板展开随内容滚动后，与裁剪边界的
+ * 空间关系已变，可能需要换向）。
+ */
+function onScroll(): void {
+  if (isOpen.value) {
+    calcDropDirection()
+  }
+}
+
+// 展开期：DOM 挂载后实测高度定方向 + 捕获任意祖先滚动重算；收起/卸载摘除
+watch(isOpen, open => {
+  if (open) {
+    window.addEventListener('scroll', onScroll, true)
+    nextTick(calcDropDirection)
+  } else {
+    window.removeEventListener('scroll', onScroll, true)
+  }
+})
+
 onMounted(() => {
   document.addEventListener('mousedown', onClickOutside)
   window.addEventListener('resize', onResize)
@@ -229,6 +278,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onClickOutside)
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('scroll', onScroll, true)
 })
 </script>
 
@@ -317,7 +367,7 @@ onBeforeUnmount(() => {
 .header-btn {
   padding: 2px 8px;
   font-size: 11px;
-  color: var(--editor-text-secondary);
+  color: var(--editor-text-dim);
   background: transparent;
   border: 1px solid var(--editor-border);
   border-radius: 3px;
@@ -399,6 +449,6 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-list::-webkit-scrollbar-thumb:hover {
-  background: var(--editor-text-secondary);
+  background: var(--editor-text-dim);
 }
 </style>

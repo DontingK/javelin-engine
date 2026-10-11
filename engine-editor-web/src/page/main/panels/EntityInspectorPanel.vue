@@ -418,10 +418,14 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
+/* 组件分组字段网格：两列（label 列宽=组内最长文本、控件列吃余量），label 列
+   轨宽由各行 subgrid 贡献汇流（详见 InspectorField 样式注）；label 与控件
+   间隔 4px 为用户拍板（2026-10-11），突破间距 ≤2 通用规范 */
 .property-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 4px;
+  row-gap: 1px;
 }
 .empty-tip {
   color: var(--editor-text-dim);

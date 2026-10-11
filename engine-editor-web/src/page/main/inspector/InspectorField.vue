@@ -121,11 +121,16 @@ function onUpdate(value: string): void {
 </script>
 
 <style scoped>
+/* 两列布局（label 列对齐）：列轨由 .property-group 网格定（subgrid 对齐组内
+   最长 label），无 subgrid 支持时回退本行 auto（按本行 label 自宽，等价旧行为）。
+   label 与控件间隔 4px 为用户拍板（2026-10-11），突破间距 ≤2 通用规范。 */
 .inspector-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2px;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto 1fr;
+  grid-template-columns: subgrid;
+  column-gap: 4px;
+  align-items: start;   /* label 顶部对齐（多行控件如视口矩形 X/Y+W/H 两行），不垂直居中 */
   padding: 2px;
   background: var(--editor-surface-light);
   border-radius: 3px;
@@ -134,11 +139,14 @@ function onUpdate(value: string): void {
 .field-name {
   color: var(--editor-text-dim);
   font-size: 12px;
-  flex-shrink: 0;
+  display: block;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field-control {
-  flex: 1;
   min-width: 0;
   display: flex;
   justify-content: flex-end;

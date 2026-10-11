@@ -182,6 +182,19 @@ const onSceneChanged = (_data: unknown): void => {
 }
 
 /**
+ * 场景脏标记事件处理（scene.dirty）：本地镜像置星标（Java 侧 markDirty 由净
+ * 变脏翻转沿发布——Inspector 任何属性回写/变换检出即时亮星），<b>不重拉树</b>
+ * （树内容未变，重拉归 scene.changed）；树未加载则静默丢弃（届时 loadScene
+ * 以 VO dirty 为准）。熄灭归保存路径 scene.changed(false) 重拉。
+ */
+const onSceneDirty = (_data: unknown): void => {
+  const sceneVo = scene.value
+  if (sceneVo != null) {
+    sceneVo.dirty = true
+  }
+}
+
+/**
  * 节点更名事件处理（scene.nodeRenamed）：定点更新对应树行名称（Inspector 改名、
  * 将来 rename 命令同走此事件）；树未加载或节点已删则静默无操作。
  */
@@ -213,6 +226,7 @@ function updateNodeName(nodes: TreeNode[], nodeId: number, name: string): void {
 
 onMounted(async () => {
   await subscribeEvent('scene.changed', onSceneChanged)
+  await subscribeEvent('scene.dirty', onSceneDirty)
   await subscribeEvent('scene.nodeRenamed', onNodeRenamed)
   loadScene()
 })
@@ -220,6 +234,8 @@ onMounted(async () => {
 onUnmounted(() => {
   disposed = true
   unsubscribeEvent('scene.changed', onSceneChanged)
+      .catch(e => console.warn('[HierarchyPanel] 事件退订失败', e))
+  unsubscribeEvent('scene.dirty', onSceneDirty)
       .catch(e => console.warn('[HierarchyPanel] 事件退订失败', e))
   unsubscribeEvent('scene.nodeRenamed', onNodeRenamed)
       .catch(e => console.warn('[HierarchyPanel] 事件退订失败', e))

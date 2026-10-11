@@ -1,14 +1,20 @@
 package com.javelin.editor.inspector;
 
+import com.javelin.core.inspector.InsEnumLabel;
 import com.javelin.core.inspector.InsFloatRange;
 import com.javelin.core.inspector.InsIntRange;
 import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsLayerMask;
 import com.javelin.core.inspector.InsRotation;
+import com.javelin.core.math.Color;
+import com.javelin.core.math.Rect;
 import com.javelin.core.obj.ObjectId;
 import com.javelin.core.scene.Component;
 import com.javelin.core.scene.Layer;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Tag;
+import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Transform;
 import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.exception.TipException;
 import com.javelin.editor.jcef.domain.vo.ComponentInspectorVo;
@@ -44,9 +50,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>线程约束：须在引擎主线程执行（经 JavelinEngine.submitTask 帧边界提交，
  * 由 InspectorMethod 保证——桥线程与 mainLoop 的场景访问无竞争）。</p>
  *
- * <p>v0.1 收集面 = 节点头（name/active/layer/tags）+ Transform 组件
- * （localPosition/localRotation/localScale）；其他组件（Camera/MeshRenderer/Collider）
- * 与 Color/Rect/枚举编解码暂缓，流程打通后逐片放开。</p>
+ * <p>v0.2 收集面 = 节点头（name/active/layer/tags）+ 组件白名单
+ * （{@link #INSPECTABLE_COMPONENTS}，v0.2 放开 Camera）字段分组；值类型通道
+ * 放开 ENUM/COLOR/RECT/LAYER_MASK（枚举选项随 VO 下发，显示名走
+ * {@link InsEnumLabel}）。MeshRenderer/Collider 组件暂缓（Mesh/Material 为
+ * 资产引用型字段，随资产面板设计）。可空值对象（Camera.backgroundColor/
+ * viewportRect）：序列化传 null（前端控件兜底显示），编辑回写即物化显式值。</p>
  *
  * @author javelin
  * @create 2026/10/9
@@ -71,12 +80,20 @@ public final class InspectorReflector {
     /** 字段元数据缓存（类 → 属性清单；类结构运行期不变，首次访问构建一次） */
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> PROP_CACHE = new ConcurrentHashMap<>();
 
+    /**
+     * 组件白名单（扩展点）：白名单序 = 面板分组序（Transform 必需恒在首位）。
+     * 收集经 getComponent 取首个实例——节点单组件假设，同节点多实例组件形态
+     * 留组件实例面板再议。v0.1 仅 Transform，v0.2 放开 Camera。
+     */
+    private static final List<Class<? extends Component>> INSPECTABLE_COMPONENTS =
+            List.of(Transform.class, Camera.class);
+
     private InspectorReflector() {
     }
 
     /**
      * 组装节点 Inspector 快照：节点头（name/active/layer 索引/layerNames/tags + tag 注册表名）
-     * + v0.1 组件白名单（仅 Transform）字段分组。
+     * + 组件白名单（{@link #INSPECTABLE_COMPONENTS}）字段分组。
      */
     public static NodeInspectorVo collect(Node node) {
         NodeInspectorVo vo = new NodeInspectorVo();
@@ -89,8 +106,12 @@ public final class InspectorReflector {
         vo.tags = tagNames(node);
         vo.tagNames = tagOptions();
         vo.components = new ArrayList<>();
-        // v0.1 组件白名单：仅 Transform（必需组件，其他组件暂缓，此处即扩展点）
-        vo.components.add(collectComponent(node.getTransform(), true));
+        for (Class<? extends Component> type : INSPECTABLE_COMPONENTS) {
+            Component component = node.getComponent(type);
+            if (component != null) {
+                vo.components.add(collectComponent(component, type == Transform.class));
+            }
+        }
         return vo;
     }
 
@@ -162,12 +183,18 @@ public final class InspectorReflector {
         vo.valueType = prop.valueType.name();
         vo.value = serialize(prop.get(host), prop);
         vo.range = prop.range;
+        vo.options = prop.options;
         return vo;
     }
 
-    /** 值 → 序列化字符串（valueType 决定格式；null 原样传 null） */
+    /** 值 → 序列化字符串（valueType 决定格式；null 原样传 null，RECT 例外见内） */
     private static String serialize(Object value, PropMeta prop) {
         if (value == null) {
+            // RECT 可空遗留（旧档 viewportRect null=全屏，新相机默认已显式 (0,0,1,1)）：
+            // 显示代理等价值而非 null——控件兜底是全 0 会误读，编辑即物化显式值
+            if (prop.valueType == InspectorValueType.RECT) {
+                return "0,0,1,1";
+            }
             return null;
         }
         switch (prop.valueType) {
@@ -187,8 +214,20 @@ public final class InspectorReflector {
                 Vector3f euler = new Vector3f();
                 ((Quaternionf) value).getEulerAnglesXYZ(euler);
                 return toDegrees(euler.x) + "," + toDegrees(euler.y) + "," + toDegrees(euler.z);
+            case ENUM:
+                return ((Enum<?>) value).name();
+            case COLOR:
+                Color color = (Color) value;
+                return formatFloat(color.r) + "," + formatFloat(color.g) + ","
+                        + formatFloat(color.b) + "," + formatFloat(color.a);
+            case RECT:
+                Rect rect = (Rect) value;
+                return formatFloat(rect.x) + "," + formatFloat(rect.y) + ","
+                        + formatFloat(rect.width) + "," + formatFloat(rect.height);
+            case LAYER_MASK:
+                return String.valueOf(value);
             default:
-                // 暂缓类型不应出现在 v0.1 收集面（类型映射已挡）
+                // 暂缓类型不应出现在收集面（类型映射已挡）
                 return null;
         }
     }
@@ -265,17 +304,18 @@ public final class InspectorReflector {
 
     /**
      * 类 → 可检视属性清单：沿类层级收集声明字段，@InsField 标记的才进清单
-     * （判据见 buildProp）。getter 按 getX/isX（boolean）查找；setter 单参数按 setX 查找。
+     * （判据见 buildProp）。getter 按 getX/isX（boolean）查找；setter 单参数按
+     * setX 查找——同名重载时按参数类型与字段类型装箱等价解析（findSetter）。
      */
     private static List<PropMeta> buildProps(Class<?> clazz) {
         Map<String, Method> zeroParam = new HashMap<>();
-        Map<String, Method> oneParam = new HashMap<>();
+        Map<String, List<Method>> oneParam = new HashMap<>();
         for (Method method : clazz.getMethods()) {
             Class<?>[] params = method.getParameterTypes();
             if (params.length == 0) {
                 zeroParam.putIfAbsent(method.getName(), method);
             } else if (params.length == 1) {
-                oneParam.putIfAbsent(method.getName(), method);
+                oneParam.computeIfAbsent(method.getName(), k -> new ArrayList<>()).add(method);
             }
         }
         List<PropMeta> props = new ArrayList<>();
@@ -293,7 +333,7 @@ public final class InspectorReflector {
         return props;
     }
 
-    private static PropMeta buildProp(Field field, Map<String, Method> zeroParam, Map<String, Method> oneParam) {
+    private static PropMeta buildProp(Field field, Map<String, Method> zeroParam, Map<String, List<Method>> oneParam) {
         if (!field.isAnnotationPresent(InsField.class)) {
             return null;
         }
@@ -301,26 +341,92 @@ public final class InspectorReflector {
         String cap = capitalize(field.getName());
         Method getter = zeroParam.containsKey("get" + cap) ? zeroParam.get("get" + cap)
                 : zeroParam.get("is" + cap);
-        Method setter = oneParam.get("set" + cap);
+        Method setter = findSetter(oneParam.get("set" + cap), field.getType());
         if (getter == null || setter == null) {
-            throw new IllegalStateException("InsField 字段缺公开访问器（须 getX/isX + setX）: " + owner);
+            throw new IllegalStateException("InsField 字段缺公开访问器（须 getX/isX + 参数类型匹配的 setX）: " + owner);
         }
         InspectorValueType type = mapValueType(field);
         if (type == null) {
             throw new IllegalStateException("InsField 字段类型不可检视: " + owner
                     + "（类型 " + field.getType().getSimpleName() + "；Quaternionf 还须 @InsRotation）");
         }
-        return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field));
+        Class<?> enumType = null;
+        List<InspectorFieldVo.Option> options = null;
+        if (type == InspectorValueType.ENUM) {
+            enumType = field.getType();
+            options = new ArrayList<>();
+            for (Object constant : enumType.getEnumConstants()) {
+                InspectorFieldVo.Option option = new InspectorFieldVo.Option();
+                option.value = ((Enum<?>) constant).name();
+                option.label = enumLabel((Enum<?>) constant);
+                options.add(option);
+            }
+        }
+        return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),
+                enumType, options);
+    }
+
+    /**
+     * setter 按字段类型解析：同名 setX 可能重载（如 setCullingMask(int) 与
+     * setCullingMask(Layer...)），取参数类型与字段类型装箱等价的那个。
+     * getMethods 返回顺序不保证——putIfAbsent 式取首个遇重载即随机命中，
+     * Camera 接入实锤（cullingMask 双重载）改为显式匹配。零参 getter 无重载
+     * （Java 方法不可仅按返回值区分），无需同款解析。
+     */
+    private static Method findSetter(List<Method> candidates, Class<?> fieldType) {
+        if (candidates == null) {
+            return null;
+        }
+        Class<?> target = wrap(fieldType);
+        for (Method method : candidates) {
+            if (wrap(method.getParameterTypes()[0]) == target) {
+                return method;
+            }
+        }
+        return null;
+    }
+
+    /** 基本类型装箱等价类（int→Integer 等；引用类型与数组原样返回） */
+    private static Class<?> wrap(Class<?> type) {
+        if (type == int.class) {
+            return Integer.class;
+        }
+        if (type == float.class) {
+            return Float.class;
+        }
+        if (type == boolean.class) {
+            return Boolean.class;
+        }
+        if (type == long.class) {
+            return Long.class;
+        }
+        if (type == double.class) {
+            return Double.class;
+        }
+        return type;
+    }
+
+    /** 枚举显示名：实现 {@link InsEnumLabel} 用 getLabel()，否则（含空/白返回）兜底常量名 */
+    private static String enumLabel(Enum<?> constant) {
+        if (constant instanceof InsEnumLabel labeled) {
+            String label = labeled.getLabel();
+            if (label != null && !label.isBlank()) {
+                return label;
+            }
+        }
+        return constant.name();
     }
 
     /**
      * 字段类型 → 值类型；不可映射返回 null（即不展示）。
-     * 暂缓：Color/Rect/枚举/LayerMask 语义与 Camera/MeshRenderer/Collider 组件。
+     * 暂缓：MeshRenderer/Collider 组件（Mesh/Material 资产引用型字段随资产面板设计）。
      */
     private static InspectorValueType mapValueType(Field field) {
         Class<?> type = field.getType();
         if (type == int.class || type == Integer.class) {
-            return InspectorValueType.INT;
+            // @InsLayerMask 标记的 int 按层位掩码（勾选式多选）展示，否则普通整数
+            return field.isAnnotationPresent(InsLayerMask.class) ? InspectorValueType.LAYER_MASK
+                    : InspectorValueType.INT;
         }
         if (type == float.class || type == Float.class) {
             return InspectorValueType.FLOAT;
@@ -337,6 +443,15 @@ public final class InspectorReflector {
         if (type == Quaternionf.class) {
             // opt-in：仅 @InsRotation 标记的 Quaternionf 按旋转（欧拉角）展示
             return field.isAnnotationPresent(InsRotation.class) ? InspectorValueType.ROTATION : null;
+        }
+        if (type == Color.class) {
+            return InspectorValueType.COLOR;
+        }
+        if (type == Rect.class) {
+            return InspectorValueType.RECT;
+        }
+        if (type.isEnum()) {
+            return InspectorValueType.ENUM;
         }
         if (type == Layer.class) {
             // 节点 layer：wire 为索引 int 字符串，读写经 Layer.of/getValue 换算
@@ -434,6 +549,17 @@ public final class InspectorReflector {
                         (float) Math.toRadians(deg[0]),
                         (float) Math.toRadians(deg[1]),
                         (float) Math.toRadians(deg[2]));
+            case ENUM:
+                return enumConstant(prop, value);
+            case COLOR:
+                // Color 构造夹取 [0,1]；可空字段首次编辑即物化显式值
+                float[] rgba = parseFloats(value, 4);
+                return new Color(rgba[0], rgba[1], rgba[2], rgba[3]);
+            case RECT:
+                float[] xywh = parseFloats(value, 4);
+                return new Rect(xywh[0], xywh[1], xywh[2], xywh[3]);
+            case LAYER_MASK:
+                return parseInt(value);
             default:
                 throw new TipException("暂不支持的回写类型: " + prop.valueType);
         }
@@ -444,6 +570,16 @@ public final class InspectorReflector {
             return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
             throw new TipException("整数值非法: " + value);
+        }
+    }
+
+    /** 枚举常量回解（valueOf 的 IllegalArgumentException 转口径；选项外值即此路径） */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object enumConstant(PropMeta prop, String value) {
+        try {
+            return Enum.valueOf((Class) prop.enumType, value.trim());
+        } catch (IllegalArgumentException e) {
+            throw new TipException("未知枚举值: " + prop.fieldName + " = " + value);
         }
     }
 
@@ -473,15 +609,22 @@ public final class InspectorReflector {
         final Method getter;
         final Method setter;
         final InspectorFieldVo.Range range;
+        /** 枚举类（ENUM 回写 Enum.valueOf 用；其他类型 null） */
+        final Class<?> enumType;
+        /** 枚举选项（ENUM 字段随 VO 下发；其他类型 null） */
+        final List<InspectorFieldVo.Option> options;
 
         PropMeta(String fieldName, String displayName, InspectorValueType valueType,
-                 Method getter, Method setter, InspectorFieldVo.Range range) {
+                 Method getter, Method setter, InspectorFieldVo.Range range,
+                 Class<?> enumType, List<InspectorFieldVo.Option> options) {
             this.fieldName = fieldName;
             this.displayName = displayName;
             this.valueType = valueType;
             this.getter = getter;
             this.setter = setter;
             this.range = range;
+            this.enumType = enumType;
+            this.options = options;
         }
 
         Object get(Object host) {
