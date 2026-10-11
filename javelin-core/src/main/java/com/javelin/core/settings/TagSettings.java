@@ -1,11 +1,13 @@
 package com.javelin.core.settings;
 
+import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;
 
 import java.util.ArrayList;
 
+@Reflective
 public class TagSettings implements Serializable {
     private ArrayList<String> tags = new ArrayList<>();
 
