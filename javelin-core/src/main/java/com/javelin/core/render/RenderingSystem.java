@@ -130,6 +130,10 @@ public final class RenderingSystem implements AutoCloseable {
     // 每视口 MSAA 附件（视口独立，同 depthFor 模式；AA 关时惰性创建永不发生）
     private final Map<String, Texture> msaaColorTextures = new HashMap<>();
     private final Map<String, Texture> msaaDepthTextures = new HashMap<>();
+    // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
+    private final List<RetiredTexture> retiredTextures = new ArrayList<>();
+    // 最近一次 collectFrame 的帧号（retire 条目时间戳基准）
+    private long lastFrame = -1;
     /** 生效采样档（构造期由引擎钳制后传入；COUNT_1 = AA 关） */
     private final SampleCount effectiveSamples;
     private int depthWidth;
@@ -195,9 +199,9 @@ public final class RenderingSystem implements AutoCloseable {
     public void removeCamera(RenderCamera camera) {
         cameras.remove(camera);
         if (camera != null) {
-            depthTextures.remove(camera.name());
-            msaaColorTextures.remove(camera.name());
-            msaaDepthTextures.remove(camera.name());
+            retire(depthTextures.remove(camera.name()));
+            retire(msaaColorTextures.remove(camera.name()));
+            retire(msaaDepthTextures.remove(camera.name()));
         }
     }
 
@@ -361,6 +365,8 @@ public final class RenderingSystem implements AutoCloseable {
         int w = frameLoop.swapChain().width();
         int h = frameLoop.swapChain().height();
         ensureDepthSize(w, h);
+        drainRetired(frameIndex);
+        lastFrame = frameIndex;
 
         int slotBase = (int) (frameIndex % frameSlots) * SLOT_SIZE;
         float tpf = Time.getDeltaTime();
@@ -529,19 +535,50 @@ public final class RenderingSystem implements AutoCloseable {
         return new DescriptorSetLayoutDesc(List.of());
     }
 
-    /** 交换链尺寸变化 → 深度纹理全部换绑（旧纹理引用丢弃，交 Cleaner 延迟销毁，RHI 17.1） */
+    /**
+     * 交换链尺寸变化 → 深度纹理全部换绑，旧纹理当场显式释放。
+     * 尺寸变化仅发生于交换链 recreate 之后（w/h 读自 swapChain），recreate 首行
+     * vkDeviceWaitIdle——帧首销毁时旧纹理必不在飞行中，且释放先于同帧新纹理分配，
+     * 高频 resize 不累积设备内存。
+     */
     private void ensureDepthSize(int w, int h) {
         if (w == depthWidth && h == depthHeight && !depthTextures.isEmpty()) {
             return;
         }
         if (!depthTextures.isEmpty()) {
             log.info("depth size changed: {}x{} → {}x{}, rebind all view depths", depthWidth, depthHeight, w, h);
-            depthTextures.clear();
-            msaaColorTextures.clear();
-            msaaDepthTextures.clear();
+            disposeAll(depthTextures);
+            disposeAll(msaaColorTextures);
+            disposeAll(msaaDepthTextures);
         }
         depthWidth = w;
         depthHeight = h;
+    }
+
+    /** 手动 dispose 优先、Cleaner 仅兜底：map 内纹理显式释放后清空 */
+    private static void disposeAll(Map<String, Texture> textures) {
+        textures.values().forEach(Texture::dispose);
+        textures.clear();
+    }
+
+    private void retire(Texture texture) {
+        if (texture != null) {
+            retiredTextures.add(new RetiredTexture(texture, lastFrame));
+        }
+    }
+
+    /** 退役纹理到期销毁：stamp + 2 帧（maxFramesInFlight=2，帧 N 的栅栏在帧 N+2 首被 await） */
+    private void drainRetired(long frameIndex) {
+        if (retiredTextures.isEmpty()) {
+            return;
+        }
+        retiredTextures.removeIf(r -> {
+            if (frameIndex >= r.frame + 2) {
+                r.texture.dispose();
+                return true;
+            }
+            return false;
+        });
     }
 
     private void checkOpen() {
@@ -566,12 +603,11 @@ public final class RenderingSystem implements AutoCloseable {
         materialResources.clear();
         materialLayouts.values().forEach(DescriptorSetLayout::dispose);
         materialLayouts.clear();
-        depthTextures.values().forEach(Texture::dispose);
-        depthTextures.clear();
-        msaaColorTextures.values().forEach(Texture::dispose);
-        msaaColorTextures.clear();
-        msaaDepthTextures.values().forEach(Texture::dispose);
-        msaaDepthTextures.clear();
+        disposeAll(depthTextures);
+        disposeAll(msaaColorTextures);
+        disposeAll(msaaDepthTextures);
+        retiredTextures.forEach(r -> r.texture.dispose());
+        retiredTextures.clear();
         frameSet.dispose();
         frameSetLayout.dispose();
         emptySetLayout.dispose();
@@ -588,6 +624,17 @@ public final class RenderingSystem implements AutoCloseable {
         MaterialResources(DescriptorSet set, Buffer ubo) {
             this.set = set;
             this.ubo = ubo;
+        }
+    }
+
+    /** 退役纹理条目（stamp = 退役时最近一次已收集的帧号） */
+    private static final class RetiredTexture {
+        final Texture texture;
+        final long frame;
+
+        RetiredTexture(Texture texture, long frame) {
+            this.texture = texture;
+            this.frame = frame;
         }
     }
 }
