@@ -34,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 
 public class JavelinEditor extends JavelinEngine {
 
@@ -56,8 +57,9 @@ public class JavelinEditor extends JavelinEngine {
                          MetaManager metaManager,
                          AssetManager assetManager,
                          AssetImportPipeline assetImportPipeline,
-                         BuiltinAssetReleaser builtinAssetReleaser) {
+                         BuiltinAssetReleaser builtinAssetReleaser) throws IOException {
         super(setting);
+        System.setProperty("core.runtime.dir", project.getRootDir().getCanonicalPath());
         instance = this;
         this.setting = setting;
         this.project = project;

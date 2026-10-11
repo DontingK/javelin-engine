@@ -38,7 +38,7 @@ public class JavelinSetting implements Serializable {
      * 由本字段兜底；余量是承重的——限得恰好等于刷新率会偶发「vblank 无新帧→
      * 旧帧重复显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
      */
-    private int maxFps = 0;
+    private int maxFps = 144;
 
     public int getWidth() {
         return width;

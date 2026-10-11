@@ -47,6 +47,7 @@ public class ProjectLoadingFrame extends CefFrame {
                 SwingUtilities.invokeAndWait((Runnable) () -> getInstance().dispose());
                 JavelinSetting setting = new JavelinSetting();
                 setting.setAntialiasing(AntialiasingMode.MSAA_8);
+                setting.setMaxFps(144);
                 JavelinEditor editorApp = new JavelinEditor(gradleProject, setting, metaManager, assetManager, assetImportPipeline, builtinAssetReleaser);
                 editorApp.start();
 
