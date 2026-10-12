@@ -176,8 +176,11 @@ public class BinaryOutputCapsule implements OutputCapsule, BinaryOutput {
         }
         try {
             // 根对象被图内字段引用（如 Node.scene → GameScene）走对象 id 引用
-            // 而非 GUID（图内根引用 vs 外部资产语义，2026-10-02 拍板，见 BinaryExporter.isRoot）
-            if(value instanceof Asset asset && !exporter.isRoot(asset)){
+            // 而非 GUID（图内根引用 vs 外部资产语义，2026-10-02 拍板，见 BinaryExporter.isRoot）。
+            // guid 为 null 的非根 Asset（内嵌材质等运行期实例）同走对象 id——与文本侧
+            // TextOutputCapsule 三条件同款（guid 非空才算外部引用），否则 TYPE_ASSET 写
+            // null guid 读侧解不回（打包游戏"有效MeshRenderer=0"真凶，2026-10-12 实锤）
+            if (value instanceof Asset asset && asset.getGuid() != null && !exporter.isRoot(asset)) {
                 writeKeyAndType(key, TYPE_ASSET);
                 writeString(asset.getGuid());
                 return;

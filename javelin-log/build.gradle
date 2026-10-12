@@ -3,7 +3,8 @@ plugins {
     id 'maven-publish' // 核心：Maven 发布插件
 
 }
-version = "1.0-SNAPSHOT"
+group = 'com.javelin'
+version = '1.0-SNAPSHOT'
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
@@ -28,4 +29,3 @@ publishing {
         mavenLocal()
     }
 }
-

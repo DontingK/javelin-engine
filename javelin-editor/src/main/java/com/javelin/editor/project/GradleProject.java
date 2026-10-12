@@ -175,6 +175,33 @@ public class GradleProject extends Project {
             out.info("复制 Library: " + libraryDir.getAbsolutePath() + " -> " + libraryTarget.getAbsolutePath());
         }
 
+        createLaunchScript(out, file);
+
+    }
+
+    /**
+     * 生成启动脚本（jar 形态）：产物根下 {@code {项目名}.bat}——jlink 运行时拉起
+     * 游戏。{@code chcp 65001} 切 UTF-8 码页（JDK 18+ 输出默认 UTF-8，中文控制台
+     * 默认 GBK——不对齐日志中文乱码）；{@code cd /d %~dp0} 钉死工作目录到脚本所在
+     * 目录（Env.getRunDir 的 {@code ./} 即产物根，Game/ 与 Library/ 从此解析）。
+     * classpath 用通配 {@code lib\*}（java 自行展开、manifest Class-Path 不支持
+     * 通配）——`java -jar` 只挂 game.jar 自身会忽略 -cp，且主类 GameMain 在依赖
+     * jar（javelin-core）里不在 game.jar 里，必须走 -cp + 主类全名。非零退出
+     * pause 保留窗口供读崩溃日志。内容纯 ASCII（bat 按 ANSI 码页读，中文注释会乱）。
+     *
+     * @param out      输出回调
+     * @param productDir 产物目录（build/jar）
+     */
+    private void createLaunchScript(ConsoleOut out, File productDir) throws IOException {
+        File script = new File(productDir, rootDir.getName() + ".bat");
+        String content = "@echo off\r\n"
+                + "rem Javelin jar build launch script (jlink runtime + game.jar + lib)\r\n"
+                + "chcp 65001 >nul\r\n"
+                + "cd /d \"%~dp0\"\r\n"
+                + "\"%~dp0runtime\\bin\\java.exe\" -cp \"%~dp0game.jar;%~dp0lib\\*\" com.javelin.core.GameMain\r\n"
+                + "if errorlevel 1 pause\r\n";
+        Files.write(script.toPath(), content.getBytes(StandardCharsets.US_ASCII));
+        out.info("启动脚本: " + script.getAbsolutePath());
     }
 
     /**

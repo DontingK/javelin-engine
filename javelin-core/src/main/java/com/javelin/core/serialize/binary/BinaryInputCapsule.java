@@ -169,19 +169,21 @@ public class BinaryInputCapsule implements InputCapsule {
     @Override
     @SuppressWarnings("unchecked")
     public <T extends Serializable> T readSerializable(String key, Class<T> type) {
-        if (Asset.class.isAssignableFrom(type)) {
-            String guid = (String) values.get(key);
-            if (guid == null) {
-                return null;
-            }
-            Class<? extends Asset> c = (Class<? extends Asset>) type;
-            return (T) importer.loadAsset(guid, c);
-        }
-        Integer id = (Integer) values.get(key);
-        if (id == null) {
+        Object v = values.get(key);
+        if (v == null) {
             return null;
         }
-        return (T) importer.getObject(id);
+        // Asset 类型按落盘值类型分流（写侧 BinaryOutputCapsule.write isRoot 拍板
+        // 2026-10-02，文本侧同口径）：String=外部资产 GUID、Integer=图内对象 id
+        // （导出根被字段引用时走 id——GameScene 的 Node.scene 即此，此前读侧只认
+        // guid，Integer 硬转 String 直接 CCE）
+        if (Asset.class.isAssignableFrom(type)) {
+            if (v instanceof String guid) {
+                Class<? extends Asset> c = (Class<? extends Asset>) type;
+                return (T) importer.loadAsset(guid, c);
+            }
+        }
+        return (T) importer.getObject((Integer) v);
     }
 
     @Override

@@ -27,13 +27,13 @@ compileTestJava {
     options.encoding = 'UTF-8'
 }
 dependencies {
-    implementation 'com.javelin:engine-core:1.0-SNAPSHOT'
-    implementation 'com.javelin:engine-log:1.0-SNAPSHOT'
+    implementation 'com.javelin:javelin-core:1.0-SNAPSHOT'
+    implementation 'com.javelin:javelin-log:1.0-SNAPSHOT'
 
-    annotationProcessor 'com.javelin:engine-ast:1.0-SNAPSHOT'
-    compileOnly 'com.javelin:engine-ast:1.0-SNAPSHOT'
+    annotationProcessor 'com.javelin:javelin-ast:1.0-SNAPSHOT'
+    compileOnly 'com.javelin:javelin-ast:1.0-SNAPSHOT'
 
-    compileOnly 'com.javelin:engine-ast:1.0-SNAPSHOT'
+    compileOnly 'com.javelin:javelin-ast:1.0-SNAPSHOT'
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
