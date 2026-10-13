@@ -69,8 +69,8 @@
 - **前置**：
   - **.scene 序列化**（现为 P2，编辑器存取必须）；
   - **资产格式层**（原阶段④剩余，编辑器读写的前提）：~~.shader 二进制格式 + 解析器（声明注入 + shaderc + 打包）~~——**✅ 已落地（2026-09-26，提交 e03c057）**：导入管线在编辑器 `importer/shader`（归属拍板：不经 javelin-tool），Capsule 二进制产物 + GUID 文件头规则 + .smesh 产物/拓扑/法线一并补齐；**.mat 格式 + AssetManager 读写未做**（下一步）；
-  - **编辑器形态拍板**（内嵌 + imgui-java / 内嵌 + Nuklear / 独立 Swing——管线已预留 targetOverride 渲染到纹理、预览视口简化形态两个口子）；
-  - `Engine_Editor_Design.md`（待写：editor 作为 JavelinEngine 子类的架构、编辑态/运行态关系、与 javelin-tool 分工）；
+  - **编辑器形态已定：Swing 外壳 + JCEF Web 面板**（~~内嵌 imgui / Nuklear / 独立 Swing 三选一~~ 作废——视口=Vulkan Canvas 挖洞浮于 CEF 之上，浮层遮挡约束由此而来，Editor_Design §1）；
+  - `Editor_Design.md`（✅ 已建档 v0.1：JavelinEditor=JavelinEngine 子类、CEF 窗口体系、JS↔Java 桥、资产管线、线程模型）；
 - **产出**：编辑器应用骨架 + 上述最小闭环；
 - **验收**：搭建场景 → 摆放/移动物体 → 保存 → 重载还原（用户运行）。
 
@@ -80,6 +80,8 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 `.mat` 格式仍待做（§9.4 已知限制）。
 
 **拾取方案拍板（2026-10-06 用户）**：物体拾取终态 = **GPU ID-buffer**（编辑器专用 pass 写 ID 附件、点击读回像素——不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体，Unity 编辑器同路线）；RHI 前置 = 拾取附件 + 图像读回路径，**后置实现、非当前排期**（详见 Editor_Design §10）。运行时场景级 raycast（Collider 注册表）仍归 §2.3 Ray 期，两 API 并存；过渡期是否先落 CPU 数学拾取为开放项。
+
+进度（2026-10-11 编辑器骨架大破土 → **2026-10-13 编辑→打包全流程闭环**）：Swing+JCEF 编辑器全链落地——菜单/命令体系（Editor_Menu_Design v0.10：三域命令 + Swing 菜单 + 图标 + 「构建」域）、层级树与场景增删、Inspector v0.1/v0.2（节点头 + Transform/Camera 组件面板）、Scene/Game 视图切换、资产管线（.meta/GUID/导入器/Library + SceneImporter 场景导入）；**构建域 v0.9/v0.10：打包对话框 JAR/AOT 双形态**——JAR = jlink 裁剪 JRE 运行时、AOT = GraalVM native-image 原生 exe（外置 DLL + reflect-config 处理器生成 + resource-config includes），产物 Builds/ 下双击可玩，**2026-10-13 AOT/JAR/编辑器三端实测验收**。§2.4 最小闭环验收仅剩：Gizmo 拖拽实测验收、物体拾取（ID-buffer 后置）。
 
 ---
 
@@ -103,7 +105,7 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本推进中：窗口层就绪 + .scene 序列化✅（2026-10-04 验收）+ Gizmo v0.1 轴拾取+拖拽✅（拖拽 2026-10-06 落地待实测验收，Editor_Design §10） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本推进中：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽（待实测验收）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**；剩 Gizmo 拖拽验收、物体拾取（ID-buffer 后置） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
