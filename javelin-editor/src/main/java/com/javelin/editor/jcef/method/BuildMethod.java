@@ -4,7 +4,7 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.console.ConsoleOut;
 import com.javelin.editor.jcef.bridge.BridgeMethod;
 import com.javelin.editor.jcef.bridge.JavaScriptBridge;
-import com.javelin.editor.jcef.domain.par.BuildJarPar;
+import com.javelin.editor.jcef.domain.par.BuildPackPar;
 import com.javelin.editor.jcef.domain.vo.BuildVo;
 import com.javelin.editor.jcef.domain.vo.SceneListVo;
 import com.javelin.editor.meta.AssetMeta;
@@ -23,7 +23,7 @@ import javax.swing.SwingUtilities;
 /**
  * 构建相关桥接方法。
  *
- * <p>提供 jar 打包能力（构建 > 打包对话框「开始打包」触发）。</p>
+ * <p>提供打包能力（构建 > 打包对话框「开始打包」触发，构建形态 JAR/AOT 分流）。</p>
  *
  * <p>线程口径：本方法在桥线程池执行，Gradle 构建全程同步阻塞占一个池线程
  * （构建时长分钟级）。构建日志<b>实时推送</b>：ConsoleOut 回调行经
@@ -59,24 +59,27 @@ public class BuildMethod {
     }
 
     /**
-     * jar 打包：执行项目构建链（dumpRuntimeJars → build → jlink 裁剪运行时 → 产物组装）。
+     * 打包：按构建形态分流项目构建链。
      *
-     * <p>表单参数先持久化进项目 Game/ 设置（窗口元信息→javelinSettings.settings、
-     * 启动场景→game.settings 的 defaultSceneGuid；构建模式暂不消费，映射
-     * nativeCompile 批次），随后构建组装 game.jar + lib + runtime + Game/ + Library/
-     *（后两者原封复制——写入即随复制生效）。</p>
+     * <p>JAR 形态走 {@code jarBuild}（dumpRuntimeJars → build → jlink 裁剪运行时 →
+     * 产物组装到 Builds/jar）；AOT 形态走 {@code aotBuild}（nativeCompile——GraalVM
+     * native-image，buildMode 经 -PbuildMode 下发：debug→quickBuild / release→全优化
+     * → 产物组装到 Builds/aot：exe + 外置 lib/*.dll + Game/ + Library/ + bat）。表单
+     * 参数先持久化进项目 Game/ 设置（窗口元信息→javelinSettings.settings、启动场景
+     * →game.settings 的 defaultSceneGuid——两形态产物都复制 Game/，写入即随复制
+     * 生效）。</p>
      *
      * @return 结束标记（日志已经 build.out.* 消息实时下发，返回值仅作完成信号）
      */
-    @BridgeMethod("/jar")
-    public BuildVo jarBuild(CefBrowser browser, BuildJarPar par) {
+    @BridgeMethod("/pack")
+    public BuildVo packBuild(CefBrowser browser, BuildPackPar par) {
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
             throw new IllegalStateException("编辑器未启动，无法打包");
         }
         pushLine(browser, "build.out.info", "开始打包......");
         applyPackSettings(editor, par, browser);
-        editor.getProject().jarBuild(new ConsoleOut() {
+        ConsoleOut consoleOut = new ConsoleOut() {
             @Override
             public void info(String txt) {
                 pushLine(browser, "build.out.info", txt);
@@ -91,7 +94,12 @@ public class BuildMethod {
             public void warn(String txt) {
                 pushLine(browser, "build.out.warn", txt);
             }
-        });
+        };
+        if (par != null && "aot".equals(par.buildForm)) {
+            editor.getProject().aotBuild(consoleOut, par.buildMode);
+        } else {
+            editor.getProject().jarBuild(consoleOut);
+        }
         return new BuildVo("====END====");
     }
 
@@ -105,7 +113,7 @@ public class BuildMethod {
      *
      * <p>写入结果行经实时推送反馈到调用页日志区；产物按「Game/ 原封复制」取到新值。</p>
      */
-    private static void applyPackSettings(JavelinEditor editor, BuildJarPar par, CefBrowser browser) {
+    private static void applyPackSettings(JavelinEditor editor, BuildPackPar par, CefBrowser browser) {
         if (par == null) {
             return;
         }

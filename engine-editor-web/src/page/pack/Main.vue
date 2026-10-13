@@ -2,10 +2,14 @@
   <div class="pack-dialog">
     <div class="pack-form">
       <div class="field-row">
+        <label class="field-label">构建形态</label>
+        <JeSelect v-model="buildForm" :options="buildFormOptions"/>
+      </div>
+      <div class="field-row">
         <label class="field-label">启动场景</label>
         <JeSelect v-model="startupScene" :options="sceneOptions" placeholder="无场景（Assets/ 下无 .scene）"/>
       </div>
-      <div class="field-row">
+      <div v-if="buildForm === 'aot'" class="field-row">
         <label class="field-label">构建模式</label>
         <JeSelect v-model="buildMode" :options="buildModeOptions"/>
       </div>
@@ -44,25 +48,35 @@ import JeInput from '../../components/input/JeInput.vue'
 import JeNumberInput from '../../components/input/JeNumberInput.vue'
 import JeSelect from '../../components/input/JeSelect.vue'
 import type { SelectOption } from '../../components/input/JeSelect.vue'
-import { jarBuild, listScenes } from '../../service/buildService.ts'
+import { packBuild, listScenes } from '../../service/buildService.ts'
 
 /**
  * 打包选项对话框（构建 > 打包 命令弹出的 CEF 对话框页，宿主为 Java 侧 Dialog 容器）。
  *
- * <p>「开始打包」已接真构建（2026-10-11 接入 /build/jar → GradleProject.jarBuild）：
+ * <p>「开始打包」已接真构建（/build/pack → GradleProject.jarBuild / aotBuild 构建形态分流）：
  * 构建日志经 build.out.info/warn/error 消息<b>实时推送</b>（Java 侧 ConsoleOut →
  * JavaScriptBridge → 调用者浏览器），本页监听逐行追加、自动滚底；响应到达即构建完成
  * （返回值为结束标记），期间按钮 loading、取消置灰（构建不可中断）；失败走桥错误
  * 协议（Java 侧 tinyfd 弹窗，此处 Promise reject 错误行内联显示）。关窗仍走对话框
  * 右上角 X（Java 侧 DISPOSE_ON_CLOSE）。</p>
  *
- * <p>「启动场景」下拉已接真数据（onMounted 拉取 /build/scenes——资产索引 .scene
+ * <p>「构建形态」JAR/AOT 分流两条构建链（2026-10-13 落地）：JAR 走 jlink JRE 运行时
+ * 链（产物 Builds/jar）、AOT 走 GraalVM native-image 链（产物 Builds/aot——exe +
+ * 外置 lib/*.dll，AotGameMain 设 org.lwjgl.librarypath=./lib 防 natives 打进 exe）。
+ * 「启动场景」下拉已接真数据（onMounted 拉取 /build/scenes——资产索引 .scene
  * 枚举，默认选中项目默认场景）；表单参数随构建下发——窗口元信息/启动场景构建前
  * 持久化进项目 Game/ 设置（javelinSettings.settings / game.settings，空值跳过），
- * Game/ 与 Library/ 原封复制进产物即取到新值；构建模式暂不消费。</p>
+ * Game/ 与 Library/ 原封复制进产物即取到新值；构建模式仅 AOT 形态消费（Debug→
+ * quickBuild / Release→全优化，经 -PbuildMode 下发；JAR 形态下该行隐藏）。</p>
  */
 
-/** 构建模式选项（将来映射 nativeCompile 优化级别） */
+/** 构建形态选项（JAR=jlink JRE 运行时；AOT=GraalVM native-image 原生可执行） */
+const buildFormOptions: SelectOption[] = [
+  {value: 'jar', label: 'JAR'},
+  {value: 'aot', label: 'AOT'},
+]
+
+/** 构建模式选项（AOT 形态下消费：Debug→quickBuild 快速构建 / Release→全优化） */
 const buildModeOptions: SelectOption[] = [
   {value: 'debug', label: 'Debug'},
   {value: 'release', label: 'Release'},
@@ -89,7 +103,9 @@ onMounted(async () => {
     console.warn('[PackDialog] 拉取场景列表失败', e)
   }
 })
-/** 构建模式 */
+/** 构建形态（jar / aot——Java 侧分流 jarBuild / aotBuild 构建链） */
+const buildForm = ref('jar')
+/** 构建模式（AOT 形态下随构建经 -PbuildMode 下发） */
 const buildMode = ref('debug')
 /** 窗口标题 */
 const windowTitle = ref('')
@@ -151,7 +167,7 @@ const statusText = computed(() => {
 })
 
 /**
- * 开始打包：同步触发 jar 构建，完成展示日志（失败内联显示错误信息）。
+ * 开始打包：同步触发构建（构建形态分流 jar/aot 链），完成展示日志（失败内联显示错误信息）。
  */
 async function onPack(): Promise<void> {
   if (packing.value) {
@@ -163,7 +179,9 @@ async function onPack(): Promise<void> {
   try {
     // 日志经 build.out.* 消息实时下发；表单值先持久化进 Game/（日志区可见写入行）；
     // 响应到达即构建完成（返回值为结束标记）
-    await jarBuild({
+    await packBuild({
+      buildForm: buildForm.value,
+      buildMode: buildMode.value,
       windowTitle: windowTitle.value,
       windowWidth: windowWidth.value,
       windowHeight: windowHeight.value,

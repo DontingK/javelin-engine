@@ -91,10 +91,30 @@ public abstract class Project {
     }
 
     /**
+     * 原生构建（nativeCompile——AOT 形态的编译阶段）。
      *
+     * @param out       输出回调（构建日志行）
+     * @param buildMode 构建模式（debug/release，经 -PbuildMode 下发；空 = 模板默认 release）
      */
-    public abstract void nativeBuild(ConsoleOut out);
+    public abstract void nativeBuild(ConsoleOut out, String buildMode);
+
+    /**
+     * JAR 打包（jlink JRE 运行时链，产物 Builds/jar）。
+     */
     public abstract void jarBuild(ConsoleOut out);
+
+    /**
+     * AOT 打包（nativeCompile + 产物组装，产物 Builds/aot：exe + 外置 lib/*.dll +
+     * Game/ + Library/ + bat）。
+     *
+     * @param out       输出回调（构建日志行）
+     * @param buildMode 构建模式（debug/release，仅 AOT 形态消费；空 = release）
+     */
+    public abstract void aotBuild(ConsoleOut out, String buildMode);
+
+    /**
+     * nativeCompile 工作目录（build/native/nativeCompile）。
+     */
     public abstract File nativeBuildOutDir();
 
 

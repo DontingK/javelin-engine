@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.9）
+# 编辑器菜单与命令系统设计（v0.10）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -52,6 +52,19 @@
 > 解 guid；空值/非法值跳过不覆写、构建模式仍不消费），组装阶段 **Game/ 与 Library/
 > 原封复制进产物**（GameMain 运行时从 runDir/Game 读设置、场景走 Library guid 产物）；
 > 关窗仍走 X）。
+> v0.10（2026-10-13）：**打包对话框「构建形态」JAR/AOT 双链落地**（四拍板：AOT
+> 全链落地 / 产物目录采纳 **Builds/**（jar+aot 一级子目录抗 gradle clean，jar 形态
+> 产物自 build/jar 迁移，根与 project-template 的 .gitignore 补 Builds）/ 构建模式
+> 本批消费 / 桥改名 **/build/pack**——BuildPackPar+packBuild 按形态分流，引擎侧
+> jarBuild/aotBuild 链名不动）。AOT 链 = nativeCompile（GraalVM native-image，模板
+> graalvmNative 配置已备本批接通）+ 产物组装 Builds/aot：exe + **外置 lib/*.dll**
+>（模板补 extractLwjglNatives 任务镜像 javelin-core；新增 **AotGameMain** 主类设
+> org.lwjgl.librarypath=./lib——DLL 不进 exe 防体积膨胀，2026-10-13 拍板）+ Game/
+> + Library/ + bat（同 jar 形态口径）。构建模式仅 AOT 形态显示并消费：Debug→
+> quickBuild 快速构建 / Release→全优化（runTask withArguments -PbuildMode 下发，
+> JAR 形态下该行隐藏——JVM 无优化差异）。首跑风险在档：GraalVM 25 toolchain +
+> MSVC 环境前置、三方反射（logback）可达性配置、exe 体积验证（DLL 外置应显著
+> 更小）。
 
 ## 1. 背景与约束
 
@@ -316,7 +329,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |
 | `hierarchy.rename` | 重命名 | 场景树右键 | 占位置灰——待树内编辑 UI（scene.nodeRenamed 定点通知已就绪） |
 | `build.compile` | 编译 | 构建 | 实而先禁（2026-10-11 拍板）：引擎侧 `GradleProject.compile()`（gradle compileJava）已备，菜单入口恒置灰（enabled 覆写），启用即删覆写接通；execute 记 warn 仅防桥直触发 |
-| `build.pack` | 打包 | 构建 | 弹 CEF 模态打包对话框（独立前端页 page/pack.html：启动场景/构建模式/窗口元信息表单 + 构建日志区）；「开始打包」接 `/build/jar` 桥（BuildMethod 声明 CefBrowser 参数注入调用者浏览器 → `GradleProject.jarBuild`：dumpRuntimeJars→build→jlink 裁剪 JRE 运行时→产物组装到 build/jar/，ConsoleOut 行经 JavaScriptBridge EDT hop 定向实时推送 build.out.*、前端流式回显自动滚底、响应到达即完成；桥线程池阻塞执行、失败走桥错误协议）；宿主=`window/cef/dialog/Dialog` 通用容器（EDT invokeLater 弹出）——启动场景下拉已接 /build/scenes 真数据（表单选项值消费与 AOT 形态随打包管线批次，2026-10-11 落地待验收） |
+| `build.pack` | 打包 | 构建 | 弹 CEF 模态打包对话框（独立前端页 page/pack.html：构建形态/启动场景/构建模式/窗口元信息表单 + 构建日志区）；「开始打包」接 `/build/pack` 桥（BuildMethod 声明 CefBrowser 参数注入调用者浏览器，buildForm 分流：JAR→`GradleProject.jarBuild`（dumpRuntimeJars→build→jlink 裁剪 JRE 运行时→产物组装到 Builds/jar/），AOT→`GradleProject.aotBuild`（nativeCompile（GraalVM native-image，-PbuildMode 下发构建模式：debug→quickBuild/release→全优化）→产物组装到 Builds/aot/：exe + 外置 lib/*.dll + Game/ + Library/ + bat，AotGameMain 设 org.lwjgl.librarypath=./lib——DLL 不进 exe 防体积膨胀）；ConsoleOut 行经 JavaScriptBridge EDT hop 定向实时推送 build.out.*、前端流式回显自动滚底、响应到达即完成；桥线程池阻塞执行、失败走桥错误协议）；宿主=`window/cef/dialog/Dialog` 通用容器（EDT invokeLater 弹出）——启动场景下拉已接 /build/scenes 真数据；构建模式仅 AOT 形态显示并消费（JAR 形态隐藏——JVM 无优化差异）（v0.9 2026-10-11 落地；v0.10 2026-10-13 构建形态双链 + /build/pack 改名 + Builds/ 产物目录，待验收） |
 
 顶栏菜单域按 Unity 组织（文件 / 编辑 / 资产 / 游戏对象 / 组件 / 工具 / 窗口 / 帮助），
 首期只落有命令的域、空域不渲染——已落「文件」（v0.6，仅保存）、「工具」、

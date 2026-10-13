@@ -75,16 +75,60 @@ graalvmNative {
                 vendor = JvmVendorSpec.matching("Oracle Corporation")
             }
             imageName = project.name
-            mainClass = 'com.javelin.core.GameMain'
+            mainClass = 'com.javelin.core.AotGameMain'
             debug = false
             verbose = false
             fallback = false
             sharedLibrary = false
-            quickBuild = false
+            // 构建模式下发（编辑器打包 -PbuildMode）：debug→quickBuild 快速构建；缺省 release→全优化
+            quickBuild = (project.findProperty('buildMode') ?: 'release') == 'debug'
             richOutput = false
             useFatJar = true
         }
     }
+}
+
+// 从 LWJGL natives JAR 提取 DLL 到 native image 输出目录的 lib/（外置——AotGameMain
+// 设 org.lwjgl.librarypath=./lib 加载，防 natives 编译进 exe 导致体积膨胀，2026-10-13 拍板）
+task extractLwjglNatives {
+    def outputDir = layout.buildDirectory.dir("native/nativeCompile/lib").get().asFile
+    outputs.dir(outputDir)
+
+    doLast {
+        outputDir.mkdirs()
+
+        // 遍历所有配置，查找 lwjgl natives JAR
+        project.configurations.each { cfg ->
+            try {
+                cfg.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+                    def jarFile = artifact.file
+                    if (jarFile.name.endsWith(".jar") && jarFile.name.contains("natives-windows")) {
+                        println "提取 natives JAR: ${jarFile.name}"
+                        copy {
+                            from zipTree(jarFile)
+                            include "**/*.dll"
+                            into outputDir
+                            eachFile { fileCopyDetails ->
+                                // 展平目录结构，直接把 dll 放到 lib/ 下
+                                fileCopyDetails.path = fileCopyDetails.name
+                            }
+                            includeEmptyDirs = false
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // 忽略未解析的配置
+            }
+        }
+
+        println "提取 LWJGL natives 到: ${outputDir.absolutePath}"
+        outputDir.listFiles()?.each { println "  - ${it.name}" }
+    }
+}
+
+// 在 nativeCompile 完成后执行提取任务（DLL 不参与编译）
+tasks.named('nativeCompile') {
+    finalizedBy extractLwjglNatives
 }
 
 test {

@@ -73,7 +73,7 @@
 
 | 模块 | 职责 | 现状 |
 |---|---|---|
-| `reflective` | ReflectiveFactory 零反射创建（GraalVM AOT 禁反射） | 已有 |
+| `reflective` | ReflectiveFactory 零反射创建（GraalVM AOT 禁反射）；处理器同步生成 native-image reflect-config.json（注册类+全部 @Reflective 类、构造器级，core/game 分支各一份模块子目录防 fat-jar 冲突，2026-10-13） | 已有 |
 | `obj` | ObjectId / ObjectCache 对象标识与缓存 | 已有 |
 | `settings` | JavelinSetting / GameSettings / SettingManager | 已有 |
 | `debug` | 调试支撑 | 已有 |

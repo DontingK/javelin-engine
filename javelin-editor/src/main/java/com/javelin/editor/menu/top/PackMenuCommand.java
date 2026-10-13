@@ -6,12 +6,12 @@ import javax.swing.SwingUtilities;
 
 /**
  * 打包命令（构建域）：弹 CEF 打包对话框（独立前端页 page/pack.html），配置
- * 打包选项（启动场景/构建模式/窗口元信息）。
+ * 打包选项（构建形态/启动场景/构建模式/窗口元信息）。
  *
- * <p>「开始打包」已接真构建（2026-10-11 接入 /build/jar → GradleProject.jarBuild，
- * 同步请求/响应、日志区展示构建输出）；表单选项暂不随构建下发（jarBuild 无参，
- * 选项消费随打包管线批次），关窗仍走对话框右上角 X（DISPOSE_ON_CLOSE）。动
- * CEF/Swing 跳 EDT（线程契约同 RefreshPageMenuCommand）。</p>
+ * <p>「开始打包」接真构建（/build/pack → BuildMethod 按构建形态分流 jar/aot
+ * 构建链，同步请求/响应、日志区实时展示构建输出）；关窗仍走对话框右上角 X
+ * （DISPOSE_ON_CLOSE）。动 CEF/Swing 跳 EDT（线程契约同
+ * RefreshPageMenuCommand）。</p>
  *
  * @author javelin
  * @version 1.0

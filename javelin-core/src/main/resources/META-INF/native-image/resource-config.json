@@ -1,6 +1,9 @@
 {
-  "resources":{
-    "includes":[],
-    "bundles":[]
+  "resources": {
+    "includes": [
+      {"pattern": ".*debug_font16\\.bin$"},
+      {"pattern": ".*debugtext\\.(vert|frag)\\.spv$"}
+    ],
+    "bundles": []
   }
 }

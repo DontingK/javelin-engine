@@ -48,10 +48,11 @@ public class GradleProject extends Project {
     }
 
     @Override
-    public void nativeBuild(ConsoleOut out) {
+    public void nativeBuild(ConsoleOut out, String buildMode) {
         File file = nativeBuildOutDir();
         FileUtil.delete(file);
-        runTask("nativeCompile", out);
+        String modeArg = (buildMode == null || buildMode.isBlank()) ? null : "-PbuildMode=" + buildMode;
+        runTask("nativeCompile", out, modeArg);
     }
 
     @Override
@@ -68,10 +69,26 @@ public class GradleProject extends Project {
         runTask("build", out);
         out.info("---- 阶段 4/5: jlink 裁剪游戏运行时 ----");
         dumpRuntimeByJlink(out);
-        out.info("---- 阶段 5/5: 组装产物（build/jar）----");
+        out.info("---- 阶段 5/5: 组装产物（Builds/jar）----");
         try {
-            creatOutputJarApp(out);
+            createOutputJarApp(out);
             out.info("==== jar 打包完成，总耗时 " + (System.currentTimeMillis() - start) + "ms ====");
+        } catch (IOException e) {
+            out.error("产物组装失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void aotBuild(ConsoleOut out, String buildMode) {
+        long start = System.currentTimeMillis();
+        out.info("==== AOT 打包开始（项目: " + rootDir.getAbsolutePath() + "）====");
+        String mode = (buildMode == null || buildMode.isBlank()) ? "release" : buildMode;
+        out.info("---- 阶段 1/2: nativeCompile（GraalVM native-image，buildMode=" + mode + "）----");
+        nativeBuild(out, buildMode);
+        out.info("---- 阶段 2/2: 组装产物（Builds/aot）----");
+        try {
+            createOutputAotApp(out);
+            out.info("==== AOT 打包完成，总耗时 " + (System.currentTimeMillis() - start) + "ms ====");
         } catch (IOException e) {
             out.error("产物组装失败: " + e.getMessage());
         }
@@ -85,16 +102,28 @@ public class GradleProject extends Project {
     /**
      * 运行 Gradle 任务。
      *
-     * @param task 任务名称
-     * @param out  输出行回调，为 {@code null} 时不输出日志
+     * @param task       任务名称
+     * @param out        输出行回调，为 {@code null} 时不输出日志
+     * @param gradleArgs 附加 Gradle 参数（如 -PbuildMode=debug；null/空白项忽略）
      */
-    public void runTask(String task, ConsoleOut out) {
+    public void runTask(String task, ConsoleOut out, String... gradleArgs) {
         long start = System.currentTimeMillis();
         if (out != null) {
             out.info(">> Gradle 任务: " + task + "（开始）");
         }
+        List<String> args = new ArrayList<>();
+        if (gradleArgs != null) {
+            for (String arg : gradleArgs) {
+                if (arg != null && !arg.isBlank()) {
+                    args.add(arg);
+                }
+            }
+        }
         try (ProjectConnection connection = getConnection()) {
             BuildLauncher launcher = connection.newBuild().forTasks(task);
+            if (!args.isEmpty()) {
+                launcher.withArguments(args.toArray(new String[0]));
+            }
             if (out != null) {
                 // stdout=info（任务执行行/编译常规输出）、stderr=error（编译报错行——
                 // 分级后前端日志区红字，打包过程失败点一眼可判）
@@ -114,8 +143,8 @@ public class GradleProject extends Project {
         }
     }
 
-    private void creatOutputJarApp(ConsoleOut out) throws IOException {
-        File file = new File(rootDir, "build/jar");
+    private void createOutputJarApp(ConsoleOut out) throws IOException {
+        File file = new File(rootDir, "Builds/jar");
         File runtimeDir = new File(file, "runtime");
         File dependencies = new File(rootDir, "build/dependencies.txt");
         File lib = new File(rootDir, "build/jar/lib");
@@ -190,7 +219,7 @@ public class GradleProject extends Project {
      * pause 保留窗口供读崩溃日志。内容纯 ASCII（bat 按 ANSI 码页读，中文注释会乱）。
      *
      * @param out      输出回调
-     * @param productDir 产物目录（build/jar）
+     * @param productDir 产物目录（Builds/jar）
      */
     private void createLaunchScript(ConsoleOut out, File productDir) throws IOException {
         File script = new File(productDir, rootDir.getName() + ".bat");
@@ -199,6 +228,102 @@ public class GradleProject extends Project {
                 + "chcp 65001 >nul\r\n"
                 + "cd /d \"%~dp0\"\r\n"
                 + "\"%~dp0runtime\\bin\\java.exe\" -cp \"%~dp0game.jar;%~dp0lib\\*\" com.javelin.core.GameMain\r\n"
+                + "if errorlevel 1 pause\r\n";
+        Files.write(script.toPath(), content.getBytes(StandardCharsets.US_ASCII));
+        out.info("启动脚本: " + script.getAbsolutePath());
+    }
+
+    /**
+     * 组装 AOT 产物到 {@code Builds/aot}：exe（nativeCompile 产出）+ 外置 LWJGL DLL
+     *（lib/）+ Game/ + Library/ + 启动 bat。
+     *
+     * <p>DLL 外置是拍板口径（2026-10-13）：防止 natives 编译进 exe 导致体积膨胀——
+     * {@code AotGameMain} 主函数设 {@code org.lwjgl.librarypath=./lib}（工作目录由
+     * bat {@code cd /d %~dp0} 钉死为产物根）。exe 名按 nativeCompile 目录扫描
+     *（imageName=模板 settings.gradle 项目名，与 rootDir 名不保证一致，不硬猜）。</p>
+     *
+     * @param out 输出回调
+     */
+    private void createOutputAotApp(ConsoleOut out) throws IOException {
+        File file = new File(rootDir, "Builds/aot");
+        FileUtil.delete(file);
+        file.mkdirs();
+        out.info("产物目录: " + file.getAbsolutePath());
+
+        File nativeDir = nativeBuildOutDir();
+        File exe = findNativeExe(nativeDir);
+        if (exe == null) {
+            out.error("缺少原生可执行文件: " + nativeDir.getAbsolutePath() + "（nativeCompile 未产出？）");
+        } else {
+            File exeTarget = new File(file, exe.getName());
+            FileUtil.copy(exe, exeTarget);
+            out.info("复制 exe: " + exe.getAbsolutePath() + " -> " + exeTarget.getAbsolutePath());
+        }
+
+        // LWJGL DLL 外置（模板 extractLwjglNatives 任务产出）；AotGameMain 按 ./lib 加载
+        File nativesDir = new File(nativeDir, "lib");
+        if (!nativesDir.isDirectory()) {
+            out.warn("DLL 目录缺失: " + nativesDir.getAbsolutePath() + "（extractLwjglNatives 未产出？）");
+        } else {
+            FileUtil.copy(nativesDir, new File(file, "lib"));
+            out.info("复制 DLL: " + nativesDir.getAbsolutePath() + " -> " + new File(file, "lib").getAbsolutePath());
+        }
+
+        // Game/ 与 Library/ 原封并入产物（同 jar 形态——表单参数已先写入 Game → 复制即新值；
+        // Library 含场景二进制产物，运行时按 guid 加载）
+        File gameDir = new File(rootDir, "Game");
+        if (!gameDir.exists()) {
+            out.warn("Game 目录缺失: " + gameDir.getAbsolutePath());
+        } else {
+            File gameTarget = new File(file, "Game");
+            FileUtil.copy(gameDir, gameTarget);
+            out.info("复制 Game: " + gameDir.getAbsolutePath() + " -> " + gameTarget.getAbsolutePath());
+        }
+        File libraryDir = new File(rootDir, "Library");
+        if (!libraryDir.exists()) {
+            out.warn("Library 目录缺失: " + libraryDir.getAbsolutePath());
+        } else {
+            File libraryTarget = new File(file, "Library");
+            FileUtil.copy(libraryDir, libraryTarget);
+            out.info("复制 Library: " + libraryDir.getAbsolutePath() + " -> " + libraryTarget.getAbsolutePath());
+        }
+
+        createAotLaunchScript(out, file, exe);
+    }
+
+    /**
+     * 扫 nativeCompile 目录根下的 exe（imageName 来自模板 settings.gradle 的项目名，
+     * 与 rootDir 名不保证一致——按扩展名扫描不硬猜）。
+     */
+    private File findNativeExe(File nativeDir) {
+        if (!nativeDir.isDirectory()) {
+            return null;
+        }
+        File[] exes = nativeDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".exe"));
+        return exes != null && exes.length > 0 ? exes[0] : null;
+    }
+
+    /**
+     * 生成启动脚本（AOT 形态）：产物根下 {@code {项目名}.bat}——直启原生 exe。
+     * {@code chcp 65001} 切 UTF-8 码页、{@code cd /d %~dp0} 钉死工作目录（exe 的
+     * {@code ./} 相对解析——Game/、Library/、lib/ DLL 从此解析）。非零退出 pause
+     * 保留窗口供读崩溃日志。内容纯 ASCII（bat 按 ANSI 码页读）。
+     *
+     * @param out        输出回调
+     * @param productDir 产物目录（Builds/aot）
+     * @param exe        原生可执行文件（null = nativeCompile 未产出，跳过生成）
+     */
+    private void createAotLaunchScript(ConsoleOut out, File productDir, File exe) throws IOException {
+        if (exe == null) {
+            out.warn("exe 缺失，跳过启动脚本生成");
+            return;
+        }
+        File script = new File(productDir, rootDir.getName() + ".bat");
+        String content = "@echo off\r\n"
+                + "rem Javelin AOT build launch script (native exe + external lib DLLs)\r\n"
+                + "chcp 65001 >nul\r\n"
+                + "cd /d \"%~dp0\"\r\n"
+                + "\"%~dp0" + exe.getName() + "\"\r\n"
                 + "if errorlevel 1 pause\r\n";
         Files.write(script.toPath(), content.getBytes(StandardCharsets.US_ASCII));
         out.info("启动脚本: " + script.getAbsolutePath());
