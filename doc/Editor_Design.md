@@ -5,6 +5,7 @@
 > 2026-10-04 §10 增补变换 Gizmo v0.1（移动三轴）落地记录；2026-10-05 §10 更新为工具族架构（事件驱动选中 + 距离自适应 + 引擎渲染激活过滤）。
 > 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，待实测验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，待实测验收）。
 > 2026-10-14 §10 变换 Gizmo 拖拽用户实测验收通过（二期编辑器最小闭环 §2.4 主体收官）。
+> 2026-10-14 §10 增补场景视图工具栏（Tools 组 + 局部/世界坐标切换；含游戏视图同高占位，当日实测验收通过）。
 
 ## 1. 定位与边界
 
@@ -305,6 +306,25 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   误抓）；射线检测按此过滤命中候选（不可选视同未命中、更远可选候选仍可胜出）。
   位置跟随后于拖拽 apply——同帧跟手不滞后一帧。缩放/旋转工具形态待续；拾取
   判定半径抓取舒适度加粗为实测后调项。
+- **场景视图工具栏（2026-10-14 落地、当日用户实测验收通过）**：视口上方常驻条——SceneViewportPanel
+  改列布局（工具栏 24px + 视口占位 flex:1），视口 rect 上报仍只测视口占位 div，
+  Canvas 挖洞矩形自动让位（ResizeObserver 重报兜底）。内容：Tools 组（移动可用；
+  旋转/缩放置灰占位——工具本体未落地）+ 竖分隔 + 局部/世界二段切换；新组件
+  `JeToolButton`（icon/文本通用、active=accent 反色、disabled 置灰、间距≤2、色板
+  var(--editor-*)）。前端本地态即点即亮（fire-and-forget 对齐 setModel 风格）、
+  不持久化（重启回 移动+世界）。桥=新域 `/gizmo`（`GizmoMethod`：setTool/setSpace
+  两小方法 + Par，ClassUtil 扫描自动注册；未知值 warn+忽略对齐 setModel 口径）；桥线程
+  只写 `TransformGizmoAppState` 的 **static volatile 意图镜像**（跨线程镜像先例=
+  GridMenuCommand——扫描反射实例化无构造注入、AppStateManager 非并发勿跨线程
+  getState），update 帧内消费：切工具先 forceEndDrag 再旧 hide 新 show
+  （TransformTools 契约预留的切换位兑现；工具名 getName() 大小写不敏感解析、线上
+  惯例小写）；坐标空间仅影响 Gizmo（Inspector 恒 local，Unity Global/Local 口径）——
+  Local = gizmoNode 每帧旋转对齐目标世界旋转（父链四元数自根向下 mul 组合，避开从
+  含非均匀缩放的世界矩阵提旋转）、World = 恒单位（现状语义）；工具层轴方向/hover/
+  变灰走箭头世界矩阵，gizmoNode 旋转后同一代码直通（设计预留兑现、MoveTool 零改动）。
+  游戏视图同高占位空条（GameViewportPanel 同列布局、视觉规格一致；内容留待 Game
+  视图工具设计——Unity 口径为显示比例/缩放/Stats 一族）。快捷键（W/E/R）与
+  rotate/scale 工具本体留扩展位。
 - **编辑器物体拾取终态拍板（2026-10-06 用户）：GPU ID-buffer，后置实现**——编辑器专用拾取 pass
   渲染场景时每个可拾取物体把自己的 pick ID（帧内稳定分配，0=背景/未命中）写进离屏整数附件
   （R32Uint，深度测试照常——近者胜），点击帧读回该像素 ID 即得选中对象（Unity 编辑器同路线，

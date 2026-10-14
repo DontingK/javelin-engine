@@ -18,6 +18,7 @@ import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.SceneSelectEvent;
 import com.javelin.editor.event.Subscription;
 import com.javelin.editor.scene.EditorScene;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,14 @@ import java.util.ArrayList;
  * viewDir = 相机→选中目标方向，与鼠标位置无关，供工具计算不可选轴变灰，判定
  * 与 isSelectable 同源）。gizmo 整体隐藏（无目标）时清 hover 并熄灭高亮防残留。</p>
  *
+ * <p>工具切换与坐标空间（2026-10-14，场景视图工具栏消费口）：桥线程 /gizmo/setTool、
+ * /gizmo/setSpace 只写本类 static volatile 意图镜像（跨线程镜像先例=GridMenuCommand，
+ * AppStateManager 非并发勿跨线程 getState），update 帧内消费——切工具先强制收尾拖拽、
+ * 旧工具 hide 新工具 show（TransformTools 契约预留的切换位）；坐标空间 Local = gizmoNode
+ * 旋转跟随目标世界旋转（父链四元数自根向下组合，避开从含非均匀缩放的世界矩阵提旋转）、
+ * World = 恒单位（现状语义）——仅影响 Gizmo 朝向与拖拽轴（Inspector 恒 local，Unity
+ * Global/Local 口径），工具层轴方向走箭头世界矩阵零改动直通。</p>
+ *
  * @author javelin
  * @create 2026/10/4
  */
@@ -94,6 +103,25 @@ public class TransformGizmoAppState extends AbsEditorAppState {
      * 工具注册表（首个为默认激活工具）
      */
     private final ArrayList<TransformTools> tools = new ArrayList<>();
+
+    /** 工具切换意图（桥线程 /gizmo/setTool 直写；update 帧内按 getName 解析消费——查名落空维持现状；编辑器单实例进程级） */
+    private static volatile String desiredToolName;
+
+    /** 坐标空间（true=局部：gizmoNode 旋转跟随目标世界旋转；false=世界=恒单位，现状语义）。桥线程 /gizmo/setSpace 直写、update 每帧读取 */
+    private static volatile boolean localSpace;
+
+    /** 当前激活工具（onAttach 默认首个；切换 = 拖拽中先强制收尾 + 旧 hide 新 show） */
+    private TransformTools activeTool;
+
+    /** 桥线程写入：工具切换意图（工具名=TransformTools.getName 口径、线上惯例小写，解析大小写不敏感） */
+    public static void setDesiredToolName(String toolName) {
+        desiredToolName = toolName;
+    }
+
+    /** 桥线程写入：坐标空间（true=局部） */
+    public static void setLocalSpace(boolean local) {
+        localSpace = local;
+    }
 
     /**
      * 选中事件订阅句柄（onDetach 退订防重复订阅）
@@ -128,6 +156,15 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     /** 视线方向复用向量（相机→选中目标、归一化；轴可选性/变灰基准——与鼠标位置无关） */
     private final Vector3f viewDir = new Vector3f();
 
+    /** 目标世界旋转复用四元数（Local 空间每帧父链组合；setLocalRotation 拷贝语义不外泄） */
+    private final Quaternionf worldRotBuf = new Quaternionf();
+
+    /** 单位旋转复用四元数（World 空间每帧回写恒单位） */
+    private final Quaternionf identityRot = new Quaternionf();
+
+    /** 目标父链复用列表（Local 空间旋转组合：clear+逆序下标循环，热路径列表复用口径） */
+    private final ArrayList<Transform> rotationChainBuf = new ArrayList<>();
+
     /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新，拖拽中锁定不刷新） */
     private Node hoveredNode;
 
@@ -161,7 +198,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 toolNode.getTransform().setParent(gizmoNode.getTransform());
             }
         }
-        tools.getFirst().show();
+        activeTool = tools.getFirst();
+        activeTool.show();
 
         // 置顶 Pass 挂管线末尾（Opaque→Transparent→Gizmo）：颜色 LOAD 保画 + 深度 CLEAR，
         // gizmo 恒最前；绘制对象按 gizmo.shader 实例身份过滤（共享加载，与 MoveTool.init
@@ -196,6 +234,7 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         }
         targetNode = null;
         hoveredNode = null;
+        activeTool = null;
         if (dragTool != null) {
             // 摘除时仍在拖拽（应用关闭等）——工具恢复轴高亮等收尾
             dragTool.endDrag();
@@ -214,6 +253,19 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         Camera editorCamera = javelinEditor.getEditorCamera();
         if (editorCamera == null) {
             return; // 相机未就绪（防御；onAttach 分支保证存在）
+        }
+
+        // ── 工具切换意图消费（桥线程 /gizmo/setTool 写 static 镜像；查名落空维持现状） ──
+        TransformTools desiredTool = resolveDesiredTool();
+        if (desiredTool != null && desiredTool != activeTool) {
+            if (dragTool != null) {
+                forceEndDrag(); // 拖拽中切工具——先按绑定目标收尾防跳变（点击工具栏时拖拽本应已松开，防御位）
+            }
+            if (activeTool != null) {
+                activeTool.hide();
+            }
+            desiredTool.show();
+            activeTool = desiredTool;
         }
 
         // 有效目标 = 选中节点且仍属用户场景（删除后不清除选中的兜底）
@@ -317,6 +369,16 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         target.getTransform().getWorldPosition(targetWorldPos);
         gizmoNode.getTransform().setLocalPosition(targetWorldPos);
 
+        // 坐标空间跟随（/gizmo/setSpace）：Local = gizmoNode 旋转对齐目标世界旋转（父链
+        // 四元数自根向下 mul 组合——避开从含非均匀缩放的世界矩阵提旋转；gizmoNode 根级
+        // local==world，setLocalRotation 即世界朝向）；World = 恒单位（现状语义）。工具层
+        // 轴方向/hover/变灰走箭头世界矩阵，gizmoNode 旋转后同一代码直通（设计预留兑现）
+        if (localSpace) {
+            applyTargetWorldRotation(target);
+        } else {
+            gizmoNode.getTransform().setLocalRotation(identityRot);
+        }
+
         // 距离自适应缩放（屏幕恒定尺寸口径；camWorldPos 本帧已在视线方向计算处取值）
         float scale = Math.abs(targetWorldPos.distance(camWorldPos)) / TOOLS_SCALE;
         for (TransformTools tool : tools) {
@@ -334,6 +396,40 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         transformTools.update();
         scaleVec.set(scale, scale, scale);
         transformTools.getToolNode().getTransform().setLocalScale(scaleVec);
+    }
+
+    /**
+     * 目标世界旋转组合进 {@link #worldRotBuf} 并回写 gizmoNode（Local 坐标空间）：
+     * 父链自根向下 mul——world = root × … × parent × local（mul 累乘语义 this = this × q）。
+     * 链表复用（clear + 逆序下标）防每帧分配。
+     */
+    private void applyTargetWorldRotation(Node target) {
+        rotationChainBuf.clear();
+        for (Transform t = target.getTransform(); t != null; t = t.getParent()) {
+            rotationChainBuf.add(t);
+        }
+        worldRotBuf.identity();
+        for (int i = rotationChainBuf.size() - 1; i >= 0; i--) {
+            worldRotBuf.mul(rotationChainBuf.get(i).getLocalRotation());
+        }
+        gizmoNode.getTransform().setLocalRotation(worldRotBuf);
+    }
+
+    /**
+     * 解析工具切换意图：null = 无请求维持现状；按名字查注册表（线上惯例小写、
+     * 与 getName() 大小写不敏感比对）；查名落空（如 rotate/scale 未注册）维持现状。
+     */
+    private TransformTools resolveDesiredTool() {
+        String name = desiredToolName;
+        if (name == null) {
+            return activeTool;
+        }
+        for (TransformTools tool : tools) {
+            if (name.equalsIgnoreCase(tool.getName())) {
+                return tool;
+            }
+        }
+        return activeTool;
     }
 
     /**
