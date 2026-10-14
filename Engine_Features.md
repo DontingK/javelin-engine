@@ -1,7 +1,7 @@
 # 引擎功能清单（Engine Features）
 
 > 版本：v0.1（2026-10-14 建档）
-> 定位：按模块分级盘点每个功能的**完成状态**与**验收状态**。`Engine_Roadmap.md` 叙阶段沿革（何时做、为何做），本文按模块点名现状（有什么、验没验）——待验收挂账与后置项一眼可扫。
+> 定位：按模块分级盘点每个功能的**完成状态**与**验收状态**。`doc/Engine_Roadmap.md` 叙阶段沿革（何时做、为何做），本文按模块点名现状（有什么、验没验）——待验收挂账与后置项一眼可扫。
 > 维护纪律：功能落地、验收翻状态时同步更新本文（与红线 12「文档先行」同一收口动作）；本表只记结论与日期，拍板细节、坑点归各设计档。
 >
 > 图例：
@@ -12,7 +12,7 @@
 
 ## 1. javelin-rhi —— Vulkan 渲染后端
 
-> 设计档：`RHI_Design.md` 及分卷一~四；进度档：`RHI_Implementation_Progress.md`；排障：`Vulkan_Pitfalls.md`
+> 设计档：`doc/RHI_Design.md` 及分卷一~四；进度档：`doc/RHI_Implementation_Progress.md`；排障：`doc/Vulkan_Pitfalls.md`
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
@@ -124,7 +124,7 @@
 
 ## 3. javelin-editor + engine-editor-web —— 编辑器
 
-> 设计档：`Editor_Design.md` / `Editor_Menu_Design.md` / `Inspector_Design.md`
+> 设计档：`doc/Editor_Design.md` / `doc/Editor_Menu_Design.md` / `doc/Inspector_Design.md`
 
 ### 3.1 窗口与桥接
 
@@ -220,7 +220,7 @@
 - CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。
 
-> 细节与修法归 `Editor_Design.md` §9 / 各排查记忆档，本文只挂账。
+> 细节与修法归 `doc/Editor_Design.md` §9 / 各排查记忆档，本文只挂账。
 
 ---
 
