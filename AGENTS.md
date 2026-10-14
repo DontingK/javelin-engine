@@ -79,7 +79,7 @@
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线；§5.3 MSAA 抗锯齿（2026-10-06 实测验收；isMsaaPath 边界见档内、栈分配坑=Vulkan_Pitfalls #23） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
-| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题；§10 演进方向（Gizmo 拖拽待验收、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收）——细节见档内 |
+| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收）——细节见档内 |
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.10）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、菜单渲染统一 Swing（Web 浮层菜单被视口 Canvas 盖）、engine2 对照取舍、三桥方法协议；「构建」域 build.pack 打包对话框 JAR/AOT 双链（2026-10-13 三端实测验收）——v0.2~v0.10 沿革与拍板见档内 |
 | `Inspector_Design.md` | 检视器设计（v0.2）：/inspector/info+setValue 全链、**@InsField 显式 opt-in 闸门 + 读 getter 写 setter 铁律**、节点头 name/active/layer/tags 编辑通道、ENUM/COLOR/RECT/LAYER_MASK 类型通道、浮点显示/输入 4 位小数口径、UI 间距≤2 规范（AGENTS.md 专章）；v0.1 实测验收（2026-10-11）、v0.2 Camera 组件接入待验收；遗留=Layer/Tag 设置管线待接——细节见档内 |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
