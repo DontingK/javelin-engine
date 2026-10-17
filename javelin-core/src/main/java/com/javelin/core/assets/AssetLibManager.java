@@ -35,6 +35,8 @@ public class AssetLibManager implements AssetManager {
     protected final Map<String, File> guidMap = new ConcurrentHashMap<>();
     //路径表，相对于libDir的相对路径, path,guid
     protected final Map<String, String> pathMap = new ConcurrentHashMap<>();
+    //GUID 反查表：guid → 源资产相对路径（与 pathMap 同步重载，展示侧取尾名用）
+    protected final Map<String, String> guidPathMap = new ConcurrentHashMap<>();
     private final File libDir;
     /**
      * GUID，缓存
@@ -68,6 +70,7 @@ public class AssetLibManager implements AssetManager {
                 File file = new File(libDir, guid + ".asset");
                 guidMap.put(guid, file);
                 pathMap.put(sourcePath, guid);
+                guidPathMap.put(guid, sourcePath);
                 LOGGER.debug("GUID: {} => {}", guid, file);
             }
             LOGGER.info("从 index.asset 加载 {} 条索引", guidMap.size());
@@ -167,6 +170,11 @@ public class AssetLibManager implements AssetManager {
 
     public File getLibDir() {
         return libDir;
+    }
+
+    @Override
+    public String pathOfGuid(String guid) {
+        return guidPathMap.get(guid);
     }
 
     @Override

@@ -29,5 +29,12 @@ public enum InspectorValueType {
     /** Rect 字段（"x,y,width,height"） */
     RECT,
     /** 节点头 Tag 单选（value=tag 名，"Untagged"=清空）；非字段行类型，回写专用通道不经 PropMeta */
-    TAG
+    TAG,
+    /**
+     * Asset 引用型字段（Mesh/Material 等）：value 三态——null=字段无资产（前端
+     * "None"）、空串=内存创建（guid 空，前端禁用态、不可回写）、非空=guid 原串；
+     * 显示名另经 InspectorFieldVo.assetName 下发（guid 反查源路径尾名）。
+     * v0.1 只读展示，赋值通道待项目面板拖拽资产落地。
+     */
+    GUID_ASSET,
 }

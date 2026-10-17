@@ -59,6 +59,11 @@
         :model-value="fieldValue"
         @update:model-value="onUpdate"
       />
+      <InsGuidAsset
+        v-else-if="field.valueType === 'GUID_ASSET'"
+        :model-value="field.value"
+        :asset-name="field.assetName"
+      />
       <InsString
         v-else
         :model-value="fieldValue"
@@ -80,6 +85,7 @@ import InsRotation from './input/InsRotation.vue'
 import InsRect from './input/InsRect.vue'
 import InsLayerMask from './input/InsLayerMask.vue'
 import InsColor from './input/InsColor.vue'
+import InsGuidAsset from './input/InsGuidAsset.vue'
 import type { InspectorFieldVo } from '../../../service/inspectorService.ts'
 
 /**
@@ -90,6 +96,8 @@ import type { InspectorFieldVo } from '../../../service/inspectorService.ts'
  * INT/FLOAT 数字串、BOOLEAN "true"/"false"、STRING 原样、ENUM 常量名、
  * VEC3_F "x,y,z"、ROTATION "x,y,z"（欧拉角度数）、COLOR "r,g,b,a"（0-1）、
  * RECT "x,y,width,height"、LAYER_MASK 位掩码 int 串。</p>
+ * <p>GUID_ASSET 只读直传 field.value（null/空串/非空三态语义不可经 fieldValue
+ * 折叠 null→''——None 与内存创建须区分），显示名走 field.assetName，无回写。</p>
  * <p>range（@InsIntRange/@InsFloatRange 投影）非空时数值控件按滑条元数据约束，
  * layerNames 由面板随 VO 下传（LAYER_MASK 勾选项）。</p>
  */

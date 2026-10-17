@@ -6,6 +6,7 @@ import com.javelin.core.inspector.InsIntRange;
 import com.javelin.core.inspector.InsField;
 import com.javelin.core.inspector.InsLayerMask;
 import com.javelin.core.inspector.InsRotation;
+import com.javelin.core.assets.Asset;
 import com.javelin.core.math.Color;
 import com.javelin.core.math.Rect;
 import com.javelin.core.obj.ObjectId;
@@ -14,9 +15,11 @@ import com.javelin.core.scene.Layer;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Tag;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.exception.TipException;
+import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.jcef.domain.vo.ComponentInspectorVo;
 import com.javelin.editor.jcef.domain.vo.InspectorFieldVo;
 import com.javelin.editor.jcef.domain.vo.NodeInspectorVo;
@@ -51,10 +54,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * 由 InspectorMethod 保证——桥线程与 mainLoop 的场景访问无竞争）。</p>
  *
  * <p>v0.2 收集面 = 节点头（name/active/layer/tags）+ 组件白名单
- * （{@link #INSPECTABLE_COMPONENTS}，v0.2 放开 Camera）字段分组；值类型通道
+ * （{@link #INSPECTABLE_COMPONENTS}，v0.2 放开 Camera，v0.3 放开 MeshRenderer）
+ * 字段分组；值类型通道
  * 放开 ENUM/COLOR/RECT/LAYER_MASK（枚举选项随 VO 下发，显示名走
- * {@link InsEnumLabel}）。MeshRenderer/Collider 组件暂缓（Mesh/Material 为
- * 资产引用型字段，随资产面板设计）。可空值对象（Camera.backgroundColor/
+ * {@link InsEnumLabel}）；v0.3 放开 GUID_ASSET（Asset 引用型字段只读展示：
+ * MeshRenderer.mesh/material 首批，赋值通道待项目面板拖拽资产落地）。
+ * Collider 组件暂缓。可空值对象（Camera.backgroundColor/
  * viewportRect）：序列化传 null（前端控件兜底显示），编辑回写即物化显式值。</p>
  *
  * @author javelin
@@ -83,10 +88,11 @@ public final class InspectorReflector {
     /**
      * 组件白名单（扩展点）：白名单序 = 面板分组序（Transform 必需恒在首位）。
      * 收集经 getComponent 取首个实例——节点单组件假设，同节点多实例组件形态
-     * 留组件实例面板再议。v0.1 仅 Transform，v0.2 放开 Camera。
+     * 留组件实例面板再议。v0.1 仅 Transform，v0.2 放开 Camera，v0.3 放开
+     * MeshRenderer（mesh/material 走 GUID_ASSET 只读，§wire 契约见 serialize）。
      */
     private static final List<Class<? extends Component>> INSPECTABLE_COMPONENTS =
-            List.of(Transform.class, Camera.class);
+            List.of(Transform.class, Camera.class, MeshRenderer.class);
 
     private InspectorReflector() {
     }
@@ -181,7 +187,11 @@ public final class InspectorReflector {
         vo.fieldName = prop.fieldName;
         vo.name = prop.displayName;
         vo.valueType = prop.valueType.name();
-        vo.value = serialize(prop.get(host), prop);
+        Object current = prop.get(host);
+        vo.value = serialize(current, prop);
+        if (prop.valueType == InspectorValueType.GUID_ASSET) {
+            vo.assetName = guidAssetLabel(current);
+        }
         vo.range = prop.range;
         vo.options = prop.options;
         return vo;
@@ -226,10 +236,39 @@ public final class InspectorReflector {
                         + formatFloat(rect.width) + "," + formatFloat(rect.height);
             case LAYER_MASK:
                 return String.valueOf(value);
+            case GUID_ASSET:
+                // 三态：字段无资产→null（前端 "None"）；guid 空（内存创建）→空串
+                // （前端禁用态标记，不可回写）；有 guid→guid 原串（显示名另走 assetName）
+                String guid = ((Asset) value).getGuid();
+                return guid != null && !guid.isBlank() ? guid : "";
             default:
                 // 暂缓类型不应出现在收集面（类型映射已挡）
                 return null;
         }
+    }
+
+    /**
+     * GUID 资产显示名：guid 经 {@link JavelinEditor#getAssetManager()} 反查源路径
+     * 取尾名去后缀（Unity 资产名口径）；反查失败兜底 guid 原串。内存创建（guid 空）
+     * /非 Asset 值返回 null——内存态文案由前端按 value 空串标记渲染。
+     */
+    private static String guidAssetLabel(Object value) {
+        if (!(value instanceof Asset asset)) {
+            return null;
+        }
+        String guid = asset.getGuid();
+        if (guid == null || guid.isBlank()) {
+            return null;
+        }
+        JavelinEditor editor = JavelinEditor.getInstance();
+        String path = editor != null ? editor.getAssetManager().pathOfGuid(guid) : null;
+        if (path == null || path.isBlank()) {
+            return guid;
+        }
+        int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        String tail = path.substring(slash + 1);
+        int dot = tail.lastIndexOf('.');
+        return dot > 0 ? tail.substring(0, dot) : tail;
     }
 
     private static String toDegrees(float radians) {
@@ -419,7 +458,8 @@ public final class InspectorReflector {
 
     /**
      * 字段类型 → 值类型；不可映射返回 null（即不展示）。
-     * 暂缓：MeshRenderer/Collider 组件（Mesh/Material 资产引用型字段随资产面板设计）。
+     * Asset 引用型字段（Mesh/Material 等）→ GUID_ASSET 只读展示（赋值通道待
+     * 项目面板拖拽资产）。暂缓：Collider 组件。
      */
     private static InspectorValueType mapValueType(Field field) {
         Class<?> type = field.getType();
@@ -456,6 +496,9 @@ public final class InspectorReflector {
         if (type == Layer.class) {
             // 节点 layer：wire 为索引 int 字符串，读写经 Layer.of/getValue 换算
             return InspectorValueType.INT;
+        }
+        if (Asset.class.isAssignableFrom(type)) {
+            return InspectorValueType.GUID_ASSET;
         }
         return null;
     }
@@ -560,6 +603,10 @@ public final class InspectorReflector {
                 return new Rect(xywh[0], xywh[1], xywh[2], xywh[3]);
             case LAYER_MASK:
                 return parseInt(value);
+            case GUID_ASSET:
+                // v0.1 只读通道：赋值待项目面板拖拽资产落地（Inspector_Design 遗留）
+                throw new TipException("GUID 资产字段暂不支持字符串回写（赋值走拖拽，待落地）: "
+                        + prop.fieldName);
             default:
                 throw new TipException("暂不支持的回写类型: " + prop.valueType);
         }

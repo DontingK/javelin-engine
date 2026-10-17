@@ -38,4 +38,15 @@ public interface AssetManager {
      */
     List<String> listAssetPaths(String suffix);
 
+    /**
+     * GUID 反查源资产相对路径（Library 索引 pathMap 反查；未命中返回 null）。
+     *
+     * <p>Inspector 等展示侧用：guid → 源路径尾名即资产显示名。索引随
+     * listAssetPaths/导入管线重载，反查表同口径跟进。</p>
+     *
+     * @param guid 资源 GUID
+     * @return 源资产相对 Library 的相对路径（如 {@code assets/mesh/plane.smesh}），未命中 null
+     */
+    String pathOfGuid(String guid);
+
 }

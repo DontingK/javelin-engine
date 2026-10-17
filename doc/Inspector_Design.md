@@ -1,4 +1,4 @@
-# 检视器（Inspector）设计（v0.2）
+# 检视器（Inspector）设计（v0.3）
 
 > 定位：`javelin-editor` 选中节点检视面板——Java 反射收集字段清单经桥下发、Web 渲染、
 > 编辑回写。设计基准=完全参考 Unity（Editor_Design §1）。
@@ -13,6 +13,10 @@
 > scene.dirty（`SceneDirtyEvent` 新事件）——任何属性修改前端本地亮星、不重拉树
 > （scene.changed 语义回归树刷新，用户拍板 2026-10-11）**；JeSelect 下拉遮挡
 > 修复（CollapsiblePanel overflow 吞浮层 + 换向判定按最近裁剪祖先，§6）。
+> v0.3（2026-10-17）：**GUID_ASSET 资产引用通道 + MeshRenderer 组件接入**——
+> Asset 引用型字段（mesh/material 首批）只读展示（§4 三态 wire 契约），显示名
+> guid 反查源路径尾名（AssetManager 新增 `pathOfGuid`）；**赋值通道=项目面板拖拽
+> 资产（用户拍板，后置遗留）**；回写侧显式拒绝（"不支持字符串回写"）。
 
 ## 1. 总则
 
@@ -34,12 +38,14 @@
 
 `NodeInspectorVo`：ready / objId / nodeName / layer（索引）/ layerNames / tags / tagNames /
 active / components[]（objId / name / enabled / required / fields[]）。
-`InspectorFieldVo`：objId / fieldName / name / valueType / value / range / options。
+`InspectorFieldVo`：objId / fieldName / name / valueType / value / range / options /
+assetName（v0.3，GUID_ASSET 显示名，其他类型 null）。
 
 ## 3. 字段收集（InspectorReflector）
 
 - 收集面 v0.2 = 节点头（手拼 VO）+ **组件白名单**（`INSPECTABLE_COMPONENTS`：
-  Transform（必需，恒首位）+ Camera（v0.2 放开））；收集经 `node.getComponent(type)`
+  Transform（必需，恒首位）+ Camera（v0.2 放开）+ MeshRenderer（v0.3 放开，
+  mesh/material 走 GUID_ASSET 只读））；收集经 `node.getComponent(type)`
   取首个实例（`components()` 为 package-private，外部 API 面即 getComponent）——
   节点单组件假设，同节点多实例组件形态留后续；白名单序=面板分组序；
 - 类 → 属性清单缓存（ConcurrentHashMap，首次访问构建一次）：沿类层级收集声明字段，
@@ -63,7 +69,11 @@ INT（Layer 字段=索引串，读写经 Layer.of/getValue 换算）/ FLOAT / BO
 STRING / VEC3_F（"x,y,z"）/ ROTATION（欧拉角度数 "x,y,z"；四元数↔欧拉换算单点在 Java
 侧）/ ENUM（常量名；options 随 VO 下发，显示名走 InsEnumLabel）/ COLOR（"r,g,b,a"
 0-1 浮点，回写构造自动夹取 [0,1]）/ RECT（"x,y,width,height"）/ LAYER_MASK（位掩码
-int 串，前端勾选式多选按 Layer 名投影）/ **TAG（节点头专用通道，§5）**。
+int 串，前端勾选式多选按 Layer 名投影）/ **TAG（节点头专用通道，§5）**/
+**GUID_ASSET（v0.3，Asset 引用型字段三态只读：value=null=无资产"None"、空串=内存
+创建（guid 空，前端禁用态「（内存创建）」）、非空=guid 原串；显示名另走 VO
+assetName=guid 反查源路径尾名去后缀（`AssetManager.pathOfGuid`），反查失败兜底 guid；
+回写侧显式抛"不支持字符串回写"——赋值通道=项目面板拖拽资产，拍板 2026-10-17 后置）**。
 ENUM/COLOR/RECT/LAYER_MASK 编解码 v0.2 放开（Camera 接入驱动；前端 Ins 控件族与
 VO options 字段 v0.1 已预留，本片纯 Java 侧反射器补齐）。
 
@@ -155,13 +165,17 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
 `editor.inspector`（InspectorReflector + InspectorValueType）/ `jcef.domain.par.InspectorValuePar`
 + vo 三件（NodeInspectorVo / ComponentInspectorVo / InspectorFieldVo）/ `InspectorMethod` /
 `SceneWatchAppState`（快照含 layer/tags）/ `Node`（name/active/layer @InsField 回写闸门）/
-`Camera`（v0.2 字段注解十件，main 不入面板——引擎 main 消费未落地）。
+`Camera`（v0.2 字段注解十件，main 不入面板——引擎 main 消费未落地）/
+`MeshRenderer`（v0.3 mesh/material @InsField）+ `core.assets`（AssetManager 新增
+pathOfGuid，AssetLibManager guidPathMap 反查表）/ InspectorFieldVo.assetName（v0.3）。
 
 **前端**：inspectorService / EntityInspectorPanel / InspectorField + `inspector/input/`
-Ins 控件族十件（v0.1 已备 ENUM/COLOR/RECT/LAYER_MASK 控件，v0.2 零改动）。
+Ins 控件族十件（v0.1 已备 ENUM/COLOR/RECT/LAYER_MASK 控件，v0.2 零改动）+
+InsGuidAsset（v0.3 只读，GUID_ASSET 分发直传 field.value——null/空串/非空三态
+不可经 ?? 折叠）。
 
-**暂缓**：MeshRenderer/Collider 字段（Mesh/Material 资产引用型，随资产面板设计）、
-mesh/material 资产引用字段、多 tag 展示与编辑、同节点多实例组件收集形态、
+**暂缓**：GUID_ASSET 赋值通道（项目面板拖拽资产，拍板 2026-10-17）、Collider 字段
+（资产引用型同通道复用 GUID_ASSET）、多 tag 展示与编辑、同节点多实例组件收集形态、
 可空值字段「清回 null」的 UI 形态、Inspector 订阅 nodeRenamed（外部改名刷面板）、
 设置管线合流（Game/→Settings）。（v0.2 曾留白「组件字段星标延迟 / Transform 拖拽
 星标即时化」——markDirty 翻转沿发布后关闭，见 §7。）

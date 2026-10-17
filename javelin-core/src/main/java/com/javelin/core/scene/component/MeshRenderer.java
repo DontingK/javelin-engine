@@ -1,6 +1,7 @@
 package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.inspector.InsField;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.Renderable;
@@ -14,8 +15,8 @@ import com.javelin.core.serialize.OutputCapsule;
  * <p>几何共享靠资产引用（同一 Mesh 对象被多个 MeshRenderer 复用），
  * 渲染差异靠材质实例（每 renderer 独立），见场景设计文档 5.1 节。
  * mesh / material 为 null 时不渲染（Unity missing-mesh 语义）；节点层级
- * 不激活同样不渲染（Unity inactive 口径，SceneRenderBridge 每帧按
- * isActiveInHierarchy 过滤），由 SceneRenderBridge 每帧 pull 翻译
+ * 不激活或组件 enabled=false 同样不渲染（Unity 口径，SceneRenderBridge
+ * 每帧按 isActiveAndEnabled 过滤），由 SceneRenderBridge 每帧 pull 翻译
  * （Engine_Rendering_Design.md 收集流程）。</p>
  *
  * @author Javelin Engine Team
@@ -25,7 +26,9 @@ import com.javelin.core.serialize.OutputCapsule;
 public class MeshRenderer extends Component implements Renderable {
 
     // 非 final：序列化反序列化需回写（AGENTS.md 红线 9）
+    @InsField(label = "网格")
     private Mesh mesh;
+    @InsField(label = "材质")
     private Material material;
     private boolean castShadow = true;
     private boolean receiveShadow = true;

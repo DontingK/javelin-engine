@@ -32,14 +32,16 @@ export interface InspectorFieldVo {
   fieldName: string
   /** 显示名 */
   name: string
-  /** 值类型（= Java 侧 InspectorValueType 常量名：INT/FLOAT/COLOR/VEC3_F/ROTATION/ENUM/BOOLEAN/LAYER_MASK/STRING/RECT/TAG） */
+  /** 值类型（= Java 侧 InspectorValueType 常量名：INT/FLOAT/COLOR/VEC3_F/ROTATION/ENUM/BOOLEAN/LAYER_MASK/STRING/RECT/TAG/GUID_ASSET） */
   valueType: string
-  /** 字段当前值（按 valueType 序列化的字符串） */
+  /** 字段当前值（按 valueType 序列化的字符串；GUID_ASSET 三态：null=None、空串=内存创建、非空=guid） */
   value: string | null
   /** 滑条范围（@InsIntRange/@InsFloatRange 投影；null = 普通输入框） */
   range: InspectorRange | null
   /** 枚举可选项（ENUM 字段；其他类型 null） */
   options: InspectorOption[] | null
+  /** 资产显示名（GUID_ASSET：guid 反查源路径尾名，反查失败兜底 guid；其他类型 null） */
+  assetName: string | null
 }
 
 /**

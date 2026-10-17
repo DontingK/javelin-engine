@@ -24,6 +24,11 @@ public class InspectorFieldVo {
     public Range range;
     /** 枚举可选项（ENUM 类型字段；其他类型为 null） */
     public List<Option> options;
+    /**
+     * 资产显示名（GUID_ASSET 类型：guid 反查源路径尾名，反查失败兜底 guid 原串；
+     * 内存创建（guid 空）为 null，前端按 value 空串标记渲染禁用态文案；其他类型 null）
+     */
+    public String assetName;
 
     /** 滑条范围元数据（INT 场景三值为注解整型原值，渲染取整由 valueType 决定） */
     public static class Range {
