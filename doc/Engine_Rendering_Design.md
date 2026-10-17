@@ -30,8 +30,10 @@
 ```
 collectFrame(frameIndex, backbuffer):
   0. SceneRenderBridge.sync(scene, rs, backbuffer)  // pull 翻译：注册/注销/同步相机与物体（collectFrame 之前）
-                                                   // 物体过滤：mesh/material missing + 节点层级不激活
-                                                   //（isActiveInHierarchy，Unity 口径，2026-10-05 拍板——翻转即时注销防残留）
+                                                   // 物体过滤：mesh/material missing + isActiveAndEnabled
+                                                   //（节点层级激活 + 组件 enabled，Unity 口径；2026-10-05 拍板 isActiveInHierarchy
+                                                   // 统一过滤，2026-10-17 扩组件级——编辑器取消勾选 MeshRenderer 头仍渲染实锤，
+                                                   // 相机同步补齐同口径；翻转即时注销防残留）
   1. updateTransforms = Transform 脏标记惰性重算    // getLocalToWorld() 时触发，无独立遍历 pass
   2. for cam in cameras (isActiveAndEnabled):
        view = cam.renderView                        // 引擎 RenderView（第 3 节）

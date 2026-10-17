@@ -32,6 +32,8 @@ import java.util.Set;
  * 相机位姿取自所在 Node 的 Transform（Unity 相机朝局部 +Z，向上 +Y）；
  * 视口 = viewportRect（Unity 口径归一化矩形）换算像素，
  * 未设置默认全屏（用户拍板 2026-09-26：无均分，多相机分屏必须手动设矩形）。
+ * 组件 isActiveAndEnabled 过滤（节点层级激活 + 组件 enabled，Unity 口径）：禁用
+ * 即注销，启用即重注（2026-10-17 组件头勾选实锤——仅过滤节点激活藏不住组件级禁用）。
  * MeshRenderer 的 mesh/material 为 null 时不渲染（missing 语义），
  * mesh/material 身份变化 = 注销重注（v0.1）。
  *
@@ -94,6 +96,15 @@ public final class SceneRenderBridge {
 
         // 注册 + 同步相机
         for (Camera camera : sceneCameras) {
+            // 相机组件禁用/节点不激活不渲染（与 MeshRenderer 同口径，含已注册注销防残留）
+            if (!camera.isActiveAndEnabled()) {
+                RenderCamera stale = cameras.remove(camera);
+                if (stale != null) {
+                    rs.removeCamera(stale);
+                    usedNames.remove(stale.name());
+                }
+                continue;
+            }
             RenderCamera rc = cameras.get(camera);
             if (rc == null) {
                 rc = new RenderCamera(uniqueName(camera.getNode().getName()));
@@ -134,11 +145,12 @@ public final class SceneRenderBridge {
             if (!(renderable instanceof MeshRenderer mr)) {
                 continue;
             }
-            // 节点层级不激活不渲染（Unity inactive 口径，用户拍板 2026-10-05：渲染
-            // pull 侧统一过滤——setActive 只影响生命周期状态机藏不住渲染，此处是
-            // 唯一过滤点。已注册的即时注销防残留：仅跳过注册会让旧 RenderObject
-            // 帧帧续命，激活翻转必须走到 removeRenderer）
-            if (!mr.getNode().isActiveInHierarchy()) {
+            // 节点层级不激活或组件 enabled=false 不渲染（Unity 口径，用户拍板
+            // 2026-10-05 渲染 pull 侧统一过滤，2026-10-17 扩为 isActiveAndEnabled
+            // ——组件级禁用同口径，编辑器取消勾选 MeshRenderer 头实锤）。已注册的
+            // 即时注销防残留：仅跳过注册会让旧 RenderObject 帧帧续命，禁用/激活
+            // 翻转必须走到 removeRenderer
+            if (!mr.isActiveAndEnabled()) {
                 RenderObject stale = renderers.remove(mr);
                 if (stale != null) {
                     rs.removeRenderer(stale);
