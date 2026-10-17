@@ -8,6 +8,8 @@ import com.javelin.core.render.material.MaterialPropertyType;
 import com.javelin.core.render.material.PassState;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.material.ShaderPass;
+import com.javelin.core.render.material.SurfaceType;
+import com.javelin.core.render.pipeline.pass.RenderPass;
 import com.javelin.core.render.mesh.MeshUpload;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.render.texture.TextureUpload;
@@ -20,6 +22,7 @@ import com.javelin.rhi.GraphicsPipeline;
 import com.javelin.rhi.Sampler;
 import com.javelin.rhi.Texture;
 import com.javelin.rhi.VertexLayout;
+import com.javelin.rhi.types.BlendFactor;
 import com.javelin.rhi.data.RHIScissor;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.desc.BufferDesc;
@@ -230,33 +233,41 @@ public final class RenderingSystem implements AutoCloseable {
     // ═══ 材质桥（Engine_Material_Design.md §4） ═══
 
     /**
-     * Pass 回调内取 PSO（按 Shader 前向 Pass + 顶点布局 + 图元拓扑缓存，
-     * PSO 不每帧新建，RHI 16.4）：SPIR-V 与固定状态（PassState）取自 ShaderPass，
-     * 图元类型 = Mesh 拓扑（TRIANGLE_LIST 默认），set 布局 = set0 帧 + set1 空占位 +
-     * set2 材质（RHI 20.3/20.4）。
+     * Pass 回调内取 PSO（按 shader Pass + 顶点布局 + 图元拓扑 + 采样档 + 材质面型缓存，
+     * PSO 不每帧新建，RHI 16.4）：SPIR-V 与固定状态取自 shaderPassName 命中的
+     * {@link ShaderPass}（严格制，拍板 2026-10-17：Pass 名即阶段归属，不声明不画），
+     * 其中 Blend/depthWrite 按材质 surfaceType 覆盖（URP 口径，Material_Design §4.1：
+     * TRANSPARENT → Blend SrcAlpha OneMinusSrcAlpha / ZWrite Off，OPAQUE → Blend Off /
+     * ZWrite On；Cull/ZTest/ColorMask 保留 Shader 声明，覆盖经 {@link PassState#copy()}
+     * 不回写 Shader 资产）。采样档 = 本 Pass 附件 MSAA 档（rasterizationSamples 必须
+     * 与附件一致，同材质双档并存不串）；图元类型 = Mesh 拓扑；set 布局 = set0 帧 +
+     * set1 空占位 + set2 材质（RHI 20.3/20.4）。
      */
     public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
-                                        PrimitiveTopology topology) {
-        return pipelineFor(material, layout, topology, SampleCount.COUNT_1);
-    }
-
-    /**
-     * 带 MSAA 采样档的 PSO 取用（scene 场景 Pass 按 isMsaaPath 传
-     * passSamples；overlay 家族恒 COUNT_1）。PSO rasterizationSamples 必须
-     * 与渲染附件采样数一致，故采样档进缓存键（同材质双档并存不串）。
-     */
-    public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
-                                        PrimitiveTopology topology, SampleCount samples) {
+                                        PrimitiveTopology topology, SampleCount samples,
+                                        String passName) {
         checkOpen();
         Shader shader = material.getShader();
         String key = System.identityHashCode(shader) + ":" + layout.hashCode()
-                + ":" + topology + ":" + samples;
+                + ":" + topology + ":" + samples + ":" + material.getSurfaceType()
+                + ":" + passName;
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
             return cached;
         }
-        ShaderPass pass = shader.forwardPass();
-        PassState s = pass.getState();
+        ShaderPass pass = shader.pass(passName);
+        if (pass == null) {
+            throw new IllegalStateException("Shader[" + shader.getShaderName()
+                    + "] 未声明 Pass: " + passName + "（严格制：Pass 名即阶段归属）");
+        }
+        PassState s = pass.getState().copy();
+        if (material.getSurfaceType() == SurfaceType.TRANSPARENT) {
+            s.setBlend(true, BlendFactor.SRC_ALPHA, BlendFactor.ONE_MINUS_SRC_ALPHA);
+            s.setDepthWrite(false);
+        } else {
+            s.setBlend(false, BlendFactor.ONE, BlendFactor.ZERO);
+            s.setDepthWrite(true);
+        }
         GraphicsPipelineDesc desc = new GraphicsPipelineDesc(
                 new ShaderDesc(ShaderStage.VERTEX, pass.getVertexSpirv()),
                 new ShaderDesc(ShaderStage.FRAGMENT, pass.getFragmentSpirv()),
@@ -280,8 +291,8 @@ public final class RenderingSystem implements AutoCloseable {
                 samples);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
-        log.info("material PSO created: shader={} pass={} layout={} topology={}",
-                shader.getShaderName(), pass.getName(), layout, topology);
+        log.info("material PSO created: shader={} pass={} layout={} topology={} surfaceType={}",
+                shader.getShaderName(), pass.getName(), layout, topology, material.getSurfaceType());
         return created;
     }
 
@@ -426,13 +437,23 @@ public final class RenderingSystem implements AutoCloseable {
             if ((ro.layerMask() & cullingMask) == 0) {
                 continue;   // 层级裁剪：对象 Layer 不在相机 cullingMask 内，跳过
             }
-            if (ro.isTransparent()) {
-                ro.world().getTranslation(worldPos);
-                worldPos.mulPosition(cam.view());
-                viewZ.put(ro, worldPos.z);
-                list.addTransparent(ro);
-            } else {
-                list.addOpaque(ro);
+            // Pass 名即阶段归属（严格制，拍板 2026-10-17）："Forward" → 前向主通道按
+            // 材质面型分桶；其他声明名 → 自定义 Pass 桶（管线有则消费、无则忽略）；
+            // 无 Forward 声明不进主通道（gizmo 单 Pass Gizmo 即此——只被 GizmoPass
+            // 单画，不再走"Opaque 先画 + 末尾重绘置顶"双画）
+            for (ShaderPass pass : ro.material().getShader().getPasses()) {
+                if (RenderPass.FORWARD_PASS_NAME.equals(pass.getName())) {
+                    if (ro.isTransparent()) {
+                        ro.world().getTranslation(worldPos);
+                        worldPos.mulPosition(cam.view());
+                        viewZ.put(ro, worldPos.z);
+                        list.addTransparent(ro);
+                    } else {
+                        list.addOpaque(ro);
+                    }
+                } else {
+                    list.addPass(pass.getName(), ro);
+                }
             }
             if (ro.isCastShadow()) {
                 list.addShadowCaster(ro);

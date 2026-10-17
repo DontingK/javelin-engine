@@ -78,7 +78,8 @@ class RenderObject {
     Mesh mesh;                        // 资产引用（Engine_Assets_Design，多 renderer 共享）
     Material material;                // 材质实例（set 2 描述符集 / PSO 由渲染侧懒创建）
     Matrix4 world;                    // transform.localToWorld 引用（帧描述存活期内场景不修改）
-    boolean transparent;              // 由材质前向 Pass 的 Blend 态得出（RHI 21.1 引擎决定队列）
+    boolean transparent;              // 活读 Material.surfaceType（URP 口径，拍板 2026-10-17 方案 B，
+                                      //   不再从 Shader 混合态推导；Material_Design §4.1）
     boolean castShadow;
 }
 ```
@@ -95,6 +96,9 @@ class RenderList {
     List<RenderObject> opaque;          // 按 shaderKey/材质排序
     List<RenderObject> transparent;     // 由远及近
     List<RenderObject> shadowCasters;   // castShadow 子集（ShadowPass 用，实现后置）
+    Map<String, List<RenderObject>> passes;  // 自定义 Pass 桶（key = shader Pass 名，
+                                             //   "Gizmo"/将来 "ShadowCaster"——严格制
+                                             //   按 Pass 名分发，Material_Design §4.2）
 }
 ```
 

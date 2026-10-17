@@ -34,6 +34,9 @@ import java.util.ArrayList;
 public class Material extends AbsAsset {
 
     private Shader shader;
+    /** 面型（透明性裁决，URP Surface Type 口径，拍板 2026-10-17 方案 B）：
+     * 默认 OPAQUE；不随 setShader 重置——分桶/PSO 覆盖随材质资产走，不随模板走 */
+    private SurfaceType surfaceType = SurfaceType.OPAQUE;
 
     // 非 final：序列化反序列化需回写（AGENTS.md 红线 9）
     /** 数值参数条目（COLOR/VECTOR 存 4 元，FLOAT/RANGE 存 1 元），key = 属性名 */
@@ -72,12 +75,32 @@ public class Material extends AbsAsset {
     }
 
     /**
-     * 序列化写出：guid/lastModified 由 AbsAsset 写；shader/values/textures 直通
+     * 面型读取（分桶与 PSO 覆盖的裁决源，2026-10-17 方案 B）。
+     */
+    public SurfaceType getSurfaceType() {
+        return surfaceType;
+    }
+
+    /**
+     * 面型写入：TRANSPARENT → 透明桶（由远及近）+ Blend SrcAlpha OneMinusSrcAlpha /
+     * ZWrite Off（PSO 侧覆盖，Cull/ZTest/ColorMask 保留 Shader 声明）。
+     */
+    public Material setSurfaceType(SurfaceType surfaceType) {
+        if (surfaceType == null) {
+            throw new IllegalArgumentException("surfaceType 不能为 null");
+        }
+        this.surfaceType = surfaceType;
+        return this;
+    }
+
+    /**
+     * 序列化写出：guid/lastModified 由 AbsAsset 写；surfaceType/shader/values/textures 直通
      * （红线 10——集合字段直传条目列表本体，零包装）。
      */
     @Override
     public void write(OutputCapsule output) {
         super.write(output);
+        output.write("surfaceType", surfaceType);
         output.write("shader", shader);
         output.write("values", values);
         output.write("textures", textures);
@@ -92,6 +115,11 @@ public class Material extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
+        // 旧场景（surfaceType 落地前）无此字段：回退默认 OPAQUE
+        SurfaceType st = input.readEnum("surfaceType", SurfaceType.class);
+        if (st != null) {
+            surfaceType = st;
+        }
         shader = input.readSerializable("shader", Shader.class);
         ArrayList<MaterialValueEntry> valueEntries =
                 input.readArrayList("values", MaterialValueEntry.class);

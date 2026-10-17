@@ -125,7 +125,7 @@ public class ShaderSerializationTest {
 
         // 查找语义不丢
         assertNotNull(restored.pass("Transparent"));
-        assertEquals("Forward", restored.forwardPass().getName());
+        assertEquals("Forward", restored.pass("Forward").getName());
     }
 
     @Test

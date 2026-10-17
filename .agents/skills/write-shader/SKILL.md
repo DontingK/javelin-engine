@@ -43,7 +43,8 @@ Shader "PBR_Standard"
         Cull Back                 // 状态命令：Cull / ZWrite / ZTest / Blend / ColorMask
         ZWrite On
         ZTest LEqual
-        Blend Off                 // 透明 Pass：Blend SrcAlpha OneMinusSrcAlpha + ZWrite Off
+        Blend Off                 // Blend/ZWrite 声明是底稿——场景材质的前向 PSO 被
+                                  //   Material.surfaceType 覆盖（方案 B，见下"坑点"）
 
         vs {                      // 入口统一 main()，无 #pragma
             #version 450          // ← 构建工具在此行之后自动注入 cam/pc 等声明（无标记，位置固定）
@@ -63,6 +64,8 @@ Shader "PBR_Standard"
 
 取舍红线（不要写这些）：无 `SubShader`、无 `FallBack`、无 `Tags.Queue`、无 `[Toggle]`、无 `#pragma multi_compile`/keyword、无 `#include`（文件完全自包含）。
 
+**Pass 名即阶段归属（严格制，2026-10-17）**：要被前向主通道（Opaque/Transparent 管线 Pass）绘制必须显式 `Pass Forward`——无回退，不声明即不画。其他名（如 `Gizmo`）进 RenderList 自定义桶，需管线有对应消费 Pass（`RenderPass.shaderPassName()` 同名）才画；声明了没人消费 = 静默不画（预期行为）。
+
 ## 三、注入的两层含义（重要）
 
 1. **运行时注入**：引擎自动绑 set0（动态偏移）+ 每 draw push `pc`——已落地。
@@ -78,7 +81,7 @@ Shader "PBR_Standard"
 - std140 对齐由 MaterialBlock 排布器保证，作者不手补 padding；不得手写与注入同名的 cam/pc/MaterialBlock 声明（构建期报错）。
 - 注入位置固定 `#version` 之后一行，无标记。
 - 占位贴图：`white` / `bump` / `black`。
-- 透明分桶 = PassState 的 Blend 态，不是 Queue。
+- **透明分桶 = Material.surfaceType（材质显式裁决，2026-10-17 方案 B），不是 PassState 的 Blend 态，也不是 Queue**：材质 surfaceType=TRANSPARENT → 透明桶 + PSO 覆盖 Blend SrcAlpha OneMinusSrcAlpha / ZWrite Off；OPAQUE → Blend Off / ZWrite On。PassState 里的 Blend/ZWrite 声明对场景材质的前向路径恒被覆盖（写 .shader 时不用靠改 Blend 开透明；要透明改材质）。
 - **坑**：`bindDescriptorSet` 前必须先 `bindPipeline`（Vulkan 命令序，Vulkan_Pitfalls.md）。
 
 ## 五、编译与验证

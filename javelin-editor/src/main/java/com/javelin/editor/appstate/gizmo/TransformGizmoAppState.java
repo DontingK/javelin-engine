@@ -6,7 +6,6 @@ import com.javelin.core.input.Input;
 import com.javelin.core.input.KeyCode;
 import com.javelin.core.input.MouseButton;
 import com.javelin.core.physics.Ray;
-import com.javelin.core.render.material.Shader;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
@@ -202,13 +201,10 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         activeTool.show();
 
         // 置顶 Pass 挂管线末尾（Opaque→Transparent→Gizmo）：颜色 LOAD 保画 + 深度 CLEAR，
-        // gizmo 恒最前；绘制对象按 gizmo.shader 实例身份过滤（共享加载，与 MoveTool.init
-        // 各自 loadAsset 同一对象）。shader 缺失时跳过——与 MoveTool 失败口径一致
-        Shader gizmoShader = javelinEditor.getAssetManager().loadAsset(MoveTool.GIZMO_SHADER_PATH, Shader.class);
-        if (gizmoShader != null) {
-            gizmoPass = new GizmoPass(gizmoShader);
-            engine.renderPipeline().addPass(gizmoPass);
-        }
+        // gizmo 恒最前；绘制对象 = RenderList 的 "Gizmo" Pass 桶（严格制，2026-10-17——
+        // shader 由 MoveTool.init 各自加载建材质，收集侧按 Pass 名分桶，无需在此过滤）
+        gizmoPass = new GizmoPass();
+        engine.renderPipeline().addPass(gizmoPass);
 
         selectSubscription = EditorEventBus.subscribe(SceneSelectEvent.class,
                 sceneSelectEvent -> targetNode = sceneSelectEvent.getNode());

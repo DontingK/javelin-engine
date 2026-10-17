@@ -65,7 +65,9 @@ public class MoveTool extends TransformTools {
     private static final String AXIS_MESH_PATH = "editor/mesh/axisY.smesh";
 
     /**
-     * 内置 Gizmo 着色器 loadAsset 路径（unlit 纯色，_Color 按轴下发；包内可见——TransformGizmoAppState 加载同实例传 GizmoPass 做材质过滤）
+     * 内置 Gizmo 着色器 loadAsset 路径（unlit 纯色，_Color 按轴下发）。
+     * gizmo.shader 只声明 Pass Gizmo——严格制（2026-10-17）下物体进 RenderList
+     * "Gizmo" 桶、由 GizmoPass 单画，管线侧无需知道本路径
      */
     static final String GIZMO_SHADER_PATH = "editor/shader/gizmo.shader";
 

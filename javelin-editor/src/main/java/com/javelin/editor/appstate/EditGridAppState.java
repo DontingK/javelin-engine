@@ -4,6 +4,7 @@ import com.javelin.core.JavelinEngine;
 import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.material.SurfaceType;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
@@ -117,6 +118,9 @@ public class EditGridAppState extends AbsEditorAppState {
             renderer.setMesh(GridMesh.build(GRID_SIZE, DIVISIONS[i]));
             renderer.setCastShadow(false);
             materials[i] = new Material(shader);
+            // 网格淡出走 alpha 混合：面型显式声明 TRANSPARENT
+            // （透明性由材质裁决，拍板 2026-10-17 方案 B，不再看 Shader 混合态）
+            materials[i].setSurfaceType(SurfaceType.TRANSPARENT);
             renderer.setMaterial(materials[i]);
             gridNodes[i] = node;
             editorGameScene.add(node);

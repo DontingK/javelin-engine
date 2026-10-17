@@ -4,10 +4,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * MaterialBlock std140 排布 + Shader.forwardPass 解析的 CPU 单测。
+ * MaterialBlock std140 排布 + Shader pass 严格按名查找的 CPU 单测。
  *
  * <p>排布规则（RHI 21.4/21.5，GLSL/RHI/CPU 三方同源）：
  * 按属性声明序跳过 TEXTURE_2D；FLOAT/RANGE → float（4B 对齐），
@@ -72,37 +73,23 @@ public class MaterialBlockTest {
     }
 
     @Test
-    public void forwardPassResolvesByNameThenBlendState() {
+    public void passLookupIsStrictByName() {
         byte[] spirv = new byte[]{1, 2, 3};
-        // 名 "Forward" 命中
+        // 按名命中：声明什么名就查到什么 Pass（严格制，拍板 2026-10-17：
+        // Pass 名即阶段归属，无回退——不声明即不画）
         Shader named = Shader.builder("Named")
                 .pass(new ShaderPass("Transparent", spirv, spirv,
                         new PassState().setBlend(true, com.javelin.rhi.types.BlendFactor.SRC_ALPHA,
                                 com.javelin.rhi.types.BlendFactor.ONE_MINUS_SRC_ALPHA)))
                 .pass(new ShaderPass("Forward", spirv, spirv, new PassState()))
                 .build();
-        assertEquals("Forward", named.forwardPass().getName());
+        assertEquals("Forward", named.pass("Forward").getName());
+        assertEquals("Transparent", named.pass("Transparent").getName());
 
-        // 无名命中：第一个非混合 pass
-        Shader opaqueFirst = Shader.builder("OpaqueFirst")
-                .pass(new ShaderPass("A", spirv, spirv, new PassState()))
-                .pass(new ShaderPass("B", spirv, spirv,
-                        new PassState().setBlend(true, com.javelin.rhi.types.BlendFactor.SRC_ALPHA,
-                                com.javelin.rhi.types.BlendFactor.ONE_MINUS_SRC_ALPHA)))
-                .build();
-        assertEquals("A", opaqueFirst.forwardPass().getName());
-
-        // 全混合：fallback 第一个 pass（对象进透明桶）
-        Shader allBlend = Shader.builder("AllBlend")
-                .pass(new ShaderPass("Transparent", spirv, spirv,
-                        new PassState().setBlend(true, com.javelin.rhi.types.BlendFactor.SRC_ALPHA,
-                                com.javelin.rhi.types.BlendFactor.ONE_MINUS_SRC_ALPHA)))
-                .build();
-        assertEquals("Transparent", allBlend.forwardPass().getName());
-
-        // 无 pass：抛异常
+        // 未声明名：null（不回退到"第一个非混合/第一个"——forwardPass 已废除）
+        assertNull(named.pass("GBuffer"));
         Shader empty = Shader.builder("Empty").build();
-        assertThrows(IllegalStateException.class, empty::forwardPass);
+        assertNull(empty.pass("Forward"));
     }
 
     @Test

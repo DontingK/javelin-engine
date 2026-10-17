@@ -67,8 +67,8 @@ public class ShaderImporterTest {
         assertEquals(BlendFactor.ONE_MINUS_SRC_ALPHA, state.getDstColor());
         assertTrue(!state.isDepthWrite());
 
-        // 前向取 Pass：文名 "Forward" 命中
-        assertEquals("Forward", shader.forwardPass().getName());
+        // Pass 名即阶段归属（严格制，2026-10-17）：按名直查，无回退
+        assertEquals("Forward", shader.pass("Forward").getName());
     }
 
     private static void assertValidSpirv(byte[] spirv) {

@@ -12,8 +12,20 @@ import com.javelin.rhi.RenderGraphBuilder;
  */
 public interface RenderPass {
 
+    /** 前向主通道消费的 shader Pass 名（严格制，拍板 2026-10-17：Pass 名即阶段归属） */
+    String FORWARD_PASS_NAME = "Forward";
+
     /** Pass 名（语义标识；图中实际 Pass 名由管线拼 view 前缀，图内唯一） */
     String name();
+
+    /**
+     * 本管线 Pass 消费的 shader Pass 名——PSO 取用与 RenderList 自定义桶的
+     * 查找键（块名即渲染阶段名，RHI 20.2）。默认前向主通道；Gizmo 等专用
+     * Pass 覆盖返回自己的名字。
+     */
+    default String shaderPassName() {
+        return FORWARD_PASS_NAME;
+    }
 
     /** 为本视口向图追加本 Pass：附件声明 + viewport/scissor + 渲染回调 */
     void addToGraph(RenderGraphBuilder graph, PipelineContext ctx);

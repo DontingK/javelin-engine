@@ -28,7 +28,8 @@ public abstract class AbstractForwardPass implements RenderPass {
     protected final float[] worldTmp = new float[16];
 
     /**
-     * 单个物体绘制：PSO 按材质前向 Pass + layout 切换 → 顶点缓冲 →
+     * 单个物体绘制：PSO 按材质 shader 的本管线 Pass 名（shaderPassName()，
+     * 严格制 2026-10-17）+ layout 切换 → 顶点缓冲 →
      * set 2 材质描述符集 → push constants（model mat4 + tpf）→ drawIndexed。
      * samples = 本 Pass 附件采样档（MSAA 路径 N x / 1x 路径 COUNT_1），
      * PSO rasterizationSamples 必须与附件一致。
@@ -36,7 +37,7 @@ public abstract class AbstractForwardPass implements RenderPass {
     protected void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro, float tpf,
                               SampleCount samples) {
         cmd.bindPipeline(rs.pipelineFor(ro.material(), ro.mesh().layout(), ro.mesh().getTopology(),
-                samples));
+                samples, shaderPassName()));
         MeshDraw.bindBuffers(cmd, ro.mesh());
         cmd.bindDescriptorSet(2, rs.materialSet(ro.material()), 0, null);
         pushData.clear();
@@ -50,11 +51,14 @@ public abstract class AbstractForwardPass implements RenderPass {
         MeshDraw.drawIndexed(cmd, ro.mesh());
     }
 
-    /** 物体列表入口的 PSO 建立（bindDescriptorSet 前必须先 bindPipeline，RHI 命令序约束） */
-    protected static GraphicsPipeline entryPipeline(RenderingSystem rs, RenderObject first,
-                                                    SampleCount samples) {
+    /**
+     * 物体列表入口的 PSO 建立（bindDescriptorSet 前必须先 bindPipeline，RHI 命令序约束）。
+     * 实例方法（2026-10-17）：按本管线 Pass 自己消费的 shader Pass 名取 PSO
+     */
+    protected GraphicsPipeline entryPipeline(RenderingSystem rs, RenderObject first,
+                                             SampleCount samples) {
         return rs.pipelineFor(first.material(), first.mesh().layout(), first.mesh().getTopology(),
-                samples);
+                samples, shaderPassName());
     }
 
     /** 视口矩形小于终点附件 = 分屏/预览视口，需要区域清屏 */

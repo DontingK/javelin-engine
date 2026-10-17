@@ -125,26 +125,10 @@ public class Shader extends AbsAsset {
         return null;
     }
 
-    /**
-     * v0.1 前向渲染取 Pass（Engine_RenderPipeline_Design.md 4.4 Pass 名分类）：
-     * 名 "Forward" → 第一个非混合 pass → 第一个 pass。混合态决定物体进
-     * 不透明/透明桶（渲染队列由引擎决定，RHI 21.1）。
-     */
-    public ShaderPass forwardPass() {
-        ShaderPass named = pass("Forward");
-        if (named != null) {
-            return named;
-        }
-        for (ShaderPass p : passes) {
-            if (!p.getState().isBlendEnabled()) {
-                return p;
-            }
-        }
-        if (passes.isEmpty()) {
-            throw new IllegalStateException("Shader[" + shaderName + "] 无任何 Pass");
-        }
-        return passes.get(0);
-    }
+    // forwardPass() 已移除（严格制，拍板 2026-10-17）：Pass 名即阶段归属，
+    // 收集侧按 pass 名分发（RenderingSystem.collectList）、PSO 按 pass 名取用
+    // （pipelineFor + RenderPass.shaderPassName），"Forward"/其他名一律 pass(name)
+    // 显式查找，无回退——不声明即不画。
 
     /**
      * Shader 构建器（仅预编译 / 资产加载侧使用；build 后 Shader 只读）。

@@ -3,7 +3,6 @@ package com.javelin.editor.appstate.gizmo;
 import com.javelin.core.render.RenderObject;
 import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
-import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.core.render.pipeline.pass.OpaqueForwardPass;
 import com.javelin.rhi.RenderGraphBuilder;
@@ -15,7 +14,7 @@ import com.javelin.rhi.types.SampleCount;
 import java.util.List;
 
 /**
- * 变换 Gizmo 置顶 Pass（挂管线末尾，2026-10-05 定稿）。
+ * 变换 Gizmo 置顶 Pass（挂管线末尾，2026-10-05 定稿；2026-10-17 改 Pass 名分桶）。
  *
  * <p><b>两层深度语义（用户拍板）</b>：gizmo 对外恒在所有场景物体之上、不被遮挡
  * （编辑操作对象必须始终可见）——深度 CLEAR 后 LEqual 对空深度恒通过；gizmo
@@ -30,30 +29,26 @@ import java.util.List;
  * 场景遮挡），用户定稿需求为置顶——切回；将来若要"遮挡时仍可见"的透视感，
  * Greater 鬼影变体（被遮挡部分半透明暗色二遍）在本案基础上递增。</p>
  *
- * <p>绘制对象按<b>材质着色器身份</b>过滤（material.getShader() == 构造传入的
- * gizmo.shader 实例，AssetManager 共享加载保证同一性）：全部变换工具（移动/
- * 缩放/旋转）共用 gizmo.shader，一处过滤全覆盖；网格/轴线诊断线用各自 shader
- * 不受影响。被过滤对象在 Opaque 正常 Pass 中仍按普通深度绘制（可被遮挡），
- * 本 Pass 末尾重绘置顶——双画代价为三箭头量级可忽略。不走 Layer 过滤：层表
- * 是二进制设置文件驱动，现有项目无 Gizmo 层需迁移；后续引擎若成型 overlay
- * 语义可再换。</p>
+ * <p><b>绘制对象 = RenderList 的 "Gizmo" Pass 桶</b>（严格制，拍板 2026-10-17）：
+ * gizmo.shader 只声明 {@code Pass Gizmo}（无 Forward）→ 物体不进前向主通道，
+ * 本 Pass 是其唯一绘制（原"Opaque 先画一遍 + 末尾重绘置顶"双画与材质着色器
+ * 身份过滤一并废除——Pass 名即阶段归属，收集侧已分桶）。网格/轴线诊断线用
+ * Forward 声明仍走主通道按普通深度绘制，不受影响。cullingMask/层级裁剪在
+ * 收集侧已过滤（同主通道口径）。</p>
  *
  * @author javelin
  * @create 2026/10/5
  */
 public class GizmoPass extends OpaqueForwardPass {
 
-    private final Shader gizmoShader;
-
-    /**
-     * @param gizmoShader gizmo 着色器实例（共享加载实例；材质按此身份过滤）
-     */
-    public GizmoPass(Shader gizmoShader) {
-        this.gizmoShader = gizmoShader;
-    }
-
     @Override
     public String name() {
+        return "Gizmo";
+    }
+
+    /** 本 Pass 消费 shader 的 "Gizmo" Pass（块名即阶段归属，严格制 2026-10-17） */
+    @Override
+    public String shaderPassName() {
         return "Gizmo";
     }
 
@@ -74,35 +69,20 @@ public class GizmoPass extends OpaqueForwardPass {
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {
-                List<RenderObject> objects = view.list().opaque();
+                // 收集侧按 Pass 名分桶（严格制）：gizmo.shader 无 Forward 声明，
+                // 物体只在本桶——本 Pass 即唯一绘制，无主通道双画
+                List<RenderObject> objects = view.list().passObjects("Gizmo");
                 if (objects.isEmpty()) {
-                    return;
-                }
-                RenderObject first = null;
-                for (RenderObject ro : objects) {
-                    if (isGizmo(ro)) {
-                        first = ro;
-                        break;
-                    }
-                }
-                if (first == null) {
                     return; // 本视口无 gizmo（无选中/GAME 模式）——空 Pass 常态
                 }
                 // set0 绑定需要已绑 PSO 提供布局：先用首个 gizmo 物体 PSO 建立
                 // （overlay 恒 1x：直写 backbuffer，不随场景 MSAA 变档）
-                cmd.bindPipeline(entryPipeline(rs, first, SampleCount.COUNT_1));
+                cmd.bindPipeline(entryPipeline(rs, objects.get(0), SampleCount.COUNT_1));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : objects) {
-                    if (isGizmo(ro)) {
-                        drawObject(cmd, rs, ro, tpf, SampleCount.COUNT_1);
-                    }
+                    drawObject(cmd, rs, ro, tpf, SampleCount.COUNT_1);
                 }
             });
         });
-    }
-
-    /** gizmo 物体判定：材质着色器身份（共享加载实例同一性） */
-    private boolean isGizmo(RenderObject ro) {
-        return ro.material() != null && ro.material().getShader() == gizmoShader;
     }
 }

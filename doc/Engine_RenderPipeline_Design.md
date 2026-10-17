@@ -129,7 +129,7 @@ addTextureRead(depthTex)                   // 着色可读（如软粒子）
 ### 4.5 TransparentForwardPass
 
 - **职责**：`RenderList.transparent`（由远及近，场景层排序——**不属于 RenderGraph**，RHI 14.5-3）Forward 绘制，叠加到上游输出；
-- **状态**：颜色混合 ON（alpha blend）、深度测试 ON / 深度写入 OFF、depth LOAD 复用（4.4）；
+- **状态**：颜色混合 ON（alpha blend）、深度测试 ON / 深度写入 OFF（PSO 按 `Material.surfaceType=TRANSPARENT` 覆盖得出，2026-10-17 方案 B——见 Material_Design §4.1）、depth LOAD 复用（4.4）；
 - **着色**：v0.x Forward 透明着色为简化模型（Lambert + 环境项）——**与 Deferred LightingPass 的光照模型一致性属已知取舍**，统一光照模型待材质专档拍板后回填两处；
 - **输出**：混合态目标（混合管线=lightingRT LOAD；v0.1=backbuffer LOAD）。
 
@@ -265,8 +265,10 @@ interface RenderPass {
   互遮挡，对外丢弃深度是故意的）；**LOAD = 场景深度咬合**（Pass 间共享深度
   附件，对 Opaque 遗留深度正常测试——被场景遮挡，立体 cues 正确）。GizmoPass
   现行 CLEAR（需求=gizmo 不被场景遮挡但内部有层次；LOAD 试行一日被否）。
-  收尾物体须在回调内过滤（按材质着色器身份等），否则全列表重绘会覆盖透明
-  物体；末位 Pass 写深度不影响下游；
+  绘制对象来源（严格制，2026-10-17）：管线 Pass 经 `RenderPass.shaderPassName()`
+  声明消费的 shader Pass 名，从 `RenderList.passObjects(name)` 取自己的桶（收集侧
+  已按 Pass 名分发，GizmoPass 已改此形态——原"回调内按材质着色器身份过滤"
+  与"Opaque 先画 + 末尾重绘"双画废除）；末位 Pass 写深度不影响下游；
 - 列表组成变化 = structureHash 正常失效（RHI 18.5）；Pass 实现**只准做声明 + 录制**，不碰屏障/布局（22.4 迁移纪律）。
 
 ### 6.3 每视口管线选择

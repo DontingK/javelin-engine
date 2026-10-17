@@ -19,6 +19,7 @@
 | `PassState` | 固定状态 POJO：Cull/ZWrite/ZTest/Blend/ColorMask（RHI 枚举，device 无关）；默认 Back/On/LEqual/Off/RGBA | 21.3 节状态命令 |
 | `MaterialProperty` | Properties 一条声明：name/displayName/type/默认值/区间/占位贴图名；静态工厂 color/vector/floatProp/range/texture2D | 21.4 节类型集 |
 | `MaterialPropertyType` | COLOR/VECTOR/FLOAT/RANGE/TEXTURE_2D + `glslType()`（vec4/float/sampler2D） | 21.4 节 |
+| `SurfaceType` | 材质面型枚举 OPAQUE/TRANSPARENT——透明性裁决源（2026-10-17 拍板方案 B，§4.1） | URP Surface Type 口径 |
 | `Material`（extends AbsAsset） | 实例：shader 引用 + 数值参数 + 贴图槽（存引擎 `Texture` 资产）；setFloat/setColor/setTexture 经 findProperty 校验名称与类型 | 20.2 节 Material |
 | `Texture2D`（render.texture 包，extends AbsAsset） | 纹理资产，**对齐 Unity Texture2D**：CPU 像素数据持有者（width/height/format/mipLevels + 紧密打包 ByteBuffer + filterMode/wrapMode）+ **GPU 句柄字段**（渲染侧首绑上传后回填，同 Mesh 缓冲模型：资产 GC 不可达 → 句柄走 RHI Cleaner）；内置占位常量 WHITE / BLACK / NORMAL（device 无关，Unity whiteTexture/blackTexture/normalTexture 语义）；`TextureLoader` 同包 | 21.4 占位贴图约定 |
 
@@ -45,7 +46,7 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 
 - `Shader.write/read`：super（guid/lastModified）+ `shaderName` + `properties`（ArrayList，声明序）+ `passes`（ArrayList，声明序）；
 - `ShaderPass / MaterialProperty / PassState` 实现 `Serializable` + `@Reflective`（补 ReflectiveFactory 注册），SPIR-V 为 byte[]、PassState 枚举走 name() 字符串、`colorMask` 存 int 位掩码（枚举集不直接序列化——list 元素类名要 @Reflective 注册，绕开）。
-- **Material.write/read 已落地（2026-10-04，.scene 内嵌数据面）**：super（guid/lastModified）+ `shader`（Asset 引用走框架 guid 分流：guid 非空经 AssetManager 解回、空走图内嵌）+ `values`/`textures` 条目列表直通（`MaterialValueEntry`/`MaterialTextureEntry`——Capsule 无 Map 通道，HashMap 存储重构为 name 唯一条目列表，存储形态 = 序列化形态同 Mesh 拍板）。内嵌材质（guid 空）经 .scene 文本通道全数据面往返；.mat 资产格式（材质 guid 化共享、Inspector 编辑载体）仍待（§6）。
+- **Material.write/read 已落地（2026-10-04，.scene 内嵌数据面；2026-10-17 增 `surfaceType` 枚举字段，readEnum null 回退 OPAQUE 兼容旧场景）**：super（guid/lastModified）+ `shader`（Asset 引用走框架 guid 分流：guid 非空经 AssetManager 解回、空走图内嵌）+ `values`/`textures` 条目列表直通（`MaterialValueEntry`/`MaterialTextureEntry`——Capsule 无 Map 通道，HashMap 存储重构为 name 唯一条目列表，存储形态 = 序列化形态同 Mesh 拍板）。内嵌材质（guid 空）经 .scene 文本通道全数据面往返；.mat 资产格式（材质 guid 化共享、Inspector 编辑载体）仍待（§6）。
 
 **坑点存档（AGENTS 红线 10 出处，2026-09-26 调试得出）**：
 
@@ -59,8 +60,32 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 
 1. **set 2 布局**：按 Shader（Properties 元数据）生成 `DescriptorSetLayout`，RenderingSystem 按 shader 缓存——所有 Pass 共用（RHI 20.3 硬约束）。**编号与 binding 约定（落地补充）**：set0 = CameraBlock（UBO1 动态）、set1 = ObjectBlock **空占位**（per-object 走 push constants，空布局在 PSO 布局列表中占位，Vulkan 允许零 binding 布局）、set2 = 材质：binding0 = MaterialBlock UBO（全部数值属性，std140），binding1..n = 贴图槽按声明序；
 2. **material UBO + 描述符集**：Material 首次渲染时按属性表写 UBO（std140 排布，排布器 = `MaterialBlock.pack`，CPU/GLSL 同源规则：声明序、float 4B 对齐、vec4 16B 对齐、空块 16B 占位）+ 建 set；**数值参数每次绑定时重打包写入**（运行期 setFloat/setColor 即时生效）；贴图槽经 `TextureUpload.upload(device, texture2D)`（render.texture 包，幂等、返回 GPU 句柄）首绑懒上传——句柄回填资产（`setGpu`，package-private），同 Mesh 缓冲生命周期（GC → Cleaner）；filter/wrap 参数建 Sampler 时消费（SamplerDesc 作缓存键）；未赋值贴图槽按占位约定解析（white → Texture2D.WHITE、bump/normal → NORMAL、black → BLACK，RHI 21.4 节）；**贴图槽仅首绑解析——运行期换贴图 = 换材质实例（v0.1 语义）**；
-3. **PSO 按 Pass 取用**：`RenderingSystem.pipelineFor(Material, VertexLayout)`——取 Shader 的前向 Pass（`Shader.forwardPass()`：名 "Forward" → 第一个非混合 Pass → 第一个 Pass，Engine_RenderPipeline 4.4 Pass 名分类的 v0.1 前向规则），PassState → GraphicsPipelineDesc 固定状态，缓存键 = shader identity + layout（当前 RenderingSystem 的 HashMap 缓存；RHI 16.4 节 PipelineCache 落地后收编）；
-4. Pass 名分类即渲染阶段归属（RHI 21.1：Queue 是冗余声明）：有 `Pass GBuffer` 进 Deferred 几何、有 `Pass Transparent` 进前向混合；材质用不到的 Pass 不实例化 PSO（RHI 20.7-3）。v0.1 前向形态：透明/不透明分桶 = 前向 Pass 的 Blend 态（RenderObject 构造时定型，RHI 21.1 引擎决定队列）。
+3. **PSO 按 Pass 取用（严格制，2026-10-17）**：`pipelineFor(Material, layout, topology, samples, passName)`——管线 Pass 经 `RenderPass.shaderPassName()` 声明自己消费的 shader Pass 名（前向主通道 "Forward"，GizmoPass "Gizmo"），`Shader.pass(name)` 直查、**无回退**（forwardPass() 已废除：不声明即不画），PassState → GraphicsPipelineDesc 固定状态（其中 Blend/depthWrite 按材质 surfaceType 覆盖，§4.1），缓存键 = shader identity + layout + topology + samples + surfaceType + passName（当前 RenderingSystem 的 HashMap 缓存；RHI 16.4 节 PipelineCache 落地后收编）；
+4. **Pass 名即阶段归属**（RHI 21.1：Queue 是冗余声明）：收集侧按 shader 声明的 Pass 名分发进 RenderList（"Forward" → 前向主通道按 surfaceType 分桶；其他名如 "Gizmo" → 自定义桶，管线有则消费、无则忽略——Unity LightMode 不匹配同口径）；材质用不到的 Pass 不实例化 PSO（RHI 20.7-3）。有 `Pass GBuffer` 的 shader 将来进 Deferred 几何，无 Forward 声明不进前向主通道（gizmo 即此——单画，不再双画）。
+
+### 4.1 面型裁决：Material.surfaceType（拍板 2026-10-17，方案 B）
+
+**旧形态（已废）**：透明性从 Shader 前向 Pass 的混合态推导（`RenderObject` 构造时读 `forwardPass().getState().isBlendEnabled()` 烘死 final）——一个 Shader 只能服务一种队列，材质没有发言权。
+
+**新形态（URP Surface Type 口径）**：透明性由 `Material.surfaceType`（OPAQUE 默认 / TRANSPARENT）显式裁决：
+
+- **分桶**：`RenderObject.isTransparent()` 活读材质（运行期 `setSurfaceType` 翻转即时换桶；旧数据 .scene 无此字段 → readEnum 回退 OPAQUE）；
+- **PSO 覆盖**：`pipelineFor` 组装前对 `PassState.copy()` 覆盖——TRANSPARENT → Blend SrcAlpha OneMinusSrcAlpha / ZWrite Off；OPAQUE → Blend Off / ZWrite On；Cull/ZTest/ColorMask 保留 Shader 声明。覆盖不回写 Shader 资产，面型进 PSO 缓存键；
+- **同一 Shader 通吃两种面型**（材质实例各说各话），demo 均已改单 Shader 双材质；
+- surfaceType 不随 `setShader` 重置（随材质资产走，区别于 values/textures 随模板重置）；
+- **.shader 的 Blend/ZWrite 声明降级为非前向路径的底稿**（场景材质恒被面型覆盖）；URP 的 Blending Mode（Additive/Premultiply 等）后置扩展，届时升为材质字段。
+
+### 4.2 Pass 分桶严格制：RenderList 按 Pass 名分发（拍板 2026-10-17，同日第二决策）
+
+**旧形态（已废）**：所有物体无条件进 opaque/transparent 两桶，PSO 取用走 `Shader.forwardPass()` 回退规则（名 "Forward" → 第一个非混合 Pass → 第一个 Pass）；GizmoPass 再从 opaque 里按材质着色器**身份过滤**捞 gizmo，靠"Opaque 先画 + 末尾重绘置顶"双画——块名即查找键的原设计（RHI 20.2）没兑现。
+
+**新形态**：
+
+- **收集分发**（`RenderingSystem.collectList`）：遍历 shader 声明的全部 Pass——`Pass Forward` → 前向主通道（surfaceType 分 opaque/transparent）；**其他声明名 → `RenderList.passes[name]` 自定义桶**；无 Forward 声明不进主通道（不声明即不画，Unity LightMode 不匹配同口径）；
+- **消费**：管线 Pass 经 `RenderPass.shaderPassName()`（新接口方法，默认 "Forward"）声明自己消费的 Pass 名——`GizmoPass` 取 `passObjects("Gizmo")`，**身份过滤与双画一并废除**（gizmo.shader 无 Forward → 主通道不画它，GizmoPass 是唯一绘制）；
+- **PSO 取用**同键：`pipelineFor(..., passName)`，`Shader.pass(name)` 直查无回退，`forwardPass()` 已删除；
+- shadowCasters 桶暂保留（阴影后置），ShadowCaster 声明制落地时并入 passes；
+- 存量合规（当日核查）：default/editor-grid/demo 全 `Pass Forward`，gizmo `Pass Gizmo`，轴线诊断线复用 editor-grid（Forward，主通道可被遮挡——诊断语义正确）。
 
 ## 5. 与现有代码的关系
 

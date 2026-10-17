@@ -1,6 +1,7 @@
 package com.javelin.core.render;
 
 import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.SurfaceType;
 import com.javelin.core.render.mesh.Mesh;
 import org.joml.Matrix4f;
 
@@ -8,8 +9,9 @@ import org.joml.Matrix4f;
  * 渲染对象（Engine_Rendering_Design.md 4.1）：轻量引用，不复制数据。
  *
  * <p>持 Mesh 资产 + Material 资产（材质桥接 2026-09-25 落地：set 2 描述符集与
- * PSO 由 RenderingSystem 按材质懒创建）。透明性由材质前向 Pass 的混合态得出
- * （RHI 21.1：渲染队列由引擎决定，Shader 不声明 Queue）；
+ * PSO 由 RenderingSystem 按材质懒创建）。透明性由材质 surfaceType 裁决
+ * （URP 口径，拍板 2026-10-17 方案 B——不再从 Shader 混合态推导，运行时
+ * 翻转即时生效，PSO 缓存键含面型不串）；
  * world 矩阵由持有方每帧原地更新（帧描述存活期内不得修改的约束由
  * 单线程退化模式天然满足）。
  */
@@ -18,7 +20,6 @@ public class RenderObject {
     private final Mesh mesh;
     private final Material material;
     private final Matrix4f world = new Matrix4f();
-    private final boolean transparent;
     private final boolean castShadow;
     /** 渲染对象层级掩码（来源 Node.layer；与相机 cullingMask 相交才可见） */
     private final int layerMask;
@@ -35,7 +36,6 @@ public class RenderObject {
         this.material = material;
         this.castShadow = castShadow;
         this.layerMask = layerMask;
-        this.transparent = material.getShader().forwardPass().getState().isBlendEnabled();
     }
 
     public Mesh mesh() {
@@ -51,7 +51,7 @@ public class RenderObject {
     }
 
     public boolean isTransparent() {
-        return transparent;
+        return material.getSurfaceType() == SurfaceType.TRANSPARENT;
     }
 
     public boolean isCastShadow() {

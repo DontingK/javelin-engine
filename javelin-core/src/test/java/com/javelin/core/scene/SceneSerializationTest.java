@@ -6,6 +6,7 @@ import com.javelin.core.assets.AssetManager;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.material.SurfaceType;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.MeshRenderer;
@@ -97,6 +98,11 @@ public class SceneSerializationTest {
         @SuppressWarnings("unchecked")
         public <T extends Asset> T loadGuid(String guid, Class<T> assetClass) {
             return (T) assets.get(guid);
+        }
+
+        @Override
+        public String pathOfGuid(String guid) {
+            return null;   // stub 无 Library 索引，反查恒未命中
         }
 
         @Override
@@ -288,6 +294,7 @@ public class SceneSerializationTest {
         Material material = new Material(shader);
         material.setColor("_Color", 0.2f, 0.4f, 0.6f, 1.0f);
         material.setFloat("_Float", 0.75f);
+        material.setSurfaceType(SurfaceType.TRANSPARENT);
 
         // 根级导出（根实例走 id 内嵌）：材质数据面 write/read 直接过堂；
         // shader 字段为非根 Asset 引用 → guid 分流 → AssetManager 解回
@@ -303,5 +310,7 @@ public class SceneSerializationTest {
         assertEquals(0.6f, color[2], 1e-6f);
         assertEquals(1.0f, color[3], 1e-6f);
         assertEquals(0.75f, loaded.getFloat("_Float"), 1e-6f);
+        // 面型随材质数据面往返（透明性由材质裁决，拍板 2026-10-17 方案 B）
+        assertEquals(SurfaceType.TRANSPARENT, loaded.getSurfaceType());
     }
 }

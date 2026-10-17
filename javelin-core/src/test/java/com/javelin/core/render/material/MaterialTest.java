@@ -49,6 +49,23 @@ public class MaterialTest {
     }
 
     @Test
+    void surfaceTypeDefaultsAndSurvivesShaderRebind() {
+        // 默认 OPAQUE（URP 口径，拍板 2026-10-17 方案 B）
+        Material material = new Material(sampleShader());
+        assertEquals(SurfaceType.OPAQUE, material.getSurfaceType());
+
+        material.setSurfaceType(SurfaceType.TRANSPARENT);
+        assertEquals(SurfaceType.TRANSPARENT, material.getSurfaceType());
+
+        // 面型随材质资产走、不随模板重置（区别于 values/textures）
+        material.setShader(sampleShader());
+        assertEquals(SurfaceType.TRANSPARENT, material.getSurfaceType());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> material.setSurfaceType(null));
+    }
+
+    @Test
     void floatAndColorRoundTrip() {
         Material material = new Material(sampleShader());
 

@@ -46,6 +46,26 @@ public final class PassState implements Serializable {
     public PassState() {
     }
 
+    /**
+     * 字段级拷贝（colorMask 重建新集合，与本体无共享可变状态）：
+     * 渲染侧按材质 {@link SurfaceType} 覆盖 Blend/depthWrite 后组装 PSO 用
+     * （材质覆盖不回写 Shader 资产，拍板 2026-10-17 方案 B）。
+     */
+    public PassState copy() {
+        PassState c = new PassState();
+        c.cull = cull;
+        c.depthWrite = depthWrite;
+        c.depthTest = depthTest;
+        c.blendEnabled = blendEnabled;
+        c.srcColor = srcColor;
+        c.dstColor = dstColor;
+        c.srcAlpha = srcAlpha;
+        c.dstAlpha = dstAlpha;
+        c.blendOp = blendOp;
+        c.colorMask = intToColorMask(colorMaskToInt(colorMask));
+        return c;
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("cull", cull);

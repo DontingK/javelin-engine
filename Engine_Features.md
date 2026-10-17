@@ -68,7 +68,9 @@
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
 | RenderingSystem / FrameLoop / UBO1 帧环形收编 | ✅ | ✅ 一期 Demo（清屏出画面起） |
-| RenderPass 有序列表 + AbstractForwardPass + 透明分桶（PassState Blend） | ✅ | ✅ SceneRenderDemo 用户运行 |
+| RenderPass 有序列表 + AbstractForwardPass + 透明分桶 | ✅ | ✅ SceneRenderDemo 用户运行 |
+| Material.surfaceType 面型裁决（分桶 + PSO 覆盖 Blend/ZWrite，方案 B，材质档 §4.1） | ✅ | ⬜ 待验收（MaterialTest 单测 + 序列化往返断言已补，demo/编辑器网格待用户跑） |
+| RenderList Pass 名分桶严格制（passes map + RenderPass.shaderPassName + pipelineFor passName 维；GizmoPass 去身份过滤/去双画，材质档 §4.2） | ✅ | ⬜ 待验收（编辑器 gizmo 拖拽/显示待用户跑） |
 | SceneRenderBridge pull 翻译（场景→RenderObject） | ✅ | ✅ 同上 |
 | GizmoPass 末尾置顶（颜色 LOAD + 深度 CLEAR 两层深度语义） | ✅ | ✅ 随 Gizmo 链（2026-10-14 拖拽验收） |
 | MSAA 视口附件（isMsaaPath 边界：stacking/预览降 1x、overlay 恒 1x） | ✅ | ✅ 用户实测（2026-10-06） |
@@ -81,6 +83,7 @@
 |------|---------|---------|
 | Mesh / VertexAttribute / VertexLayout | ✅ | ✅ 一期 |
 | Shader / Material 数据模型 + 渲染侧桥（MaterialBlock std140 / materialSet / pipelineFor） | ✅ | ✅ MaterialTest 单测 + Demo（2026-09-25） |
+| Material.surfaceType 字段 + Capsule 序列化（旧场景回退 OPAQUE） | ✅ | ⬜ 待验收（SceneSerializationTest 往返断言已补） |
 | Material 序列化（.scene 内嵌往返闭环） | ✅ | ✅ 用户实测（2026-10-04） |
 | Mesh.bounds / Aabb（set 即算 / 惰性兜底 / 上传前钉死） | ✅ | ✅ 单测（2026-10-06） |
 | AssetManager 资产索引查询（listAssetPaths、调用先重载 index.asset） | ✅ | ✅ 随打包启动场景下拉（2026-10-11） |

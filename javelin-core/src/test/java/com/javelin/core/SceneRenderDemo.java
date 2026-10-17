@@ -6,6 +6,7 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.PassState;
 import com.javelin.core.render.material.Shader;
+import com.javelin.core.render.material.SurfaceType;
 import com.javelin.core.render.material.ShaderPass;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.texture.Texture2D;
@@ -16,7 +17,6 @@ import com.javelin.core.scene.Node;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.settings.JavelinSetting;
-import com.javelin.rhi.types.BlendFactor;
 import com.javelin.tool.shaderc.ShaderStage;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -77,24 +77,17 @@ public final class SceneRenderDemo extends JavelinEngineTestBase {
         Mesh quad = createQuad();
         Texture2D texture = TextureLoader.loadImage(TextureLoader.resolveDefaultTexturePath());
 
-        // 不透明材质：Forward Pass，Blend Off（ZWrite On 默认）
-        Shader opaqueShader = Shader.builder("BuiltinQuad")
+        // 同一 Shader 双面型（拍板 2026-10-17 方案 B）：透明性由材质 surfaceType 裁决，
+        // Blend/ZWrite 由渲染侧按面型覆盖，不再各建一份带混合态的 Shader
+        Shader quadShader = Shader.builder("BuiltinQuad")
                 .property(MaterialProperty.color("_Tint", "Tint", 1f, 1f, 1f, 1f))
                 .property(MaterialProperty.texture2D("_MainTex", "Main Texture", "white"))
                 .pass(new ShaderPass("Forward", vs, fs, new PassState()))
                 .build();
-        Material opaqueMaterial = new Material(opaqueShader);
+        Material opaqueMaterial = new Material(quadShader);
         opaqueMaterial.setTexture("_MainTex", texture);
-
-        // 透明材质：独立 Shader（PSO 键 = shader+layout），Blend On + ZWrite Off
-        Shader transparentShader = Shader.builder("BuiltinQuadTransparent")
-                .property(MaterialProperty.color("_Tint", "Tint", 1f, 1f, 1f, 1f))
-                .property(MaterialProperty.texture2D("_MainTex", "Main Texture", "white"))
-                .pass(new ShaderPass("Forward", vs, fs, new PassState()
-                        .setDepthWrite(false)
-                        .setBlend(true, BlendFactor.SRC_ALPHA, BlendFactor.ONE_MINUS_SRC_ALPHA)))
-                .build();
-        Material transparentMaterial = new Material(transparentShader);
+        Material transparentMaterial = new Material(quadShader);
+        transparentMaterial.setSurfaceType(SurfaceType.TRANSPARENT);
         transparentMaterial.setTexture("_MainTex", texture);
         transparentMaterial.setColor("_Tint", 1f, 1f, 1f, 0.5f);
 
