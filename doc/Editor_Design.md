@@ -234,6 +234,20 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
    当前消费方（帧循环只用 surface 尺寸）不受影响，但若未来有按窗口宽高的逻辑需留意 dpi。
 8. ~~**`importer/shader` 实现缺失**~~——**已落地（2026-09-26）**：`ShaderParser/ShaderInjector/ShaderImporter` 进 main 源集，.shader 经解析、注入、shaderc 编译产出 Capsule 二进制资产（§6.3）；`SimpleMeshImporter` 的产物落盘同日补齐（Mesh 存储即 `ArrayList<MeshAttributeData>` 节点列表，序列化字段直通零转换）。
 9. `EditorApp.main()` 仍是旧的 `new ProjectFrame()` demo 入口；正式入口在 `ProjectLoadingFrame`。
+10. **窗口最大化时 JCEF 面板不跟随 resize（2026-10-17 实测修复）**：拖拽正常、最大化
+    显示不全。根因=三层协作时序坑：content pane 为 null 布局，jcef UI 组件尺寸全靠
+    componentResized 监听手动 setBounds；jcef（CefBrowserWr）原生窗口尺寸由
+    setBounds→wasResized、ancestorResized/Moved→doUpdate→updateUI、paint→doUpdate
+    三条事件链驱动，doUpdate 读的是内层 heavyweight canvas_ 的**当前**边界。拖拽每步
+    都有一波事件、陈旧读数被下一波覆盖（自然收敛）；最大化只有一波事件，jcef 在内层
+    canvas_ 布局到新尺寸**之前**触发的 doUpdate 让原生窗口最后收到旧尺寸、风暴过后
+    无事件再纠正——实测症状即 AWT（jecf bounds）与 CEF 内部（JS rectChange）均已
+    新尺寸、原生可见绘制区停在旧值。修复（`MainFrame.addJcefComponent`/
+    `syncJcefBounds`）：windowStateChanged 后等事件风暴排空（两拍 invokeLater +
+    100ms Timer），手动补跑 jcef 全链 setBounds→validate→paintImmediately
+    （→doUpdate→updateUI），用最终尺寸覆盖陈旧值。教训：**null 布局下 jcef 组件
+    resize 不是 setBounds 一条腿，原生窗口靠事件链收敛，最大化这类单发场景必须
+    显式补链**。
 
 ## 10. 演进方向
 

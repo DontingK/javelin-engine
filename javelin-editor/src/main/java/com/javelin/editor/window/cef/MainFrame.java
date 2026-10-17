@@ -175,6 +175,43 @@ public class MainFrame extends CefFrame implements Window {
                 jecfComponent.setBounds(0, 0, e.getComponent().getWidth(), e.getComponent().getHeight());
             }
         });
+        // 最大化/还原 resize 链修复：WindowStateListener 补驱 jcef 三段同步（见
+        // syncJcefBounds）。拖拽路径每次 resize 都有事件流冲刷、自然收敛；最大化
+        // 只有一波事件，jcef 内部 last-write 若是陈旧值就永久停在旧尺寸（AWT/JS
+        // 均已新尺寸、原生窗口仍旧的实测症状）
+        addWindowStateListener(new WindowAdapter() {
+            @Override
+            public void windowStateChanged(WindowEvent e) {
+                logger.info("windowStateChanged: {} -> {}", e.getOldState(), e.getNewState());
+                // 两拍 invokeLater + 100ms 补拍：确保同步落在 maximize 事件风暴
+                // （componentResized/ancestorMoved/validate/paint）全部排空之后
+                SwingUtilities.invokeLater(() ->
+                        SwingUtilities.invokeLater(() -> syncJcefBounds(jecfComponent)));
+                javax.swing.Timer tailSync = new javax.swing.Timer(100, ev -> syncJcefBounds(jecfComponent));
+                tailSync.setRepeats(false);
+                tailSync.start();
+            }
+        });
+    }
+
+    /**
+     * 状态变化后的 jcef 尺寸同步：① setBounds（重写里触发 wasResized 原生通知）
+     * → ② validate（内层 heavyweight canvas_ 同步布局、HWND 即时 resize）
+     * → ③ paintImmediately（强制 jcef paint→doUpdate→updateUI 原生窗口重排）。
+     * 三段都幂等，重复执行无副作用；用最终尺寸覆盖事件风暴期间的陈旧值。
+     */
+    private void syncJcefBounds(Component jecfComponent) {
+        int w = getContentPane().getWidth();
+        int h = getContentPane().getHeight();
+        jecfComponent.setBounds(0, 0, w, h);
+        jecfComponent.validate();
+        if (jecfComponent instanceof JComponent jc) {
+            jc.paintImmediately(0, 0, w, h);
+        }
+        String inner = jecfComponent instanceof Container c && c.getComponentCount() > 0
+                ? c.getComponent(0).getSize().toString() : "n/a";
+        logger.info("state-change sync: jecf={} contentPane={}x{} innerCanvas={}",
+                jecfComponent.getBounds(), w, h, inner);
     }
 
     public void rectChange(RectPar rectPar) throws Exception {
