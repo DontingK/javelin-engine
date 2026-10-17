@@ -7,6 +7,9 @@ import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
+import com.javelin.editor.menu.project.CopyPathMenuCommand;
+import com.javelin.editor.menu.project.ReimportMenuCommand;
+import com.javelin.editor.menu.project.ShowInExplorerMenuCommand;
 import com.javelin.editor.menu.top.CompileMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.menu.top.DevToolsMenuCommand;
@@ -26,7 +29,10 @@ import com.javelin.editor.menu.top.RefreshPageMenuCommand;
  * （「摄像机」，2026-10-11 落地）；剪切/复制/粘贴、3D 对象其余项、灯光/粒子以
  * {@link UnimplementedMenuCommand} 占位注册置灰，功能落地时逐个替换为实类注册行
  * （rename 随树内编辑 UI 后置，未入菜单）。
- * 顶栏菜单域按 Unity 组织，其余域随功能落地逐域补。</p>
+ * 「项目面板右键」域首期落地（2026-10-17）：showInExplorer / copyPath / reimport
+ * 实做，打开/创建族/粘贴/重命名/删除以 project 域占位类置灰（选中上下文经
+ * /project/select 上报 EditorSelection——右键前 await 落上报，菜单 enabled 求值
+ * 读新选中态）。顶栏菜单域按 Unity 组织，其余域随功能落地逐域补。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -66,6 +72,26 @@ public final class EditorMenuSetup {
         CommandService.register(new UnimplementedMenuCommand("hierarchy.create.light.directional", "定向光", null));
         CommandService.register(new UnimplementedMenuCommand("hierarchy.create.light.point", "点光源", null));
         CommandService.register(new UnimplementedMenuCommand("hierarchy.create.particle", "粒子", null));
+        CommandService.register(new ShowInExplorerMenuCommand());
+        CommandService.register(new CopyPathMenuCommand());
+        CommandService.register(new ReimportMenuCommand());
+        // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：打开
+        // 阻塞于脏场景确认；创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
+        // guid/meta/引用联动拍板
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.open", "打开", "Enter"));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.folder", "文件夹", null));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.scene", "场景", null));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.script", "脚本", null));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.paste", "粘贴", "Ctrl+V"));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.rename", "重命名", "F2"));
+        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.delete", "删除", "Delete"));
 
         // 文件域首期仅「保存」（2026-10-01 拍板：另存为/打开/新建场景随下期落地）
         MenuRegistry.menu("file", "文件")
@@ -101,5 +127,21 @@ public final class EditorMenuSetup {
                         .item("hierarchy.create.light.point"))
                 .item("hierarchy.create.particle")
                 .item("hierarchy.create.camera");
+
+        MenuRegistry.menu("ctx.project", "项目面板右键")
+                .item("project.open")
+                .separator()
+                .submenu("创建", create -> create
+                        .item("project.create.folder")
+                        .item("project.create.scene")
+                        .item("project.create.script"))
+                .item("project.paste")
+                .separator()
+                .item("project.showInExplorer")
+                .item("project.copyPath")
+                .item("project.reimport")
+                .separator()
+                .item("project.rename")
+                .item("project.delete");
     }
 }

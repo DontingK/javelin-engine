@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.10）
+# 编辑器菜单与命令系统设计（v0.11）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -71,6 +71,15 @@
 > `rootDir/build/jar/lib`（构建工作区）而非产物目录 `Builds/jar/lib`，依赖 jar 全部
 > 落错位、启动脚本 `-cp %~dp0lib\*` 落空致主类不可寻；改 `new File(file, "lib")` 与
 > AOT 形态（`createOutputAotApp`）同口径（GradleProject.createOutputJarApp）。
+> v0.11（2026-10-17）：**project 右键域首期落地（待验收）**——
+> EditorSelection project 写入方接线：`/project/select`（ProjectMethod，相对路径
+> 解析 + 边界闸门防逃逸项目根，null 清除；右键路径前端 await 落上报再 openMenu，
+> 菜单 enabled 求值读新选中态）；三实做命令（menu.project：showInExplorer/
+> copyPath/reimport——Desktop.browseFileDirectory 或 open / 剪贴板 /
+> AssetImportPipeline.submitImport 目录递归）；Unity 壳占位（menu.project 域
+> UnimplementedMenuCommand 恒置灰：open/创建族/paste/rename/delete）；ctx.project
+> 菜单结构一次对齐 Unity（创建子菜单+两道分割线）。面板 UI 侧见 Editor_Design §10
+> 项目面板条目。
 
 ## 1. 背景与约束
 
@@ -172,6 +181,10 @@ CommandService.register(Command.of("id", "标签").action(...).build());       /
 panel 实例取；engine5 的 panel 在 web 侧，上下文从全局选中状态取——**基类只读不持有**，
 单一数据源，四个触发入口（顶栏/面板右键/快捷键/按钮）行为一致。命令仍不持有 panel /
 Swing 组件 / web 上下文引用。
+
+project 选中写入方已于 2026-10-17 接线（v0.11）：前端经 `/project/select` 上报
+（ProjectPanel 单击 fire-and-forget / 右键 await 后弹菜单），Java 侧相对路径解析
++ 边界闸门（越出项目根记 warn 忽略）；场景选中与 project 选中两通道均活跃。
 
 ### 3.3 线程契约
 
@@ -379,6 +392,8 @@ project 右键域的
 | `EditorSelection`（`selection` 包） | §3.2 全局选中状态单源（写入方随场景树 / project 任务接线） |
 | `MenuRegistry` | §4 声明式结构（含子菜单嵌套） |
 | `UnimplementedMenuCommand`（menu.hierarchy） | §4 未实现命令占位注册（enabled 恒 false 置灰，功能落地时替换注册行） |
+| `UnimplementedMenuCommand`（menu.project） | 同上，project 域占位（open/创建族/paste/rename/delete，v0.11） |
+| `ProjectMenuCommand` 域命令三实做（menu.project） | v0.11：showInExplorer / copyPath / reimport |
 | `EditorMenuSetup` | 启动期组装（`JavelinEditor.onInitialize` 调用）：注册命令类 + 搭菜单 |
 | `MenuPopupFactory` | §5 JPopupMenu/JMenu 递归构建 + 分层状态求值 + 坐标换算 |
 | `SvgIcon`（`editor.swing`）+ `resources/icon/` | §5.3 SVG 图标渲染（JSVG，Document 缓存）与图标资源 |

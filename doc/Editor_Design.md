@@ -280,9 +280,21 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   重建基线、归属校验覆盖已删/卸载——机制细节见类 javadoc）**）、
   hierarchy 右键菜单统一走 Swing
   （/menu/open 传域 id+鼠标坐标弹 JPopupMenu，v0.4 定档——Web 右键浮层实测仍被
-  视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector/project 面板对接待续
-  （Inspector 将消费 scene.nodeTransformChanged，并配节点数据拉取口做
-  pull-on-mount 兜底）。
+  视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector 面板对接待续（将消费
+  scene.nodeTransformChanged，并配节点数据拉取口做 pull-on-mount 兜底；
+  project 面板已落地，见下条）。
+- **项目面板已落地（2026-10-17 待验收）**：Unity Project 窗口布局——左树仅目录
+  （全量树目录投影）+ 右区显示选中目录直接子项（目录优先+名称序）+ 面包屑逐级
+  跳转 + 目录双击进入，分栏可拖拽（复用 SplitPanel）；数据源 `/project/tree`
+  全量树快照（ProjectMethod，桥线程纯 IO 遍历——不涉引擎状态无需帧队列，仅暴露
+  Assets/src 两根，隐藏项与伴生 .meta 过滤，目录优先+名称序；ready=false 前端
+  节流重试对齐 /scene/tree）；选中上报 `/project/select`（写 EditorSelection project
+  通道——域菜单上下文源，相对路径解析+边界闸门防逃逸项目根；单击
+  fire-and-forget、右键 await 落上报再 openMenu，Editor_Menu_Design v0.11）；右键
+  ctx.project 域三入口（左树目录/右区条目/空白=当前目录语境）；图标 IDEA 项目
+  视图口径（public/icon：resourcesRoot/sourceRoot/package/folder/class/json/
+  unknown）。遗留：project.changed 刷新事件与创建/删除/重命名/打开命令第二批
+  （改文件系统的命令落地时一并接——命令改盘后前端树不重拉即脱节）。
 - **变换 Gizmo v0.1 视觉版已落地（2026-10-04；2026-10-05 用户重构为工具族架构）**：
   `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
   基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh
