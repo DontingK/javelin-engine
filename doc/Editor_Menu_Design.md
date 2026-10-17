@@ -67,6 +67,10 @@
 > 更小）。
 > 实测验收（2026-10-13 深夜）：AOT/JAR/编辑器三端 DebugText/FPS overlay 一致——
 > 三条资源路径（classpath / jlink JAR / native-image include）全验证，双链关账。
+> v0.10 修复（2026-10-17）：jar 组装 lib 目录路径错位——`createOutputJarApp` 拼成
+> `rootDir/build/jar/lib`（构建工作区）而非产物目录 `Builds/jar/lib`，依赖 jar 全部
+> 落错位、启动脚本 `-cp %~dp0lib\*` 落空致主类不可寻；改 `new File(file, "lib")` 与
+> AOT 形态（`createOutputAotApp`）同口径（GradleProject.createOutputJarApp）。
 
 ## 1. 背景与约束
 

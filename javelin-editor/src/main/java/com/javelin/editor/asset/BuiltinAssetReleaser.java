@@ -96,6 +96,11 @@ public class BuiltinAssetReleaser {
                 }
             }
         }
+        // 释放完内置资源须重写 Library 索引：MetaManager 构造器的 sync/updateIndex
+        // 早于本方法执行（.javelin/assets 尚空，内置条目被漏）；而 refresh 对自包含
+        // guid 文件只查 Library 产物存在性（已存在即跳过、不再触发 updateIndex），
+        // 缺失条目将永久滞留——场景里 @guid 引用解析为 null 直至渲染层崩
+        metaManager.updateIndex();
     }
 
     /**

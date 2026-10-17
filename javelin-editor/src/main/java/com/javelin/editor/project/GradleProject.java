@@ -147,7 +147,7 @@ public class GradleProject extends Project {
         File file = new File(rootDir, "Builds/jar");
         File runtimeDir = new File(file, "runtime");
         File dependencies = new File(rootDir, "build/dependencies.txt");
-        File lib = new File(rootDir, "build/jar/lib");
+        File lib = new File(file, "lib");
         File gameJar = new File(rootDir, "build/libs/game.jar");
         FileUtil.delete(file);
         file.mkdirs();

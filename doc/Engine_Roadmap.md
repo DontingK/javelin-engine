@@ -83,6 +83,8 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 
 进度（2026-10-11 编辑器骨架大破土 → **2026-10-13 编辑→打包全流程闭环**）：Swing+JCEF 编辑器全链落地——菜单/命令体系（Editor_Menu_Design v0.10：三域命令 + Swing 菜单 + 图标 + 「构建」域）、层级树与场景增删、Inspector v0.1/v0.2（节点头 + Transform/Camera 组件面板）、Scene/Game 视图切换、资产管线（.meta/GUID/导入器/Library + SceneImporter 场景导入）；**构建域 v0.9/v0.10：打包对话框 JAR/AOT 双形态**——JAR = jlink 裁剪 JRE 运行时、AOT = GraalVM native-image 原生 exe（外置 DLL + reflect-config 处理器生成 + resource-config includes），产物 Builds/ 下双击可玩，**2026-10-13 AOT/JAR/编辑器三端实测验收**；**Gizmo 拖拽实测验收通过（2026-10-14）——§2.4 最小闭环主体验收收官**，物体拾取按终态拍板后置（GPU ID-buffer；CPU 过渡拾取为开放项）。
 
+修复批次（2026-10-17，用户实测复现链定位）：打包 jar 产物 lib 目录路径错位（`build/jar/lib`→`Builds/jar/lib`，依赖落错位、启动脚本 classpath 落空）+ 内置资源释放后 Library 索引不重扫（MetaManager 构造器 sync 早于 releaseAll、refresh 查产物存在即跳过——`@guid:` 引用解析 null 渲染崩）双修复；连带排障定位旧格式 Mesh 产物不迁移坑（Editor_Design §6.3 已知边界，自动检测待拍板）。详见 Editor_Menu_Design v0.10 追记 / Editor_Design §6.3 / Engine_Features §3.6/§4。
+
 ---
 
 ## 3. 三期：光照

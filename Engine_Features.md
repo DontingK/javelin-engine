@@ -180,6 +180,7 @@
 | .smesh 网格导入（拓扑 / 法线重算） | ✅ | ✅ 同上 |
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
 | SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ⏳ 待验收（2026-10-11） |
+| 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ## 4. 构建与发布链（跨模块）
@@ -190,7 +191,7 @@
 | GradleProject 构建链（compile / jarBuild 进程编排） | ✅ | ✅ 用户实测（2026-10-13） |
 | jlink 裁剪 JRE 运行时（jdk.unsupported 必含） | ✅ | ✅ 用户实测（2026-10-11） |
 | 打包对话框（pack.html 三组选项 + /build/pack 形态分流 + 实时日志流回显） | ✅ | ✅ 用户实测（2026-10-13） |
-| JAR 形态产物（Builds/jar，双击可玩） | ✅ | ✅ 三端实测（2026-10-13） |
+| JAR 形态产物（Builds/jar，双击可玩） | ✅ | ✅ 三端实测（2026-10-13）；lib 目录路径错位修复（2026-10-17） |
 | AOT 形态（native-image 原生 exe / 外置 DLL lib/ / AotGameMain / reflect-config / resource-config） | ✅ | ✅ 三端实测（2026-10-13，AOT/JAR/编辑器一致） |
 | javelin-ast ReflectiveProcessor（编译期生成 reflect-config.json，core/game 分目录） | ✅ | ✅ 随 AOT（2026-10-13） |
 

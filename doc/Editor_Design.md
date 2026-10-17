@@ -187,7 +187,14 @@ EditorApp.main()
   `reimportAll()`（清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
   `ImportTask` 记录状态/耗时/错误。
 - `BuiltinAssetReleaser`：按构建期 `builtin-asset.index` 把 classpath 内置资源释放到
-  `.javelin/assets/{name}/` 并写 meta（资源自带 GUID 文件头校验）。
+  `.javelin/assets/{name}/` 并写 meta（资源自带 GUID 文件头校验）。**释放完须重写 Library
+  索引（2026-10-17 修复）**：MetaManager 构造器 sync/updateIndex 早于释放执行
+  （`.javelin/assets` 尚空，内置条目被漏），而 refresh 对自包含 guid 文件只查产物存在性
+  （已存在即跳过、不再触发 updateIndex）——缺失条目永久滞留，场景 `@guid:` 引用解析为
+  null 直至 RenderObject 崩；`releaseAll()` 末尾补 `metaManager.updateIndex()` 收口。
+  已知边界（遗留待拍板）：2026-10-04「Mesh 产物自描述 guid」修正前导入的 `.smesh`
+  旧产物不自动迁移（needImport 只查产物存在性）——guid null 致场景保存时内联空壳 Mesh
+  （已上传、CPU 副本已释放），对策=删产物重导；是否加旧格式自动检测待议。
 
 ### 6.4 Library 管理（asset 包）
 
