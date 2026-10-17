@@ -99,6 +99,24 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
  五坑记档专档 §10-5/§10-6（heavyweight 事件形态/dragger 卡死/Canvas minimum
  钳制/弹性侧策略/关闭零重挂）。M2~M6 面板迁移路线见专档里程碑表。
 
+进度（2026-10-17 落地，待验收）：**M6 窗口迁移全项提前——三窗口迁 Swing，CEF 运行时
+ 零使用**——ProjectFrame（最近列表 + 新建/打开三模式，tinyfd 选目录，Java 直调
+ RecentProjectManager/GradleProject）、ProjectLoadingFrame（不确定进度条 + 资产导入/
+ 引擎启动引导链原样）、打包 PackDialog（构建形态/启动场景/构建模式/窗口元信息表单 +
+ ConsoleOut 实时日志流——原 BuildMethod 桥逻辑迁入 Java 直调），启动与构建链均不再
+ 依赖 Vite dev server；/project(recent/open/create)、/build 两域桥随消费方消亡退役
+ （§7.1）；CEF Dialog/CefFrame 删除，jcef 桥包成死代码待 M2~M4 面板迁移收口。
+ 详见 Editor_Swing_Design §2/§9。
+
+进度（2026-10-18 落地，待验收）：**M6 收口——jcef 桥包整体清退**：jcef 包全量删除
+（桥方法/par/vo/EventBridgeForwarder/桥基础设施），jcefmaven、jackson 依赖移除
+（jackson 唯一消费方 JSONUtil 服务桥协议），jcef-bundle 运行时缓存（353MB）删除；
+事件包桥语义剥离（BridgeEvent/JsEvent/PongEvent 删，五场景事件转纯 EditorEventBus
+事件），Inspector 三 VO 迁 inspector 包作 M4 数据模型。**引擎-编辑器全链路纯 JVM
+达成**，原「桥随面板逐批退役」计划作废，M2~M4 面板一律 Java 直调实装；engine-editor-web
+前端工程随之整体删除——代码库去 Web 化收官。详见
+Editor_Swing_Design §7.1/§9/§11。
+
 ---
 
 ## 3. 三期：光照
@@ -121,7 +139,7 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）**；剩物体拾取（ID-buffer 后置） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 待验收——全链路纯 JVM）；剩物体拾取（ID-buffer 后置） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

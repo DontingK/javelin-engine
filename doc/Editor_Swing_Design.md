@@ -1,6 +1,10 @@
 # 编辑器 Swing UI 框架设计（v0.1）——去 Web 化重构总纲
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
+> **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
+> 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
+> JVM、无 CEF 进程与 Vite dev server 依赖（落地待验收，见 §9 M6 行注）。
+> M2~M4 面板占位待实装。
 > 本文是编辑器 UI 栈从 JCEF/Web 迁往纯 Swing + FlatLaf 的重构总纲。后续里程碑落地随进度
 > 在此档更新版本段与验收状态。
 >
@@ -37,7 +41,8 @@
 
 - 视口渲染/交换链/RHI 任何改动（CanvasSurface 只换宿主布局，不动实现）。
 - 菜单与命令系统改动（MenuCommand/CommandService/MenuRegistry 已是 Swing 域，M1 仅挂载）。
-- ProjectFrame / ProjectLoadingFrame / pack Dialog 的迁移（留在 M6，期间继续 CEF）。
+- ~~ProjectFrame / ProjectLoadingFrame / pack Dialog 的迁移（留 M6）~~——已于 2026-10-17
+  三窗口全部提前完成，CEF 运行时零使用。
 - 布局拖拽停靠（tab 拖拽重组树）、布局持久化（M5）。
 - 引擎自绘 UI（远期终局形态，见 §8.4）。
 
@@ -53,7 +58,7 @@
 | 右键域菜单 / JPopupMenu | 已 Swing（`/menu/open`） | 保留，入口从桥调用改为 Java 直调 |
 | 状态栏 | web `StatusBar.vue` | Swing 重建（M1 简版） |
 | 事件桥 EventBridgeForwarder（Java→JS 推送） | jcef 包 | 面板迁完且无 JS 消费方后拆除（M6） |
-| CEF 三窗口（项目管理/加载页/打包对话框） | `CefFrame` 子类 | 暂留（M6 迁 Swing，届时删 jcefmaven 依赖） |
+| CEF 三窗口（项目管理/加载页/打包对话框） | `CefFrame` 子类 | 三窗口全部迁 Swing（2026-10-17：`window/ProjectFrame` 最近列表+新建/打开三模式、`window/ProjectLoadingFrame` 引导链原样、`window/PackDialog` 表单+实时日志流——原 BuildMethod 逻辑迁入 Java 直调，/build、/project(recent/open/create) 桥随消费方消亡退役）；`CefFrame`/CEF `Dialog` 已删除，JcefCreator 无触发点——**CEF 运行时零使用**，jcef 桥包成死代码（M2~M4 面板迁移收口，最终随 M6 整体清退） |
 
 ## 3. 技术选型
 
@@ -84,8 +89,9 @@ pollEvents/attachInputSink/renderSurface/isResized/acknowledgeResize/width/heigh
      └─ CanvasSurface 归 ViewportTabs 持有（§6），不再挂 MainFrame
 ```
 
-- `CefFrame` 不删除：ProjectFrame/ProjectLoadingFrame/dialog 继续用它到 M6。MainFrame 与
-  CefFrame 解耦后，CEF 的启动/关闭生命周期不再与主窗口绑定（`JcefCreator` 仍由未迁窗口触发）。
+- ~~`CefFrame` 不删除~~：三窗口迁完后 `CefFrame`/CEF `Dialog` 均已删除（2026-10-17），
+  `JcefCreator` 无任何触发点——CEF 进程不再启动、jcef 桥包成死代码（桥方法随 M2~M4
+  面板迁移退役，最终随 M6 整体清退 jcefmaven）。
 - **废除清单**（M1 随实现删）：`JavelinMethod` 的 `/render/rce`、`MainFrame.rectChange`、
   `addJcefComponent` 的最大化补链（Editor_Design §9.10）——Swing 布局下 Canvas 尺寸由
   LayoutManager 收敛，无事件链时序问题。
@@ -221,6 +227,14 @@ Java API 出口"。Swing 面板在 JVM 内，**直接调 Java 服务**（SceneMo
 逻辑抽出的服务方法 / EditorSelection / EditorEventBus），桥方法随各自面板迁移即废弃。
 EventBridgeForwarder 的 Java→JS 推送，被"面板直订 EditorEventBus"取代（§7.3 线程口径）。
 
+**清退实况（2026-10-18，早于面板迁移整体完成）**：三窗口迁完后桥已无任何运行时消费方，
+「随各面板迁移即废弃」的逐批节奏失去意义——jcef 包整体删除（桥方法 / par / vo /
+EventBridgeForwarder / 桥基础设施全量），jcefmaven、jackson 依赖同批移除（jackson 唯一
+消费方 JSONUtil 服务桥协议），M2~M4 面板一律 Java 直调全新实装。保留物：EditorEventBus
+事件体系（消费方直订，§7.3）；Inspector 三 VO（Node/Component/Field）迁 `inspector` 包
+与 InspectorReflector 同包，作 M4 数据模型；事件包桥语义剥离（BridgeEvent / JsEvent /
+PongEvent 删，五场景事件转纯 EditorEvent）。
+
 ### 7.2 Vue → Swing 组件映射
 
 | web 面板 | Swing 实装 | 数据源变化 |
@@ -266,7 +280,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
 | M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价 |
 | M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价 |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |
-| M6 | ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing；EventBridgeForwarder/桥包/jcefmaven 整体移除 | 无 CEF 进程；引擎-编辑器全链路纯 JVM |
+| M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，待验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
 
 ## 10. 已知风险与坑预记
 
@@ -321,5 +335,6 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
 ## 11. 依赖变更
 
 - **+** `com.formdev:flatlaf:3.5.x`（最新 patch）。
-- **jsvg / lwjgl-jawt / tinyfd / jackson** 保留（jackson 桥退役后随 M6 复查去留）。
-- **−** `jcefmaven`：M6 全窗口迁完才移除，期间 CefFrame 路径必须可用。
+- **jsvg / lwjgl-jawt / tinyfd** 保留。
+- **−** `jackson`：2026-10-18 随桥清退（唯一消费方 JSONUtil 服务桥协议，同批删除）。
+- **−** `jcefmaven`：2026-10-18 随 jcef 桥包整体清退（运行时 jcef-bundle 缓存 353MB 一并删除）。

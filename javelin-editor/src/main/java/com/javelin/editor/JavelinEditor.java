@@ -28,7 +28,8 @@ import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.settings.SettingsManager;
 import com.javelin.editor.swing.EditorTheme;
 import com.javelin.editor.window.MainFrame;
-import com.javelin.editor.window.cef.ProjectFrame;
+import com.javelin.editor.window.ProjectFrame;
+import javax.swing.SwingUtilities;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -218,10 +219,13 @@ public class JavelinEditor extends JavelinEngine {
     }
 
     public static void main(String[] args) {
-        // FlatLaf Dark——必须在任何 Swing 组件创建之前安装（Editor_Swing_Design §3）
+        // FlatLaf——必须在任何 Swing 组件创建之前安装（Editor_Swing_Design §3）
         EditorTheme.setup();
-        ProjectFrame projectWindow = new ProjectFrame();
-        projectWindow.setSize(1280, 720);
-        projectWindow.setVisible(true);
+        SwingUtilities.invokeLater(() -> {
+            ProjectFrame projectWindow = new ProjectFrame();
+            projectWindow.setSize(1280, 720);
+            projectWindow.setLocationRelativeTo(null);
+            projectWindow.setVisible(true);
+        });
     }
 }

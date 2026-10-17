@@ -20,9 +20,6 @@ import com.javelin.core.scene.component.Transform;
 import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.exception.TipException;
 import com.javelin.editor.JavelinEditor;
-import com.javelin.editor.jcef.domain.vo.ComponentInspectorVo;
-import com.javelin.editor.jcef.domain.vo.InspectorFieldVo;
-import com.javelin.editor.jcef.domain.vo.NodeInspectorVo;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 

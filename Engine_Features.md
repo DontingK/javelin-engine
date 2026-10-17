@@ -125,18 +125,23 @@
 |------|---------|---------|
 | @InsField 显式 opt-in + 读 getter 写 setter 铁律 + 浮点 4 位小数口径 | ✅ | ✅ Inspector v0.1 用户实测（2026-10-11） |
 
-## 3. javelin-editor + engine-editor-web —— 编辑器
+## 3. javelin-editor —— 编辑器
 
 > 设计档：`doc/Editor_Design.md` / `doc/Editor_Menu_Design.md` / `doc/Inspector_Design.md`
+> （engine-editor-web 前端工程已随 2026-10-18 去 Web 化清退整体删除）
 
 ### 3.1 窗口与桥接
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
 | Swing + JCEF 窗口体系（MainFrame / Canvas 视口、浮层遮挡约束、菜单一律 Swing） | ✅ | ✅ 编辑器日常使用 |
-| Web 前端基座（Vue 面板体系 / 组件 / 色板单点 style.css :root） | ✅ | ✅ 随各面板验收链 |
-| JS↔Java 桥（方法桥协议 + 事件总线双向 + EDT hop / 引用计数退订） | ✅ | ✅ 随各面板验收链（2026-09-28 起） |
-| 通用 CEF 模态对话框 Dialog（URL 可传参通用容器） | ✅ | ⏳ 待验收（2026-10-11 落地；打包对话框为其消费方已随 2026-10-13 跑通，通用性待其他消费方） |
+| 纯 Swing 主窗口 + 自研 Dock（FlatLaf 亮色 / 二分布局树 / PanelRegistry / ViewportTabs 单 Canvas / JMenuBar 单源挂载） | ✅ | ✅ 用户实测（2026-10-17，去 Web 化 M1） |
+| 项目管理器 ProjectFrame（Swing 版：最近列表 + 新建/打开三模式 + tinyfd 选目录，替换 CEF 页） | ✅ | ⏳ 待验收（2026-10-17；启动链不再依赖 Vite dev server） |
+| 项目加载窗 ProjectLoadingFrame（Swing 版：不确定进度条 + 资产导入/引擎启动引导链原样） | ✅ | ⏳ 待验收（2026-10-17） |
+| ~~Web 前端基座（Vue 面板体系 / 组件 / 色板单点 style.css :root）~~ | 🪦 已删除 | 2026-10-18 engine-editor-web 整体移除（三窗口+桥清退后无消费方；图标资产随 SvgIcon 体系迁 editor resources） |
+| JS↔Java 桥（方法桥协议 + 事件总线双向 + EDT hop / 引用计数退订） | 🪦 已清退 | 2026-10-18 jcef 包整包删除（桥方法/par/vo/EventBridgeForwarder 全量），jcefmaven、jackson 依赖移除；事件体系保留——BridgeEvent/JsEvent/PongEvent 删、五场景事件转纯 EditorEventBus 事件；Inspector 三 VO 迁 inspector 包（M4 数据模型） |
+| ~~通用 CEF 模态对话框 Dialog~~ | 🪦 已退役 | 2026-10-17 随去 Web 化删除（唯一消费方打包对话框迁 Swing；原待验收场景作废） |
+| 打包对话框 PackDialog（Swing 版：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流，构建链 Java 直调） | ✅ | ⏳ 待验收（2026-10-17；构建链本体已随 2026-10-13 三端验收） |
 
 ### 3.2 菜单与命令（menu / selection）
 
@@ -202,7 +207,7 @@
 | project-template 游戏模板（quickBuild / GameMain / Game/ 设置持久化 / -PbuildMode） | ✅ | ✅ 随打包链（2026-10-13） |
 | GradleProject 构建链（compile / jarBuild 进程编排） | ✅ | ✅ 用户实测（2026-10-13） |
 | jlink 裁剪 JRE 运行时（jdk.unsupported 必含） | ✅ | ✅ 用户实测（2026-10-11） |
-| 打包对话框（pack.html 三组选项 + /build/pack 形态分流 + 实时日志流回显） | ✅ | ✅ 用户实测（2026-10-13） |
+| 打包对话框（Swing PackDialog：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流回显；原 CEF pack.html + /build 桥于 2026-10-17 迁 Swing，构建链逻辑原样） | ✅ | ✅ 构建链三端实测（2026-10-13）；Swing 迁移待验收（2026-10-17） |
 | JAR 形态产物（Builds/jar，双击可玩） | ✅ | ✅ 三端实测（2026-10-13）；lib 目录路径错位修复（2026-10-17） |
 | AOT 形态（native-image 原生 exe / 外置 DLL lib/ / AotGameMain / reflect-config / resource-config） | ✅ | ✅ 三端实测（2026-10-13，AOT/JAR/编辑器一致） |
 | javelin-ast ReflectiveProcessor（编译期生成 reflect-config.json，core/game 分目录） | ✅ | ✅ 随 AOT（2026-10-13） |
@@ -223,10 +228,14 @@
 | Inspector v0.2（Camera 组件 / 类型通道 / 星标即时化） | 2026-10-11 | 选中相机节点改参数；改任意属性星标即时亮 |
 | Scene/Game 视图切换 | 2026-10-11 | 切 GAME 页看运行画面 + 窗口 resize |
 | hierarchy.create.camera | 2026-10-11 | 层级右键建摄像机（Main Camera / 原点 / 默认参） |
-| 通用 CEF 对话框 Dialog | 2026-10-11 | 任一模态弹窗操作（打包对话框已跑通，其他消费方待验） |
 | SceneImporter 场景导入 | 2026-10-11 | 保存场景后核对 Library 重导产物 |
 | Transform 变更检测 | 2026-10-06 | 拖 Gizmo 时 Inspector 数值实时刷新 + 星标亮（拖拽本体已验 2026-10-14） |
 | 项目面板 + ctx.project 右键域首期 | 2026-10-17 | 项目树/面包屑/双击进入；右键三实做项（资源管理器定位 / 路径入剪贴板 / 重导日志） |
+| ProjectFrame / ProjectLoadingFrame 迁 Swing | 2026-10-17 | 启动器建项目/最近列表打开/手动路径打开 → 加载窗进度 → 编辑器进主窗 |
+| PackDialog 迁 Swing（含 /build 桥退役、CEF Dialog/CefFrame 删除） | 2026-10-17 | 构建 > 打包：JAR/AOT 分流（构建模式行随形态显隐）+ 启动场景默认选中 + 日志实时滚底 + 失败弹错 + 产物双击可玩 |
+| jcef 桥包 / jcefmaven / jackson 整体清退（事件包桥语义剥离、Inspector VO 迁包） | 2026-10-18 | 编辑器全链回归：启动 → 开项目 → 编辑器主窗 → 构建打包，全程无 CEF 进程、无 Vite dev server；Inspector 反射通道（InspectorReflector + 三 VO）单测级自查 |
+
+~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 
 ## 7. 已知问题（bug 类，非功能缺口）
 

@@ -48,7 +48,6 @@ bin/
 .DS_Store
 *.log
 /Library
-/jcef-bundle
 /test-project
 /test
 /.gradle-home
