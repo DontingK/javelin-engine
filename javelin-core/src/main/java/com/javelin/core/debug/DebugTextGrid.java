@@ -9,7 +9,7 @@ import java.util.Arrays;
  * <p>格子单位 = 半角 8px（col）× 行距 18px（row；字高 16 + 行间 2，2026-09-27 用户拍板）；
  * 全角（汉字等）占 2 列。
  * 左上原点，内容持续到 {@link #clear()}。窗口/表面尺寸变化由宿主
- * {@link #resize} 重建，内容与游标全部清空。</p>
+ * {@link #resize} 原位重建：内容与游标按行列交集保留（裁边不消失）。</p>
  *
  * <p>游标模型：</p>
  * <ul>
@@ -36,7 +36,7 @@ final class DebugTextGrid {
     private boolean hasContent;
 
     DebugTextGrid(int cols, int rows) {
-        resize(cols, rows);
+        allocate(cols, rows);
     }
 
     /** 列数（半角单位） */
@@ -70,13 +70,31 @@ final class DebugTextGrid {
         return attrs[row * cols + col] & 0xFF;
     }
 
-    /** 表面尺寸变化重建：内容与游标全部清空 */
+    /**
+     * 表面尺寸变化重建：内容与游标按行列交集保留（2026-10-17 拍板，改自清空语义——
+     * 打印方多按节流刷新（RenderStats 1Hz），清空后无人立刻重填，文本 resize 后
+     * 消失最长一个刷新窗）。越界行列丢弃；行游标夹到新 cols、autoRow 夹到新 rows。
+     * 仅在已初始化实例上调用（宿主 resize 前 grid 非空才走此路）。
+     */
     void resize(int newCols, int newRows) {
-        this.cols = Math.max(1, newCols);
-        this.rows = Math.max(1, newRows);
-        this.cells = new int[this.cols * this.rows];
-        this.attrs = new byte[this.cols * this.rows];
-        resetCursors();
+        int[] oldCells = cells;
+        byte[] oldAttrs = attrs;
+        int[] oldCursors = rowCursors;
+        int oldCols = cols;
+        int oldRows = rows;
+        int oldAutoRow = autoRow;
+
+        allocate(newCols, newRows);
+
+        int copyRows = Math.min(oldRows, this.rows);
+        int copyCols = Math.min(oldCols, this.cols);
+        for (int r = 0; r < copyRows; r++) {
+            System.arraycopy(oldCells, r * oldCols, cells, r * this.cols, copyCols);
+            System.arraycopy(oldAttrs, r * oldCols, attrs, r * this.cols, copyCols);
+            rowCursors[r] = Math.min(oldCursors[r], this.cols);
+        }
+        autoRow = Math.min(oldAutoRow, this.rows);
+        recomputeHasContent();
     }
 
     /** 清空全部文本与游标（autoRow 归 0） */
@@ -121,6 +139,17 @@ final class DebugTextGrid {
     }
 
     // ═════════════════ 内部 ═════════════════
+
+    /** 按尺寸全新分配格子与游标（构造器与 resize 共用；尺寸下限 1 防 0 除） */
+    private void allocate(int newCols, int newRows) {
+        this.cols = Math.max(1, newCols);
+        this.rows = Math.max(1, newRows);
+        this.cells = new int[this.cols * this.rows];
+        this.attrs = new byte[this.cols * this.rows];
+        this.rowCursors = new int[this.rows];
+        this.autoRow = 0;
+        this.hasContent = false;
+    }
 
     private void resetCursors() {
         rowCursors = new int[rows];

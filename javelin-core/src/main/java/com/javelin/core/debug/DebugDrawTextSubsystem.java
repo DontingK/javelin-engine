@@ -266,11 +266,19 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
 
     // ═════════════════ 内部 ═════════════════
 
-    /** 表面尺寸变化：网格清空重建 + 顶点 buffer 按上限重分配（bgfx 网格清空同款） */
+    /** 表面尺寸变化：网格原位重建保留内容（2026-10-17 前为清空重建，文本消失最长一拍
+     *  1Hz 刷新窗）+ 顶点 buffer 按上限重分配 */
     private void resize(int width, int height) {
         surfaceWidth = width;
         surfaceHeight = height;
-        grid = new DebugTextGrid(width / DebugFont16.HALF_WIDTH, height / DebugFont16.ROW_PITCH);
+        int cols = width / DebugFont16.HALF_WIDTH;
+        int rows = height / DebugFont16.ROW_PITCH;
+        // 旧实例原位 resize 保内容；首建（init 路径 grid 为 null）走构造器
+        if (grid != null) {
+            grid.resize(cols, rows);
+        } else {
+            grid = new DebugTextGrid(cols, rows);
+        }
         int maxVertices = grid.cols() * grid.rows() * 6;
         cpuVerts = ByteBuffer.allocateDirect(maxVertices * VERTEX_STRIDE).order(ByteOrder.LITTLE_ENDIAN);
 

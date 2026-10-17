@@ -221,6 +221,7 @@
 - loadScene 失败路径 getEditorGameScene() NPE 未补；
 - CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。
+- 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受，Editor_Design §9-11）；
 
 > 细节与修法归 `doc/Editor_Design.md` §9 / 各排查记忆档，本文只挂账。
 
