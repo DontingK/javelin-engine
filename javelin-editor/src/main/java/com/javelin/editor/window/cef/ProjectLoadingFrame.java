@@ -48,6 +48,10 @@ public class ProjectLoadingFrame extends CefFrame {
                 JavelinSetting setting = new JavelinSetting();
                 setting.setAntialiasing(AntialiasingMode.MSAA_8);
                 setting.setMaxFps(144);
+                // 拍板（2026-10-17，Vulkan_Pitfalls #21 跨机器复发后）：编辑器恒关 vsync 走
+                // IMMEDIATE + maxFps 限帧兜底——无 MAILBOX 的驱动会静默回退 FIFO，
+                // 触发 DWM 踩线/错过双稳（细线/小字闪烁）
+                setting.setVsync(false);
                 JavelinEditor editorApp = new JavelinEditor(gradleProject, setting, metaManager, assetManager, assetImportPipeline, builtinAssetReleaser);
                 editorApp.start();
 

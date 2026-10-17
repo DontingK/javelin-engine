@@ -244,6 +244,14 @@
   初判 dt 抖动）；2026-10-06 终局——编辑器/demo 双复现、四轮单变量实验、
   刷新率梯度（144/60Hz 加重）、60Hz 最恶劣工况 MAILBOX 顺滑，用户逐轮实测
   确认。
+- **跨机器复发实录（2026-10-17）**：另一台机器编辑器网格线 + DebugText 持续闪烁
+  （相机移动时明显），移动工具/Plane 等大实心物体不可见；4060 机器无此现象。
+  启动行 `swapchain: images=4, present=FIFO` 实锤——该机驱动窗口模式不暴露
+  MAILBOX，vsync 请求静默回退 FIFO，本坑复发。细内容选择性可见是排障指纹：
+  1px 细线/16px 点阵字对帧节律最敏感，实心大块同病但肉眼检不出——「大块不闪
+  ≠ 节律没问题」，细内容即观测哨。`setVsync(false)` → IMMEDIATE 立愈（实测）。
+  **拍板（2026-10-17）**：编辑器恒 vsync=false（IMMEDIATE）+ `maxFps` 引擎限帧
+  兜底（`ProjectLoadingFrame` 落点）；FIFO 仅留显式档位，不再作 vsync 开的回退终点。
 
 ### 22. frontFace 绕序推理漏算第二次镜像：投影 Y 翻转 + Vulkan 窗口 y 向下相互抵消 ★推理链级
 
