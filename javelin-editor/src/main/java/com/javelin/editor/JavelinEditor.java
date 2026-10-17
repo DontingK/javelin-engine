@@ -26,7 +26,8 @@ import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.serializable.TextImporter;
 import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.settings.SettingsManager;
-import com.javelin.editor.window.cef.MainFrame;
+import com.javelin.editor.swing.EditorTheme;
+import com.javelin.editor.window.MainFrame;
 import com.javelin.editor.window.cef.ProjectFrame;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -119,8 +120,13 @@ public class JavelinEditor extends JavelinEngine {
         // 写入方零通知义务，实变自动发现推送 scene.nodeTransformChanged + 置脏；挂载序在
         // TransformGizmoAppState 之后——拖拽 apply 当帧检出同帧通知）
         stateManager.attach(new TransformWatchAppState());
-        // 菜单/命令装配（场景无关：DevTools 恒可用；场景未就绪时网格开关安全 no-op）
+        // 菜单/命令装配（场景无关；场景未就绪时网格开关安全 no-op）
         EditorMenuSetup.setup(stateManager, gridState);
+        // 主窗口菜单条装配（菜单注册完成后——时序：initialize 建窗早于
+        // onInitialize，create() 内建菜单条会拿到空注册表，Editor_Swing_Design §4.1）
+        if (window instanceof MainFrame mainFrame) {
+            mainFrame.installMenuBar();
+        }
     }
 
 
@@ -212,6 +218,8 @@ public class JavelinEditor extends JavelinEngine {
     }
 
     public static void main(String[] args) {
+        // FlatLaf Dark——必须在任何 Swing 组件创建之前安装（Editor_Swing_Design §3）
+        EditorTheme.setup();
         ProjectFrame projectWindow = new ProjectFrame();
         projectWindow.setSize(1280, 720);
         projectWindow.setVisible(true);

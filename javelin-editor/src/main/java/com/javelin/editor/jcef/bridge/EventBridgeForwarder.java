@@ -5,11 +5,9 @@ import com.javelin.editor.event.EditorEvent;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.JsEvent;
 import com.javelin.editor.event.PongEvent;
-import com.javelin.editor.window.cef.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.SwingUtilities;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,8 +18,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>前端经 /event/subscribe 记录订阅类型（幂等）；总线全局订阅（EditorEvent.class
  * 层级匹配收到所有事件）后，实现 {@link BridgeEvent} 且类型已订阅的事件被推送到前端
  * （消息类型 = bridgeType，数据 = bridgePayload，经 window.__javelinBridge.onMessage
- * 分发）。推送在 EDT 上执行 executeJavaScript——其线程约束未证实，对齐 rectChange
- * 先例走 EDT，泵线程 invokeLater 永不阻塞。</p>
+ * 分发）。</p>
+ *
+ * <p><b>2026-10-17 起（Editor_Swing_Design M1）主窗口已非 CEF，无 JS 推送对象，
+ * onEvent 推送通道停用</b>；订阅簿记与 ping/pong 自检保留（CEF 辅窗口仍走桥协议），
+ * 类整体随 M6（CEF 窗口全迁/依赖移除）拆除。</p>
  *
  * <p>浏览器未就绪（启动早期 MainFrame/getCefBrowser 为 null）时跳过推送：
  * 前端订阅发生在页面挂载后，引擎启动期发布的事件不会被推送——跨桥事件只做边沿通知，
@@ -99,22 +100,8 @@ public final class EventBridgeForwarder {
 
     /** 总线事件回调（泵线程）：BridgeEvent 且类型已订阅 → EDT 推送前端 */
     private static void onEvent(EditorEvent event) {
-        if (!(event instanceof BridgeEvent)) {
-            return;
-        }
-        BridgeEvent bridgeEvent = (BridgeEvent) event;
-        String type = bridgeEvent.bridgeType();
-        if (!SUBSCRIBED_TYPES.contains(type)) {
-            return;
-        }
-        Object payload = bridgeEvent.bridgePayload();
-        SwingUtilities.invokeLater(() -> {
-            MainFrame mainFrame = MainFrame.getInstance();
-            if (mainFrame == null || mainFrame.getCefBrowser() == null) {
-                return;
-            }
-            JavaScriptBridge.send(mainFrame.getCefBrowser(), type, payload);
-        });
+        // 主窗口已迁 Swing（Editor_Swing_Design M1）：无 JS 推送对象——停用；
+        // 原 EDT executeJavaScript 推送链路见 M1 前版本。M6 随 CEF 退役拆除。
     }
 
     /** 前端事件回调（泵线程）：ping 自检回 pong */

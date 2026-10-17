@@ -1,32 +1,49 @@
-package com.javelin.editor.window.cef;
+package com.javelin.editor.window;
 
 import com.javelin.core.input.InputSink;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
-import com.javelin.editor.asset.BuiltinAssetReleaser;
-import com.javelin.editor.importer.AssetImportPipeline;
-import com.javelin.editor.jcef.domain.par.RectPar;
-import com.javelin.editor.meta.MetaManager;
-import com.javelin.editor.util.ThreadUtil;
+import com.javelin.editor.menu.MenuBarFactory;
+import com.javelin.editor.swing.StatusBar;
+import com.javelin.editor.swing.dock.DockRoot;
+import com.javelin.editor.swing.panel.EditorPanelSetup;
+import com.javelin.editor.window.cef.CanvasSurface;
 import com.javelin.rhi.render.RenderSurface;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
+import javax.swing.JFrame;
+import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.GraphicsConfiguration;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
-public class MainFrame extends CefFrame implements Window {
+/**
+ * 主编辑窗口（Editor_Swing_Design §4——纯 Swing 重构版，2026-10-17 起替换
+ * CEF 铺满 + Canvas 挖洞形态）。
+ *
+ * <p>{@link Window} 契约逐条保持（引擎侧零感知）。结构 = JMenuBar
+ * （onInitialize 菜单注册后 installMenuBar 装配）+ {@link DockRoot} 默认布局
+ * + {@link StatusBar}；Vulkan 画布归 ViewportTabs 持有（Swing 布局直挂，
+ * rectChange 挖洞上报链废除——resize 由布局收敛，最大化补链坑随之消灭）。</p>
+ *
+ * @author javelin
+ * @create 2026/10/17
+ */
+public class MainFrame extends JFrame implements Window {
     private static final Logger logger = LoggerFactory.getLogger(MainFrame.class);
     private static MainFrame instance;
 
     private final JavelinSetting setting;
     private CanvasSurface canvas;
+    private DockRoot dockRoot;
+    private StatusBar statusBar;
     /** 输入事件出口（attachInputSink 存储；挂接时序见 attachInputSink 注释） */
     private InputSink inputSink;
+    private boolean menuInstalled;
     private boolean close;
     private boolean shown;
     private boolean closed;
@@ -50,13 +67,23 @@ public class MainFrame extends CefFrame implements Window {
             throw new IllegalStateException("Window has been closed and cannot be created again");
         }
         canvas = new CanvasSurface();
-        canvas.setDpi(dpi);
+        // AWT Canvas 未显式设最小尺寸时 getMinimumSize 走 peer（≈当前尺寸），
+        // 会沿 BorderLayout.minimumLayoutSize 链上溯成整个 dock 区的最小值——
+        // 分隔条拖不动（2026-10-17 实测：min 钳在画布当前高，Editor_Swing_Design
+        // §10-5）；显式 (1,1) 掐断传播，画布真实可缩下限由渲染侧把关
+        canvas.setMinimumSize(new Dimension(1, 1));
+        // 面板注册（viewport 面板捕获画布——单 Canvas 不 reparent，§6）
+        EditorPanelSetup.setup(canvas);
         if (inputSink != null) {
             // attachInputSink 早于 create 的兜底转发（正常时序：create 先于子系统 initAll）
             canvas.attachInputSink(inputSink);
         }
-        getContentPane().setLayout(null);
-        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
+        dockRoot = DockRoot.defaultLayout();
+        statusBar = new StatusBar();
+        getContentPane().setLayout(new BorderLayout(0, 0));
+        getContentPane().add(dockRoot, BorderLayout.CENTER);
+        getContentPane().add(statusBar, BorderLayout.SOUTH);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         // 关窗请求只置标志，由引擎轮询 closeRequested() 后调 close() 统一收尾
         addWindowListener(new WindowAdapter() {
             @Override
@@ -66,10 +93,8 @@ public class MainFrame extends CefFrame implements Window {
         });
         setTitle(setting.getTitle());
         setSize(setting.getWidth(), setting.getHeight());
-        getContentPane().add(canvas);
-        canvas.setBounds(0, 0, setting.getWidth(), setting.getHeight());
         setLocationRelativeTo(null);
-        loadURL("http://localhost:5173/page/main.html");
+        applyDpi();
     }
 
     @Override
@@ -162,70 +187,41 @@ public class MainFrame extends CefFrame implements Window {
         return canvas;
     }
 
-    private boolean created() {
-        return canvas != null;
-    }
-
-    @Override
-    protected void addJcefComponent(Component jecfComponent) {
-        getContentPane().add(jecfComponent);
-        getContentPane().addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                jecfComponent.setBounds(0, 0, e.getComponent().getWidth(), e.getComponent().getHeight());
-            }
-        });
-        // 最大化/还原 resize 链修复：WindowStateListener 补驱 jcef 三段同步（见
-        // syncJcefBounds）。拖拽路径每次 resize 都有事件流冲刷、自然收敛；最大化
-        // 只有一波事件，jcef 内部 last-write 若是陈旧值就永久停在旧尺寸（AWT/JS
-        // 均已新尺寸、原生窗口仍旧的实测症状）
-        addWindowStateListener(new WindowAdapter() {
-            @Override
-            public void windowStateChanged(WindowEvent e) {
-                logger.info("windowStateChanged: {} -> {}", e.getOldState(), e.getNewState());
-                // 两拍 invokeLater + 100ms 补拍：确保同步落在 maximize 事件风暴
-                // （componentResized/ancestorMoved/validate/paint）全部排空之后
-                SwingUtilities.invokeLater(() ->
-                        SwingUtilities.invokeLater(() -> syncJcefBounds(jecfComponent)));
-                javax.swing.Timer tailSync = new javax.swing.Timer(100, ev -> syncJcefBounds(jecfComponent));
-                tailSync.setRepeats(false);
-                tailSync.start();
-            }
+    /**
+     * 顶栏菜单条装配：在 {@code EditorMenuSetup} 注册完成后由引擎侧调用
+     * （启动时序：{@code initialize()} 建窗早于 {@code onInitialize()} 菜单
+     * 注册，故 create() 内不能建菜单条）。可在引擎线程调（EDT hop），幂等。
+     */
+    public void installMenuBar() {
+        if (menuInstalled) {
+            return;
+        }
+        menuInstalled = true;
+        SwingUtilities.invokeLater(() -> {
+            setJMenuBar(MenuBarFactory.build());
+            revalidate();
+            repaint();
         });
     }
 
     /**
-     * 状态变化后的 jcef 尺寸同步：① setBounds（重写里触发 wasResized 原生通知）
-     * → ② validate（内层 heavyweight canvas_ 同步布局、HWND 即时 resize）
-     * → ③ paintImmediately（强制 jcef paint→doUpdate→updateUI 原生窗口重排）。
-     * 三段都幂等，重复执行无副作用；用最终尺寸覆盖事件风暴期间的陈旧值。
+     * 画布 dpi：取主屏默认变换 scaleX（Editor_Swing_Design §4.1——M1 简化：
+     * 首次创建取一次；多显示器拖跨/dpi 动态跟随为开放项 §10-4）。
      */
-    private void syncJcefBounds(Component jecfComponent) {
-        int w = getContentPane().getWidth();
-        int h = getContentPane().getHeight();
-        jecfComponent.setBounds(0, 0, w, h);
-        jecfComponent.validate();
-        if (jecfComponent instanceof JComponent jc) {
-            jc.paintImmediately(0, 0, w, h);
+    private void applyDpi() {
+        GraphicsConfiguration configuration = getGraphicsConfiguration();
+        if (configuration != null && canvas != null) {
+            dpi = (float) configuration.getDefaultTransform().getScaleX();
+            canvas.setDpi(dpi);
         }
-        String inner = jecfComponent instanceof Container c && c.getComponentCount() > 0
-                ? c.getComponent(0).getSize().toString() : "n/a";
-        logger.info("state-change sync: jecf={} contentPane={}x{} innerCanvas={}",
-                jecfComponent.getBounds(), w, h, inner);
-    }
-
-    public void rectChange(RectPar rectPar) throws Exception {
-        logger.info("rectChange:{}x{}  {}-{}", rectPar.width, rectPar.height, rectPar.x, rectPar.y);
-        dpi = rectPar.dpi;
-        if (canvas == null) {
-            return;
-        }
-        canvas.setDpi(dpi);
-        SwingUtilities.invokeAndWait((Runnable) () -> canvas.setBounds(rectPar.x, rectPar.y, rectPar.width, rectPar.height));
     }
 
     /** 游戏画布（未创建返回 null）——拾取换算取画布逻辑尺寸用（与 Input.mouseX/Y 同空间） */
     public CanvasSurface getCanvas() {
         return canvas;
+    }
+
+    private boolean created() {
+        return canvas != null;
     }
 }

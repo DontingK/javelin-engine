@@ -1,11 +1,10 @@
 package com.javelin.editor.menu;
 
-import com.javelin.editor.window.cef.MainFrame;
+import com.javelin.editor.window.MainFrame;
 import com.javelin.editor.swing.SvgIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.BorderFactory;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -14,7 +13,6 @@ import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import java.awt.Color;
 import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,12 +21,12 @@ import java.util.List;
  * 菜单 Swing 弹窗（顶栏/面板右键共用，设计档 Editor_Menu_Design §5——v0.4 起菜单
  * 渲染统一 Swing：Web 浮层菜单会被视口 Canvas 盖，按位置判定不可靠）。
  *
- * <p>web 顶栏标签点击或面板右键 → /menu/open 传 web 坐标（顶栏 = 标签左缘/
- * 顶栏下缘，右键 = 鼠标点）——CEF 组件铺满 contentPane，web 坐标即 contentPane
- * 坐标（同 rectChange 口径），直接 popup.show(contentPane, x, y)。Swing
- * heavyweight popup 天然浮于视口 Canvas（挖洞遮挡约束下唯一的菜单渲染形态）。
- * 显示前（popupMenuWillBecomeVisible）逐项求值 enabled/checked。桥线程调用，
- * invokeLater 跳 EDT 弹窗，永不阻塞。</p>
+ * <p>入口两路（2026-10-17 主窗口 Swing 化后，Editor_Swing_Design §4.1）：顶栏
+ * = JMenuBar（MenuBarFactory 复用本类装填逻辑）；面板右键 = /menu/open 桥或
+ * Swing 直调，传 contentPane 坐标，popup.show(contentPane, x, y)。Swing
+ * heavyweight popup 天然浮于视口 Canvas。显示前（popupMenuWillBecomeVisible）
+ * 逐项求值 enabled/checked。任意线程可调，invokeLater 跳 EDT 弹窗，永不阻塞。
+ * 配色随 FlatLaf 主题（硬编码色已废，Editor_Swing_Design §10-3 单点收口）。</p>
  *
  * @author javelin
  * @create 2026/9/28
@@ -37,11 +35,6 @@ public final class MenuPopupFactory {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MenuPopupFactory.class);
 
-    /** 对齐 web 浅色主题（style.css --editor-* 默认档；深色档 html[data-theme=dark] 切换落地时
-     *  此三常量须改读主题——Swing 不读 CSS；hover 高亮留 LAF 默认，不做深度定制） */
-    private static final Color POPUP_BG = new Color(0xFF, 0xFF, 0xFF);      // --editor-surface
-    private static final Color POPUP_FG = new Color(0x33, 0x37, 0x3D);      // --editor-text
-    private static final Color POPUP_BORDER = new Color(0xD0, 0xD4, 0xD8);  // --editor-border
     /** 菜单最小宽度（px）：项少/字短时垫宽（顶层与子菜单同口径），可调 */
     private static final int MIN_WIDTH = 140;
     /** 菜单图标尺寸（px，菜单行标准档） */
@@ -64,7 +57,7 @@ public final class MenuPopupFactory {
         }
         SwingUtilities.invokeLater(() -> {
             MainFrame frame = MainFrame.getInstance();
-            if (frame == null || frame.getCefBrowser() == null) {
+            if (frame == null) {
                 LOGGER.warn("主窗口未就绪，菜单弹出跳过: {}", menuId);
                 return;
             }
@@ -80,9 +73,7 @@ public final class MenuPopupFactory {
     /** 构建弹出菜单：项构建（含即时状态）+ 显示前状态刷新钩子（子菜单分层刷新） */
     private static JPopupMenu build(MenuDef def) {
         JPopupMenu popup = new JPopupMenu();
-        popup.setBackground(POPUP_BG);
-        popup.setBorder(BorderFactory.createLineBorder(POPUP_BORDER));
-        addEntries(popup, def.getEntries(), def.getId());
+        fill(popup, def.getEntries(), def.getId());
         widen(popup);
         return popup;
     }
@@ -94,7 +85,7 @@ public final class MenuPopupFactory {
      * 显示瞬间算一次，天然新鲜。子项全未注册的空壳子菜单跳过不显示（命令未注册
      * 不算错误，容忍分批落地）。
      */
-    private static void addEntries(JPopupMenu popup, List<MenuDef.MenuEntry> entries, String path) {
+    static void fill(JPopupMenu popup, List<MenuDef.MenuEntry> entries, String path) {
         List<ItemBinding> bindings = new ArrayList<>();
         for (MenuDef.MenuEntry entry : entries) {
             if (entry.isSeparator()) {
@@ -103,10 +94,8 @@ public final class MenuPopupFactory {
             }
             if (entry.isSubmenu()) {
                 JMenu menu = new JMenu(entry.getSubmenuLabel());
-                menu.setBackground(POPUP_BG);
-                menu.setForeground(POPUP_FG);
                 String subPath = path + ">" + entry.getSubmenuLabel();
-                addEntries(menu.getPopupMenu(), entry.getChildren(), subPath);
+                fill(menu.getPopupMenu(), entry.getChildren(), subPath);
                 if (menu.getPopupMenu().getComponentCount() == 0) {
                     continue;
                 }
@@ -122,8 +111,6 @@ public final class MenuPopupFactory {
             JMenuItem item = command.isCheckable()
                     ? new JCheckBoxMenuItem(command.getLabel())
                     : new JMenuItem(command.getLabel());
-            item.setBackground(POPUP_BG);
-            item.setForeground(POPUP_FG);
             accelerator(item, command);
             icon(item, command);
             item.addActionListener(e -> CommandService.execute(command.getId()));
@@ -157,7 +144,7 @@ public final class MenuPopupFactory {
      * 尺寸计算），preferred 宽不足 MIN_WIDTH 时直接改写 preferred 宽，高度取当前
      * 自然值（条目集合启动期固定，瞬态 enabled/checked 求值不改尺寸，无漂移）。
      */
-    private static void widen(JPopupMenu popup) {
+    static void widen(JPopupMenu popup) {
         Dimension pref = popup.getPreferredSize();
         if (pref.width < MIN_WIDTH) {
             popup.setPreferredSize(new Dimension(MIN_WIDTH, pref.height));

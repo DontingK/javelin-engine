@@ -10,8 +10,7 @@ import javax.swing.SwingUtilities;
  *
  * <p>「开始打包」接真构建（/build/pack → BuildMethod 按构建形态分流 jar/aot
  * 构建链，同步请求/响应、日志区实时展示构建输出）；关窗仍走对话框右上角 X
- * （DISPOSE_ON_CLOSE）。动 CEF/Swing 跳 EDT（线程契约同
- * RefreshPageMenuCommand）。</p>
+ * （DISPOSE_ON_CLOSE）。动 CEF/Swing 跳 EDT（线程契约）。</p>
  *
  * @author javelin
  * @version 1.0

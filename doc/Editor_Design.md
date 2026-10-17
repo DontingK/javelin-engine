@@ -6,6 +6,9 @@
 > 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，待实测验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，待实测验收）。
 > 2026-10-14 §10 变换 Gizmo 拖拽用户实测验收通过（二期编辑器最小闭环 §2.4 主体收官）。
 > 2026-10-14 §10 增补场景视图工具栏（Tools 组 + 局部/世界坐标切换；含游戏视图同高占位，当日实测验收通过）。
+> 2026-10-17 **UI 栈重构拍板：编辑器去 Web 化（纯 Swing + FlatLaf），设计档=Editor_Swing_Design.md**；
+> 本文 §1 的技术栈描述与 §3/§5 的窗口/桥接章节随 M1 落地后按新架构改写，rectChange 挖洞链、
+> §9.10 补链等随 M1 废除（见重构档 §2 废除清单）。
 
 ## 1. 定位与边界
 
@@ -267,6 +270,11 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 
 ## 10. 演进方向
 
+- **UI 栈重构（2026-10-17 拍板，设计=Editor_Swing_Design.md）**：主窗口弃 JCEF/Web，改纯
+  Swing + FlatLaf（动因=插件扩展 UI 边界/混排坑族/CEF 进程成本）；首批（M1）=窗口 + 自研
+  Dock 框架骨架 + 视口 ViewportTabs 接入 + 面板占位，之后按 M2~M6 逐面板实装直至 jcefmaven
+  移除。视口 CanvasSurface 零拷贝路径不动。**引擎自绘 UI（Godot/Unity 形态）为远期终局**，
+  PanelRegistry/命令域/事件总线的抽象届时可平移，Swing 是过渡宿主。
 - 二期：编辑器基本功能（场景编辑 UI ↔ 引擎 Scene 回写，待编辑器 UI 栈拍板）
   ——**场景树对接已落地（2026-09-30，2026-10-04 用户实测验收通过）**：HierarchyPanel 真数据
   （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、

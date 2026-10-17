@@ -1,7 +1,7 @@
 package com.javelin.editor.window.cef.dialog;
 
 import com.javelin.editor.jcef.JcefCreator;
-import com.javelin.editor.window.cef.MainFrame;
+import com.javelin.editor.window.MainFrame;
 import org.cef.browser.CefBrowser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

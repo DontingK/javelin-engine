@@ -12,18 +12,17 @@ import com.javelin.editor.menu.project.ReimportMenuCommand;
 import com.javelin.editor.menu.project.ShowInExplorerMenuCommand;
 import com.javelin.editor.menu.top.CompileMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
-import com.javelin.editor.menu.top.DevToolsMenuCommand;
 import com.javelin.editor.menu.top.GridMenuCommand;
 import com.javelin.editor.menu.top.PackMenuCommand;
-import com.javelin.editor.menu.top.RefreshPageMenuCommand;
 
 /**
  * 菜单/命令启动期装配（JavelinEditor.onInitialize 调用，设计档 Editor_Menu_Design §8）。
  *
  * <p>命令以类形态注册（实现 MenuCommand，域分包：menu.top / menu.hierarchy /
  * menu.project，域基类与该域命令同包）；集中显式注册，不做注解扫描——菜单结构顺序
- * 仍由 MenuRegistry 单源声明。首批「工具」域三命令：tools.devtools /
- * tools.grid（checked 切换网格开关）/ tools.refresh（刷新 web 页）；「场景树右键」域 Unity 壳对齐（结构
+ * 仍由 MenuRegistry 单源声明。「工具」域首期：tools.grid（checked 切换网格开关）；
+ * tools.devtools/tools.refresh 随主窗口去 Web 化退役（2026-10-17，Editor_Swing_Design）。
+ * 「场景树右键」域 Unity 壳对齐（结构
  * 2026-10-11 重排）：已实现 hierarchy.delete / hierarchy.create.empty（顶级
  * 「空对象」）/ hierarchy.create.plane（「3D 对象」子菜单）/ hierarchy.create.camera
  * （「摄像机」，2026-10-11 落地）；剪切/复制/粘贴、3D 对象其余项、灯光/粒子以
@@ -52,9 +51,7 @@ public final class EditorMenuSetup {
      */
     public static void setup(AppStateManager stateManager, EditGridAppState gridState) {
         CommandService.register(new SaveSceneMenuCommand());
-        CommandService.register(new DevToolsMenuCommand());
         CommandService.register(new GridMenuCommand(stateManager, gridState));
-        CommandService.register(new RefreshPageMenuCommand());
         CommandService.register(new CompileMenuCommand());
         CommandService.register(new PackMenuCommand());
         CommandService.register(new CreateEmptyMenuCommand());
@@ -98,10 +95,7 @@ public final class EditorMenuSetup {
                 .item("file.save");
 
         MenuRegistry.menu("tools", "工具")
-                .item("tools.grid")
-                .separator()
-                .item("tools.refresh")
-                .item("tools.devtools");
+                .item("tools.grid");
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）
