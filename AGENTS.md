@@ -22,14 +22,16 @@
 
 ---
 
-## 编辑器 Web UI 设计规范（engine-editor-web）
+## 编辑器 UI 紧凑度规范（Swing）
 
-- **间距上限 2px**：面板常驻布局的所有间距（gap / padding / margin，含输入控件内部 padding）一律 ≤2px（2026-10-11 拍板「所有间距不能>2」）；≤2 的原值保留不凑成 2（如 1px 行距）。
-- 例外：**Inspector 字段行 label 列与控件列间隔 4px**（2026-10-11 同日拍板「和输入控件间隔 4px」——label 列对齐两列布局的专用间隔，其余间距仍守 ≤2）。
-- 尺寸类不是间距：图标、勾选框、标签列宽、滚动条宽度等按设计值定，不受 2px 约束。
-- 浮层菜单例外：点击才出现的弹出层（如 JeSelect dropdown 列表项/头部）不适用此限——overlay 非常驻布局，按可点性定。
+> 2026-10-11 拍板于 Web UI 期，2026-10-18 随去 Web 化平移为 Swing 侧口径（原 engine-editor-web 及 style.css 已删除）。
+
+- **间距上限 2px**：编辑器面板常驻布局的所有间距（布局 gap / padding / border 空白，含控件内部 padding）一律 ≤2px；≤2 的原值保留不凑成 2（如 1px 行距）。独立窗口（启动器/加载窗等非常驻面板）不受此限，按其自身设计定。
+- 例外：**Inspector 字段行 label 列与控件列间隔 4px**——label 列对齐两列布局的专用间隔，其余间距仍守 ≤2。
+- 尺寸类不是间距：图标、勾选框、标签列宽、滚动条宽度、tab 高度等按设计值定，不受 2px 约束。
+- 浮层例外：点击才出现的弹出层（JPopupMenu / 下拉列表等 overlay 非常驻布局）不适用此限，按可点性定。
 - 设计基准=完全参考 Unity（Editor_Design.md §1），紧凑度对标 Unity Inspector 贴行风格。
-- 配色单点=style.css `:root` 变量，组件一律走 `var(--editor-*)`，禁止硬编码色值。
+- 配色单点=UIManager / FlatLaf 属性统一收口（Editor_Swing_Design §10-3），组件禁止硬编码色值。
 
 ---
 
@@ -80,7 +82,7 @@
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线；§5.3 MSAA 抗锯齿（2026-10-06 实测验收；isMsaaPath 边界见档内、栈分配坑=Vulkan_Pitfalls #23） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
-| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、Swing+JCEF 窗口体系、JS↔Java 桥接、资产管线（.meta/GUID/导入器/Library）、EditorApp 接引擎、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收、项目面板 2026-10-17 待验收）——细节见档内 |
+| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收、项目面板 2026-10-17 待验收）——Web/JCEF 窗口与桥接章节已随 2026-10-18 去 Web 化成历史沿革，UI 现状以 Editor_Swing_Design 为准——细节见档内 |
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.11）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、菜单渲染统一 Swing（Web 浮层菜单被视口 Canvas 盖）、engine2 对照取舍、三桥方法协议；「构建」域 JAR/AOT 双链（2026-10-13 三端实测验收）、「project 右键域首期」三实做+Unity 壳占位（2026-10-17 待验收）——v0.2~v0.11 沿革与拍板见档内 |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（2026-10-17 拍板：纯 Swing + FlatLaf 替换 JCEF 主窗口，视口零拷贝路径保留）**；自研轻量 Dock（二分布局树 + PanelRegistry 扩展点对齐菜单域先例 + ViewportTabs 单 Canvas 不 reparent）、面板 Vue→Swing 迁移路线（桥退役 Java 直调 + 线程口径）、里程碑 M1~M6；三决策拍板=自研 Dock/一步切换+占位/FlatLaf Dark——细节见档内 |
 | `Inspector_Design.md` | 检视器设计（v0.3）：/inspector/info+setValue 全链、**@InsField 显式 opt-in 闸门 + 读 getter 写 setter 铁律**、节点头 name/active/layer/tags 编辑通道、ENUM/COLOR/RECT/LAYER_MASK 类型通道、GUID_ASSET 资产引用三态只读（guid 反查 pathOfGuid 显示名、赋值待项目面板拖拽）、浮点显示/输入 4 位小数口径、UI 间距≤2 规范（AGENTS.md 专章）；v0.1 实测验收（2026-10-11）、v0.2 Camera 组件接入待验收、v0.3 GUID_ASSET+MeshRenderer 待验收；遗留=Layer/Tag 设置管线待接——细节见档内 |

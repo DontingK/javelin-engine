@@ -1,7 +1,11 @@
 # 检视器（Inspector）设计（v0.3）
 
-> 定位：`javelin-editor` 选中节点检视面板——Java 反射收集字段清单经桥下发、Web 渲染、
-> 编辑回写。设计基准=完全参考 Unity（Editor_Design §1）。
+> 定位：`javelin-editor` 选中节点检视面板——Java 反射收集字段清单（`InspectorReflector`，
+> @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
+> 设计基准=完全参考 Unity（Editor_Design §1）。
+> （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
+> /inspector/* 桥已删、三 VO 迁 inspector 包；本文类型通道/序列化/回写规则继续有效，
+> v0.1~v0.3 落地与验收记录为 Web 期沿革。）
 > 落地：2026-10-09 全链首版（仅 Transform 打通流程）→ 2026-10-11 头部 Tag/Layer 可
 > 编辑 + 间距规范 + 星标联动；用户实测验收通过（2026-10-11）。
 > v0.2（2026-10-11）：**Camera 组件接入**——组件白名单放开（§3）、ENUM/COLOR/RECT/

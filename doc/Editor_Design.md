@@ -9,6 +9,9 @@
 > 2026-10-17 **UI 栈重构拍板：编辑器去 Web 化（纯 Swing + FlatLaf），设计档=Editor_Swing_Design.md**；
 > 本文 §1 的技术栈描述与 §3/§5 的窗口/桥接章节随 M1 落地后按新架构改写，rectChange 挖洞链、
 > §9.10 补链等随 M1 废除（见重构档 §2 废除清单）。
+> 2026-10-18 M6 提前收官：jcef 桥包/jcefmaven/jackson 与 engine-editor-web 前端工程整体清退
+> （Editor_Swing_Design §7.1/§9）——本文 §5 桥接相关描述全部成历史沿革；§1/§3/§5 按新架构
+> 改写的欠账仍挂（改写为独立批次，不随清退顺手做）。
 
 ## 1. 定位与边界
 

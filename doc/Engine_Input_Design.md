@@ -49,7 +49,7 @@ window 侧改动：`Window` 新增 `attachInputSink(InputSink)` default 空方�
 GLFW 回调，翻译成引擎枚举后投递（sink 为 null 时零开销跳过）——
 **平台键码 → 引擎枚举的映射由实现私有持有**：GLFW 侧 `GLFWKeyMapping`
 （core.window 包私有），AWT 侧 `AwtKeyMapping`（editor，见 §5）；
-`MainFrame`（编辑器 Swing/CEF 窗口）同接口接入——**输入源 = CanvasSurface 视口**。
+`MainFrame`（编辑器 Swing 窗口）同接口接入——**输入源 = CanvasSurface 视口**。
 
 ## 3. 帧语义与时序（本设计的地基）
 
@@ -106,7 +106,7 @@ earlyUpdate 发布累计值并清零——累计窗口 = [上帧 earlyUpdate, �
   归一化后两端边沿语义一致"恰一次"（press→release→press 同帧快速连按不受影响，
   RELEASE 已把持续态清位）。
 
-## 5. 编辑器输入路径（Swing/CEF，输入源 = Canvas 视口）
+## 5. 编辑器输入路径（Swing，输入源 = Canvas 视口）
 
 编辑器 mainLoop 跑在 **Engine Main 线程**（ThreadUtil.run，见 ProjectLoadingFrame），
 AWT 事件在 **EDT**——不能直写 InputSubsystem 状态，走"EDT 入队 → 引擎线程泵"：
@@ -125,7 +125,7 @@ InputSubsystem（单线程消费，后续与 GLFW 路径完全一致）
 要点：
 - **输入源 = CanvasSurface**：鼠标坐标即视口局部坐标（拾取直接可用）；
   键盘事件须 canvas 持有焦点——点击视口 `requestFocusInWindow()` 抢占
-  （视口输入惯例），点击 CEF UI 焦点移走、游戏输入自然静默（无须 consumedByUI）；
+  （视口输入惯例），点击编辑器其余 UI 焦点移走、游戏输入自然静默（无须 consumedByUI）；
 - **canvas 失焦 → onFocusChanged(false) 清态**（点 UI 区域防"卡键"）；
 - **VK_ 与 GLFW 键码错位**：仅字母/数字/部分标点（ASCII 段）重合，
   导航/F 键/小键盘逐项翻译（`AwtKeyMapping`，连号区间数组直落 + switch 逐项）；

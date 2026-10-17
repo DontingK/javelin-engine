@@ -2,6 +2,8 @@
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
+> （2026-10-18 去 Web 化收尾：/menu、/command 桥入口随 jcef 清退删除，命令执行全量
+> Swing 直调 CommandService；本文桥协议相关章节转为历史沿革，命令/注册/渲染本体不变。）
 > 定稿：2026-09-28。讨论沉淀路径：菜单遮挡约束 → 渲染形态 → engine2 体系对照 → 融合方案；
 > v0.2：菜单域收敛为**三类**（顶栏 / 场景树 / project），右键两域设**上下文域基类**；
 > v0.3：命令定义形态改为**类实现 MenuCommand 接口（三域基类）**，lambda 保留为快捷通道；
