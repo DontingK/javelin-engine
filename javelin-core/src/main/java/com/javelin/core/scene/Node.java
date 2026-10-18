@@ -10,6 +10,7 @@ import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -179,6 +180,14 @@ public class Node extends ObjectId implements Serializable {
             }
         }
         return null;
+    }
+
+    /**
+     * 获取全部组件（挂载序，含 Transform）。只读视图——增删走 addComponent，
+     * 勿经返回列表改结构（Inspector 组件扫描等外部消费用）。
+     */
+    public List<Component> getComponents() {
+        return Collections.unmodifiableList(components);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.javelin.editor.window;
 import com.javelin.core.input.InputSink;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
+import com.javelin.editor.file.FileTypeSetup;
 import com.javelin.editor.menu.MenuBarFactory;
 import com.javelin.editor.swing.StatusBar;
 import com.javelin.editor.swing.dock.DockRoot;
@@ -81,6 +82,9 @@ public class MainFrame extends JFrame implements Window {
         canvas.setMinimumSize(new Dimension(1, 1));
         // 面板注册（viewport 面板捕获画布——单 Canvas 不 reparent，§6）
         EditorPanelSetup.setup(canvas);
+        // 文件类型注册（图标裁决/双击打开/project.open 命令查表——早于面板
+        // 首帧绘制与菜单条安装）
+        FileTypeSetup.setup();
         if (inputSink != null) {
             // attachInputSink 早于 create 的兜底转发（正常时序：create 先于子系统 initAll）
             canvas.attachInputSink(inputSink);

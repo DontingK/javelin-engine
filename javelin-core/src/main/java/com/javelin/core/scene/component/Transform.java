@@ -2,6 +2,7 @@ package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsHeader;
 import com.javelin.core.inspector.InsRotation;
 import com.javelin.core.scene.Component;
 import com.javelin.core.serialize.InputCapsule;
@@ -25,6 +26,7 @@ import java.util.Iterator;
  * @since 1.0.0
  */
 @Reflective
+@InsHeader(label = "变换", icon = "transform")
 public class Transform extends Component implements Iterable<Transform> {
 
     private Transform parent;

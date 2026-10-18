@@ -210,6 +210,29 @@ EditorApp.main()
 相对路径（实现先重载 index.asset 再过滤——导入管线每次导入重写索引文件、内存表
 不自动跟进；首个消费方=打包对话框启动场景下拉 /build/scenes）。
 
+### 6.5 文件类型注册器（file 包，2026-10-18 落地待验收）
+
+`com.javelin.editor.file` 五件——`FileType` 接口（extensions 含点号小写 /
+icon 裸名 / canOpen / open：EDT 调用、内部自管线程）+ `IconFileType`（纯图标型，
+.java/.json 首批）+ `SceneFileType`（.scene：图标+打开）+ `FileTypeRegistry`
+（静态门面：扩展名→类型 LinkedHashMap、重复注册 fail-fast、find 按文件名
+endsWith 匹配）+ `FileTypeSetup`（集中显式注册，接线 MainFrame.create 早于
+面板首帧/菜单条安装——对齐 MenuRegistry/PanelRegistry 先例，不做注解扫描）。
+
+消费方两处：ProjectPanel 条目图标裁决/双击打开（原 entryIcon 硬编码 if 串退役：
+目录仍走路径规则，文件查注册表、未注册=unknown）；project.open 右键命令占位
+转实做（OpenFileMenuCommand，enabled=选中文件 canOpen，与双击同一条分发链）。
+
+场景打开（SceneFileType.open，Unity Open Scene 口径）：脏场景三键确认（用户
+拍板 2026-10-18：保存并打开——复用 `SaveSceneMenuCommand.save`（本批抽出
+`public static boolean` 返回成败，失败即中止打开）/ 不保存 / 取消，父窗
+MainFrame）→ `submitTask` 帧边界单任务（save（可选）→ TextImporter 导入 →
+meta guid 同步（口径同 loadScene）→ `setGameScene` → `setSelectedNode(null)`
+选中链复位（Gizmo/TransformWatch/Inspector 经 SceneSelectEvent）→ clearDirty
+（新场景即净）→ `SceneChangedEvent(false)` 树/检视器重拉）；失败 error 日志 +
+tinyfd 弹窗（同 file.save 隔离口径）。首批注册（拍板）：.scene/.java/.json
+三扩展（面板视觉零变化），.shader/.smesh 等要用时再补。
+
 ## 7. 设置与序列化
 
 - **settings 包**：`SettingsManager` 三分设置——项目设置（`.javelin/project.settings`，文本）、
@@ -302,10 +325,11 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   项与伴生 .meta 过滤，目录优先+名称序）；选中直写 EditorSelection project 通道
   （域菜单上下文源；Node 直持 File 天然不越项目根——原桥「相对路径上报+解析
   闸门」随直调消亡，目录变更即上报含面包屑导航）；右键 ctx.project 域三入口
-  （左树目录/右区条目/空白=当前目录语境，先落选中再弹菜单）；图标 IDEA 项目
-  视图口径（icon：resourcesRoot/sourceRoot/package/folder/class/json/
-  unknown）。遗留：project.changed 刷新事件与创建/删除/重命名/打开命令第二批
-  （改文件系统的命令落地时一并接——命令改盘后面板树不重拉即脱节）。
+  （左树目录/右区条目/空白=当前目录语境，先落选中再弹菜单）；图标裁决查
+  FileTypeRegistry（§6.5，目录仍路径规则：resourcesRoot/sourceRoot/package/
+  folder；文件未注册=unknown）；文件双击分发注册表打开（.scene 打开场景）。
+  遗留：project.changed 刷新事件与创建/删除/重命名/粘贴命令第二批（改文件
+  系统的命令落地时一并接——命令改盘后面板树不重拉即脱节）。
 - **变换 Gizmo v0.1 视觉版已落地（2026-10-04；2026-10-05 用户重构为工具族架构）**：
   `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
   基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh

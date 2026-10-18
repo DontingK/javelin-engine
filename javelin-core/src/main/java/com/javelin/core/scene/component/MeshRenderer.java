@@ -2,6 +2,7 @@ package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsHeader;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.render.Renderable;
@@ -23,6 +24,7 @@ import com.javelin.core.serialize.OutputCapsule;
  * @since 1.0.0
  */
 @Reflective
+@InsHeader(label = "网格渲染器", icon = "mesh")
 public class MeshRenderer extends Component implements Renderable {
 
     // 非 final：序列化反序列化需回写（AGENTS.md 红线 9）

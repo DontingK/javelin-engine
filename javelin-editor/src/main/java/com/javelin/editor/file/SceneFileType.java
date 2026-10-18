@@ -1,0 +1,131 @@
+package com.javelin.editor.file;
+
+import com.javelin.core.scene.GameScene;
+import com.javelin.editor.JavelinEditor;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.SceneChangedEvent;
+import com.javelin.editor.menu.top.SaveSceneMenuCommand;
+import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.scene.EditorScene;
+import com.javelin.editor.selection.EditorSelection;
+import com.javelin.editor.serializable.TextImporter;
+import com.javelin.editor.window.MainFrame;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.swing.JOptionPane;
+import java.io.File;
+import java.util.List;
+
+/**
+ * .scene 场景文件类型：条目图标 scene.svg + 打开 = 运行时切换用户场景
+ * （Unity Open Scene 口径）。
+ *
+ * <p>脏场景三键确认（用户拍板 2026-10-18，Unity 口径）：保存并打开 /
+ * 不保存 / 取消——保存分支复用 {@link SaveSceneMenuCommand#save}。场景切换
+ * 整体走 {@code JavelinEditor.submitTask} 帧边界单任务（save → load → swap →
+ * 事件），与渲染 pull 同帧序无撕裂。</p>
+ *
+ * <p>切换收尾：clearDirty（新场景即净）+ {@code EditorSelection.setSelectedNode(null)}
+ * 收口发布 SceneSelectEvent（Gizmo/TransformWatch/Inspector 经选中链自动复位）
+ * + {@code SceneChangedEvent(false)} 驱动层级树/检视器重拉——收尾口径同
+ * file.save。</p>
+ *
+ * @author javelin
+ * @create 2026/10/18
+ */
+public class SceneFileType implements FileType {
+
+    /** confirmDirty 返回值：取消（关闭弹窗视同取消） */
+    private static final int CHOICE_CANCEL = 2;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SceneFileType.class);
+
+    @Override
+    public List<String> extensions() {
+        return List.of(".scene");
+    }
+
+    @Override
+    public String icon() {
+        return "scene";
+    }
+
+    @Override
+    public boolean canOpen() {
+        return true;
+    }
+
+    @Override
+    public void open(File file) {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        if (editor == null) {
+            LOGGER.warn("编辑器实例未创建，跳过打开场景: {}", file);
+            return;
+        }
+        EditorScene editorScene = editor.getEditorScene();
+        if (editorScene.getGameScene() == null) {
+            LOGGER.warn("用户场景未就绪，跳过打开场景: {}", file);
+            return;
+        }
+        int choice = confirmDirty(editorScene);
+        if (choice == CHOICE_CANCEL) {
+            return;
+        }
+        boolean saveFirst = choice == 0;
+        editor.submitTask(() -> swapScene(editor, file, saveFirst));
+    }
+
+    /**
+     * 脏场景确认（EDT 弹窗，父窗 MainFrame）。净场景直接放行不弹。
+     *
+     * @return 0 = 保存并打开；1 = 不保存；{@value #CHOICE_CANCEL} = 取消
+     */
+    private static int confirmDirty(EditorScene editorScene) {
+        if (!editorScene.isDirty()) {
+            return 1;
+        }
+        String name = editorScene.getGameScene().getName();
+        int choice = JOptionPane.showOptionDialog(MainFrame.getInstance(),
+                "场景 [" + name + "] 有未保存的修改，是否保存？",
+                "打开场景",
+                JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                new Object[]{"保存并打开", "不保存", "取消"},
+                "保存并打开");
+        return choice < 0 ? CHOICE_CANCEL : choice;
+    }
+
+    /**
+     * 场景切换（引擎主线程帧边界执行）：save（可选）→ 文本导入新场景 → 换引用 →
+     * 清选中/清脏/发事件。失败记 error 并 tinyfd 弹窗（同 file.save 隔离口径）。
+     */
+    private static void swapScene(JavelinEditor editor, File file, boolean saveFirst) {
+        EditorScene editorScene = editor.getEditorScene();
+        if (saveFirst && !SaveSceneMenuCommand.save(editor)) {
+            return; // 保存失败中止打开（错误信息已弹）
+        }
+        try {
+            GameScene gameScene = new TextImporter(file, editor.getAssetManager()).importData(GameScene.class);
+            // guid 同步（口径同 JavelinEditor.loadScene）：.meta 为管线真值源，
+            // 同步进 gameScene 供保存时内嵌自述；旧文件无内嵌字段 read 恢复 null
+            AssetMeta meta = editor.getMetaManager().getMeta(file);
+            if (meta != null && meta.getGuid() != null) {
+                gameScene.setGuid(meta.getGuid());
+            }
+            editorScene.setGameScene(gameScene, file);
+            // 选中收口清空：Gizmo/TransformWatch/Inspector 旧场景引用经选中链复位
+            EditorSelection.setSelectedNode(null);
+            // 新场景即净 + 树/检视器重拉（树根星标随重拉消失）
+            editorScene.clearDirty();
+            EditorEventBus.publish(new SceneChangedEvent(false));
+            LOGGER.info("打开场景: {}（{} 个根节点）", file.getName(), gameScene.getRootNodes().size());
+        } catch (Exception ex) {
+            LOGGER.error("打开场景失败: {}", file, ex);
+            String message = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+            TinyFileDialogs.tinyfd_messageBox("错误", "打开场景失败: " + message, "ok", "error", 1);
+        }
+    }
+}

@@ -59,14 +59,19 @@ public class SaveSceneMenuCommand extends TopMenuCommand {
         editor.submitTask(() -> save(editor));
     }
 
-    /** 保存（引擎主线程帧边界执行） */
-    private static void save(JavelinEditor editor) {
+    /**
+     * 保存（引擎主线程帧边界执行）。
+     *
+     * @return 是否保存成功（场景未就绪/导出失败=false。双调用方：file.save 命令、
+     *         场景打开的「保存并打开」分支——失败即中止打开）
+     */
+    public static boolean save(JavelinEditor editor) {
         EditorScene editorScene = editor.getEditorScene();
         GameScene gameScene = editorScene.getGameScene();
         File file = editorScene.getGameSceneFile();
         if (gameScene == null || file == null) {
             LOGGER.warn("场景未就绪（gameScene/gameSceneFile 为空），跳过保存场景（file.save）");
-            return;
+            return false;
         }
         try {
             syncGuid(editor, gameScene, file);
@@ -80,11 +85,13 @@ public class SaveSceneMenuCommand extends TopMenuCommand {
             // 前端树根星号随重拉消失（边沿通知，状态以拉取为准）
             EditorEventBus.publish(new SceneChangedEvent(false));
             LOGGER.info("保存场景: {}（{} 个根节点）", file.getName(), gameScene.getRootNodes().size());
+            return true;
         } catch (Exception ex) {
             // 帧内异常不走 CommandService.execute 的 catch——自带日志+弹窗隔离
             LOGGER.error("保存场景失败（file.save）: {}", file, ex);
             String message = ex.getMessage() != null ? ex.getMessage() : ex.toString();
             TinyFileDialogs.tinyfd_messageBox("错误", "保存场景失败: " + message, "ok", "error", 1);
+            return false;
         }
     }
 

@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 场景：视口/舞台——蓝天+太阳+透视网格地面（.scene 资产条目图标） -->
+<rect x="1.5" y="2.5" width="13" height="11" fill="#81D4FA" stroke="#37474F"/>
+<path d="M1.5 9H14.5V13.5H1.5Z" fill="#A5D6A7"/>
+<path d="M8 9L1.5 13.5M8 9L14.5 13.5M8 9V13.5" stroke="#37474F" stroke-width="0.8"/>
+<circle cx="10.5" cy="5.5" r="1.8" fill="#FFD54F"/>
+</svg>

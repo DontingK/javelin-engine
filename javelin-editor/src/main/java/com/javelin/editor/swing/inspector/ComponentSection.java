@@ -4,7 +4,9 @@ import com.javelin.core.scene.Node;
 import com.javelin.editor.inspector.ComponentInspectorVo;
 import com.javelin.editor.inspector.InspectorFieldVo;
 import com.javelin.editor.swing.inspector.widget.CollapsiblePanel;
+import com.javelin.editor.swing.SvgIcon;
 
+import javax.swing.Icon;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -20,7 +22,8 @@ import java.util.Map;
  * 组件分组（折叠头 + 字段行两列区，Inspector_Design §9 两列布局）。
  *
  * <p>分组头：enabled 勾选在头左侧（@InsField 回写闸门口径——enabled 提升到
- * 分组头不入字段行；required 组件如 Transform 不渲染勾选不可禁用）。字段行 =
+ * 分组头不入字段行；required 组件如 Transform 不渲染勾选不可禁用）+ 组件图标
+ * （@InsHeader.icon）居标题前。字段行 =
  * GridBagLayout 两列：label 列（gridx 0）宽自动=列内最宽（组内最长显示名）、
  * insets right=4px（label/控件列间隔拍板例外）；控件列 fill HORIZONTAL。
  * 组内字段按 fieldName 索引（面板 Transform 定点刷新用）。</p>
@@ -30,6 +33,9 @@ import java.util.Map;
  */
 public class ComponentSection extends JComponent {
 
+    /** 组件头图标边长（头高 22 内取 16px 档，Unity 组件头口径） */
+    private static final int ICON_SIZE = 16;
+
     private final Map<String, FieldEditor> editors = new LinkedHashMap<>();
     private final CollapsiblePanel collapse;
     private final ComponentInspectorVo vo;
@@ -38,9 +44,18 @@ public class ComponentSection extends JComponent {
         this.vo = vo;
         setLayout(new BorderLayout(0, 0));
         JComponent headerLeft = vo.required ? null : enabledCheck(owner, vo, commit);
-        collapse = new CollapsiblePanel(vo.name, headerLeft, buildFields(owner, vo, commit));
+        collapse = new CollapsiblePanel(vo.name, headerLeft, headerIcon(), buildFields(owner, vo, commit));
         collapse.setCollapsed(initialCollapsed);
         add(collapse, BorderLayout.CENTER);
+    }
+
+    /** 组件头图标（@InsHeader.icon → /icon/{name}.svg；未配/资源缺失不渲染——不占空位，菜单域同口径） */
+    private Icon headerIcon() {
+        if (vo.icon == null || vo.icon.isBlank()) {
+            return null;
+        }
+        SvgIcon icon = SvgIcon.of(vo.icon, ICON_SIZE);
+        return icon.isAvailable() ? icon : null;
     }
 
     private JComponent enabledCheck(Node owner, ComponentInspectorVo vo, FieldCommit commit) {

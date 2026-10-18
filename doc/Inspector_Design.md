@@ -31,6 +31,16 @@
 > 验收期实测修正四条（Editor_Swing_Design §7.7 ③④⑨⑩）：归属校验比对对象
 > （getGameScene 本体）、JScrollPane 视图 Scrollable 双向钉（高不拉伸/宽不水平滚）、
 > 节点头/多段行/折叠头布局逐轮打磨（见 §6）。
+> v0.4 增量（2026-10-18）：**`@InsHeader` 组件分组头注解**——@InsField 的 TYPE 职责
+> 收编成独立注解（label=显示名（空串兜底类简单名）、icon=图标名（classpath
+> /icon/{name}.svg 裸名口径，空串不渲染）），@InsField 收窄回字段闸门（TYPE 贴法
+> 废弃，其 icon 属性失消费方待清理）；分组头图标 16px 经 SvgIcon 渲染、资源缺失
+> 不占空位（菜单域同口径）；Transform/Camera/MeshRenderer 三组件首批贴注
+> （「变换」「相机」「网格渲染器」，icon=transform/camera/mesh——mesh.svg 本批新画）。
+> **@InsHeader 升格组件 opt-in 闸门**（同日调整）：收集改遍历 `node.getComponents()`
+> （Node 新增公开只读口，`components()` 维持 package-private 不动）——贴注解的组件
+> 才进面板、旧白名单 `INSPECTABLE_COMPONENTS` 退役；挂载序=面板分组序（Unity
+> 口径），Transform 构造首挂恒首位；多实例组件全部入面板，节点单组件假设作废。
 
 ## 1. 总则
 
@@ -59,25 +69,29 @@ assetName（v0.3，GUID_ASSET 显示名，其他类型 null）——字段行 VO
 
 ## 3. 字段收集（InspectorReflector）
 
-- 收集面 v0.2 = 节点头（手拼 VO）+ **组件白名单**（`INSPECTABLE_COMPONENTS`：
-  Transform（必需，恒首位）+ Camera（v0.2 放开）+ MeshRenderer（v0.3 放开，
-  mesh/material 走 GUID_ASSET 只读））；收集经 `node.getComponent(type)`
-  取首个实例（`components()` 为 package-private，外部 API 面即 getComponent）——
-  节点单组件假设，同节点多实例组件形态留后续；白名单序=面板分组序；
+- 收集面 = 节点头（手拼 VO）+ **@InsHeader 闸门组件扫描**（v0.4 增量）：遍历
+  `node.getComponents()`（Node 新增公开只读口，挂载序），贴 `@InsHeader` 的组件
+  才进面板——旧白名单 `INSPECTABLE_COMPONENTS` 退役（v0.1~v0.3 沿革：Transform
+  → v0.2 Camera → v0.3 MeshRenderer 渐次放开）；挂载序=面板分组序（Unity 口径），
+  Transform 构造首挂恒首位；多实例组件全部入面板，节点单组件假设作废；
 - 类 → 属性清单缓存（ConcurrentHashMap，首次访问构建一次）：沿类层级收集声明字段，
   @InsField 标记才进清单；getter 按 getX/isX（boolean）、setter 单参 setX
   **按参数类型与字段类型装箱等价解析**（findSetter：getMethods 顺序不保证，同名重载
   putIfAbsent 取首个即随机命中——Camera.cullingMask 的 `setCullingMask(int)` 与
   `setCullingMask(Layer...)` 双重载实锤后改为显式匹配；零参 getter 无重载免解析），
   缺一抛错；
-- 注解（`core.inspector` 包）：`@InsField`（label/icon 属性；TYPE 贴法=组件头显示名）、
-  `@InsRotation`（Quaternionf opt-in 按欧拉角展示）、`@InsIntRange`/`@InsFloatRange`
+- 注解（`core.inspector` 包）：`@InsField`（label=字段显示名；TYPE 贴法已废弃——
+  组件头职责移交 `@InsHeader`，icon 属性随之失消费方待清理）、`@InsHeader`（TYPE
+  贴组件类：label=显示名（空串兜底类简单名）、icon=图标名（classpath
+  /icon/{name}.svg 裸名，空串无图标；分组头 16px 经 SvgIcon 渲染、资源缺失不
+  占空位——菜单域同口径））、`@InsRotation`（Quaternionf opt-in 按欧拉角展示）、`@InsIntRange`/`@InsFloatRange`
   （滑条元数据投影为 range）、`@InsLayerMask`（int 字段按层位掩码勾选多选，
   v0.2）、`InsEnumLabel`（**接口**，枚举实现 getLabel() 提供下拉显示名，未实现兜底
   常量名；ProjectionType=透视/正交、ClearFlags=颜色+深度/仅深度/不清除 首批实现——
   显示名口径=自述行为，SOLID_COLOR 不用 Unity 直译「纯色」，用户拍板 2026-10-11）；
 - 组件头：enabled 提升分组头勾选不入行；`required` 标志（Transform 必需组件不渲染
-  勾选，Unity 口径，将来组件删除菜单同用此标志）。
+  勾选，Unity 口径，将来组件删除菜单同用此标志）；显示名/图标经 `@InsHeader`
+  收集进 VO（componentLabel/componentIcon，v0.4 增量）。
 
 ## 4. 值类型（InspectorValueType）与序列化口径
 
@@ -199,8 +213,8 @@ label 列 insets right=4、行内顶对齐 anchor=NORTHWEST（多行控件 label
 
 ## 10. 落地清单与暂缓
 
-**Java（反射/数据链，v0.1~v0.3 沿革）**：`core.inspector` 注解五件（+`@InsLayerMask`
-v0.2）+ 接口 `InsEnumLabel` / `editor.inspector`（InspectorReflector +
+**Java（反射/数据链，v0.1~v0.3 沿革）**：`core.inspector` 注解六件（+`@InsLayerMask`
+v0.2、+`@InsHeader` v0.4 增量）+ 接口 `InsEnumLabel` / `editor.inspector`（InspectorReflector +
 InspectorValueType + vo 三件）/ `SceneWatchAppState`（快照含 layer/tags）/ `Node`
 （name/active/layer @InsField 回写闸门）/ `Camera`（v0.2 字段注解十件，main 不入
 面板——引擎 main 消费未落地）/ `MeshRenderer`（v0.3 mesh/material @InsField）/

@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.inspector.widget;
 
 import javax.swing.BorderFactory;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -19,7 +20,8 @@ import java.awt.Polygon;
 
 /**
  * 通用折叠面板（组件分组头）：头部 = 自绘箭头三角 + headerLeft 组件槽
- * （enabled 勾选挂此，自消费点击不透传）+ 加粗标题；点击头部空白切换折叠
+ * （enabled 勾选挂此，自消费点击不透传）+ 可选标题图标（组件头 @InsHeader）
+ * + 加粗标题；点击头部空白切换折叠
  * （content 显隐 + revalidate）。
  *
  * <p>头为标题区语义（v0.2 视觉重做，2026-10-18 用户派发「头不好看」两轮）：固定高
@@ -44,7 +46,7 @@ public class CollapsiblePanel extends JComponent {
     private final Header header;
     private boolean collapsed;
 
-    public CollapsiblePanel(String title, JComponent headerLeft, JComponent content) {
+    public CollapsiblePanel(String title, JComponent headerLeft, Icon titleIcon, JComponent content) {
         setLayout(new BorderLayout(0, 0));
         // 整组四周 1px 边框（卡片化分组；头部自带底线=头/内容分界线）
         setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, borderColor()));
@@ -57,7 +59,7 @@ public class CollapsiblePanel extends JComponent {
             content.setOpaque(true);
             content.setBackground(liftedBackground);
         }
-        header = new Header(title, headerLeft);
+        header = new Header(title, headerLeft, titleIcon);
         add(header, BorderLayout.NORTH);
         add(content, BorderLayout.CENTER);
     }
@@ -97,7 +99,7 @@ public class CollapsiblePanel extends JComponent {
         private final Color baseBackground;
         private final Color hoverBackground;
 
-        private Header(String title, JComponent headerLeft) {
+        private Header(String title, JComponent headerLeft, Icon titleIcon) {
             setLayout(new FlowLayout(FlowLayout.LEFT, 2, 0));
             setOpaque(true);
             // 头=面板灰（FlatLightLaf @background #f2f2f2），分层靠内容区提亮实现
@@ -134,6 +136,11 @@ public class CollapsiblePanel extends JComponent {
             add(arrow);
             if (headerLeft != null) {
                 add(headerLeft);
+            }
+            if (titleIcon != null) {
+                JLabel iconLabel = new JLabel(titleIcon);
+                iconLabel.addMouseListener(headerListener);
+                add(iconLabel);
             }
             add(titleLabel);
         }

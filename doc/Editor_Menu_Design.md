@@ -82,6 +82,11 @@
 > UnimplementedMenuCommand 恒置灰：open/创建族/paste/rename/delete）；ctx.project
 > 菜单结构一次对齐 Unity（创建子菜单+两道分割线）。面板 UI 侧见 Editor_Design §10
 > 项目面板条目。
+> v0.12（2026-10-18）：**project.open 打开命令实做（替换占位注册行）**——
+> OpenFileMenuCommand（Enter）按 FileTypeRegistry 分发（Editor_Design §6.5
+> 文件类型注册器）：enabled=选中文件 canOpen；首批 .scene 可开（脏场景三键
+> 确认 + submitTask 帧边界切换场景，保存分支复用 SaveSceneMenuCommand.save）。
+> 占位剩：创建族/paste/rename/delete。
 
 ## 1. 背景与约束
 

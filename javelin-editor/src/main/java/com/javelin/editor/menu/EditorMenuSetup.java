@@ -8,6 +8,7 @@ import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
 import com.javelin.editor.menu.project.CopyPathMenuCommand;
+import com.javelin.editor.menu.project.OpenFileMenuCommand;
 import com.javelin.editor.menu.project.ReimportMenuCommand;
 import com.javelin.editor.menu.project.ShowInExplorerMenuCommand;
 import com.javelin.editor.menu.top.CompileMenuCommand;
@@ -29,7 +30,8 @@ import com.javelin.editor.menu.top.PackMenuCommand;
  * {@link UnimplementedMenuCommand} 占位注册置灰，功能落地时逐个替换为实类注册行
  * （rename 随树内编辑 UI 后置，未入菜单）。
  * 「项目面板右键」域首期落地（2026-10-17）：showInExplorer / copyPath / reimport
- * 实做，打开/创建族/粘贴/重命名/删除以 project 域占位类置灰（选中上下文经
+ * 实做；open 2026-10-18 文件注册器批次实做（FileTypeRegistry 分发，脏场景
+ * 三键确认）；创建族/粘贴/重命名/删除以 project 域占位类置灰（选中上下文经
  * /project/select 上报 EditorSelection——右键前 await 落上报，菜单 enabled 求值
  * 读新选中态）。顶栏菜单域按 Unity 组织，其余域随功能落地逐域补。</p>
  *
@@ -72,11 +74,10 @@ public final class EditorMenuSetup {
         CommandService.register(new ShowInExplorerMenuCommand());
         CommandService.register(new CopyPathMenuCommand());
         CommandService.register(new ReimportMenuCommand());
-        // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：打开
-        // 阻塞于脏场景确认；创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
+        // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：
+        // 创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
         // guid/meta/引用联动拍板
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.open", "打开", "Enter"));
+        CommandService.register(new OpenFileMenuCommand());
         CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.create.folder", "文件夹", null));
         CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(

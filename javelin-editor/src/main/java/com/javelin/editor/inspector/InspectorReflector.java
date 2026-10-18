@@ -4,6 +4,7 @@ import com.javelin.core.inspector.InsEnumLabel;
 import com.javelin.core.inspector.InsFloatRange;
 import com.javelin.core.inspector.InsIntRange;
 import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsHeader;
 import com.javelin.core.inspector.InsLayerMask;
 import com.javelin.core.inspector.InsRotation;
 import com.javelin.core.assets.Asset;
@@ -14,8 +15,6 @@ import com.javelin.core.scene.Component;
 import com.javelin.core.scene.Layer;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Tag;
-import com.javelin.core.scene.component.Camera;
-import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.exception.TipException;
@@ -51,14 +50,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * 由 M4 Swing 属性面板保证——面板读写均走帧队列，与 mainLoop 的场景访问
  * 串行无竞争）。</p>
  *
- * <p>v0.2 收集面 = 节点头（name/active/layer/tags）+ 组件白名单
- * （{@link #INSPECTABLE_COMPONENTS}，v0.2 放开 Camera，v0.3 放开 MeshRenderer）
- * 字段分组；值类型通道
- * 放开 ENUM/COLOR/RECT/LAYER_MASK（枚举选项随 VO 下发，显示名走
- * {@link InsEnumLabel}）；v0.3 放开 GUID_ASSET（Asset 引用型字段只读展示：
- * MeshRenderer.mesh/material 首批，赋值通道待项目面板拖拽资产落地）。
- * Collider 组件暂缓。可空值对象（Camera.backgroundColor/
- * viewportRect）：序列化传 null（前端控件兜底显示），编辑回写即物化显式值。</p>
+ * <p>收集面 = 节点头（name/active/layer/tags）+ @InsHeader 闸门组件分组
+ * （v0.4 增量：遍历 node.getComponents() 挂载序，贴 @InsHeader 的组件才进
+ * 面板——旧组件白名单退役）；v0.2~v0.3 通道沿革：ENUM/COLOR/RECT/
+ * LAYER_MASK 放开（枚举选项随 VO 下发，显示名走 {@link InsEnumLabel}）、
+ * GUID_ASSET（Asset 引用型字段只读展示，赋值通道待项目面板拖拽资产落地）。
+ * Collider 组件暂缓（未贴 @InsHeader 即不入面板）。可空值对象
+ * （Camera.backgroundColor/viewportRect）：序列化传 null（前端控件兜底
+ * 显示），编辑回写即物化显式值。</p>
  *
  * @author javelin
  * @create 2026/10/9
@@ -83,21 +82,12 @@ public final class InspectorReflector {
     /** 字段元数据缓存（类 → 属性清单；类结构运行期不变，首次访问构建一次） */
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> PROP_CACHE = new ConcurrentHashMap<>();
 
-    /**
-     * 组件白名单（扩展点）：白名单序 = 面板分组序（Transform 必需恒在首位）。
-     * 收集经 getComponent 取首个实例——节点单组件假设，同节点多实例组件形态
-     * 留组件实例面板再议。v0.1 仅 Transform，v0.2 放开 Camera，v0.3 放开
-     * MeshRenderer（mesh/material 走 GUID_ASSET 只读，§wire 契约见 serialize）。
-     */
-    private static final List<Class<? extends Component>> INSPECTABLE_COMPONENTS =
-            List.of(Transform.class, Camera.class, MeshRenderer.class);
-
     private InspectorReflector() {
     }
 
     /**
      * 组装节点 Inspector 快照：节点头（name/active/layer 索引/layerNames/tags + tag 注册表名）
-     * + 组件白名单（{@link #INSPECTABLE_COMPONENTS}）字段分组。
+     * + @InsHeader 闸门组件分组（挂载序，Transform 构造首挂恒首位；未贴注解组件不进面板）。
      */
     public static NodeInspectorVo collect(Node node) {
         NodeInspectorVo vo = new NodeInspectorVo();
@@ -110,11 +100,11 @@ public final class InspectorReflector {
         vo.tags = tagNames(node);
         vo.tagNames = tagOptions();
         vo.components = new ArrayList<>();
-        for (Class<? extends Component> type : INSPECTABLE_COMPONENTS) {
-            Component component = node.getComponent(type);
-            if (component != null) {
-                vo.components.add(collectComponent(component, type == Transform.class));
+        for (Component component : node.getComponents()) {
+            if (!component.getClass().isAnnotationPresent(InsHeader.class)) {
+                continue; // @InsHeader 组件闸门（v0.4 增量）：未贴注解的组件不进面板
             }
+            vo.components.add(collectComponent(component, component instanceof Transform));
         }
         return vo;
     }
@@ -162,11 +152,12 @@ public final class InspectorReflector {
 
     // ── 收集侧 ───────────────────────────────────────────────
 
-    /** 组装组件分组：折叠头（显示名/启用态/必需标志）+ 字段行（enabled 提升到分组头，不入行） */
+    /** 组装组件分组：折叠头（显示名/图标/启用态/必需标志）+ 字段行（enabled 提升到分组头，不入行） */
     private static ComponentInspectorVo collectComponent(Component component, boolean required) {
         ComponentInspectorVo vo = new ComponentInspectorVo();
         vo.component = component;
         vo.name = componentLabel(component.getClass());
+        vo.icon = componentIcon(component.getClass());
         vo.enabled = component.isEnabled();
         vo.required = required;
         vo.fields = new ArrayList<>();
@@ -323,13 +314,19 @@ public final class InspectorReflector {
         return TAG_OPTIONS;
     }
 
-    /** 组件显示名（@InsField 贴 TYPE，兜底类简单名） */
+    /** 组件头显示名（@InsHeader.label 贴 TYPE，空串兜底类简单名） */
     private static String componentLabel(Class<?> type) {
-        InsField label = type.getAnnotation(InsField.class);
-        if (label != null && !label.label().isBlank()) {
-            return label.label();
+        InsHeader header = type.getAnnotation(InsHeader.class);
+        if (header != null && !header.label().isBlank()) {
+            return header.label();
         }
         return type.getSimpleName();
+    }
+
+    /** 组件头图标名（@InsHeader.icon 贴 TYPE，未贴/空串无图标） */
+    private static String componentIcon(Class<?> type) {
+        InsHeader header = type.getAnnotation(InsHeader.class);
+        return header != null ? header.icon() : "";
     }
 
     // ── 字段清单构建 ─────────────────────────────────────────

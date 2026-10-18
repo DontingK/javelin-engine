@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 田字十字剖分：方形均分四格（Unity mesh 口径），四色面+深色描边 -->
+<path d="M2 2H8V8H2Z" fill="#4FC3F7" stroke="#37474F" stroke-linejoin="round"/>
+<path d="M8 2H14V8H8Z" fill="#81C784" stroke="#37474F" stroke-linejoin="round"/>
+<path d="M8 8H14V14H8Z" fill="#FFB74D" stroke="#37474F" stroke-linejoin="round"/>
+<path d="M2 8H8V14H2Z" fill="#BA68C8" stroke="#37474F" stroke-linejoin="round"/>
+</svg>

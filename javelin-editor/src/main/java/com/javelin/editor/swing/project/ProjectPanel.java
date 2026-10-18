@@ -1,6 +1,8 @@
 package com.javelin.editor.swing.project;
 
 import com.javelin.editor.JavelinEditor;
+import com.javelin.editor.file.FileType;
+import com.javelin.editor.file.FileTypeRegistry;
 import com.javelin.editor.menu.MenuPopupFactory;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.selection.EditorSelection;
@@ -45,7 +47,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -214,11 +215,17 @@ public class ProjectPanel extends JComponent implements EditorPanel {
 
             @Override
             public void mouseClicked(MouseEvent e) {
-                // 目录双击进入（等同左树选中该目录）；文件无动作（打开管线后置）
+                // 目录双击进入（等同左树选中该目录）；文件双击分发注册表打开
+                //（不可打开类型无动作，IconFileType canOpen=false）
                 if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
                     int index = entryRowAt(e);
-                    if (index >= 0 && entryModel.get(index).isDirectory()) {
-                        selectDirByPath(entryModel.get(index).getRelativePath());
+                    if (index >= 0) {
+                        ProjectTreeSnapshot.Node entry = entryModel.get(index);
+                        if (entry.isDirectory()) {
+                            selectDirByPath(entry.getRelativePath());
+                        } else {
+                            openEntry(entry);
+                        }
                     }
                 }
             }
@@ -493,23 +500,21 @@ public class ProjectPanel extends JComponent implements EditorPanel {
         return icon("folder");
     }
 
-    /** 条目图标裁决：目录走路径规则，文件按扩展名（.java=class、.json=json、其余=unknown） */
+    /** 条目图标裁决：目录走路径规则，文件查 FileTypeRegistry（未注册类型=unknown） */
     private static SvgIcon entryIcon(ProjectTreeSnapshot.Node node) {
         if (node.isDirectory()) {
             return dirIcon(node);
         }
-        String name = node.getName();
-        int dot = name.lastIndexOf('.');
-        if (dot > 0) {
-            String ext = name.substring(dot + 1).toLowerCase(Locale.ROOT);
-            if ("java".equals(ext)) {
-                return icon("class");
-            }
-            if ("json".equals(ext)) {
-                return icon("json");
-            }
+        FileType type = FileTypeRegistry.find(node.getName());
+        return icon(type != null ? type.icon() : "unknown");
+    }
+
+    /** 文件双击打开：分发 FileTypeRegistry（可打开类型执行 open，其余无动作） */
+    private static void openEntry(ProjectTreeSnapshot.Node entry) {
+        FileType type = FileTypeRegistry.find(entry.getName());
+        if (type != null && type.canOpen()) {
+            type.open(entry.getFile());
         }
-        return icon("unknown");
     }
 
     /** 分隔线色（UIManager 单点收口，SceneViewToolbar 同款键序） */

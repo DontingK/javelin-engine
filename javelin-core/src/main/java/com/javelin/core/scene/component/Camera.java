@@ -2,6 +2,7 @@ package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.inspector.InsField;
+import com.javelin.core.inspector.InsHeader;
 import com.javelin.core.inspector.InsLayerMask;
 import com.javelin.core.math.Color;
 import com.javelin.core.math.Rect;
@@ -26,6 +27,7 @@ import org.joml.Vector3f;
  * @since 1.0.0
  */
 @Reflective
+@InsHeader(label = "相机", icon = "camera")
 public class Camera extends Component {
 
     @InsField(label = "投影类型")
