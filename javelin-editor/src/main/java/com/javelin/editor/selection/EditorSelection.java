@@ -1,6 +1,5 @@
 package com.javelin.editor.selection;
 
-import com.javelin.core.obj.ObjectCache;
 import com.javelin.core.scene.Node;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.SceneSelectEvent;
@@ -10,16 +9,19 @@ import java.io.File;
 /**
  * 编辑器全局选中状态单源（菜单域基类上下文源，设计档 Editor_Menu_Design §3.2）。
  *
- * <p>场景树选中存 Node id（取用经 {@link ObjectCache} 弱引用反查），project 选中存
- * 文件/目录路径。写入方：前端经桥上报（场景树已接线）、创建命令自动选中、将来
- * 视口拾取；setSelectedNodeId 为收口发布点（SceneSelectEvent，见事件包）。</p>
+ * <p>场景树选中存 Node 引用（2026-10-18 全链引用化拍板：原「id + ObjectCache
+ * 弱引用反查」废弃——弱隔离名存实亡且场景实例会话常驻无泄漏差异，已删/换场景
+ * 的僵尸引用由消费方 getScene 归属校验兜底，DeleteMenuCommand 先例），project
+ * 选中存文件/目录路径。写入方：层级树点击上报、创建命令自动选中、将来视口拾取；
+ * setSelectedNode 为收口发布点（SceneSelectEvent，见事件包）——将来场景切换
+ * 命令落地时须置 null 收口。</p>
  *
  * @author javelin
  * @create 2026/9/28
  */
 public final class EditorSelection {
 
-    private static volatile Integer selectedNodeId;
+    private static volatile Node selectedNode;
     private static volatile File selectedPath;
 
     private EditorSelection() {
@@ -27,34 +29,24 @@ public final class EditorSelection {
     }
 
     /**
-     * 当前选中 Node。
-     *
-     * @return 无选中或对象已被回收时 null
-     */
-    public static Node getSelectedNode() {
-        Integer id = selectedNodeId;
-        return id == null ? null : ObjectCache.get(id);
-    }
-
-    /**
-     * 当前选中 Node id（场景树拉取回传前端对齐选中态用）。
+     * 当前选中 Node（引用直返；已删/换场景的僵尸引用由消费方归属校验兜底）。
      *
      * @return 无选中时 null
      */
-    public static Integer getSelectedNodeId() {
-        return selectedNodeId;
+    public static Node getSelectedNode() {
+        return selectedNode;
     }
 
     /**
      * 设置场景树选中（收口发布点）。
      *
-     * @param nodeId 选中 Node id，null 清除（前端上报/视口拾取调用）
+     * @param node 选中 Node，null 清除（树点击上报/创建命令/视口拾取调用）
      */
-    public static void setSelectedNodeId(Integer nodeId) {
-        selectedNodeId = nodeId;
+    public static void setSelectedNode(Node node) {
+        selectedNode = node;
         // 选中变更事件收口发布（本方法是唯一写入点：桥上报、创建命令自动选中、
         // 将来拾取都过此）；publish 任意线程可调（异步单线程泵分发）
-        EditorEventBus.publish(new SceneSelectEvent(nodeId));
+        EditorEventBus.publish(new SceneSelectEvent(node));
     }
 
     /**

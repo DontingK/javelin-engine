@@ -91,7 +91,7 @@ public class TransformWatchAppState extends AbsEditorAppState {
         if (differs(baseline, transform)) {
             // 变更：基线原地回写 + 同帧发布（Inspector 实时）+ 置脏（拖拽 = 未保存编辑）
             snapshot(transform, baseline);
-            EditorEventBus.publish(new NodeTransformChangeEvent(node.getId(),
+            EditorEventBus.publish(new NodeTransformChangeEvent(node,
                     transform.getLocalPosition(), transform.getLocalRotation(), transform.getLocalScale()));
             javelinEditor.getEditorScene().markDirty();
         }

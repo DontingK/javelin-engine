@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.dock;
 
 import com.javelin.editor.swing.panel.EditorPanel;
+import com.javelin.editor.swing.panel.EditorPanelSetup;
 import com.javelin.editor.swing.panel.PanelDescriptor;
 import com.javelin.editor.swing.panel.PanelRegistry;
 
@@ -21,10 +22,10 @@ import java.util.List;
  * <p>内容组件经 {@link DockRoot} 缓存按面板 id 取（factory 只造一次——关闭 =
  * detach 保留实例，面板内部状态不丢，Editor_Swing_Design §10-6）。切换走
  * {@link EditorPanel} onShow/onHide 生命周期（对齐 web DockPanelExpose 语义）。
- * 标签条显隐：多面板或含可关项必显示，且<b>一旦显示过就保持</b>（组曾是多标签
- * 停靠区，关闭到剩一个不可关面板也保留标签身份——2026-10-17 实测修正：关控制台
- * 后项目标签条误被"单面板不可关无缝"规则摘除）；天生单面板不可关（视口/属性）
- * 无缝——Editor_Swing_Design §6 的 viewport 特化接入位。</p>
+ * 标签条显隐：常显（2026-10-18 复拍板，Unity 口径——tab 头即面板身份、M5
+ * 拖拽停靠的句柄；推翻 M1「单面板不可关无缝」，层级/属性单面板组也带条），
+ * 唯一例外=视口组无缝——ViewportTabs 自绘 [Scene][Game] 标签条，组身份由其
+ * 承载，再加条即双条（Editor_Swing_Design §6 的 viewport 特化接入位）。</p>
  *
  * <p><b>关闭语义（M1）</b>：组内局部重排——树结构不动、DockRoot 不整树重建
  * （整树重挂会让画布经历 removeNotify→HWND 重建→交换链失效，"画布不
@@ -52,17 +53,10 @@ final class DockTabs extends JComponent {
         showActive();
     }
 
-    /** 多面板或单面板可关 → 显示条；单面板不可关（视口）→ 无缝 */
+    /** 标签条常显（2026-10-18 复拍板，Unity 口径）；唯一例外=视口组无缝（内部 ViewportTabs 自绘条） */
     private boolean stripVisible() {
-        if (model.getPanelIds().size() > 1) {
-            return true;
-        }
-        for (String panelId : model.getPanelIds()) {
-            if (root.isClosable(panelId)) {
-                return true;
-            }
-        }
-        return false;
+        List<String> panelIds = model.getPanelIds();
+        return !(panelIds.size() == 1 && EditorPanelSetup.VIEWPORT_PANEL_ID.equals(panelIds.get(0)));
     }
 
     /** 标签条重建（关闭面板后条目集变化——TabStrip 条目不可变，整条重建） */

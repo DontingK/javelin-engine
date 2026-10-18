@@ -3,7 +3,6 @@ package com.javelin.editor.menu.hierarchy;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.mesh.Mesh;
-import com.javelin.core.obj.ObjectCache;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.component.MeshRenderer;
@@ -67,19 +66,18 @@ public class CreatePlaneMenuCommand extends HierarchyMenuCommand {
 
     @Override
     public void execute() {
-        // 提交时快照父节点（Unity 语义：右键对象下创建；快照防执行帧选中漂移）
+        // 提交时快照父节点引用（Unity 语义：右键对象下创建；快照防执行帧选中漂移）
         Node parent = getSelectedNode();
-        Integer parentId = parent != null ? parent.getId() : null;
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
             LOGGER.warn("编辑器实例未创建，跳过创建节点（hierarchy.create.plane）");
             return;
         }
-        editor.submitTask(() -> create(editor, parentId));
+        editor.submitTask(() -> create(editor, parent));
     }
 
     /** 创建节点（引擎主线程帧边界执行，资产加载同线程） */
-    private static void create(JavelinEditor editor, Integer parentId) {
+    private static void create(JavelinEditor editor, Node parent) {
         EditorScene editorScene = editor.getEditorScene();
         GameScene gameScene = editorScene.getGameScene();
         if (gameScene == null) {
@@ -101,13 +99,12 @@ public class CreatePlaneMenuCommand extends HierarchyMenuCommand {
         MeshRenderer renderer = node.addComponent(MeshRenderer.class);
         renderer.setMesh(mesh);
         renderer.setMaterial(new Material(shader));
-        Node parent = parentId != null ? ObjectCache.get(parentId) : null;
         if (parent != null && parent.getScene() == gameScene) {
             node.getTransform().setParent(parent.getTransform());
         } else {
             gameScene.add(node);
         }
-        EditorSelection.setSelectedNodeId(node.getId());
+        EditorSelection.setSelectedNode(node);
         LOGGER.info("创建节点: {} (id={})", node.getName(), node.getId());
     }
 

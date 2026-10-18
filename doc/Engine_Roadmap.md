@@ -117,6 +117,18 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 前端工程随之整体删除——代码库去 Web 化收官。详见
 Editor_Swing_Design §7.1/§9/§11。
 
+进度（2026-10-18 落地，待验收）：**M2 首面板——层级面板 Swing 实装**：`swing/hierarchy`
+两件（HierarchyPanel + SceneTreeSnapshot），原 /scene/tree 桥通道的 Java 直调形态——
+submitTask 帧边界组装快照 → invokeLater EDT 换树；四事件分工刷新（scene.changed 重拉 /
+dirty 置星 / nodeRenamed 定点 / select 高亮——本面板为 scene.select 首个消费方）；
+选中 EditorSelection 双向同步 + 展开态按节点引用跨刷新恢复；右键 ctx.hierarchy
+先落选中再弹菜单（Unity 行带口径）。实装拍板与坑（TreeModel 取舍 / setRoot 清选中
+陷阱 / JTree 行为源码查证）见 Editor_Swing_Design §7.5。同日拍板**全链引用化**：
+桥清退后「id + ObjectCache 弱引用反查」句柄链废弃（弱隔离名存实亡——update
+零调用方、消费方本就强引用长持，已删检测实际靠 getScene 归属校验），选中/三事件/
+Create 命令/树回查键全部改 Node 引用，ObjectCache 退役；快照拷贝本体保留
+（跨线程一致性，与句柄问题正交）。
+
 ---
 
 ## 3. 三期：光照
@@ -139,7 +151,7 @@ Editor_Swing_Design §7.1/§9/§11。
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 待验收——全链路纯 JVM）；剩物体拾取（ID-buffer 后置） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 待验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-18 待验收，Editor_Swing_Design §7.5）**；剩物体拾取（ID-buffer 后置） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

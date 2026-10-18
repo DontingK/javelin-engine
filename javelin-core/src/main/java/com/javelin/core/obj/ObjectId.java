@@ -37,7 +37,6 @@ public abstract class ObjectId {
      */
     public ObjectId() {
         id = ID_GENERATOR.incrementAndGet();
-        ObjectCache.add(this);
     }
     
     /**

@@ -19,8 +19,9 @@ import java.util.Objects;
  * 场景变更检测状态（快照 diff 模型，用户拍板 2026-09-30）。
  *
  * <p>替代「写入方显式发通知」：写入方（命令/Inspector/脚本/引擎侧）只管改场景，
- * 本状态按节流周期对用户场景做单次 DFS 快照（nodeId → name + 有序 childIds + layer/tags，
- * 纯数据不持 Node 引用，无弱引用回收坑）与上次快照 diff，自动发现变更并发布
+ * 本状态按节流周期对用户场景做单次 DFS 快照（node 引用 + name + 有序 childIds
+ * + layer/tags——快照仅在引擎线程内 diff 用，不跨线程外泄；2026-10-18 引用化
+ * 拍板后持引用无虞）与上次快照 diff，自动发现变更并发布
  * ——「漏发通知 = 树静默不刷新」的纪律 bug 从机制上消灭，core 零侵入。
  * 单次 DFS 全收集替代分层递进检查：数量没变结构也可能变（挪动），且比较成本
  * 远小于遍历成本，分层短路只在「完全没变」的帧省比较、不省遍历。</p>
@@ -84,7 +85,7 @@ public class SceneWatchAppState extends AbsEditorAppState {
         for (Transform child : node.getTransform()) {
             childIds.add(child.getNode().getId());
         }
-        out.put(node.getId(), new NodeSnap(node.getName(), childIds, layerOf(node), tagNames(node)));
+        out.put(node.getId(), new NodeSnap(node, node.getName(), childIds, layerOf(node), tagNames(node)));
         for (Transform child : node.getTransform()) {
             collectNode(child.getNode(), out);
         }
@@ -130,7 +131,7 @@ public class SceneWatchAppState extends AbsEditorAppState {
                 if (renames == null) {
                     renames = new ArrayList<>();
                 }
-                renames.add(new NodeRenamedEvent(entry.getKey(), snap.name));
+                renames.add(new NodeRenamedEvent(snap.node, snap.name));
             }
         }
         if (!structureChanged && !metaChanged && renames == null) {
@@ -147,14 +148,16 @@ public class SceneWatchAppState extends AbsEditorAppState {
         }
     }
 
-    /** 节点快照（纯数据：name 可为 null，diff 用 Objects.equals 判等） */
+    /** 节点快照（引擎线程内部 diff 数据：node 引用供事件发布，name 可为 null 判等用） */
     private static final class NodeSnap {
+        private final Node node;
         private final String name;
         private final List<Integer> childIds;
         private final int layer;
         private final List<String> tags;
 
-        private NodeSnap(String name, List<Integer> childIds, int layer, List<String> tags) {
+        private NodeSnap(Node node, String name, List<Integer> childIds, int layer, List<String> tags) {
+            this.node = node;
             this.name = name;
             this.childIds = childIds;
             this.layer = layer;

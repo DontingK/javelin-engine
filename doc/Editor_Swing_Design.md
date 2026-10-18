@@ -4,7 +4,8 @@
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
 > JVM、无 CEF 进程与 Vite dev server 依赖（落地待验收，见 §9 M6 行注）。
-> M2~M4 面板占位待实装。
+> **M2 层级面板已实装**（2026-10-18，待验收——实装拍板与坑见 §7.5）；控制台与
+> M3/M4 面板占位待实装。
 > 本文是编辑器 UI 栈从 JCEF/Web 迁往纯 Swing + FlatLaf 的重构总纲。后续里程碑落地随进度
 > 在此档更新版本段与验收状态。
 >
@@ -172,7 +173,7 @@ public interface EditorPanel {
 |------|------|
 | `DockRoot`（JComponent） | 持布局树，树→组件递归实例化；`rebuild()` 整树重排（M1 粗粒度：结构变化即重挂，面板组件经 detach 缓存复用不重建） |
 | `DockSplitPane` | SplitNode 渲染，包装 JSplitPane（非连续布局，拖完才 relayout——规避逐像素 swapchain 重建，§10-5） |
-| `DockTabs` | TabNode 渲染：自绘标签条（JComponent.paintComponent，贴行紧凑、tab 高 24 对齐场景视图工具栏规格）+ 内容区 BorderLayout |
+| `DockTabs` | TabNode 渲染：自绘标签条（JComponent.paintComponent，贴行紧凑、tab 高 24 对齐场景视图工具栏规格）+ 内容区 BorderLayout。标签条常显（2026-10-18 复拍板，推翻 M1「单面板不可关无缝」——层级/属性单面板组也带 tab 头，Unity 口径）；唯一例外=视口组无缝（ViewportTabs 自绘 [Scene][Game] 条，再加即双条） |
 | `DockTab` 标签 | 标题 + 关闭 ×（closable）+ 左图标（jsvg） |
 
 - 间距守 §"编辑器 Web UI 设计规范"同源的紧凑口径：常驻布局间距 ≤2px（浮层菜单例外）——
@@ -239,7 +240,7 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 
 | web 面板 | Swing 实装 | 数据源变化 |
 |----------|-----------|-----------|
-| HierarchyPanel | `JTree` + 自定义 TreeModel/Renderer | `/scene/tree` 帧 pull → 直调 SceneModel（submitTask 帧队列取树快照，EDT 更新 model） |
+| HierarchyPanel | `JTree` + 自定义 Renderer | ✅ 2026-10-18 实装（§7.5）：`SceneTreeSnapshot` 直调 EditorScene——submitTask 帧边界组装快照、invokeLater EDT 换树；四事件分工刷新 + 选中 EditorSelection 双向同步 |
 | ConsolePanel | `JList` + DefaultListModel（HTML 渲染列 styled） | ConsoleOut 输出通道改 append（EDT hop），build.out.* 同收口 |
 | ProjectPanel | 左 `JTree` + 右 `JList`（图标+名称）+ 面包屑 JButton 行 | `/project/tree` 逻辑抽 service 直调（纯 IO 可后台线程）；选中直写 EditorSelection |
 | EntityInspectorPanel | 表单自绘（两列：label 列 + 控件列，Inspector_Design 通道保留） | `/inspector/info`/`setValue` 桥 → InspectorReflector 直调 |
@@ -259,7 +260,59 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 ### 7.4 实装次序（按风险递增）
 
 M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表单最重，GUID_ASSET 三态只读
-等通道逐项对齐 Inspector_Design）。每面板迁移=独立批次，迁一个验一个，桥方法随批废弃。
+等通道逐项对齐 Inspector_Design）。每面板迁移=独立批次，迁一个验一个——桥已随 M6
+提前整包清退，各面板即 Java 直调全新实装（§7.1）。层级 2026-10-18 先落（§7.5），
+控制台待续。
+
+### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地待验收）
+
+组件落位 `swing/hierarchy` 两件：`HierarchyPanel`（JTree 封装 + 渲染 + 交互）与
+`SceneTreeSnapshot`（原 /scene/tree 桥 VO 的直调形态：ready/sceneName/dirty + 节点
+投影 name·active·children，NodeSnap.name 可变供定点改名）。实装拍板与坑：
+
+1. **TreeModel 取舍**：DefaultTreeModel + DefaultMutableTreeNode 包装（userObject =
+   NodeSnap / 快照本体），不写全自定义 TreeModel——增删/改名通知机制现成
+   （nodeChanged / structureChanged），无平行父子结构要自维护。§7.2 原计划行
+   「自定义 TreeModel」按此收窄为「自定义 Renderer」。
+2. **快照通道**：`build` 经 submitTask 帧边界组装、`invokeLater` 回传 EDT 整体
+   换树。桥时代「CompletableFuture + 2s await 阻塞取值」形态废弃（EDT 不可阻塞）；
+   未就绪（ready=false：启动竞态 / loadScene 失败）Swing Timer 0.5s × 30 次重试
+   （原 web 面板口径平移）。时序红利：面板构造于 `initialize()` 建窗期、首拉任务
+   在首帧消费——晚于 loadScene，正常路径首拉即 ready，重试仅兜底。
+3. **选中对齐通道升级**：web 时代外源选中（创建命令自动选中等）靠重拉携带
+   selectedNodeId 对齐；Swing 侧改订 scene.select 事件即时高亮 +
+   scrollPathToVisible（顺带展开父链——创建命令后新节点自动可见，不等 0.25s
+   重拉）。程序化同步期抑制选中监听回写，防事件回声。
+4. **换树陷阱（setRoot 清选中）**：model.setRoot 触发 valueChanged（选中被清），
+   换树期必须抑制回写——否则向 EditorSelection 单源误报 null，随后高亮虽恢复、
+   单源已丢真值。展开态按节点引用换树前收集 / 换树后恢复（结构命令刷新不折叠）。
+5. **JTree 行为补齐（JDK 源码查证 BasicTreeUI）**：默认右键不改选中
+   （selectPathForEvent 仅左键分支）、点空白不清选中（handleSelection 对行带外
+   直接 return）、点展开手柄只切换不选中。按 Unity 口径补齐：右键行带命中即选中
+   （y 落行高即命中，x 不限——含手柄与行右空白）+ 先落选中再弹 ctx.hierarchy
+   域菜单（MenuPopupFactory 统一入口，enabled 求值读 EditorSelection 防旧态）；
+   右键 / 左键点空白 = 清除选中。
+6. **渲染**：全行 box 图标 14px（原 web 口径）；场景根 = 场景名 + 脏星标（live
+   dirty 标志——scene.dirty 置位 repaint 即亮、重拉以快照 dirty 覆盖熄灭）；
+   inactive 灰显（快照携带自身 active；SceneWatch 尚未检测 active 翻转，灰显随
+   结构性变更顺带生效，active 检测落地时补刷新链）。
+7. **订阅生命周期**：构造期一次订阅（面板经 DockRoot 缓存常驻，无退订路径，
+   编辑器同寿）；回调一律 invokeLater 跳 EDT（§7.3 规则）。事件分工沿用并扩充：
+   scene.changed 重拉整树 / scene.dirty 置星 / scene.nodeRenamed 定点改名 /
+   **scene.select 高亮对齐（本面板为首个消费方）**。
+8. **全链引用化（2026-10-18 当日拍板，用户发起）**：桥清退后「id 值 +
+   ObjectCache 弱引用反查」的句柄链整体废弃——EditorSelection 存 volatile
+   Node（setSelectedNode）、三事件（select / renamed / transformChanged）引用
+   载荷、Create 命令父节点引用快照（去 ObjectCache 复原）、NodeSnap 携 Node
+   引用作回查键（树索引 IdentityHashMap）。决策依据：弱隔离早已名存实亡——
+   引擎侧消费方（Gizmo/TransformWatch）收到事件即 volatile Node 强引用长持、
+   ObjectCache.update() 零调用方清理从未跑过；已删检测实际一直靠 getScene
+   归属校验兜底（DeleteMenuCommand 先例）；场景实例会话常驻无泄漏差异。
+   **快照拷贝本体保留**——跨线程一致性（EDT 不活读引擎对象图）与句柄问题
+   正交，NodeSnap 引用仅作回查键、EDT 不读其字段。ObjectCache 随本批退役
+   （core 侧零消费方，ObjectId.id 保留作日志/调试口径）；Inspector 三 VO 的
+   id 锚点无运行时消费方，M4 实装时随引用化改造。将来场景切换命令落地时须
+   setSelectedNode(null) 收口。
 
 ## 8. 扩展点与插件预留
 
@@ -276,7 +329,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
 | 期 | 内容 | 验收标准 |
 |----|------|----------|
 | **M1 窗口+Dock 骨架（本批）** | FlatLaf Dark 初始化；MainFrame 重构（Window 契约保持）；DockRoot/DockSplitPane/DockTabs + 默认布局树；六面板占位（PanelRegistry+EditorPanelSetup）；ViewportTabs 接 CanvasSurface + Scene 工具栏 Swing 化；JMenuBar 挂载；StatusBar 简版；`/render/rce` 等废除清单落地 | 用户实测：编辑器启动渲染正常；视口 resize/最大化/分割条拖动全链路正常；右键菜单、顶部菜单可用；关闭流程正常 |
-| M2 | 层级、控制台实装；`/scene/tree`/console 桥废弃 | 层级树操作（选/右键命令创建删除）与现状等价；控制台收 build 日志 |
+| M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地（2026-10-18 待验收，§7.5）；控制台待续** |
 | M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价 |
 | M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价 |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |

@@ -9,7 +9,7 @@ import java.util.List;
  * @create 2026/10/9
  **/
 public class ComponentInspectorVo {
-    /** 组件 id（ObjectCache 反查锚点；将来组件级操作——删除/重置等的定位符） */
+    /** 组件 id（M4 实装时随引用化改造为直接持引用——2026-10-18 全链引用化拍板，暂无消费方） */
     public int objId;
     /** 组件显示名（@InsField 贴 TYPE 的 label，兜底类简单名） */
     public String name;

@@ -70,7 +70,7 @@ public class DeleteMenuCommand extends HierarchyMenuCommand {
             return;
         }
         gameScene.remove(target);
-        EditorSelection.setSelectedNodeId(null);
+        EditorSelection.setSelectedNode(null);
         LOGGER.info("删除节点: {} (id={})", target.getName(), target.getId());
     }
 }

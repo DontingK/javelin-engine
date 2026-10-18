@@ -158,7 +158,9 @@
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
-| 层级树（/scene/tree 帧通道 + scene.changed 增删刷新 + 选中单源 + accent 高亮 + dirty 星标镜像） | ✅ | ✅ 用户实测（2026-10-04 / 2026-10-11） |
+| 层级树（/scene/tree 帧通道 + scene.changed 增删刷新 + 选中单源 + accent 高亮 + dirty 星标镜像） | 🪦 web 实装已随 2026-10-18 去 Web 化清退 | 历史验收（2026-10-04 / 2026-10-11）；Swing 版见下行 |
+| 层级树 Swing 实装（HierarchyPanel：SceneTreeSnapshot submitTask 帧快照→EDT 换树 + scene.changed/dirty/nodeRenamed/select 四事件分工 + 展开态按引用恢复 + 右键 ctx.hierarchy 先落选中） | ✅ | ⏳ 待验收（2026-10-18，Editor_Swing_Design §7.5） |
+| 选中/事件链全链引用化（EditorSelection 存 volatile Node + 三事件引用载荷 + Create 命令引用快照 + NodeSnap 引用回查键；ObjectCache 退役、快照拷贝本体保留） | ✅ | ⏳ 待验收（2026-10-18 拍板，Editor_Swing_Design §7.5-8） |
 | Scene/Game 视图切换（sceneModel 双模式 volatile 直写 + Game 页 resize 画布跟随） | ✅ | ⏳ 待验收（2026-10-11） |
 | Transform 变更检测（TransformWatchAppState 帧级快照 diff → scene.nodeTransformChanged + 置脏） | ✅ | ⏳ 待验收（2026-10-06；触发场景=Gizmo 拖拽，拖拽本体已验 2026-10-14） |
 | GAME 模式输入隔离（飞行 / Gizmo 输入仍活） | ⬜ 留白 | — |
@@ -234,6 +236,8 @@
 | ProjectFrame / ProjectLoadingFrame 迁 Swing | 2026-10-17 | 启动器建项目/最近列表打开/手动路径打开 → 加载窗进度 → 编辑器进主窗 |
 | PackDialog 迁 Swing（含 /build 桥退役、CEF Dialog/CefFrame 删除） | 2026-10-17 | 构建 > 打包：JAR/AOT 分流（构建模式行随形态显隐）+ 启动场景默认选中 + 日志实时滚底 + 失败弹错 + 产物双击可玩 |
 | jcef 桥包 / jcefmaven / jackson 整体清退（事件包桥语义剥离、Inspector VO 迁包） | 2026-10-18 | 编辑器全链回归：启动 → 开项目 → 编辑器主窗 → 构建打包，全程无 CEF 进程、无 Vite dev server；Inspector 反射通道（InspectorReflector + 三 VO）单测级自查 |
+| M2 层级面板 Swing 实装（HierarchyPanel） | 2026-10-18 | 树展示/点选/右键创建删除（含场景根语境）；改名定点刷新；保存后星标熄灭；展开态跨命令刷新保持；创建后新节点自动选中可见 |
+| 全链引用化（选中/三事件/命令/树回查键 + ObjectCache 退役） | 2026-10-18 | 与层级面板同场景回归：创建/删除/改名/Gizmo 跟随选中链路全通即证引用化无回归 |
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 

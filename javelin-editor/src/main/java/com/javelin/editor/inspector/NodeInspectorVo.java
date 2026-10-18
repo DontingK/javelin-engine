@@ -17,7 +17,7 @@ import java.util.List;
 public class NodeInspectorVo {
     /** 就绪标记（false 时其余字段无效，面板重试或清空） */
     public boolean ready;
-    /** 节点 id（ObjectCache 反查锚点） */
+    /** 节点 id（M4 实装时随引用化改造为直接持引用——2026-10-18 全链引用化拍板，暂无消费方） */
     public int objId;
     /** 节点名 */
     public String nodeName;

@@ -9,8 +9,8 @@ import com.javelin.editor.selection.EditorSelection;
  * 基类与场景树命令同包（menu.hierarchy），命令随场景树任务落地。
  *
  * <p>提供当前选中 Node 上下文——来源是 Java 侧全局选中状态单源
- * {@link EditorSelection}（场景选中存 Node id，取用时经 ObjectCache 反查；
- * 写入方为前端经桥上报，随场景树任务接线）。</p>
+ * {@link EditorSelection}（场景选中存 Node 引用，2026-10-18 全链引用化拍板；
+ * 写入方为层级树点击上报/创建命令自动选中）。</p>
  *
  * @author javelin
  * @create 2026/9/28
