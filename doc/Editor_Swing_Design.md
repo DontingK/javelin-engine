@@ -4,8 +4,10 @@
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
 > JVM、无 CEF 进程与 Vite dev server 依赖（落地待验收，见 §9 M6 行注）。
-> **M2 层级面板已实装**（2026-10-18，待验收——实装拍板与坑见 §7.5）；控制台与
-> M3/M4 面板占位待实装。
+> **M2 层级面板已实装**（2026-10-18，待验收——实装拍板与坑见 §7.5）；**M3 项目面板
+> 已实装**（2026-10-18，待验收——§7.6）；**M4 属性面板已实装**（2026-10-18，
+> **用户实测验收通过**——实装拍板见 Inspector_Design v0.4 + §7.7）；控制台与视口
+> 工具栏收口待实装。
 > 本文是编辑器 UI 栈从 JCEF/Web 迁往纯 Swing + FlatLaf 的重构总纲。后续里程碑落地随进度
 > 在此档更新版本段与验收状态。
 >
@@ -243,7 +245,7 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 | HierarchyPanel | `JTree` + 自定义 Renderer | ✅ 2026-10-18 实装（§7.5）：`SceneTreeSnapshot` 直调 EditorScene——submitTask 帧边界组装快照、invokeLater EDT 换树；四事件分工刷新 + 选中 EditorSelection 双向同步 |
 | ConsolePanel | `JList` + DefaultListModel（HTML 渲染列 styled） | ConsoleOut 输出通道改 append（EDT hop），build.out.* 同收口 |
 | ProjectPanel | ✅ 2026-10-18 实装（§7.6）：左 `JTree` + 右 `JList`（图标+名称）+ 面包屑 JButton 行 | `ProjectTreeSnapshot` 直调（纯 IO 后台线程组装）；选中直写 EditorSelection |
-| EntityInspectorPanel | 表单自绘（两列：label 列 + 控件列，Inspector_Design 通道保留） | `/inspector/info`/`setValue` 桥 → InspectorReflector 直调 |
+| EntityInspectorPanel | ✅ 2026-10-18 实装（§7.7）：`InspectorPanel` 节点头+组件分组+FieldRowFactory 类型映射（控件契约 FieldEditor/FieldCommit，widget 七件——数字输入/下拉/多段行/折叠面板/色块拾色/层掩码勾选/资产只读） | InspectorReflector 直调（三 VO 引用化随本批）；事件分工见 Inspector_Design §6 |
 | SceneViewportPanel | ViewportTabs 工具栏（§6） | `/gizmo` setTool/setSpace → 直调 TransformGizmoAppState 镜像（static volatile 口径不变） |
 | GameViewportPanel | ViewportTabs 标签占位 | setSceneModel 直调 |
 
@@ -262,7 +264,8 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表单最重，GUID_ASSET 三态只读
 等通道逐项对齐 Inspector_Design）。每面板迁移=独立批次，迁一个验一个——桥已随 M6
 提前整包清退，各面板即 Java 直调全新实装（§7.1）。层级 2026-10-18 先落（§7.5），
-项目面板同日次落（§7.6），控制台待续。
+项目面板同日次落（§7.6），属性面板同日三落（§7.7 + Inspector_Design v0.4）；控制台
+与视口工具栏收口待续。
 
 ### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地待验收）
 
@@ -347,6 +350,64 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
    setDividerLocation 不生效，DockSplitPane 同款坑）+ 左树最小宽 100px（分割条
    左界钳制源）。原 web「复用 SplitPanel」之说随迁移作废。
 
+### 7.7 属性面板实装注记（M4，2026-10-18 落地待验收）
+
+组件落位 `swing/inspector` 两层：面板层（InspectorPanel 主面板 / NodeHeaderPanel
+节点头 / ComponentSection 组件分组 / FieldRowFactory 类型映射 + FieldEditor 控件
+契约 + FieldCommit 提交回调）与 `widget` 控件层七件（JeNumberInput / JeTextInput /
+JeSelect / VectorRow / CollapsiblePanel / ColorField / LayerMaskField /
+GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即本批「封装控件与折叠
+面板」落点）。实装拍板与坑（通道细则在 Inspector_Design v0.4）：
+
+1. **数据链复用+引用化收口**：反射/VO 全复用（InspectorReflector v0.1~v0.3 Web 期
+   产物，零改动接入），本批把三 VO 按 2026-10-18 引用化拍板收口——
+   NodeInspectorVo/ComponentInspectorVo 的 objId → node/component 引用直持、
+   InspectorFieldVo 删宿主锚点（宿主=所在分组）；apply 本就收 ObjectId 引用入参
+   （桥时代 id 反查环节消亡）。
+2. **读写同走帧队列**：较 §7.3 基线更严——Inspector 写的非 volatile 引擎字段
+   （setter 普通字段写）不满足「EDT 直写安全」前提，回写也走 submitTask 帧边界
+   （读写同队列串行不交错）；markDirty 随回写任务在引擎线程补调（原桥层职责
+   收口，净变脏翻转沿保证无事件风暴）。
+3. **归属校验双锚**：拉取与回写都在引擎线程校验归属——比对对象须为
+   `getEditorScene().getGameScene()`（GameScene 本体，TransformWatchAppState 先例照抄）；
+   首版误比 getEditorScene()（EditorScene 包装器）恒不等 → 面板恒空白零报错
+   （2026-10-18 运行实锤修正）——僵尸选中清面板、僵尸提交静默丢弃（引用化拍板
+   的兜底口径，DeleteMenuCommand 先例）。
+4. **NodeTransformChangeEvent 首个消费方**：Gizmo 拖拽帧级推送 → Transform 三行
+   定点刷新（不再走 Web 版防抖 150ms 重拉整面板）；四元数→欧拉 getEulerAnglesXYZ
+   与收集侧 serialize 同口径；防回声=控件「值等价跳过」+「编辑中跳过」双重闸门
+   （面板自己写 TRS 引发的 Watch 事件回来值相同即静默）。
+5. **编辑保护**：重建（scene.changed 重拉）前查任一控件编辑中（焦点内且文本已
+   改）→ pendingRefresh 挂起，提交收尾补拉——防 SceneWatch 检出自己回写的改名
+   事件重拉吞掉正在输入的 name。组件折叠态按组件名跨重建记忆（重拉不丢折叠意图）。
+6. **COLOR 控件拍板（2026-10-18）**：色块 + JColorChooser 拾色（Swing 内置、观感
+   最近 Unity）；alpha 不进拾色器保留原值；模态对话框不触发 Canvas reparent 无
+   交换链风险。
+7. **无就绪重试**：选中 null 是正常态非未就绪（区别于层级面板 ready 机制）——
+   占位「未选中任何对象」，无 Timer。
+8. **失败提示通道**：TipException（UI 钳制前置后基本不可达）走状态栏——
+   `MainFrame.getStatusBar()` 本批新增（原 statusBar 无公开入口）。
+9. **面板内容容器须实现 Scrollable（2026-10-18 实测实锤）**：普通 JPanel 作
+   JScrollPane 视图会被 JViewport 双向拉伸——高度被拉到视口高（BoxLayout 把
+   多余空间摊给各组件=大片间隔）、宽度按单行 preferred（FlowLayout 的
+   preferred 不换行，VEC3/RECT 行超宽即出水平滚动条）。修=内容容器
+   `ScrollableContent`：tracksViewportWidth=true（宽度钉视口——控件收缩/
+   VectorRow 换行，永不水平滚）+ tracksViewportHeight=false（高度按 preferred
+   不占满，垂直滚）+ 水平条策略 NEVER 双保险。教训：**JScrollPane 里的自绘
+   内容面板，凡宽度自适应/高度不拉伸的需求都要 Scrollable——JViewport 对非
+   Scrollable 视图的行为是「双向拉伸到视口」，与直觉相反**。
+10. **验收期 UI 打磨与两坑（2026-10-18 用户实测迭代）**：①AWT 鼠标事件
+   （press/enter/exit 全族）不冒泡——target 是子组件时容器监听收不到，折叠头
+   的点击切换/hover 须逐组件挂（header/箭头/标题）；②**结构不同的行不能共享
+   一个 GridBag**——gridx 列跨行共享，图标列被 label 撑宽/勾选列与下拉列混权
+   （节点头两行三列/四列混排实锤），修=外层只留「图标占两行+右列」两格、各行
+   内部独立布局；③取色键先查 jar 实证再取（FlatLightLaf 无
+   TabbedPane.tabAreaBackground——取之落空回退同色=分层从未生效两轮白改），
+   分层终态=头 Panel.background 灰/内容区提亮 Button.background（FlatLaf 自身
+   的灰底/控件浮色语言）；④VectorRow 等分自适应（GridBag 等权列，Flow 恒
+   preferred 挤左废弃）+ RECT 四段两行 X/Y+W/H（用户拍板）；⑤节点图标 36px
+   占两行（用户定尺寸）；⑥折叠组整四周 1px 边框卡片化。
+
 ## 8. 扩展点与插件预留
 
 1. **面板贡献**：`PanelRegistry.register` + `MenuRegistry`「窗口」域（M5 随恢复命令一起落
@@ -364,7 +425,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
 | **M1 窗口+Dock 骨架（本批）** | FlatLaf Dark 初始化；MainFrame 重构（Window 契约保持）；DockRoot/DockSplitPane/DockTabs + 默认布局树；六面板占位（PanelRegistry+EditorPanelSetup）；ViewportTabs 接 CanvasSurface + Scene 工具栏 Swing 化；JMenuBar 挂载；StatusBar 简版；`/render/rce` 等废除清单落地 | 用户实测：编辑器启动渲染正常；视口 resize/最大化/分割条拖动全链路正常；右键菜单、顶部菜单可用；关闭流程正常 |
 | M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地（2026-10-18 待验收，§7.5）；控制台待续** |
 | M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价。**项目面板已落地（2026-10-18 待验收，§7.6）；视口工具栏收口待续** |
-| M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价 |
+| M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价。**已落地并验收（2026-10-18 用户实测通过，§7.7 + Inspector_Design v0.4）** |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |
 | M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，待验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
 

@@ -58,6 +58,13 @@ public class MainFrame extends JFrame implements Window {
         return instance;
     }
 
+    /**
+     * 状态栏（提示通道；create 之前为 null）。
+     */
+    public StatusBar getStatusBar() {
+        return statusBar;
+    }
+
     @Override
     public synchronized void create() {
         if (created()) {

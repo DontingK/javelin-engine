@@ -10,9 +10,7 @@ import java.util.List;
  * @create 2026/10/9
  **/
 public class InspectorFieldVo {
-    /** 字段宿主对象 id（Node/Component，回写锚点） */
-    public int objId;
-    /** 字段名（反射定位宿主上的字段） */
+    /** 字段名（反射定位宿主上的字段；宿主 = 所在 ComponentInspectorVo.component） */
     public String fieldName;
     /** 显示名（@InsField.label()，空串兜底字段名） */
     public String name;

@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.panel;
 
 import com.javelin.editor.swing.hierarchy.HierarchyPanel;
+import com.javelin.editor.swing.inspector.InspectorPanel;
 import com.javelin.editor.swing.project.ProjectPanel;
 import com.javelin.editor.swing.viewport.ViewportTabs;
 import com.javelin.editor.window.cef.CanvasSurface;
@@ -12,11 +13,11 @@ import com.javelin.editor.window.cef.CanvasSurface;
  * <p>M1 骨架：五占位 + 视口真身。viewport 即视口直挂通道（单 Canvas 不
  * reparent，§6）；层级面板已随 M2 实装（HierarchyPanel——原 /scene/tree 桥
  * 通道的 Java 直调形态）；项目面板已随 M3 实装（ProjectPanel——原
- * /project/tree 桥通道的纯 IO 直调形态）；其余面板占位，随里程碑逐个替换
- * factory 为实装组件。closable 口径（2026-10-17 拍板）：仅控制台可关，恢复
- * 入口整体后置 M5「窗口」域。标签条口径（2026-10-18 复拍板）：常显、视口组
- * 除外——原「单面板不可关即无缝」条款作废（Unity 口径，tab 头即面板身份，
- * 见 DockTabs）。</p>
+ * /project/tree 桥通道的纯 IO 直调形态）；属性面板已随 M4 实装
+ * （InspectorPanel——InspectorReflector 直调）；仅控制台占位（M2 收口）。
+ * closable 口径（2026-10-17 拍板）：仅控制台可关，恢复入口整体后置 M5「窗口」
+ * 域。标签条口径（2026-10-18 复拍板）：常显、视口组除外——原「单面板不可关
+ * 即无缝」条款作废（Unity 口径，tab 头即面板身份，见 DockTabs）。</p>
  *
  * @author javelin
  * @create 2026/10/17
@@ -61,7 +62,7 @@ public final class EditorPanelSetup {
                 .build());
         PanelRegistry.register(PanelDescriptor.of("inspector", "属性")
                 .minimumSize(260, 120)
-                .factory(() -> new PlaceholderPanel("属性面板", "M4"))
+                .factory(InspectorPanel::new)
                 .build());
     }
 }

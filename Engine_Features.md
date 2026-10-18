@@ -165,12 +165,14 @@
 | Transform 变更检测（TransformWatchAppState 帧级快照 diff → scene.nodeTransformChanged + 置脏） | ✅ | ⏳ 待验收（2026-10-06；触发场景=Gizmo 拖拽，拖拽本体已验 2026-10-14） |
 | GAME 模式输入隔离（飞行 / Gizmo 输入仍活） | ⬜ 留白 | — |
 
-### 3.4 Inspector 面板（inspector / web）
+### 3.4 Inspector 面板（inspector / Swing）
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
 | v0.1 节点头五件套（name/active/layer/tag）+ Transform 字段行 + Tag/Layer 下拉编辑 | ✅ | ✅ 用户实测（2026-10-11） |
 | v0.2 Camera 组件接入 + ENUM/COLOR/RECT/LAYER_MASK 类型通道 + 星标即时化（scene.dirty） | ✅ | ⏳ 待验收（2026-10-11） |
+| v0.3 GUID_ASSET 资产引用三态只读 + MeshRenderer 组件接入 | ✅ | ✅ 随 M4 Swing 版面验收销账（2026-10-18） |
+| v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -227,7 +229,7 @@
 
 | 项 | 落地 | 验收触发场景 |
 |----|------|-------------|
-| Inspector v0.2（Camera 组件 / 类型通道 / 星标即时化） | 2026-10-11 | 选中相机节点改参数；改任意属性星标即时亮 |
+| Inspector v0.2（Camera 组件 / 类型通道 / 星标即时化） | 2026-10-11 | ~~待实测~~ 随 M4 Swing 版面验收销账（2026-10-18，Web 面板已删无独立验收面） |
 | Scene/Game 视图切换 | 2026-10-11 | 切 GAME 页看运行画面 + 窗口 resize |
 | hierarchy.create.camera | 2026-10-11 | 层级右键建摄像机（Main Camera / 原点 / 默认参） |
 | SceneImporter 场景导入 | 2026-10-11 | 保存场景后核对 Library 重导产物 |

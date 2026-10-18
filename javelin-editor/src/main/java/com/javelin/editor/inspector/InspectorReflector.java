@@ -48,7 +48,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * @InsRotation 才按旋转展示。</p>
  *
  * <p>线程约束：须在引擎主线程执行（经 JavelinEngine.submitTask 帧边界提交，
- * 由 InspectorMethod 保证——桥线程与 mainLoop 的场景访问无竞争）。</p>
+ * 由 M4 Swing 属性面板保证——面板读写均走帧队列，与 mainLoop 的场景访问
+ * 串行无竞争）。</p>
  *
  * <p>v0.2 收集面 = 节点头（name/active/layer/tags）+ 组件白名单
  * （{@link #INSPECTABLE_COMPONENTS}，v0.2 放开 Camera，v0.3 放开 MeshRenderer）
@@ -101,7 +102,7 @@ public final class InspectorReflector {
     public static NodeInspectorVo collect(Node node) {
         NodeInspectorVo vo = new NodeInspectorVo();
         vo.ready = true;
-        vo.objId = node.getId();
+        vo.node = node;
         vo.nodeName = node.getName() != null ? node.getName() : "";
         vo.active = node.isActive();
         vo.layer = node.getLayer() != null ? node.getLayer().getValue() : 0;
@@ -120,7 +121,7 @@ public final class InspectorReflector {
 
     /**
      * 回写字段值：按 PropMeta 声明的值类型解析 value 字符串，经 setter 写入宿主。
-     * 解析失败/字段缺失/类型不匹配抛 TipException（桥层转 400 提示弹窗）。
+     * 解析失败/字段缺失/类型不匹配抛 TipException（面板层状态栏提示+控件回滚）。
      * 节点头 Tag 走 TAG 专用分支（单选替换式，"Untagged"=清空，不经 PropMeta）。
      */
     public static void apply(ObjectId host, String fieldName, String valueType, String value) {
@@ -164,7 +165,7 @@ public final class InspectorReflector {
     /** 组装组件分组：折叠头（显示名/启用态/必需标志）+ 字段行（enabled 提升到分组头，不入行） */
     private static ComponentInspectorVo collectComponent(Component component, boolean required) {
         ComponentInspectorVo vo = new ComponentInspectorVo();
-        vo.objId = component.getId();
+        vo.component = component;
         vo.name = componentLabel(component.getClass());
         vo.enabled = component.isEnabled();
         vo.required = required;
@@ -180,7 +181,6 @@ public final class InspectorReflector {
 
     private static InspectorFieldVo fieldVo(ObjectId host, PropMeta prop) {
         InspectorFieldVo vo = new InspectorFieldVo();
-        vo.objId = host.getId();
         vo.fieldName = prop.fieldName;
         vo.name = prop.displayName;
         vo.valueType = prop.valueType.name();
@@ -396,6 +396,20 @@ public final class InspectorReflector {
                 option.value = ((Enum<?>) constant).name();
                 option.label = enumLabel((Enum<?>) constant);
                 options.add(option);
+            }
+        } else if (type == InspectorValueType.LAYER_MASK) {
+            // 层名随 VO 下发（M4 勾选式弹层需要；value=层索引串、label=层名，
+            // 空槽跳过——下拉只显示有名槽位，layerNames 同口径）
+            options = new ArrayList<>();
+            List<String> names = layerNames();
+            for (int i = 0; i < names.size(); i++) {
+                String name = names.get(i);
+                if (!name.isBlank()) {
+                    InspectorFieldVo.Option option = new InspectorFieldVo.Option();
+                    option.value = String.valueOf(i);
+                    option.label = name;
+                    options.add(option);
+                }
             }
         }
         return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),

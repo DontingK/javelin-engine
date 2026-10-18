@@ -1,5 +1,7 @@
 package com.javelin.editor.inspector;
 
+import com.javelin.core.scene.Node;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,8 +19,8 @@ import java.util.List;
 public class NodeInspectorVo {
     /** 就绪标记（false 时其余字段无效，面板重试或清空） */
     public boolean ready;
-    /** 节点 id（M4 实装时随引用化改造为直接持引用——2026-10-18 全链引用化拍板，暂无消费方） */
-    public int objId;
+    /** 选中节点（2026-10-18 引用化：回写锚点直持引用——EDT 不读其字段，呈现数据走 VO 拷贝） */
+    public Node node;
     /** 节点名 */
     public String nodeName;
     /** 节点 Layer 索引（0~30 = Layer.getValue()；Unity 口径单层，勿按位掩码 getMask() 语义取值） */

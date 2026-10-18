@@ -1,4 +1,4 @@
-# 检视器（Inspector）设计（v0.3）
+# 检视器（Inspector）设计（v0.4）
 
 > 定位：`javelin-editor` 选中节点检视面板——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -21,6 +21,16 @@
 > Asset 引用型字段（mesh/material 首批）只读展示（§4 三态 wire 契约），显示名
 > guid 反查源路径尾名（AssetManager 新增 `pathOfGuid`）；**赋值通道=项目面板拖拽
 > 资产（用户拍板，后置遗留）**；回写侧显式拒绝（"不支持字符串回写"）。
+> v0.4（2026-10-18）：**M4 Swing 面板实装（§6——v0.1~v0.3 通道面的 Java 直调重现；用户实测验收通过 2026-10-18）**——三 VO 引用化（objId → Node/Component 引用直持、字段行 VO 删宿主锚点）、
+> LAYER_MASK 层名选项随 VO 下发（value=层索引串，勾选弹层数据源）、markDirty 收口
+> 进 InspectorPanel 回写出口（原桥层职责）、`NodeTransformChangeEvent` 首个消费方
+> （Gizmo 拖拽定点刷 Transform 三行，四元数→欧拉同收集侧口径——较 Web 版防抖 150ms
+> 重拉整面板更精细）、编辑保护（控件编辑中重建延后，提交收尾补拉）、组件折叠态
+> 跨重建按名记忆；COLOR 控件形态拍板=色块 + JColorChooser（alpha 保留原值不进
+> 拾色器，2026-10-18）；失败提示走状态栏（`MainFrame.getStatusBar()` 本批新增）。
+> 验收期实测修正四条（Editor_Swing_Design §7.7 ③④⑨⑩）：归属校验比对对象
+> （getGameScene 本体）、JScrollPane 视图 Scrollable 双向钉（高不拉伸/宽不水平滚）、
+> 节点头/多段行/折叠头布局逐轮打磨（见 §6）。
 
 ## 1. 总则
 
@@ -29,21 +39,23 @@
 - **@InsField 显式 opt-in 闸门**（等价 Unity `[SerializeField]` 语义）：未标记一律不展示；
   已标记缺 public get/set 或类型不可映射 → 构建即抛错（显式意图不静默吞）；
 - **线程**：收集/回写经 `JavelinEngine.submitTask` 帧边界引擎主线程执行（与 mainLoop
-  场景访问无竞争），桥线程 `CompletableFuture` + 2s 超时转 ready:false（SceneMethod 口径）；
-- **回写即置脏**：setValue 成功 `EditorScene.markDirty`（前端乐观更新、fire-and-forget，
-  失败仅日志；提示类异常 Java 弹原生框，前端不重复弹错）。
+  场景访问无竞争；v0.4 Swing 面板读写同队列串行不交错——EDT 不活读引擎对象图）；
+- **回写即置脏**：回写成功 `EditorScene.markDirty`（v0.4 收口进 InspectorPanel 回写
+  出口——原桥层职责随桥清退移交；TipException 走状态栏提示，UI 侧钳制前置使该路径
+  以不可达兜底为主）。
 
-## 2. 桥协议
+## 2. 通道（桥协议已废，v0.4 直调形态）
 
-| 方法 | 参数 | 返回/行为 |
-|---|---|---|
-| `/inspector/info` | `{id}`（IdPar，严格一致） | `NodeInspectorVo`（ready=false=未就绪/节点不存在/超时，前端节流重试或清面板） |
-| `/inspector/setValue` | `{objId, fieldName, valueType, value}`（四字段严格一致） | 引擎线程解析 + 写入 + markDirty；解析失败抛 TipException 桥层弹原生框 |
+~~桥协议 `/inspector/info` + `/inspector/setValue`（jcef 桥，2026-10-18 整包清退）~~。
+Swing 面板直调：拉取 = `InspectorReflector.collect(Node)` 帧边界组装；回写 =
+`InspectorReflector.apply(host, fieldName, valueType, value)`。
 
-`NodeInspectorVo`：ready / objId / nodeName / layer（索引）/ layerNames / tags / tagNames /
-active / components[]（objId / name / enabled / required / fields[]）。
-`InspectorFieldVo`：objId / fieldName / name / valueType / value / range / options /
-assetName（v0.3，GUID_ASSET 显示名，其他类型 null）。
+`NodeInspectorVo`：ready / **node（引用，v0.4 引用化）** / nodeName / layer（索引）/
+layerNames / tags / tagNames / active / components[]（**component（引用）** / name /
+enabled / required / fields[]）。
+`InspectorFieldVo`：fieldName / name / valueType / value / range / options /
+assetName（v0.3，GUID_ASSET 显示名，其他类型 null）——字段行 VO 无宿主锚点
+（宿主=所在分组 `component`）。
 
 ## 3. 字段收集（InspectorReflector）
 
@@ -105,31 +117,51 @@ VO options 字段 v0.1 已预留，本片纯 Java 侧反射器补齐）。
 Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」的字段行协议；多 tag
 节点的展示与编辑形态留后续（当前单选展示首个 tag）。
 
-## 6. 前端结构（engine-editor-web）
+## 6. 面板结构（v0.4 Swing，`swing.inspector` 包；Web 期结构见本节末沿革注）
 
-- `inspectorService.ts`：VO/Par 类型 + 两桥方法；
-- `EntityInspectorPanel.vue`：头部（启用勾选 + 名称输入；「标签」「图层」双下拉）+
-  组件分组（CollapsiblePanel `header-left` 启用勾选）；选中驱动=订阅 `scene.select`
-  （pull-on-mount 经 useSelection 兜底启动竞态）；Transform 变更=订阅
-  `scene.nodeTransformChanged` 防抖 150ms 重拉（拖拽逐帧事件收敛为一次拉取）；未就绪
-  30×500ms 节流重试（同 HierarchyPanel 范式）；
-- `InspectorField.vue` 按 valueType 分发 `inspector/input/` Ins 控件族（v-model 均 string，
-  对应各类型序列化格式）；
-- **下拉遮挡终局（2026-10-11 用户实测定因）**：真凶=`CollapsiblePanel` 根 div 的
-  `overflow: hidden`（为 3px 圆角裁子元素所加）把 JeSelect 浮层裁在分组框内（换向
-  也逃不出——上下都在框内）。修=去掉该 overflow（折叠 v-show 无动画不依赖裁剪；
-  圆角由 header 补 `border-radius: 2px 2px 0 0`（外 3px − 1px 边框），字段行自带
-  3px 圆角）；浮层随即逃到 `.inspector-content` 滚动区（真正的 clip 边界）。
-  `JeSelect` 换向判定同步加固：**最近裁剪祖先**可视矩形替代 window 底缘（停靠布局
-  下面板下还有底部停靠区，window 底缘高估下方空间）+ 展开后实测 offsetHeight +
-  展开期捕获祖先 scroll 重算；顺带修两处未定义色板变量
-  `--editor-text-secondary`→`--editor-text-dim`。教训：**带圆角的小容器 overflow
-  hidden 会吞掉一切内部浮层——下拉/弹层要么放它出来（去 overflow），要么
-  Teleport 出去**。
+- **`InspectorPanel`**（主面板，PanelRegistry id=inspector）：选中驱动（订阅
+  scene.select；无选中=占位「未选中任何对象」——null 是正常态非未就绪，无重试）；
+  拉取 = submitTask 帧边界 collect（含归属校验——僵尸选中清空兜底）→ invokeLater
+  整体重建；回写出口 `commitField`：submitTask ｛归属校验 → apply → markDirty｝，
+  TipException → 状态栏提示；scene.changed → 重拉（编辑保护：任一控件编辑中
+  （焦点内且文本已改）重建延后 pendingRefresh，提交收尾补拉——防重拉吞输入）；
+  scene.nodeTransformChanged → **Transform 三行定点刷新**（字段名索引
+  localPosition/localRotation/localScale；载荷四元数→欧拉 getEulerAnglesXYZ 同收集
+  侧口径；控件值等价跳过防回声——较 Web 版防抖 150ms 重拉整面板精细，拖拽不闪不
+  打断）；组件折叠态按组件名跨重建记忆；
+- **`NodeHeaderPanel`**（节点头 §5 四件套）：节点图标（box 36px 占左列两行垂直居中，
+  2026-10-18 用户定尺寸）+ 右列两行——行 0 激活勾选+名称输入 JeTextInput、行 1
+  「图层」「标签」两下拉**并排单行**（Web 版 entity-meta-row 单行双 meta-field 形态
+  回归，2026-10-18 用户派发；中文文案口径同 Web 拍板）；当前值不在选项表补临时选项
+  （未命名层 "Layer N" / 自定义 tag）防静默失配；
+- **`ComponentSection`**（组件分组）：CollapsiblePanel 折叠头（headerLeft=enabled
+  勾选，required 不渲染）+ 字段行两列区（GridBagLayout：label 列宽自动=列内最宽
+  即组内最长显示名、控件列 fill HORIZONTAL）；组内按 fieldName 索引控件；
+- **`FieldRowFactory` + `FieldEditor` 契约**：valueType → 控件（INT/FLOAT→
+  JeNumberInput、STRING→JeTextInput、BOOLEAN→勾选、ENUM/Layer/Tag→JeSelect、
+  VEC3_F/ROTATION→VectorRow(X/Y/Z)、RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
+  LAYER_MASK→LayerMaskField、GUID_ASSET→GuidAssetField）；FieldEditor.setValue=
+  外源刷新（编辑中/值等价跳过）、isEditing=重建保护判据；提交回调走 FieldCommit
+  ｛owner 归属校验锚点 + host 回写宿主 + fieldName/valueType/wire 值｝；
+- **`widget` 控件七件**：JeNumberInput（4 位小数钳制+range 硬钳+非法 blur 回滚+
+  enter/blur 提交值真变才回调）、JeSelect（value/label 分离、程序化置值抑制上报）、
+  VectorRow（N 段数字行**等分自适应**——GridBag 等权列 fill HORIZONTAL，Flow 布局
+  恒 preferred 挤左形态废弃；RECT 四段两行 X/Y+W/H，2026-10-18 用户拍板；任一段提交
+  整行组包——此刻其余段恒归一态）、CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
+  槽+加粗标题；**视觉=灰头/亮内容分层**（头=Panel.background、内容提亮 Button.
+  background——tabAreaBackground 在 FlatLightLaf 不存在取之落空实锤）+hover+
+  整组四周 1px 边框；AWT 鼠标事件不冒泡——切换/hover 监听逐组件挂）、ColorField
+  （**色块+JColorChooser 拍板 2026-10-18：alpha 保留原值不进拾色器；null 未物化
+  白色预览首点即物化**）、LayerMaskField（值摘要按钮+JPopupMenu 勾选列表——非
+  CheckBoxMenuItem，勾选不关弹层可连续多选）、GuidAssetField（三态只读暗色显示）。
+- （Web 沿革注：原 engine-editor-web 结构——inspectorService/EntityInspectorPanel/
+  InspectorField + Ins 控件族 + 下拉遮挡修复（overflow 吞浮层终局）——随 2026-10-18
+  去Web化删除；Swing 无同款遮挡坑（heavyweight popup 天然浮于一切）。）
 
 ## 7. 事件联动与 dirty 星标
 
-- 回写链：前端乐观更新 + fire-and-forget `/inspector/setValue` → Java 写入 + markDirty；
+- 回写链：v0.4 = 控件提交（EDT）→ submitTask 帧边界 ｛归属校验 → apply →
+  markDirty｝；失败状态栏提示；
 - **星标**（层级树根 `名 *`，VO dirty 单一真源）：`EditorScene.markDirty` **由净变脏的
   翻转沿发布 scene.dirty（`SceneDirtyEvent`，2026-10-11 拍板新增）**——置脏是所有
   写入路径（Inspector 字段/组件属性回写、变换检出、watch 检出）的必经点，翻转即
@@ -155,31 +187,37 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
 
 ## 9. UI 规范
 
-间距 ≤2px 等编辑器 Web UI 通用规范见 AGENTS.md「编辑器 Web UI 设计规范」章节
-（本 Inspector 全链落地驱动定档，2026-10-11）；浮层菜单内部间距不受此限。
-**字段行两列布局（2026-10-11 用户拍板）**：label 列与控件列网格对齐——label 列宽
-= 组内最长文本（.property-group 两列 grid + 行 subgrid 汇流列轨，无 subgrid
-支持回退按行自宽）、列间 4px（通用 ≤2 规范的已拍板例外）、label 超过 96px
-`text-overflow: ellipsis` 截断省略；行内 `align-items: start`——多行控件
-（如视口矩形 X/Y+W/H 两行）label 顶部对齐不垂直居中（同日拍板）。
+间距 ≤2px 等编辑器通用规范见 AGENTS.md「编辑器 UI 紧凑度规范（Swing）」章节
+（本 Inspector 全链落地驱动定档，2026-10-11；Web 期措辞 2026-10-18 平移 Swing 口径）；
+浮层（拾色器/JPopupMenu 勾选列表）不受此限。**字段行两列布局（2026-10-11 用户
+拍板）**：label 列与控件列网格对齐——label 列宽=组内最长文本、列间 4px（通用 ≤2
+规范的已拍板例外）、label 超过 96px 截断省略（现状字段名均不超限，超限截断后置）。
+Swing 实现（v0.4）：GridBagLayout 两列天然列宽对齐（列宽=列内最宽 preferred）、
+label 列 insets right=4、行内顶对齐 anchor=NORTHWEST（多行控件 label 顶对齐拍板
+条款——RECT 两行 X/Y+W/H 形态下生效，2026-10-18 用户拍板回归 Web 版 v0.2 两行
+形态；单行控件视觉差 1~2px 可接受）。
 
 ## 10. 落地清单与暂缓
 
-**Java**：`core.inspector` 注解五件（+`@InsLayerMask` v0.2）+ 接口 `InsEnumLabel` /
-`editor.inspector`（InspectorReflector + InspectorValueType）/ `jcef.domain.par.InspectorValuePar`
-+ vo 三件（NodeInspectorVo / ComponentInspectorVo / InspectorFieldVo）/ `InspectorMethod` /
-`SceneWatchAppState`（快照含 layer/tags）/ `Node`（name/active/layer @InsField 回写闸门）/
-`Camera`（v0.2 字段注解十件，main 不入面板——引擎 main 消费未落地）/
-`MeshRenderer`（v0.3 mesh/material @InsField）+ `core.assets`（AssetManager 新增
-pathOfGuid，AssetLibManager guidPathMap 反查表）/ InspectorFieldVo.assetName（v0.3）。
+**Java（反射/数据链，v0.1~v0.3 沿革）**：`core.inspector` 注解五件（+`@InsLayerMask`
+v0.2）+ 接口 `InsEnumLabel` / `editor.inspector`（InspectorReflector +
+InspectorValueType + vo 三件）/ `SceneWatchAppState`（快照含 layer/tags）/ `Node`
+（name/active/layer @InsField 回写闸门）/ `Camera`（v0.2 字段注解十件，main 不入
+面板——引擎 main 消费未落地）/ `MeshRenderer`（v0.3 mesh/material @InsField）/
+`core.assets`（AssetManager.pathOfGuid，AssetLibManager guidPathMap 反查表）/
+InspectorFieldVo.assetName（v0.3）。
 
-**前端**：inspectorService / EntityInspectorPanel / InspectorField + `inspector/input/`
-Ins 控件族十件（v0.1 已备 ENUM/COLOR/RECT/LAYER_MASK 控件，v0.2 零改动）+
-InsGuidAsset（v0.3 只读，GUID_ASSET 分发直传 field.value——null/空串/非空三态
-不可经 ?? 折叠）。
+**Swing（v0.4，M4 批次 2026-10-18 待验收）**：`swing.inspector` 包——InspectorPanel /
+NodeHeaderPanel / ComponentSection / FieldRowFactory / FieldEditor / FieldCommit +
+`widget` 七件（JeNumberInput / JeTextInput / JeSelect / VectorRow / CollapsiblePanel /
+ColorField / LayerMaskField / GuidAssetField）+ `InspectorPanelSetup` factory 替换 +
+`MainFrame.getStatusBar()`（状态栏提示通道）+ VO 引用化（node/component 直持、字段行
+VO 删 objId）+ Reflector LAYER_MASK options 下发（value=层索引串）+ markDirty 收口。
+（Web 前端清单——inspectorService / EntityInspectorPanel / InspectorField + Ins 控件族
+十件 + InsGuidAsset——已随去 Web 化删除。）
 
 **暂缓**：GUID_ASSET 赋值通道（项目面板拖拽资产，拍板 2026-10-17）、Collider 字段
 （资产引用型同通道复用 GUID_ASSET）、多 tag 展示与编辑、同节点多实例组件收集形态、
-可空值字段「清回 null」的 UI 形态、Inspector 订阅 nodeRenamed（外部改名刷面板）、
-设置管线合流（Game/→Settings）。（v0.2 曾留白「组件字段星标延迟 / Transform 拖拽
-星标即时化」——markDirty 翻转沿发布后关闭，见 §7。）
+可空值字段「清回 null」的 UI 形态、Inspector 订阅 nodeRenamed（外部改名刷面板——
+场景变更重拉兜底）、设置管线合流（Game/→Settings）。（v0.2 曾留白「组件字段星标
+延迟 / Transform 拖拽星标即时化」——markDirty 翻转沿发布后关闭，见 §7。）
