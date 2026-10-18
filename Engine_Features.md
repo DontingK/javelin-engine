@@ -193,14 +193,14 @@
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
-### 3.7 项目面板（project / web）
+### 3.7 项目面板（project / Swing）
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
-| Unity 两栏布局（左目录树投影 + 右内容区 + 面包屑 + 双击进入 + 分栏拖拽） | ✅ | ⏳ 待验收（2026-10-17） |
-| /project/tree 全量树（仅 Assets/src 两根；.meta/隐藏项过滤；目录优先+名称序） | ✅ | ⏳ 待验收（2026-10-17） |
-| /project/select 选中上报（EditorSelection project 通道 + 边界闸门） | ✅ | ⏳ 待验收（2026-10-17） |
-| ctx.project 右键域首期（showInExplorer / copyPath / reimport + Unity 壳占位） | ✅ | ⏳ 待验收（2026-10-17） |
+| Unity 两栏布局（Swing ProjectPanel：左目录树 JTree + 右内容区 JList + 面包屑 + 双击进入 + JSplitPane 分栏拖拽；原 web 版 2026-10-17 落地、随去 Web 化清退） | ✅ Swing 实装（2026-10-18） | ⏳ 待验收 |
+| ProjectTreeSnapshot 全量树直调（仅 Assets/src 两根；.meta/隐藏项过滤；目录优先+名称序；后台线程纯 IO → EDT） | ✅（2026-10-18） | ⏳ 待验收 |
+| 选中直写 EditorSelection project 通道（Node 直持 File；目录变更即上报含面包屑导航——原桥「相对路径上报+闸门」随直调消亡） | ✅（2026-10-18） | ⏳ 待验收 |
+| ctx.project 右键域首期（showInExplorer / copyPath / reimport 三实做 + Unity 壳占位；面板三入口先落选中再弹菜单） | ✅ 命令侧（2026-10-17）/ 面板接入（2026-10-18） | ⏳ 待验收 |
 
 ## 4. 构建与发布链（跨模块）
 
@@ -232,11 +232,11 @@
 | hierarchy.create.camera | 2026-10-11 | 层级右键建摄像机（Main Camera / 原点 / 默认参） |
 | SceneImporter 场景导入 | 2026-10-11 | 保存场景后核对 Library 重导产物 |
 | Transform 变更检测 | 2026-10-06 | 拖 Gizmo 时 Inspector 数值实时刷新 + 星标亮（拖拽本体已验 2026-10-14） |
-| 项目面板 + ctx.project 右键域首期 | 2026-10-17 | 项目树/面包屑/双击进入；右键三实做项（资源管理器定位 / 路径入剪贴板 / 重导日志） |
 | ProjectFrame / ProjectLoadingFrame 迁 Swing | 2026-10-17 | 启动器建项目/最近列表打开/手动路径打开 → 加载窗进度 → 编辑器进主窗 |
 | PackDialog 迁 Swing（含 /build 桥退役、CEF Dialog/CefFrame 删除） | 2026-10-17 | 构建 > 打包：JAR/AOT 分流（构建模式行随形态显隐）+ 启动场景默认选中 + 日志实时滚底 + 失败弹错 + 产物双击可玩 |
 | jcef 桥包 / jcefmaven / jackson 整体清退（事件包桥语义剥离、Inspector VO 迁包） | 2026-10-18 | 编辑器全链回归：启动 → 开项目 → 编辑器主窗 → 构建打包，全程无 CEF 进程、无 Vite dev server；Inspector 反射通道（InspectorReflector + 三 VO）单测级自查 |
 | M2 层级面板 Swing 实装（HierarchyPanel） | 2026-10-18 | 树展示/点选/右键创建删除（含场景根语境）；改名定点刷新；保存后星标熄灭；展开态跨命令刷新保持；创建后新节点自动选中可见 |
+| M3 项目面板 Swing 实装（ProjectPanel） | 2026-10-18 | 左树目录导航/右区条目/面包屑跳转/双击进入；分栏拖拽；右键域三入口命令（资源管理器定位/路径入剪贴板/重导）菜单正确 |
 | 全链引用化（选中/三事件/命令/树回查键 + ObjectCache 退役） | 2026-10-18 | 与层级面板同场景回归：创建/删除/改名/Gizmo 跟随选中链路全通即证引用化无回归 |
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。

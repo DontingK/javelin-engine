@@ -242,7 +242,7 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 |----------|-----------|-----------|
 | HierarchyPanel | `JTree` + 自定义 Renderer | ✅ 2026-10-18 实装（§7.5）：`SceneTreeSnapshot` 直调 EditorScene——submitTask 帧边界组装快照、invokeLater EDT 换树；四事件分工刷新 + 选中 EditorSelection 双向同步 |
 | ConsolePanel | `JList` + DefaultListModel（HTML 渲染列 styled） | ConsoleOut 输出通道改 append（EDT hop），build.out.* 同收口 |
-| ProjectPanel | 左 `JTree` + 右 `JList`（图标+名称）+ 面包屑 JButton 行 | `/project/tree` 逻辑抽 service 直调（纯 IO 可后台线程）；选中直写 EditorSelection |
+| ProjectPanel | ✅ 2026-10-18 实装（§7.6）：左 `JTree` + 右 `JList`（图标+名称）+ 面包屑 JButton 行 | `ProjectTreeSnapshot` 直调（纯 IO 后台线程组装）；选中直写 EditorSelection |
 | EntityInspectorPanel | 表单自绘（两列：label 列 + 控件列，Inspector_Design 通道保留） | `/inspector/info`/`setValue` 桥 → InspectorReflector 直调 |
 | SceneViewportPanel | ViewportTabs 工具栏（§6） | `/gizmo` setTool/setSpace → 直调 TransformGizmoAppState 镜像（static volatile 口径不变） |
 | GameViewportPanel | ViewportTabs 标签占位 | setSceneModel 直调 |
@@ -262,7 +262,7 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表单最重，GUID_ASSET 三态只读
 等通道逐项对齐 Inspector_Design）。每面板迁移=独立批次，迁一个验一个——桥已随 M6
 提前整包清退，各面板即 Java 直调全新实装（§7.1）。层级 2026-10-18 先落（§7.5），
-控制台待续。
+项目面板同日次落（§7.6），控制台待续。
 
 ### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地待验收）
 
@@ -314,6 +314,39 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
    id 锚点无运行时消费方，M4 实装时随引用化改造。将来场景切换命令落地时须
    setSelectedNode(null) 收口。
 
+### 7.6 项目面板实装注记（M3，2026-10-18 落地待验收）
+
+组件落位 `swing/project` 两件：`ProjectPanel`（左右分栏 JTree/JList + 面包屑 +
+右键域）与 `ProjectTreeSnapshot`（原 /project/tree 桥逻辑的直调形态：ready +
+根层 + Node{relativePath/name/directory/File/children}）。实装拍板与坑：
+
+1. **线程通道**：项目树纯 IO、不涉引擎状态——**不走 submitTask 帧队列**（区别于
+   层级），ThreadUtil 后台线程组装快照、invokeLater 回 EDT 应用。一次性拉取：面板
+   构造晚于引擎装配（instance 在 JavelinEditor 构造器置位、MainFrame.create 更晚）
+   恒就绪，web 版 ready=false 节流重试口径随宿主时序消亡（防御分支仅 warn 留
+   加载态）；project.changed 刷新事件随改盘命令第二批（Editor_Design §10 遗留）。
+2. **选中直写 File**：Node 直持 File（快照由 rootDir 遍历产出，天然不越项目根）
+   ——原桥「相对路径上报 + isSubFile 解析闸门」环节随直调消亡，
+   EditorSelection.setSelectedPath 直写。与 web 版一处收窄：面包屑导航 web 版只切
+   目录不重报选中，Swing 统一「目录变更即上报」——EditorSelection 与面板所见恒一致。
+3. **状态收口**：当前目录=左树选中（onDirSelected 单点收口：右区条目刷新+面包屑
+   重建+选中上报），面包屑/右区双击进入无独立状态——程序化走 selectDirByPath
+   （scrollPathToVisible 展开父链 + setSelectionPath）触发选中事件驱动收口链。
+   空选中（换树/清选中）不动目录锚点——右区内容保持，无清空语义。
+4. **右键域三入口先显式上报再弹菜单**：左树行（右键即选中）/ 右区条目（行命中
+   即选中）/ 右区空白（=当前目录语境），均先 setSelectedPath 再 MenuPopupFactory——
+   不可依赖选中事件链：同目录重选无选中变更事件，显式上报防菜单 enabled 读旧态；
+   左树空白右键忽略（无语境源，web 等价口径）。
+5. **JList 细节**：locationToIndex 对空白也回最近行，须 getCellBounds 复核行带
+   （层级面板 row band 同口径）；空白点选清本地高亮（Unity 口径）但不上报 null
+   （web 等价：无清空语义）；换目录重置模型自动清选中，选中监听 null 不上报
+   即免层级式的抑制标志。
+6. **面板内分栏**：JSplitPane 用默认驱动即可（面板内无 heavyweight 画布——
+   DockSplitPane 自研拖拽是视口画布断链特例）；连续实时布局 + resizeWeight 1.0
+   （右区吸收增量、左树定宽）+ 首个 resize 落初始位 180px（构造期尺寸 0，
+   setDividerLocation 不生效，DockSplitPane 同款坑）+ 左树最小宽 100px（分割条
+   左界钳制源）。原 web「复用 SplitPanel」之说随迁移作废。
+
 ## 8. 扩展点与插件预留
 
 1. **面板贡献**：`PanelRegistry.register` + `MenuRegistry`「窗口」域（M5 随恢复命令一起落
@@ -330,7 +363,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
 |----|------|----------|
 | **M1 窗口+Dock 骨架（本批）** | FlatLaf Dark 初始化；MainFrame 重构（Window 契约保持）；DockRoot/DockSplitPane/DockTabs + 默认布局树；六面板占位（PanelRegistry+EditorPanelSetup）；ViewportTabs 接 CanvasSurface + Scene 工具栏 Swing 化；JMenuBar 挂载；StatusBar 简版；`/render/rce` 等废除清单落地 | 用户实测：编辑器启动渲染正常；视口 resize/最大化/分割条拖动全链路正常；右键菜单、顶部菜单可用；关闭流程正常 |
 | M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地（2026-10-18 待验收，§7.5）；控制台待续** |
-| M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价 |
+| M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价。**项目面板已落地（2026-10-18 待验收，§7.6）；视口工具栏收口待续** |
 | M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价 |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |
 | M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，待验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
