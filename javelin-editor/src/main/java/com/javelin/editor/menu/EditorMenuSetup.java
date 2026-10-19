@@ -8,6 +8,7 @@ import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import com.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
 import com.javelin.editor.menu.project.CopyPathMenuCommand;
+import com.javelin.editor.menu.project.CreateMaterialMenuCommand;
 import com.javelin.editor.menu.project.OpenFileMenuCommand;
 import com.javelin.editor.menu.project.ReimportMenuCommand;
 import com.javelin.editor.menu.project.ShowInExplorerMenuCommand;
@@ -75,9 +76,10 @@ public final class EditorMenuSetup {
         CommandService.register(new CopyPathMenuCommand());
         CommandService.register(new ReimportMenuCommand());
         // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：
-        // 创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
-        // guid/meta/引用联动拍板
+        // 创建族首项 material 随 .mat 导入管线落地（2026-10-19）；粘贴阻塞于
+        // 文件写管线；重命名/删除阻塞于 guid/meta/引用联动拍板
         CommandService.register(new OpenFileMenuCommand());
+        CommandService.register(new CreateMaterialMenuCommand());
         CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.create.folder", "文件夹", null));
         CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
@@ -127,6 +129,7 @@ public final class EditorMenuSetup {
                 .item("project.open")
                 .separator()
                 .submenu("创建", create -> create
+                        .item("project.create.material")
                         .item("project.create.folder")
                         .item("project.create.scene")
                         .item("project.create.script"))

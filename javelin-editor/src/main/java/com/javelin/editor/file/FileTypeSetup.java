@@ -6,7 +6,8 @@ package com.javelin.editor.file;
  * 裁决即查注册表）与菜单条安装（project.open 命令 enabled 求值也查表）。
  *
  * <p>首批注册（2026-10-18 拍板）：.scene（图标 + 打开器）、.java/.json
- * （纯图标）；.shader/.smesh 等要用时再补注册。</p>
+ * （纯图标）；.mat 随材质导入管线批次注册（2026-10-19，纯图标——材质编辑
+ * 面板后置，双击暂无动作）；.shader/.smesh 等要用时再补注册。</p>
  *
  * @author javelin
  * @create 2026/10/18
@@ -26,5 +27,6 @@ public final class FileTypeSetup {
         FileTypeRegistry.register(new SceneFileType());
         FileTypeRegistry.register(new IconFileType("class", ".java"));
         FileTypeRegistry.register(new IconFileType("json", ".json"));
+        FileTypeRegistry.register(new IconFileType("material", ".mat"));
     }
 }

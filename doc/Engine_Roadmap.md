@@ -68,7 +68,7 @@
 - **目标**：场景编辑最小闭环——场景视口（飞行相机）+ 层级面板 + 拾取 + Transform 移动/旋转/缩放 + 场景保存/加载；
 - **前置**：
   - **.scene 序列化**（现为 P2，编辑器存取必须）；
-  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：~~.shader 二进制格式 + 解析器（声明注入 + shaderc + 打包）~~——**✅ 已落地（2026-09-26，提交 e03c057）**：导入管线在编辑器 `importer/shader`（归属拍板：不经 javelin-tool），Capsule 二进制产物 + GUID 文件头规则 + .smesh 产物/拓扑/法线一并补齐；**.mat 格式 + AssetManager 读写未做**（下一步）；
+  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：~~.shader 二进制格式 + 解析器（声明注入 + shaderc + 打包）~~——**✅ 已落地（2026-09-26，提交 e03c057）**：导入管线在编辑器 `importer/shader`（归属拍板：不经 javelin-tool），Capsule 二进制产物 + GUID 文件头规则 + .smesh 产物/拓扑/法线一并补齐；~~.mat 格式 + AssetManager 读写未做~~——**✅ 已落地（2026-10-19 待验收）**：.mat = Material 文本序列化（伴生 .meta 口径），MaterialImporter + project.create.material 创建命令，Engine_Material_Design §3.2；
   - **编辑器形态已定：Swing 外壳 + JCEF Web 面板**（~~内嵌 imgui / Nuklear / 独立 Swing 三选一~~ 作废——视口=Vulkan Canvas 挖洞浮于 CEF 之上，浮层遮挡约束由此而来，Editor_Design §1）；
   - `Editor_Design.md`（✅ 已建档 v0.1：JavelinEditor=JavelinEngine 子类、CEF 窗口体系、JS↔Java 桥、资产管线、线程模型）；
 - **产出**：编辑器应用骨架 + 上述最小闭环；
@@ -76,8 +76,8 @@
 
 进度（2026-10-01 落地，**2026-10-04 用户实测验收通过**——单测 + 编辑器「建树 → 保存 → 重启还原」，含生命周期帧驱动状态机与 Ctrl+S）：**.scene 序列化已落地**（Engine_Scene_Design §9——GameScene/
 Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零收尾
-+ 文本通道保存命令 file.save/Ctrl+S）；MeshRenderer 材质引用闭环与
-`.mat` 格式仍待做（§9.4 已知限制）。
++ 文本通道保存命令 file.save/Ctrl+S）；~~MeshRenderer 材质引用闭环与
+`.mat` 格式仍待做（§9.4 已知限制）~~——**.mat 已落地（2026-10-19 待验收，Engine_Material_Design §3.2）**：guid 化材质引用通道（`material=@guid:`）随框架分流既有，本批补导入器/创建命令。
 
 **拾取方案拍板（2026-10-06 用户）**：物体拾取终态 = **GPU ID-buffer**（编辑器专用 pass 写 ID 附件、点击读回像素——不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体，Unity 编辑器同路线）；RHI 前置 = 拾取附件 + 图像读回路径，**后置实现、非当前排期**（详见 Editor_Design §10）。运行时场景级 raycast（Collider 注册表）仍归 §2.3 Ray 期，两 API 并存；过渡期是否先落 CPU 数学拾取为开放项。
 
@@ -145,6 +145,14 @@ dirty 置星 / nodeRenamed 定点 / select 高亮——本面板为 scene.select
 Create 命令/树回查键全部改 Node 引用，ObjectCache 退役；快照拷贝本体保留
 （跨线程一致性，与句柄问题正交）。
 
+进度（2026-10-19 落地，待验收）：**.mat 资产格式（阶段④剩余收官件）**——
+「.mat 就是 Material 的序列化」拍板：源 = Material 文本序列化（.scene 源同款
+协议、伴生 .meta 口径，零改 core）；MaterialImporter（SceneImporter 同款，
+shader 残档拒绝导入）+ project.create.material 创建命令（创建族首项实做，
+落盘即 submitImport）+ project.changed 面板刷新链（首个改盘命令接线，
+Editor_Design §10 遗留销账）+ .mat 文件类型注册。详见
+Engine_Material_Design §3.2 / Editor_Menu_Design v0.13。
+
 ---
 
 ## 3. 三期：光照
@@ -166,7 +174,7 @@ Create 命令/树回查键全部改 Node 引用，ObjectCache 退役；快照拷
 |--------|-------------|------|
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
-| 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager 未做 |
+| 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-19 待验收） |
 | 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 待验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-18 待验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-18 待验收，Editor_Swing_Design §7.6）** + **M4 属性面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）**；剩物体拾取（ID-buffer 后置） |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |

@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 材质：Unity 口径材质球意象——球体+高光（.mat 资产条目图标） -->
+<circle cx="8" cy="8" r="6.2" fill="#64B5F6" stroke="#37474F"/>
+<path d="M4.2 5.4C4.9 4.4 6.2 3.8 8 3.8C9.8 3.8 11.1 4.4 11.8 5.4C10.6 4.9 9.4 4.6 8 4.6C6.6 4.6 5.4 4.9 4.2 5.4Z" fill="#BBDEFB"/>
+<circle cx="5.8" cy="5.8" r="1.2" fill="#E3F2FD"/>
+</svg>

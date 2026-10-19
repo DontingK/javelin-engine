@@ -1,8 +1,9 @@
 # 引擎材质设计（Engine Material Design）
 
-> 版本：v0.1（2026-09-25）
+> 版本：v0.2（2026-10-19）
 > 说明：引擎侧材质/着色器数据模型与加载链路设计。着色器文件语法（.shader）、多 Pass 与材质实例模型的概念定义在 RHI 分卷四（20/21 节），本文只管引擎侧落地：包结构、编译产物形态、加载链路、渲染侧桥接。
 > 拍板（2026-09-25）：**Shader = .shader 源码文件编译后的结构**；**离线二进制资产**（着色器源码不进 core）；**RHI 资源渲染侧懒创建**（Shader/Material 纯数据、device 无关）。
+> v0.2（2026-10-19）：**.mat 资产格式落地待验收**——.mat = Material 的文本序列化（与 .scene 源同款协议），导入器/创建命令/文件类型见 §3.2；v0.1 沿革见各节注记。
 
 ## 1. 定位与总则
 
@@ -46,7 +47,18 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 
 - `Shader.write/read`：super（guid/lastModified）+ `shaderName` + `properties`（ArrayList，声明序）+ `passes`（ArrayList，声明序）；
 - `ShaderPass / MaterialProperty / PassState` 实现 `Serializable` + `@Reflective`（补 ReflectiveFactory 注册），SPIR-V 为 byte[]、PassState 枚举走 name() 字符串、`colorMask` 存 int 位掩码（枚举集不直接序列化——list 元素类名要 @Reflective 注册，绕开）。
-- **Material.write/read 已落地（2026-10-04，.scene 内嵌数据面；2026-10-17 增 `surfaceType` 枚举字段，readEnum null 回退 OPAQUE 兼容旧场景）**：super（guid/lastModified）+ `shader`（Asset 引用走框架 guid 分流：guid 非空经 AssetManager 解回、空走图内嵌）+ `values`/`textures` 条目列表直通（`MaterialValueEntry`/`MaterialTextureEntry`——Capsule 无 Map 通道，HashMap 存储重构为 name 唯一条目列表，存储形态 = 序列化形态同 Mesh 拍板）。内嵌材质（guid 空）经 .scene 文本通道全数据面往返；.mat 资产格式（材质 guid 化共享、Inspector 编辑载体）仍待（§6）。
+- **Material.write/read 已落地（2026-10-04，.scene 内嵌数据面；2026-10-17 增 `surfaceType` 枚举字段，readEnum null 回退 OPAQUE 兼容旧场景）**：super（guid/lastModified）+ `shader`（Asset 引用走框架 guid 分流：guid 非空经 AssetManager 解回、空走图内嵌）+ `values`/`textures` 条目列表直通（`MaterialValueEntry`/`MaterialTextureEntry`——Capsule 无 Map 通道，HashMap 存储重构为 name 唯一条目列表，存储形态 = 序列化形态同 Mesh 拍板）。内嵌材质（guid 空）经 .scene 文本通道全数据面往返；**.mat 资产格式已落地（2026-10-19 待验收，§3.2）**。
+
+### 3.2 .mat 资产格式（已落地待验收，2026-10-19）
+
+**拍板：.mat 就是 Material 的序列化**——源文件即 Material 经文本序列化协议落盘（`javelin-text-serialization`，与 .scene 源同款；Material.write/read 复用 2026-10-04 闭环，零改 core）。
+
+- **guid 口径 = 伴生 .meta**（同 .scene：首行是协议头不能走文件头自包含；MetaManager/管线两处既有 ".mat"→"Material" 类型标签直接生效，mtime 比对口径）；
+- **导入器** `editor/importer/material/MaterialImporter`（SceneImporter 同款）：TextImporter 解析即验证（`shader=@guid:` 经 task 携带 assetManager 解回）→ **shader 引用缺失显式拒绝**（残档=文件损坏口径，不落残产物，与 RenderObject null shader 报错同语义）→ `setGuid(meta.guid)` 产物自描述 → BinaryExporter 落 `Library/{guid}.asset`。消费侧 `loadGuid(guid, Material.class)` 直接可用；.scene 里 `material=@guid:{guid}` 引用经 TextInputCapsule 声明类型回解（通道 2026-10-04 已备）；
+- **创建入口** `project.create.material`（ctx.project 右键「创建」域，创建族首项实做）：选中目录落 `material.mat`（重名 `material 1.mat` 编号去重），初始内容 = 内置 default.shader 的 `new Material(shader)` 文本序列化；**源文本 guid 与伴生 .meta 同源**（.scene 保存同口径，2026-10-19 用户纠偏：先 getOrCreateMeta 建 .meta 拿 guid、setGuid 后一次性落盘——源文本/伴生 .meta/Library 产物/index 四处一致；导入器仍以 meta 为真值源覆盖自述，防手改脱节）；落盘即 `submitImport`（产 Library 产物/更新 index，异步）；发 `project.changed` 事件驱动项目面板重拉树快照（刷新链随首个改盘命令接线，Editor_Design §10 遗留销账）；
+- **文件类型** `.mat` 注册 IconFileType（材质球图标，canOpen=false——材质编辑面板后置，双击暂无动作）；
+- **已知边界**：texture 条目引用 Texture2D 资产——纹理导入管线未落，槽可空（null=占位贴图），guid 解析通道框架已备；shader 引用未导入（首启多 worker 竞态）时导入失败、下次启动经 !isImportedInLibrary 重试（Scene 同语义）；
+- **验收路径（用户实机待跑）**：①右键创建 → 文件+伴生 .meta+Library/{guid}.asset+index 收录齐全；②重启不重复导入；③手改 .scene MeshRenderer `material=@guid:{guid}` → 打开场景渲染差异可见；④project.reimport 强制重导生效。
 
 **坑点存档（AGENTS 红线 10 出处，2026-09-26 调试得出）**：
 
@@ -94,12 +106,12 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 - **"用户侧零 GPU 暴露"原则**（用户拍板 2026-09-25）：资产公开 API 不出现 RHI 句柄——Texture2D 的 getGpu/setGpu、Mesh 的 vertexBuffer/indexBuffer/indexType/indexCount 全部 package-private，GPU 代码只存在于同包桥接类（**上传逻辑全在桥接**：MeshUpload/TextureUpload 持有 device 逻辑，Mesh/Texture2D 是纯 CPU 数据容器）；`Mesh.layout()`（VertexLayout 描述值，PSO 键）例外公开，类比 Texture2D 的 format 元数据；
 - **冻结语义（拍板 2026-09-25）**：上传后资产不可变——Mesh 修改抛异常（既有），Texture2D 补齐守卫（setPixels/setFilterMode/setWrapMode 上传后抛 IllegalStateException，堵"改了静默失效"洞）；动态顶点/像素更新（骨骼、粒子、物理形变）将来走专门的动态缓冲路径，不经重传；
 - MeshRenderer 的 `mesh`/`material` 字段已补（场景渲染接入，2026-09-25）：null = 不渲染（missing 语义），SceneRenderBridge pull 翻译；
-- AbsAsset 提供 guid/lastModified；~~.shader 侧 Serializable 协议待补~~——**已落地（2026-09-26，§3.1）**；~~.mat 的协议随 .mat 格式另行定义~~——**Material write/read 已先随 .scene 内嵌落地（2026-10-04，§3.1），.mat 资产格式仍待（§6）**。
+- AbsAsset 提供 guid/lastModified；~~.shader 侧 Serializable 协议待补~~——**已落地（2026-09-26，§3.1）**；~~.mat 的协议随 .mat 格式另行定义~~——**Material write/read 已先随 .scene 内嵌落地（2026-10-04，§3.1），.mat 资产格式已落地（2026-10-19 待验收，§3.2）**。
 
 ## 6. 不做（P2）
 
 - **动态 Mesh / 动态纹理**（需求已记录，后续专项支持）：骨骼蒙皮、粒子、物理形变、地形编辑等**每帧变化**的几何/像素数据，静态资产"上传即冻结"语义扛不住 destroy-and-recreate 的频率。届时走专门设计：hostVisible 常驻缓冲 + 每帧映射写入（或 staging 环形），作为独立类型与静态资产并存（对齐 RHI 27 节线程模型，逻辑线程写、渲染线程消费）；动态纹理同理（rhi.Texture 已有 `update(TextureRegion, ByteBuffer)` 运行期更新口）；
 - .shader 文本解析器与构建工具本体（本文只定产物结构）；
-- .mat 材质资产格式与 AssetManager 加载；
+- ~~.mat 材质资产格式与 AssetManager 加载~~——**已落地（2026-10-19 待验收，§3.2）**；
 - 材质变体（RHI 20.5 决策：不引入）；
 - 同阶段细分排序键（renderOrder，RHI 21.1 决策存档）。

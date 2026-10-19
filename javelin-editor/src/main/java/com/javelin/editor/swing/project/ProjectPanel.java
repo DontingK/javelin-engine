@@ -1,6 +1,8 @@
 package com.javelin.editor.swing.project;
 
 import com.javelin.editor.JavelinEditor;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.ProjectChangedEvent;
 import com.javelin.editor.file.FileType;
 import com.javelin.editor.file.FileTypeRegistry;
 import com.javelin.editor.menu.MenuPopupFactory;
@@ -61,9 +63,8 @@ import java.util.Map;
  *
  * <p><b>数据通道（桥退役、Java 直调，§7.3 线程口径）</b>：项目文件树是纯 IO、不涉
  * 引擎状态——不走 submitTask 帧队列，{@link ProjectTreeSnapshot#build} 后台线程
- * 组装、EDT 应用。一次性拉取：面板构造晚于引擎装配（instance/project 恒就绪），
- * 且尚无改盘命令与 project.changed 刷新事件（Editor_Design §10 遗留第二批——命令
- * 落地时一并接刷新链）。</p>
+ * 组装、EDT 应用。构造期首拉 + {@code project.changed} 事件重拉（首个改盘命令
+ * project.create.material 落地时接线，2026-10-19，恢复当前目录锚点不丢位置）。</p>
  *
  * <p><b>选中单源</b>：所有选中（左树目录/右区条目/面包屑导航/双击进入）直写
  * {@link EditorSelection} setSelectedPath（Node 直持 File，节点由 rootDir 遍历
@@ -115,6 +116,8 @@ public class ProjectPanel extends JComponent implements EditorPanel {
     private Iterable<ProjectTreeSnapshot.Node> roots = List.of();
     /** 当前目录（左树选中=右区内容源锚点；树未挂载前 null） */
     private ProjectTreeSnapshot.Node selectedDir;
+    /** 当前目录路径记忆（快照重拉后恢复选中锚点用；onDirSelected 持续更新） */
+    private String lastSelectedDirPath;
     /** 分栏已挂载（首个快照后 loading→分栏一次性切换） */
     private boolean splitMounted;
     /** 首次定分栏位标志（构造期尺寸为 0，setDividerLocation 不生效，首个 resize 落位） */
@@ -261,13 +264,19 @@ public class ProjectPanel extends JComponent implements EditorPanel {
         });
 
         requestSnapshot();
+
+        // 盘面变更刷新链（project.changed，随首个改盘命令落地接线）：重拉快照
+        // 并恢复当前目录锚点——面板常驻不退订
+        EditorEventBus.subscribe(ProjectChangedEvent.class,
+                e -> SwingUtilities.invokeLater(this::requestSnapshot));
     }
 
     // ------------------------------------------------------------------ 数据通道
 
     /**
-     * 请求项目文件树快照：后台线程纯 IO 组装 → EDT 应用（非阻塞）。构造期调用
-     * （面板经 DockRoot 缓存常驻，一次性拉取——刷新事件见类 javadoc 遗留注记）。
+     * 请求项目文件树快照：后台线程纯 IO 组装 → EDT 应用（非阻塞）。构造期首拉 +
+     * {@code project.changed} 事件重拉（盘面变更命令落地后接线，2026-10-19）；
+     * 重拉经 {@link #lastSelectedDirPath} 恢复当前目录锚点，不丢用户位置。
      */
     private void requestSnapshot() {
         JavelinEditor editor = JavelinEditor.getInstance();
@@ -305,7 +314,12 @@ public class ProjectPanel extends JComponent implements EditorPanel {
             revalidate();
             repaint();
         }
-        ensureDefaultSelection();
+        // 选中锚点恢复：快照重拉优先回原目录（刷新链不丢用户位置，首拉无记忆走兜底）
+        if (lastSelectedDirPath == null || dirRowIndex.get(lastSelectedDirPath) == null) {
+            ensureDefaultSelection();
+        } else {
+            selectDirByPath(lastSelectedDirPath);
+        }
     }
 
     /** 目录子树 → 左树行（仅目录投影：文件不出左树，右区走快照原始 children） */
@@ -349,6 +363,7 @@ public class ProjectPanel extends JComponent implements EditorPanel {
      */
     private void onDirSelected(ProjectTreeSnapshot.Node dir) {
         selectedDir = dir;
+        lastSelectedDirPath = dir.getRelativePath();
         refreshEntries(dir);
         rebuildBreadcrumb(dir);
         EditorSelection.setSelectedPath(dir.getFile());

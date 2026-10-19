@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.11）
+# 编辑器菜单与命令系统设计（v0.13）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -86,7 +86,16 @@
 > OpenFileMenuCommand（Enter）按 FileTypeRegistry 分发（Editor_Design §6.5
 > 文件类型注册器）：enabled=选中文件 canOpen；首批 .scene 可开（脏场景三键
 > 确认 + submitTask 帧边界切换场景，保存分支复用 SaveSceneMenuCommand.save）。
-> 占位剩：创建族/paste/rename/delete。
+> v0.13（2026-10-19）：**project.create.material 创建命令实做（创建族首项，
+> 随 .mat 导入管线落地待验收）**——CreateMaterialMenuCommand：选中目录落
+> `material.mat`（编号去重），初始内容=内置 default.shader 的 Material 文本
+> 序列化，**源文本 guid 与伴生 .meta 同源**（先 getOrCreateMeta 拿 guid 再落盘，
+> .scene 保存同口径）；落盘即 submitImport（产 Library 产物/更新 index，
+> 异步管线），发 project.changed 驱动项目面板重拉树（**首个改盘命令接通面板
+> 刷新链**，Editor_Design §10 遗留销账——快照重拉经 lastSelectedDirPath 恢复
+> 目录锚点不丢位置）；「创建」子菜单加「材质」项（folder/scene/script 占位
+> 不动）。.mat 格式与导入器见 Engine_Material_Design §3.2。
+> 占位剩：创建族 folder/scene/script、paste、rename、delete。
 
 ## 1. 背景与约束
 

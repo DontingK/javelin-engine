@@ -328,8 +328,10 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   （左树目录/右区条目/空白=当前目录语境，先落选中再弹菜单）；图标裁决查
   FileTypeRegistry（§6.5，目录仍路径规则：resourcesRoot/sourceRoot/package/
   folder；文件未注册=unknown）；文件双击分发注册表打开（.scene 打开场景）。
-  遗留：project.changed 刷新事件与创建/删除/重命名/粘贴命令第二批（改文件
-  系统的命令落地时一并接——命令改盘后面板树不重拉即脱节）。
+  ~~遗留：project.changed 刷新事件~~——**已接线（2026-10-19）**：首个改盘命令
+  project.create.material（.mat 创建，随材质导入管线落地）发布 project.changed、
+  面板订阅重拉快照（lastSelectedDirPath 恢复目录锚点）；创建/删除/重命名/粘贴
+  其余命令第二批（改盘命令家族逐个补发布）。
 - **变换 Gizmo v0.1 视觉版已落地（2026-10-04；2026-10-05 用户重构为工具族架构）**：
   `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
   基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh
