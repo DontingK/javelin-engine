@@ -1,7 +1,9 @@
 package com.javelin.editor.menu.hierarchy;
 
 import com.javelin.core.scene.Node;
+import com.javelin.editor.i18n.I18nKey;
 import com.javelin.editor.menu.MenuCommand;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.selection.EditorSelection;
 
 /**
@@ -24,5 +26,11 @@ public abstract class HierarchyMenuCommand implements MenuCommand {
      */
     protected Node getSelectedNode() {
         return EditorSelection.getSelectedNode();
+    }
+
+    /** label 默认（editor.core 约定 label key = 命令 id） */
+    @Override
+    public I18nKey label() {
+        return EditorLang.key(id());
     }
 }

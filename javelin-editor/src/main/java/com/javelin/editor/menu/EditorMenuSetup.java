@@ -1,7 +1,5 @@
 package com.javelin.editor.menu;
 
-import com.javelin.core.appstate.AppStateManager;
-import com.javelin.editor.appstate.EditGridAppState;
 import com.javelin.editor.menu.hierarchy.CreateCameraMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
@@ -15,9 +13,12 @@ import com.javelin.editor.menu.top.CompileMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.menu.top.GridMenuCommand;
 import com.javelin.editor.menu.top.PackMenuCommand;
+import com.javelin.editor.plugin.EditorLang;
+import com.javelin.editor.plugin.PluginContext;
 
 /**
- * 菜单/命令启动期装配（JavelinEditor.onInitialize 调用，设计档 Editor_Menu_Design §8）。
+ * 菜单/命令启动期装配（EditorCorePlugin.setup 调用——插件装载期早于建窗，
+ * 设计档 Editor_Menu_Design §8）。
  *
  * <p>命令以类形态注册（实现 MenuCommand，域分包：menu.top / menu.hierarchy /
  * menu.project，域基类与该域命令同包）；集中显式注册，不做注解扫描——菜单结构顺序
@@ -45,66 +46,65 @@ public final class EditorMenuSetup {
     }
 
     /**
-     * 装配菜单与命令。
+     * 装配菜单与命令（经插件上下文收口）。网格命令的 gridState 经
+     * JavelinEditor 懒取，场景未就绪时安全 no-op。
      *
-     * @param stateManager 状态管理器（网格开关 attach/detach，挂卸线程安全走帧边界）
-     * @param gridState    已挂载的网格状态；场景未就绪时传 null——网格命令退化为
-     *                    安全 no-op（checked 恒 false，execute 记 warn）
+     * @param context 插件上下文
      */
-    public static void setup(AppStateManager stateManager, EditGridAppState gridState) {
-        CommandService.register(new SaveSceneMenuCommand());
-        CommandService.register(new GridMenuCommand(stateManager, gridState));
-        CommandService.register(new CompileMenuCommand());
-        CommandService.register(new PackMenuCommand());
-        CommandService.register(new CreateEmptyMenuCommand());
-        CommandService.register(new CreatePlaneMenuCommand());
-        CommandService.register(new CreateCameraMenuCommand());
-        CommandService.register(new DeleteMenuCommand());
+    public static void setup(PluginContext context) {
+        context.registerCommand(new SaveSceneMenuCommand());
+        context.registerCommand(new GridMenuCommand());
+        context.registerCommand(new CompileMenuCommand());
+        context.registerCommand(new PackMenuCommand());
+        context.registerCommand(new CreateEmptyMenuCommand());
+        context.registerCommand(new CreatePlaneMenuCommand());
+        context.registerCommand(new CreateCameraMenuCommand());
+        context.registerCommand(new DeleteMenuCommand());
         // Unity 壳占位（未实现置灰，落地时替换为实类注册行）：剪贴板三项阻塞于
         // .scene 序列化（剪贴板格式）；3D 对象其余项/灯光/粒子阻塞于对应组件
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.cut", "剪切", "Ctrl+X"));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.copy", "复制", "Ctrl+C", "copy"));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.paste", "粘贴", "Ctrl+V", "paste"));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.cube", "立方体", null, "box"));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.sphere", "球", null));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.pyramid", "三角锥", null));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.light.directional", "定向光", null));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.light.point", "点光源", null));
-        CommandService.register(new UnimplementedMenuCommand("hierarchy.create.particle", "粒子", null));
-        CommandService.register(new ShowInExplorerMenuCommand());
-        CommandService.register(new CopyPathMenuCommand());
-        CommandService.register(new ReimportMenuCommand());
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.cut", "Ctrl+X"));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.copy", "Ctrl+C", "copy"));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.paste", "Ctrl+V", "paste"));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.cube", null, "box"));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.sphere", null));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.pyramid", null));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.light.directional", null));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.light.point", null));
+        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.particle", null));
+        context.registerCommand(new ShowInExplorerMenuCommand());
+        context.registerCommand(new CopyPathMenuCommand());
+        context.registerCommand(new ReimportMenuCommand());
         // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：
         // 创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
         // guid/meta/引用联动拍板
-        CommandService.register(new OpenFileMenuCommand());
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.create.folder", "文件夹", null));
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.create.scene", "场景", null));
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.create.script", "脚本", null));
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.paste", "粘贴", "Ctrl+V"));
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.rename", "重命名", "F2"));
-        CommandService.register(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
-                "project.delete", "删除", "Delete"));
+        context.registerCommand(new OpenFileMenuCommand());
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.folder", null));
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.scene", null));
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.create.script", null));
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.paste", "Ctrl+V"));
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.rename", "F2"));
+        context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
+                "project.delete", "Delete"));
 
         // 文件域首期仅「保存」（2026-10-01 拍板：另存为/打开/新建场景随下期落地）
-        MenuRegistry.menu("file", "文件")
+        MenuRegistry.menu("file", EditorLang.key("file"))
                 .item("file.save");
 
-        MenuRegistry.menu("tools", "工具")
+        MenuRegistry.menu("tools", EditorLang.key("tools"))
                 .item("tools.grid");
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）
-        MenuRegistry.menu("build", "构建")
+        MenuRegistry.menu("build", EditorLang.key("build"))
                 .item("build.compile")
                 .item("build.pack");
 
-        MenuRegistry.menu("ctx.hierarchy", "场景树右键")
+        MenuRegistry.menu("ctx.hierarchy", EditorLang.key("ctx.hierarchy"))
                 .item("hierarchy.cut")
                 .item("hierarchy.copy")
                 .item("hierarchy.paste")
@@ -112,21 +112,21 @@ public final class EditorMenuSetup {
                 .item("hierarchy.delete")
                 .separator()
                 .item("hierarchy.create.empty")
-                .submenu("3D 对象", create -> create
+                .submenu(EditorLang.key("hierarchy.3dobjects"), create -> create
                         .item("hierarchy.create.plane")
                         .item("hierarchy.create.cube")
                         .item("hierarchy.create.sphere")
                         .item("hierarchy.create.pyramid"))
-                .submenu("灯光", light -> light
+                .submenu(EditorLang.key("hierarchy.lights"), light -> light
                         .item("hierarchy.create.light.directional")
                         .item("hierarchy.create.light.point"))
                 .item("hierarchy.create.particle")
                 .item("hierarchy.create.camera");
 
-        MenuRegistry.menu("ctx.project", "项目面板右键")
+        MenuRegistry.menu("ctx.project", EditorLang.key("ctx.project"))
                 .item("project.open")
                 .separator()
-                .submenu("创建", create -> create
+                .submenu(EditorLang.key("project.create"), create -> create
                         .item("project.create.folder")
                         .item("project.create.scene")
                         .item("project.create.script"))

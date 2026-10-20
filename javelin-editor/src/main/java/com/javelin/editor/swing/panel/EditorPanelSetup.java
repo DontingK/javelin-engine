@@ -1,23 +1,22 @@
 package com.javelin.editor.swing.panel;
 
+import com.javelin.editor.plugin.PluginContext;
 import com.javelin.editor.swing.hierarchy.HierarchyPanel;
 import com.javelin.editor.swing.inspector.InspectorPanel;
 import com.javelin.editor.swing.project.ProjectPanel;
 import com.javelin.editor.swing.viewport.ViewportTabs;
-import com.javelin.editor.window.cef.CanvasSurface;
+import com.javelin.editor.window.MainFrame;
 
 /**
- * 面板集中显式装配（Editor_Swing_Design §5.2——对齐 EditorMenuSetup 先例：
- * 不做注解扫描，启动期一次注册）。
+ * 面板集中显式装配（Editor_Swing_Design §5.2——对齐菜单/文件类型域先例：
+ * 不做注解扫描，插件装载期一次注册）。接线在 EditorCorePlugin.setup——
+ * 早于建窗，视口画布经 MainFrame 懒取（factory 求值发生在 DockRoot 装配，
+ * 画布已建）。
  *
- * <p>M1 骨架：五占位 + 视口真身。viewport 即视口直挂通道（单 Canvas 不
- * reparent，§6）；层级面板已随 M2 实装（HierarchyPanel——原 /scene/tree 桥
- * 通道的 Java 直调形态）；项目面板已随 M3 实装（ProjectPanel——原
- * /project/tree 桥通道的纯 IO 直调形态）；属性面板已随 M4 实装
- * （InspectorPanel——InspectorReflector 直调）；仅控制台占位（M2 收口）。
- * closable 口径（2026-10-17 拍板）：仅控制台可关，恢复入口整体后置 M5「窗口」
- * 域。标签条口径（2026-10-18 复拍板）：常显、视口组除外——原「单面板不可关
- * 即无缝」条款作废（Unity 口径，tab 头即面板身份，见 DockTabs）。</p>
+ * <p>五面板：层级（M2）/项目（M3）/属性（M4）已实装，控制台占位（M2 收口），
+ * 视口真身（单 Canvas 不 reparent，§6）。closable 口径（2026-10-17 拍板）：
+ * 仅控制台可关，恢复入口整体后置 M5「窗口」域。标签条口径（2026-10-18
+ * 复拍板）：常显、视口组除外（Unity 口径，tab 头即面板身份，见 DockTabs）。</p>
  *
  * @author javelin
  * @create 2026/10/17
@@ -34,33 +33,32 @@ public final class EditorPanelSetup {
     }
 
     /**
-     * 装配面板注册表（幂等）。
+     * 装配面板注册表（幂等，经插件上下文收口）。
      *
-     * @param canvas Vulkan 视口画布（视口面板唯一真身——ViewportTabs 持有，
-     *               Editor_Swing_Design §6）
+     * @param context 插件上下文
      */
-    public static void setup(CanvasSurface canvas) {
+    public static void setup(PluginContext context) {
         if (setup) {
             return;
         }
         setup = true;
-        PanelRegistry.register(PanelDescriptor.of("hierarchy", "层级")
+        context.registerPanel(PanelDescriptor.of("hierarchy", "层级")
                 .minimumSize(200, 120)
                 .factory(HierarchyPanel::new)
                 .build());
-        PanelRegistry.register(PanelDescriptor.of("project", "项目")
+        context.registerPanel(PanelDescriptor.of("project", "项目")
                 .minimumSize(160, 120)
                 .factory(ProjectPanel::new)
                 .build());
-        PanelRegistry.register(PanelDescriptor.of("console", "控制台")
+        context.registerPanel(PanelDescriptor.of("console", "控制台")
                 .closable(true)
                 .minimumSize(160, 120)
                 .factory(() -> new PlaceholderPanel("控制台面板", "M2"))
                 .build());
-        PanelRegistry.register(PanelDescriptor.of(VIEWPORT_PANEL_ID, "视口")
-                .factory(() -> new ViewportTabs(canvas))
+        context.registerPanel(PanelDescriptor.of(VIEWPORT_PANEL_ID, "视口")
+                .factory(() -> new ViewportTabs(MainFrame.getInstance().getCanvas()))
                 .build());
-        PanelRegistry.register(PanelDescriptor.of("inspector", "属性")
+        context.registerPanel(PanelDescriptor.of("inspector", "属性")
                 .minimumSize(260, 120)
                 .factory(InspectorPanel::new)
                 .build());

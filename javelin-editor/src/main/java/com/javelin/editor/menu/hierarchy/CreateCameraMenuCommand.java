@@ -49,11 +49,6 @@ public class CreateCameraMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "摄像机";
-    }
-
-    @Override
     public String icon() {
         return "camera";
     }

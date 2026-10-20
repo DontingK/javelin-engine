@@ -93,8 +93,8 @@ public final class MenuPopupFactory {
                 continue;
             }
             if (entry.isSubmenu()) {
-                JMenu menu = new JMenu(entry.getSubmenuLabel());
-                String subPath = path + ">" + entry.getSubmenuLabel();
+                JMenu menu = new JMenu(entry.getSubmenuLabel().text());
+                String subPath = path + ">" + entry.getSubmenuLabel().fullKey();
                 fill(menu.getPopupMenu(), entry.getChildren(), subPath);
                 if (menu.getPopupMenu().getComponentCount() == 0) {
                     continue;
@@ -109,8 +109,8 @@ public final class MenuPopupFactory {
                 continue;
             }
             JMenuItem item = command.isCheckable()
-                    ? new JCheckBoxMenuItem(command.getLabel())
-                    : new JMenuItem(command.getLabel());
+                    ? new JCheckBoxMenuItem(command.getLabel().text())
+                    : new JMenuItem(command.getLabel().text());
             accelerator(item, command);
             icon(item, command);
             item.addActionListener(e -> CommandService.execute(command.getId()));

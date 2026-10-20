@@ -19,6 +19,7 @@
 11. **git 提交信息一句话**：只写一行 `类型(范围): 描述`（示例：`feat(editor): 去Web化收官——三窗口迁Swing + jcef桥包与前端工程整体清退`）；不加 bullet、不加日期——细节归设计文档/记忆，不在提交里展开（2026-10-18 收严，原「主题行+少量 bullet」口径作废）
 12. **提交 git 前必须先写进度文档**：本批进度先落 doc/——功能批次写对应设计档（版本段+验收状态）并同步 `Engine_Roadmap.md` 的阶段进度与 §4 映射表，排障坑写 `Vulkan_Pitfalls.md`，然后才提交。git 只是收口，禁止「先提交、进度文档后补」
 13. **没有用户指令禁止提交 git**：commit/push 一律由用户明确发起——验收通过、进度文档收口均不构成提交授权（红线 12 只约束提交前文档先行的顺序，不是提交触发器；历史会话的「验收→提交」模式不延伸到本次）
+14. **javadoc 精简——注释说「是什么、怎么用」，设计档说「为什么」**：类注释最多 3~4 行（一句定位 + 使用方必须知道的契约，如「全程不抛、失败转 FAILED」）；方法注释一句话 + 必要 `@param/@throws`。设计论证（拍板依据、取舍对比、将来规划）一律归 doc/ 设计档，不进 javadoc——参照 PanelRegistry / FileTypeRegistry 既有风格（2026-10-20 拍板）
 
 ---
 
@@ -85,6 +86,7 @@
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器（图标+双击/命令打开，2026-10-18 落地待验收）、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收、项目面板 2026-10-17 待验收）——Web/JCEF 窗口与桥接章节已随 2026-10-18 去 Web 化成历史沿革，UI 现状以 Editor_Swing_Design 为准——细节见档内 |
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.12）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、菜单渲染统一 Swing（Web 浮层菜单被视口 Canvas 盖）、engine2 对照取舍、三桥方法协议；「构建」域 JAR/AOT 双链（2026-10-13 三端实测验收）、「project 右键域首期」三实做+Unity 壳占位（2026-10-17 待验收）+open 实做（2026-10-18 文件注册器分发、脏场景三键确认）——v0.2~v0.12 沿革与拍板见档内 |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（2026-10-17 拍板：纯 Swing + FlatLaf 替换 JCEF 主窗口，视口零拷贝路径保留）**；自研轻量 Dock（二分布局树 + PanelRegistry 扩展点对齐菜单域先例 + ViewportTabs 单 Canvas 不 reparent）、面板 Vue→Swing 迁移路线（桥退役 Java 直调 + 线程口径）、里程碑 M1~M6；三决策拍板=自研 Dock/一步切换+占位/FlatLaf Dark——细节见档内 |
+| `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.1，2026-10-20）：**插件契约（namespace 命名空间/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集）**；首批已落地待验收：editor.core 迁移（懒取拍板）+ 菜单 label 全链 I18nKey（key=命令 id 约定）；待拍板=命令 id 前缀化/FileType 冲突策略/默认语言——细节见档内 |
 | `Inspector_Design.md` | 检视器设计（v0.4）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in，白名单退役）+ 读 getter 写 setter 铁律**、节点头四件套（图标 36px 占两行）、12 值类型通道（ENUM/COLOR/RECT 两行/LAYER_MASK/GUID_ASSET 三态只读）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外；v0.1/v0.2 实测验收（2026-10-11）、v0.3 随 M4 销账、v0.4 M4 Swing 实装用户实测验收通过（2026-10-18——InspectorReflector 直调 + VO 引用化 + widget 控件七件）+ 同日增量 @InsHeader 组件头元数据注解（@InsField TYPE 职责收编）；遗留=Layer/Tag 设置管线待接——细节见档内 |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |

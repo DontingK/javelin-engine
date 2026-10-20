@@ -1,5 +1,7 @@
 package com.javelin.editor.menu;
 
+import com.javelin.editor.i18n.I18nKey;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,15 +27,15 @@ public final class MenuRegistry {
     }
 
     /**
-     * 注册菜单域并返回链式构建器。
+     * 注册菜单域并返回链式构建器（label key 约定 = 菜单域 id）。
      *
      * @param id    菜单域 id（右键域以 "ctx." 前缀约定）
-     * @param label 顶栏显示标签
+     * @param label 顶栏显示标签键
      * @return 构建器
      * @throws IllegalStateException 菜单 id 重复
      */
-    public static synchronized MenuBuilder menu(String id, String label) {
-        if (id == null || id.isBlank() || label == null || label.isBlank()) {
+    public static synchronized MenuBuilder menu(String id, I18nKey label) {
+        if (id == null || id.isBlank() || label == null) {
             throw new IllegalArgumentException("菜单 id 与 label 不能为空");
         }
         if (MENUS.containsKey(id)) {

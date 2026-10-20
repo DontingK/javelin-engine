@@ -28,11 +28,6 @@ public class ReimportMenuCommand extends ProjectMenuCommand {
         return "project.reimport";
     }
 
-    @Override
-    public String label() {
-        return "重新导入";
-    }
-
     /** 选中文件有对应导入器（非资产文件不出此项），或选中目录（目录内递归筛）才可用 */
     @Override
     public Boolean enabled() {

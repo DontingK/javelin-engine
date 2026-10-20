@@ -37,11 +37,6 @@ public class CreateEmptyMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "空对象";
-    }
-
-    @Override
     public String icon() {
         return "add";
     }

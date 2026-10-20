@@ -24,11 +24,6 @@ public final class PackMenuCommand extends TopMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "打包";
-    }
-
-    @Override
     public void execute() {
         SwingUtilities.invokeLater(() -> {
             PackDialog dialog = new PackDialog();

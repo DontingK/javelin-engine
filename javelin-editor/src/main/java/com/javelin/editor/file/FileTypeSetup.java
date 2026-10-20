@@ -1,9 +1,11 @@
 package com.javelin.editor.file;
 
+import com.javelin.editor.plugin.PluginContext;
+
 /**
- * 文件类型集中显式注册（对齐 EditorMenuSetup/EditorPanelSetup 先例，不做
- * 注解扫描；幂等）。接线在 MainFrame.create——早于项目面板首帧绘制（图标
- * 裁决即查注册表）与菜单条安装（project.open 命令 enabled 求值也查表）。
+ * 文件类型集中显式注册（对齐菜单/面板域先例，不做注解扫描；幂等）。接线在
+ * EditorCorePlugin.setup（插件装载期，早于面板首帧绘制与菜单条安装——图标
+ * 裁决即查注册表，project.open 命令 enabled 求值也查表）。
  *
  * <p>首批注册（2026-10-18 拍板）：.scene（图标 + 打开器）、.java/.json
  * （纯图标）；.shader/.smesh 等要用时再补注册。</p>
@@ -18,13 +20,18 @@ public final class FileTypeSetup {
     private FileTypeSetup() {
     }
 
-    public static void setup() {
+    /**
+     * 注册文件类型（幂等，经插件上下文收口）。
+     *
+     * @param context 插件上下文
+     */
+    public static void setup(PluginContext context) {
         if (setup) {
             return;
         }
         setup = true;
-        FileTypeRegistry.register(new SceneFileType());
-        FileTypeRegistry.register(new IconFileType("class", ".java"));
-        FileTypeRegistry.register(new IconFileType("json", ".json"));
+        context.registerFileType(new SceneFileType());
+        context.registerFileType(new IconFileType("class", ".java"));
+        context.registerFileType(new IconFileType("json", ".json"));
     }
 }

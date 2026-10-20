@@ -1,6 +1,8 @@
 package com.javelin.editor.menu.project;
 
+import com.javelin.editor.i18n.I18nKey;
 import com.javelin.editor.menu.MenuCommand;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.selection.EditorSelection;
 
 import java.io.File;
@@ -34,5 +36,11 @@ public abstract class ProjectMenuCommand implements MenuCommand {
      */
     protected File getSelectedDirectory() {
         return EditorSelection.getSelectedDirectory();
+    }
+
+    /** label 默认（editor.core 约定 label key = 命令 id） */
+    @Override
+    public I18nKey label() {
+        return EditorLang.key(id());
     }
 }
