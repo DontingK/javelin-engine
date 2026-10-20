@@ -85,6 +85,8 @@ public final class EditorMenuSetup {
                 "project.create.scene", null));
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.create.script", null));
+        context.registerCommand(new com.javelin.editor.menu.project.CreateMaterialMenuCommand(
+                "project.create.material", null));
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.paste", "Ctrl+V"));
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(

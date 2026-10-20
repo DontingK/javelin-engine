@@ -5,7 +5,9 @@ import com.javelin.core.render.material.Shader;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.ProjectChangedEvent;
+import com.javelin.editor.i18n.I18nKey;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.serializable.TextExporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,9 +39,20 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
     private static final Logger LOGGER = LoggerFactory.getLogger(CreateMaterialMenuCommand.class);
 
     private static final String BASE_NAME = "material";
-
+    private final String id;
+    private final String shortcut;
+    private final String icon;
     /** 内置默认着色器 loadAsset 路径（初始材质模板，CreatePlaneMenuCommand 同源） */
     private static final String DEFAULT_SHADER_PATH = "core/shader/default.shader";
+    public CreateMaterialMenuCommand(String id, String shortcut) {
+        this(id, shortcut, null);
+    }
+
+    public CreateMaterialMenuCommand(String id, String shortcut, String icon) {
+        this.id = id;
+        this.shortcut = shortcut;
+        this.icon = icon;
+    }
 
     @Override
     public String id() {
@@ -47,8 +60,9 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "材质";
+    public I18nKey label() {
+        return EditorLang.key(id());
+
     }
 
     /** 选中目录语境存在才可用（右键空白=当前目录语境，右区条目选中=其所在目录） */
