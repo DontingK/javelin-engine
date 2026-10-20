@@ -21,11 +21,6 @@ public class OpenFileMenuCommand extends ProjectMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "打开";
-    }
-
-    @Override
     public String shortcut() {
         return "Enter";
     }

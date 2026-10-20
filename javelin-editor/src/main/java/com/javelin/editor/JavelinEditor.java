@@ -14,7 +14,6 @@ import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.appstate.SceneWatchAppState;
 import com.javelin.editor.appstate.TransformWatchAppState;
 import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
-import com.javelin.editor.menu.EditorMenuSetup;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -55,6 +54,8 @@ public class JavelinEditor extends JavelinEngine {
     private final Project project;
     private final EditorScene editorScene;
     private Camera editorCamera;
+    /** 网格状态（场景未就绪时为 null——命令懒取的 null 安全 no-op 口径） */
+    private EditGridAppState gridState;
     public JavelinEditor(Project project,
                          JavelinSetting setting,
                          MetaManager metaManager,
@@ -88,7 +89,6 @@ public class JavelinEditor extends JavelinEngine {
     protected void onInitialize() {
         AppStateManager stateManager = appStateSubsystem.getStateManager();
         GameScene editorGameScene = getEditorGameScene();
-        EditGridAppState gridState = null;
         if (editorGameScene == null) {
             // loadScene 失败（场景文件缺失/解析错）时编辑子场景未建：跳过编辑器装配，帧循环退化为清屏
             log.warn("编辑器场景未就绪（loadScene 失败），跳过编辑器相机与网格装配");
@@ -121,10 +121,7 @@ public class JavelinEditor extends JavelinEngine {
         // 写入方零通知义务，实变自动发现推送 scene.nodeTransformChanged + 置脏；挂载序在
         // TransformGizmoAppState 之后——拖拽 apply 当帧检出同帧通知）
         stateManager.attach(new TransformWatchAppState());
-        // 菜单/命令装配（场景无关；场景未就绪时网格开关安全 no-op）
-        EditorMenuSetup.setup(stateManager, gridState);
-        // 主窗口菜单条装配（菜单注册完成后——时序：initialize 建窗早于
-        // onInitialize，create() 内建菜单条会拿到空注册表，Editor_Swing_Design §4.1）
+        // 主窗口菜单条装配（菜单命令已随插件装载期注册——早于建窗，MenuBarFactory 消费注册表）
         if (window instanceof MainFrame mainFrame) {
             mainFrame.installMenuBar();
         }
@@ -196,6 +193,16 @@ public class JavelinEditor extends JavelinEngine {
 
     public Camera getEditorCamera() {
         return editorCamera;
+    }
+
+    /** 状态管理器（命令懒取入口，网格开关挂卸用） */
+    public AppStateManager getStateManager() {
+        return appStateSubsystem.getStateManager();
+    }
+
+    /** 网格状态（场景未就绪为 null） */
+    public EditGridAppState getGridState() {
+        return gridState;
     }
 
     /**

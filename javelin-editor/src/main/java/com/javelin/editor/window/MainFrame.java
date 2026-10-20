@@ -3,11 +3,9 @@ package com.javelin.editor.window;
 import com.javelin.core.input.InputSink;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
-import com.javelin.editor.file.FileTypeSetup;
 import com.javelin.editor.menu.MenuBarFactory;
 import com.javelin.editor.swing.StatusBar;
 import com.javelin.editor.swing.dock.DockRoot;
-import com.javelin.editor.swing.panel.EditorPanelSetup;
 import com.javelin.editor.window.cef.CanvasSurface;
 import com.javelin.rhi.render.RenderSurface;
 import org.slf4j.Logger;
@@ -80,11 +78,8 @@ public class MainFrame extends JFrame implements Window {
         // 分隔条拖不动（2026-10-17 实测：min 钳在画布当前高，Editor_Swing_Design
         // §10-5）；显式 (1,1) 掐断传播，画布真实可缩下限由渲染侧把关
         canvas.setMinimumSize(new Dimension(1, 1));
-        // 面板注册（viewport 面板捕获画布——单 Canvas 不 reparent，§6）
-        EditorPanelSetup.setup(canvas);
-        // 文件类型注册（图标裁决/双击打开/project.open 命令查表——早于面板
-        // 首帧绘制与菜单条安装）
-        FileTypeSetup.setup();
+        // 面板/文件类型注册已前移至插件装载期（EditorCorePlugin，早于建窗），
+        // 画布由视口面板 factory 懒取（单 Canvas 不 reparent，§6）
         if (inputSink != null) {
             // attachInputSink 早于 create 的兜底转发（正常时序：create 先于子系统 initAll）
             canvas.attachInputSink(inputSink);
@@ -199,9 +194,8 @@ public class MainFrame extends JFrame implements Window {
     }
 
     /**
-     * 顶栏菜单条装配：在 {@code EditorMenuSetup} 注册完成后由引擎侧调用
-     * （启动时序：{@code initialize()} 建窗早于 {@code onInitialize()} 菜单
-     * 注册，故 create() 内不能建菜单条）。可在引擎线程调（EDT hop），幂等。
+     * 顶栏菜单条装配：菜单命令已随插件装载期注册（早于建窗），引擎侧
+     * onInitialize 末调用。可在引擎线程调（EDT hop），幂等。
      */
     public void installMenuBar() {
         if (menuInstalled) {

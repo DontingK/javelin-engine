@@ -26,11 +26,6 @@ public class ShowInExplorerMenuCommand extends ProjectMenuCommand {
         return "project.showInExplorer";
     }
 
-    @Override
-    public String label() {
-        return "在资源管理器中显示";
-    }
-
     /** 有任一选中（文件或目录）才可用 */
     @Override
     public Boolean enabled() {

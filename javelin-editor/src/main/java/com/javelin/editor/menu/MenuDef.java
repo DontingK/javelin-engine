@@ -1,5 +1,7 @@
 package com.javelin.editor.menu;
 
+import com.javelin.editor.i18n.I18nKey;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,12 +18,12 @@ public final class MenuDef {
 
     /** 菜单域 id（顶栏如 "tools"；右键域以 "ctx." 前缀约定） */
     private final String id;
-    /** 顶栏显示标签（右键域不渲染标签） */
-    private final String label;
+    /** 顶栏显示标签键（右键域不渲染标签） */
+    private final I18nKey label;
     /** 有序项列表（组装期经 {@link MenuBuilder} 填充） */
     private final List<MenuEntry> entries = new ArrayList<>();
 
-    MenuDef(String id, String label) {
+    MenuDef(String id, I18nKey label) {
         this.id = id;
         this.label = label;
     }
@@ -30,7 +32,7 @@ public final class MenuDef {
         return id;
     }
 
-    public String getLabel() {
+    public I18nKey getLabel() {
         return label;
     }
 
@@ -45,12 +47,12 @@ public final class MenuDef {
     public static final class MenuEntry {
         /** 引用的命令 id；null = 非命令项（分隔符/子菜单） */
         private final String commandId;
-        /** 子菜单显示标签；null = 非子菜单项 */
-        private final String submenuLabel;
+        /** 子菜单显示标签键；null = 非子菜单项 */
+        private final I18nKey submenuLabel;
         /** 子菜单项列表（仅子菜单项非 null；组装期经 {@link MenuBuilder} 填充） */
         private final List<MenuEntry> children;
 
-        private MenuEntry(String commandId, String submenuLabel, List<MenuEntry> children) {
+        private MenuEntry(String commandId, I18nKey submenuLabel, List<MenuEntry> children) {
             this.commandId = commandId;
             this.submenuLabel = submenuLabel;
             this.children = children;
@@ -69,10 +71,10 @@ public final class MenuDef {
         /**
          * 子菜单头：结构项（无命令 id），children 为空可变列表、组装期填充。
          *
-         * @param label 子菜单显示标签
+         * @param label 子菜单显示标签键
          */
-        public static MenuEntry submenu(String label) {
-            if (label == null || label.isBlank()) {
+        public static MenuEntry submenu(I18nKey label) {
+            if (label == null) {
                 throw new IllegalArgumentException("子菜单 label 不能为空");
             }
             return new MenuEntry(null, label, new ArrayList<>());
@@ -82,7 +84,7 @@ public final class MenuDef {
             return commandId;
         }
 
-        public String getSubmenuLabel() {
+        public I18nKey getSubmenuLabel() {
             return submenuLabel;
         }
 

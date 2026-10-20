@@ -28,11 +28,6 @@ public class DeleteMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "删除";
-    }
-
-    @Override
     public String icon() {
         return "delete";
     }

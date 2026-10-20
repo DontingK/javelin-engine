@@ -40,11 +40,6 @@ public class SaveSceneMenuCommand extends TopMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "保存";
-    }
-
-    @Override
     public String shortcut() {
         return "Ctrl+S";
     }

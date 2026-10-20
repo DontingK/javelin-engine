@@ -60,11 +60,6 @@ public class CreatePlaneMenuCommand extends HierarchyMenuCommand {
     }
 
     @Override
-    public String label() {
-        return "平面";
-    }
-
-    @Override
     public void execute() {
         // 提交时快照父节点引用（Unity 语义：右键对象下创建；快照防执行帧选中漂移）
         Node parent = getSelectedNode();

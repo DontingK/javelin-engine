@@ -7,6 +7,7 @@ import com.javelin.editor.asset.BuiltinAssetReleaser;
 import com.javelin.editor.asset.ProjectAssetLibManager;
 import com.javelin.editor.importer.AssetImportPipeline;
 import com.javelin.editor.meta.MetaManager;
+import com.javelin.editor.plugin.PluginManager;
 import com.javelin.editor.project.GradleProject;
 import com.javelin.editor.util.ThreadUtil;
 import org.slf4j.Logger;
@@ -72,6 +73,9 @@ public class ProjectLoadingFrame extends JFrame {
         ThreadUtil.run("Engine Main", () -> {
             try {
                 GradleProject gradleProject = new GradleProject(projectDir);
+                // 插件装载（editor.core + 项目级 Plugins/ 目录）——先于资产初始化，
+                // 为将来插件贡献导入器留位；editor.core 失败随本 catch fail-fast
+                PluginManager.loadAll(new File(gradleProject.getRootDir(), "Plugins"));
                 MetaManager metaManager = new MetaManager(gradleProject);
                 ProjectAssetLibManager assetManager = new ProjectAssetLibManager(gradleProject.getLibrary());
                 AssetImportPipeline assetImportPipeline = new AssetImportPipeline(gradleProject, metaManager, assetManager);

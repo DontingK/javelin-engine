@@ -18,11 +18,6 @@ public class CopyPathMenuCommand extends ProjectMenuCommand {
         return "project.copyPath";
     }
 
-    @Override
-    public String label() {
-        return "复制路径";
-    }
-
     /** 有任一选中（文件或目录）才可用 */
     @Override
     public Boolean enabled() {

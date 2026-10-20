@@ -29,7 +29,7 @@ public final class MenuBarFactory {
     public static JMenuBar build() {
         JMenuBar bar = new JMenuBar();
         for (MenuDef def : MenuRegistry.topMenus()) {
-            JMenu menu = new JMenu(def.getLabel());
+            JMenu menu = new JMenu(def.getLabel().text());
             List<MenuDef.MenuEntry> entries = def.getEntries();
             MenuPopupFactory.fill(menu.getPopupMenu(), entries, def.getId());
             MenuPopupFactory.widen(menu.getPopupMenu());

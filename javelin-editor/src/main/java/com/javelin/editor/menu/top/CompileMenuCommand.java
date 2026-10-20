@@ -24,11 +24,6 @@ public final class CompileMenuCommand extends TopMenuCommand {
         return "build.compile";
     }
 
-    @Override
-    public String label() {
-        return "编译";
-    }
-
     /** 恒置灰：编译能力已备，禁用是产品拍板非缺功能 */
     @Override
     public Boolean enabled() {
