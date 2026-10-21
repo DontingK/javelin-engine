@@ -229,7 +229,7 @@ endsWith 匹配）+ `FileTypeSetup`（集中显式注册，接线 MainFrame.crea
 MainFrame）→ `submitTask` 帧边界单任务（save（可选）→ TextImporter 导入 →
 meta guid 同步（口径同 loadScene）→ `setGameScene` → `setSelectedNode(null)`
 选中链复位（Gizmo/TransformWatch/Inspector 经 SceneSelectEvent）→ clearDirty
-（新场景即净）→ `SceneChangedEvent(false)` 树/检视器重拉）；失败 error 日志 +
+（新场景即净）→ `SceneChangedEvent(false)` 树/检查器重拉）；失败 error 日志 +
 tinyfd 弹窗（同 file.save 隔离口径）。首批注册（拍板）：.scene/.java/.json
 三扩展（面板视觉零变化），.shader/.smesh 等要用时再补。
 

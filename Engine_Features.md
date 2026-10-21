@@ -208,13 +208,13 @@
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
-| 插件契约（Plugin：namespace/元数据/setup；PluginContext 注册门面含 i18n()） | ✅（2026-10-20，Editor_Plugin_Design §2） | ⏳ 待验收 |
-| ServiceLoader 发现 + editor.core 即插件（EditorCorePlugin + META-INF/services；三个 Setup 迁 setup 经 ctx 收口，旧直调点摘除） | ✅（2026-10-20） | ⏳ 待验收 |
+| 插件契约（Plugin：namespace/元数据/setup；PluginContext 注册门面含 i18n()） | ✅（2026-10-20，Editor_Plugin_Design §2） | ✅ 用户实测（2026-10-20） |
+| ServiceLoader 发现 + editor.core 即插件（EditorCorePlugin + META-INF/services；三个 Setup 迁 setup 经 ctx 收口，旧直调点摘除） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 第三方装载管线（PluginClassLoader parent-first / PluginInstance.load 全程不抛 + 失败关 cl 释放 jar 锁 / 一个 jar 一个插件） | ✅（2026-10-20） | — 静态骨架，第三方 jar 实测随后置装载批 |
-| PluginManager 宿主管线（classpath 恒先 fail-fast / jar 段 warn 跳过 + FAILED 账本 / namespace 冲突后来者跳过 / 语言包注册先于 setup） | ✅（2026-10-20） | ⏳ 待验收 |
-| 装载接入（ProjectLoadingFrame Engine Main 线程、GradleProject 后资产初始化前；Plugins/ 目录项目级） | ✅（2026-10-20） | ⏳ 待验收 |
-| i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ⏳ 待验收 |
-| 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 39 条） | ✅（2026-10-20） | ⏳ 待验收 |
+| PluginManager 宿主管线（classpath 恒先 fail-fast / jar 段 warn 跳过 + FAILED 账本 / namespace 冲突后来者跳过 / 语言包注册先于 setup） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
+| 装载接入（ProjectLoadingFrame Engine Main 线程、GradleProject 后资产初始化前；Plugins/ 目录项目级） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
+| i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
+| 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 异常/弹窗消息 i18n（~116 条 TipException 等） | ⬜ 第二批 | — |
 | 面板/窗口标题 i18n、Inspector 注解 label key 化、源码机检、i18n 报告命令 | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
 
@@ -254,7 +254,6 @@
 | M2 层级面板 Swing 实装（HierarchyPanel） | 2026-10-18 | 树展示/点选/右键创建删除（含场景根语境）；改名定点刷新；保存后星标熄灭；展开态跨命令刷新保持；创建后新节点自动选中可见 |
 | M3 项目面板 Swing 实装（ProjectPanel） | 2026-10-18 | 左树目录导航/右区条目/面包屑跳转/双击进入；分栏拖拽；右键域三入口命令（资源管理器定位/路径入剪贴板/重导）菜单正确 |
 | 全链引用化（选中/三事件/命令/树回查键 + ObjectCache 退役） | 2026-10-18 | 与层级面板同场景回归：创建/删除/改名/Gizmo 跟随选中链路全通即证引用化无回归 |
-| 插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（Editor_Plugin_Design v0.1） | 2026-10-20 | 启动日志含「插件已装载: editor.core v0.1.0」；菜单条/右键域文字与迁移前逐字一致（!editor.core.xxx! = properties 漏条目，日志同名 warn 指认）；网格开关勾选正常（懒取路径）；无 Plugins 目录静默跳过 |
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 

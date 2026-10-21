@@ -3,6 +3,7 @@ package com.javelin.editor.plugin;
 import com.javelin.editor.file.FileTypeSetup;
 import com.javelin.editor.i18n.I18nKey;
 import com.javelin.editor.menu.EditorMenuSetup;
+import com.javelin.editor.swing.inspector.InspectorSetup;
 import com.javelin.editor.swing.panel.EditorPanelSetup;
 
 /**
@@ -44,6 +45,7 @@ public final class EditorCorePlugin implements Plugin {
     public void setup(PluginContext context) {
         EditorLang.init(context.i18n());
         FileTypeSetup.setup(context);
+        InspectorSetup.setup(context);
         EditorPanelSetup.setup(context);
         EditorMenuSetup.setup(context);
     }

@@ -23,13 +23,13 @@ import java.util.List;
  * detach 保留实例，面板内部状态不丢，Editor_Swing_Design §10-6）。切换走
  * {@link EditorPanel} onShow/onHide 生命周期（对齐 web DockPanelExpose 语义）。
  * 标签条显隐：常显（2026-10-18 复拍板，Unity 口径——tab 头即面板身份、M5
- * 拖拽停靠的句柄；推翻 M1「单面板不可关无缝」，层级/属性单面板组也带条），
+ * 拖拽停靠的句柄；推翻 M1「单面板不可关无缝」，层级/检查器单面板组也带条），
  * 唯一例外=视口组无缝——ViewportTabs 自绘 [Scene][Game] 标签条，组身份由其
  * 承载，再加条即双条（Editor_Swing_Design §6 的 viewport 特化接入位）。</p>
  *
  * <p><b>关闭语义（M1）</b>：组内局部重排——树结构不动、DockRoot 不整树重建
  * （整树重挂会让画布经历 removeNotify→HWND 重建→交换链失效，"画布不
- * reparent"铁律的运行期延伸，2026-10-17 实测"关属性面板即坏"）。关最后一个
+ * reparent"铁律的运行期延伸，2026-10-17 实测"关检查器面板即坏"）。关最后一个
  * 面板保留空组占位，不塌缩；塌缩与「窗口」域恢复归 M5（配 RHI surface 重建）。</p>
  *
  * @author javelin

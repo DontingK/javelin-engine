@@ -7,6 +7,8 @@ import com.javelin.editor.menu.CommandService;
 import com.javelin.editor.menu.MenuCommand;
 import com.javelin.editor.swing.panel.PanelDescriptor;
 import com.javelin.editor.swing.panel.PanelRegistry;
+import com.javelin.editor.swing.inspector.InspectorProvider;
+import com.javelin.editor.swing.inspector.InspectorRegistry;
 
 /**
  * 插件注册门面（{@link Plugin#setup} 唯一入参）：注册经此收口，持有
@@ -57,5 +59,10 @@ public final class PluginContext {
     /** 注册文件类型（转 {@link FileTypeRegistry}，扩展名重复 fail-fast） */
     public void registerFileType(FileType type) {
         FileTypeRegistry.register(type);
+    }
+
+    /** 注册检查器 provider（转 {@link InspectorRegistry}，键重复 fail-fast） */
+    public void registerInspector(InspectorProvider provider) {
+        InspectorRegistry.register(provider);
     }
 }

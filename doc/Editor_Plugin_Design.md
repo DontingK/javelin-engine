@@ -1,6 +1,6 @@
 # 编辑器插件体系与 i18n 设计（v0.1）
 
-> 状态：**首批落地，待用户实测验收**（2026-10-20）——插件静态骨架（契约/装载/账本/
+> 状态：**首批落地，已验收**（2026-10-20 用户实测通过）——插件静态骨架（契约/装载/账本/
 > 隔离）+ editor.core 迁移（编辑器即插件通电）+ i18n 基建（注册中心/scope/门面）+
 > 菜单 i18n 首批（label 全链 I18nKey）。
 > 本档为插件体系与 i18n 的**总纲**：契约语义、装载管线、错误分级、i18n 解析链、
@@ -242,7 +242,7 @@ namespace**（魔法推导与「namespace 显式声明」拍板冲突，挪包�
 | 契约 | `MenuCommand.label()` 返回 I18nKey；`Command`/`MenuDef`/`MenuEntry` label 字段、`MenuRegistry.menu`/`MenuBuilder.submenu` 签名同步 |
 | 约定 | **label key = 命令 id**（`file.save=保存`）：三个域基类提供默认 `label() = EditorLang.key(id())`——12 个实命令类 label 覆写全删、两个 UnimplementedMenuCommand 的 label 字段/构造参数整体消失；id 改名即 key 改名，旧 key 自动进死 key 报告 |
 | 渲染 | `MenuBarFactory`（顶栏 JMenu）、`MenuPopupFactory`（命令项 + 子菜单）`.text()` 解析；子菜单日志路径 `.fullKey()` |
-| 语言包 | `lang/zh_cn.properties` 39 条（插件元数据 2 + 顶栏域 3 + 顶栏命令 4 + hierarchy 域 15 + project 域 11 + 子菜单键 3 + ……） |
+| 语言包 | `lang/zh_cn.properties` 36 条（插件元数据 2 + 顶栏域 3 + 顶栏命令 4 + hierarchy 域 15 + project 域 12；2026-10-20 补 create.material 注册+条目，ac8a514） |
 
 刻意不做：**ctx 域标签不进语言包**（右键域不渲染标签，进了反而被死 key 报告标红）；
 **日志/异常消息不迁移**（诊断面，Unity 也不 i18n 日志——异常/弹窗消息属第二批）。
@@ -418,7 +418,7 @@ PluginManager.loadAll → EditorCorePlugin.setup → 三个 Setup 经 ctx。
 
 ## 8. 验收状态
 
-**⏳ 待验收（2026-10-20 落地）**——用户实测清单：
+**✅ 已验收（2026-10-20 用户实测通过，无问题）**——验收清单（留档）：
 
 1. 编辑器启动行为与迁移前完全一致：菜单条五域、右键域命令名逐字一致
    （`!editor.core.xxx!` = properties 漏条目，日志同名 warn 指认）；

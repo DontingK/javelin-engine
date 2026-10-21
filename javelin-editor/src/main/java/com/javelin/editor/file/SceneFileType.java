@@ -29,7 +29,7 @@ import java.util.List;
  *
  * <p>切换收尾：clearDirty（新场景即净）+ {@code EditorSelection.setSelectedNode(null)}
  * 收口发布 SceneSelectEvent（Gizmo/TransformWatch/Inspector 经选中链自动复位）
- * + {@code SceneChangedEvent(false)} 驱动层级树/检视器重拉——收尾口径同
+ * + {@code SceneChangedEvent(false)} 驱动层级树/检查器重拉——收尾口径同
  * file.save。</p>
  *
  * @author javelin
@@ -118,7 +118,7 @@ public class SceneFileType implements FileType {
             editorScene.setGameScene(gameScene, file);
             // 选中收口清空：Gizmo/TransformWatch/Inspector 旧场景引用经选中链复位
             EditorSelection.setSelectedNode(null);
-            // 新场景即净 + 树/检视器重拉（树根星标随重拉消失）
+            // 新场景即净 + 树/检查器重拉（树根星标随重拉消失）
             editorScene.clearDirty();
             EditorEventBus.publish(new SceneChangedEvent(false));
             LOGGER.info("打开场景: {}（{} 个根节点）", file.getName(), gameScene.getRootNodes().size());

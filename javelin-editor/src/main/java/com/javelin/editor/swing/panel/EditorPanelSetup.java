@@ -13,7 +13,7 @@ import com.javelin.editor.window.MainFrame;
  * 早于建窗，视口画布经 MainFrame 懒取（factory 求值发生在 DockRoot 装配，
  * 画布已建）。
  *
- * <p>五面板：层级（M2）/项目（M3）/属性（M4）已实装，控制台占位（M2 收口），
+ * <p>五面板：层级（M2）/项目（M3）/检查器（M4）已实装，控制台占位（M2 收口），
  * 视口真身（单 Canvas 不 reparent，§6）。closable 口径（2026-10-17 拍板）：
  * 仅控制台可关，恢复入口整体后置 M5「窗口」域。标签条口径（2026-10-18
  * 复拍板）：常显、视口组除外（Unity 口径，tab 头即面板身份，见 DockTabs）。</p>
@@ -58,7 +58,7 @@ public final class EditorPanelSetup {
         context.registerPanel(PanelDescriptor.of(VIEWPORT_PANEL_ID, "视口")
                 .factory(() -> new ViewportTabs(MainFrame.getInstance().getCanvas()))
                 .build());
-        context.registerPanel(PanelDescriptor.of("inspector", "属性")
+        context.registerPanel(PanelDescriptor.of("inspector", "检查器")
                 .minimumSize(260, 120)
                 .factory(InspectorPanel::new)
                 .build());

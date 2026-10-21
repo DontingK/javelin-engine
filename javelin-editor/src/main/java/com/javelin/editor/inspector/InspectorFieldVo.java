@@ -3,7 +3,7 @@ package com.javelin.editor.inspector;
 import java.util.List;
 
 /**
- * Inspector 字段 VO：单个可检视字段（面板渲染一行，值变更经
+ * Inspector 字段 VO：单个可检查字段（面板渲染一行，值变更经
  * {@link InspectorReflector#apply} 回写）。
  *
  * @author javelin

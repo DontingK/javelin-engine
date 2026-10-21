@@ -6,9 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Inspector 快照根 VO：选中节点的检视数据（节点头信息 + 组件字段分组）。
+ * Inspector 快照根 VO：选中节点的检查器数据（节点头信息 + 组件字段分组）。
  *
- * <p>{@link InspectorReflector} 产出、M4 Swing 属性面板消费（原为 /inspector/info
+ * <p>{@link InspectorReflector} 产出、M4 Swing 检查器面板消费（原为 /inspector/info
  * 桥响应，桥已随 2026-10-17 去 Web 化整包退役）。ready=false = 编辑器未就绪/节点不
  * 存在或已被 GC/拉取超时，其余字段无效——「未就绪」走字段不走异常（对齐场景树
  * 快照通道口径，面板重试或清空兜底）。</p>

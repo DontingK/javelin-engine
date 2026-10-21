@@ -35,7 +35,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Inspector 反射器：可检视字段清单收集（getter 读）+ 值回写（setter 写）。
+ * Inspector 反射器：可检查字段清单收集（getter 读）+ 值回写（setter 写）。
  *
  * <p>访问铁律：读走 getter、写走 setter——Transform 的 setLocalXxx 内含值拷贝 +
  * markDirty 脏传播，裸 Field.set 会绕过（localToWorld 矩阵不重算）；字段定位可以
@@ -47,7 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @InsRotation 才按旋转展示。</p>
  *
  * <p>线程约束：须在引擎主线程执行（经 JavelinEngine.submitTask 帧边界提交，
- * 由 M4 Swing 属性面板保证——面板读写均走帧队列，与 mainLoop 的场景访问
+ * 由 M4 Swing 检查器面板保证——面板读写均走帧队列，与 mainLoop 的场景访问
  * 串行无竞争）。</p>
  *
  * <p>收集面 = 节点头（name/active/layer/tags）+ @InsHeader 闸门组件分组
@@ -336,7 +336,7 @@ public final class InspectorReflector {
     }
 
     /**
-     * 类 → 可检视属性清单：沿类层级收集声明字段，@InsField 标记的才进清单
+     * 类 → 可检查属性清单：沿类层级收集声明字段，@InsField 标记的才进清单
      * （判据见 buildProp）。getter 按 getX/isX（boolean）查找；setter 单参数按
      * setX 查找——同名重载时按参数类型与字段类型装箱等价解析（findSetter）。
      */
@@ -380,7 +380,7 @@ public final class InspectorReflector {
         }
         InspectorValueType type = mapValueType(field);
         if (type == null) {
-            throw new IllegalStateException("InsField 字段类型不可检视: " + owner
+            throw new IllegalStateException("InsField 字段类型不可检查: " + owner
                     + "（类型 " + field.getType().getSimpleName() + "；Quaternionf 还须 @InsRotation）");
         }
         Class<?> enumType = null;
@@ -552,7 +552,7 @@ public final class InspectorReflector {
                 return prop;
             }
         }
-        throw new TipException("无可检视字段: " + host.getClass().getSimpleName() + "." + fieldName);
+        throw new TipException("无可检查字段: " + host.getClass().getSimpleName() + "." + fieldName);
     }
 
     private static InspectorValueType parseType(String valueType) {

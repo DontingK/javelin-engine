@@ -5,7 +5,7 @@
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
 > JVM、无 CEF 进程与 Vite dev server 依赖（落地待验收，见 §9 M6 行注）。
 > **M2 层级面板已实装**（2026-10-18，待验收——实装拍板与坑见 §7.5）；**M3 项目面板
-> 已实装**（2026-10-18，待验收——§7.6）；**M4 属性面板已实装**（2026-10-18，
+> 已实装**（2026-10-18，待验收——§7.6）；**M4 检查器面板已实装**（2026-10-18，
 > **用户实测验收通过**——实装拍板见 Inspector_Design v0.4 + §7.7）；控制台与视口
 > 工具栏收口待实装。
 > 本文是编辑器 UI 栈从 JCEF/Web 迁往纯 Swing + FlatLaf 的重构总纲。后续里程碑落地随进度
@@ -56,7 +56,7 @@
 | 主窗口 = CEF 铺满 + Canvas 挖洞叠放 | `MainFrame extends CefFrame` | 重写为 Swing 布局宿主，废除 rectChange 链 |
 | 视口矩形上报（ResizeObserver→`/render/rce`） | `JavelinMethod.rectChange` / `useRenderRectReport` | **整条废除**，resize 走 Canvas 自身 ComponentAdapter |
 | Dock（固定四区 + tab 条） | web `useEditorLayout.ts` + `DockContainer.vue` | Swing 侧重建（§5），功能面只多不少 |
-| 六面板（层级/属性/项目/控制台/Scene 视口/Game 视口） | web `panels/` | M1 占位 → 逐个实装（§7） |
+| 六面板（层级/检查器/项目/控制台/Scene 视口/Game 视口） | web `panels/` | M1 占位 → 逐个实装（§7） |
 | 顶部菜单条 | web `MenuBar.vue`（触发）+ Java `MenuRegistry`（单源） | `setJMenuBar` 挂 Swing 产出，web 条删除 |
 | 右键域菜单 / JPopupMenu | 已 Swing（`/menu/open`） | 保留，入口从桥调用改为 Java 直调 |
 | 状态栏 | web `StatusBar.vue` | Swing 重建（M1 简版） |
@@ -123,12 +123,12 @@ DockNode（抽象）
   映射 `JSplitPane`（保留其非连续布局与分割条交互），不自研分割条。多区需求=嵌套二分。
 - **尺寸重分配策略（弹性侧）**：`DockSplitPane` 的 resizeWeight 固定为"含视口面板
   （viewport）的一侧吸收容器尺寸变化，其余侧保持原尺寸"——拖外层分割条/改窗口大小时
-  层级/属性/底栏等定宽面板不随之伸缩（Unity/IntelliJ 口径；2026-10-17 拍板，此前按
+  层级/检查器/底栏等定宽面板不随之伸缩（Unity/IntelliJ 口径；2026-10-17 拍板，此前按
   weight 比例分配会导致层级面板跟手伸缩）。
 - **区域最小尺寸 = 面板描述符契约**：`PanelDescriptor.minimumSize`（组内取最大经
   `DockTabs.getMinimumSize` 上汇，分割条钳制与窗口收缩走标准 minimum 链生效；
   面板换实装约束跟描述符不丢）。当前常量（EditorPanelSetup 可调）：层级 200 宽 /
-  属性 260 宽 / 底栏 120 高（2026-10-17 拍板）。
+   检查器 260 宽 / 底栏 120 高（2026-10-17 拍板）。
 - **TabNode 只存面板 id**：面板组件实例不进布局树——树可整体序列化（M5 持久化），面板状态
   生命周期与布局解耦；同一面板 id 同时只在一个 TabNode（关闭=从树摘除，重开=按默认落点
   重新插入，M1 即支持）。
@@ -175,7 +175,7 @@ public interface EditorPanel {
 |------|------|
 | `DockRoot`（JComponent） | 持布局树，树→组件递归实例化；`rebuild()` 整树重排（M1 粗粒度：结构变化即重挂，面板组件经 detach 缓存复用不重建） |
 | `DockSplitPane` | SplitNode 渲染，包装 JSplitPane（非连续布局，拖完才 relayout——规避逐像素 swapchain 重建，§10-5） |
-| `DockTabs` | TabNode 渲染：自绘标签条（JComponent.paintComponent，贴行紧凑、tab 高 24 对齐场景视图工具栏规格）+ 内容区 BorderLayout。标签条常显（2026-10-18 复拍板，推翻 M1「单面板不可关无缝」——层级/属性单面板组也带 tab 头，Unity 口径）；唯一例外=视口组无缝（ViewportTabs 自绘 [Scene][Game] 条，再加即双条） |
+| `DockTabs` | TabNode 渲染：自绘标签条（JComponent.paintComponent，贴行紧凑、tab 高 24 对齐场景视图工具栏规格）+ 内容区 BorderLayout。标签条常显（2026-10-18 复拍板，推翻 M1「单面板不可关无缝」——层级/检查器单面板组也带 tab 头，Unity 口径）；唯一例外=视口组无缝（ViewportTabs 自绘 [Scene][Game] 条，再加即双条） |
 | `DockTab` 标签 | 标题 + 关闭 ×（closable）+ 左图标（jsvg） |
 
 - 间距守 §"编辑器 Web UI 设计规范"同源的紧凑口径：常驻布局间距 ≤2px（浮层菜单例外）——
@@ -261,10 +261,10 @@ PongEvent 删，五场景事件转纯 EditorEvent）。
 
 ### 7.4 实装次序（按风险递增）
 
-M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表单最重，GUID_ASSET 三态只读
+M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行表单最重，GUID_ASSET 三态只读
 等通道逐项对齐 Inspector_Design）。每面板迁移=独立批次，迁一个验一个——桥已随 M6
 提前整包清退，各面板即 Java 直调全新实装（§7.1）。层级 2026-10-18 先落（§7.5），
-项目面板同日次落（§7.6），属性面板同日三落（§7.7 + Inspector_Design v0.4）；控制台
+项目面板同日次落（§7.6），检查器面板同日三落（§7.7 + Inspector_Design v0.4）；控制台
 与视口工具栏收口待续。
 
 ### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地待验收）
@@ -350,7 +350,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 属性（436 行表
    setDividerLocation 不生效，DockSplitPane 同款坑）+ 左树最小宽 100px（分割条
    左界钳制源）。原 web「复用 SplitPanel」之说随迁移作废。
 
-### 7.7 属性面板实装注记（M4，2026-10-18 落地待验收）
+### 7.7 检查器面板实装注记（M4，2026-10-18 落地待验收）
 
 组件落位 `swing/inspector` 两层：面板层（InspectorPanel 主面板 / NodeHeaderPanel
 节点头 / ComponentSection 组件分组 / FieldRowFactory 类型映射 + FieldEditor 控件
@@ -425,7 +425,7 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
 | **M1 窗口+Dock 骨架（本批）** | FlatLaf Dark 初始化；MainFrame 重构（Window 契约保持）；DockRoot/DockSplitPane/DockTabs + 默认布局树；六面板占位（PanelRegistry+EditorPanelSetup）；ViewportTabs 接 CanvasSurface + Scene 工具栏 Swing 化；JMenuBar 挂载；StatusBar 简版；`/render/rce` 等废除清单落地 | 用户实测：编辑器启动渲染正常；视口 resize/最大化/分割条拖动全链路正常；右键菜单、顶部菜单可用；关闭流程正常 |
 | M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地（2026-10-18 待验收，§7.5）；控制台待续** |
 | M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价。**项目面板已落地（2026-10-18 待验收，§7.6）；视口工具栏收口待续** |
-| M4 | 属性面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价。**已落地并验收（2026-10-18 用户实测通过，§7.7 + Inspector_Design v0.4）** |
+| M4 | 检查器面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价。**已落地并验收（2026-10-18 用户实测通过，§7.7 + Inspector_Design v0.4）** |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |
 | M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，待验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
 
@@ -471,7 +471,7 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
 6. **面板组件 detach 复用**：M1 的 rebuild() 粗粒度重挂必须保证 TabNode 摘面板时调
    onHide、重挂调 onShow 且组件实例不重建（factory 只在无实例时造）——否则层级树等
    有内部状态的面板迁入后会被静默重置。
-7. **关闭路径禁止树重挂（坑③，2026-10-17 实测"关属性面板即坏"）**：关闭面板若做
+7. **关闭路径禁止树重挂（坑③，2026-10-17 实测"关检查器面板即坏"）**：关闭面板若做
    空组塌缩 + DockRoot 整树重建，视口组件即便有缓存也要从旧容器摘下重挂——画布
    removeNotify→HWND 销毁重建，引擎 VkSurfaceKHR/交换链仍绑旧句柄，present 死。
    "画布不 reparent"铁律必须延伸到一切运行期结构操作：M1 关闭=DockTabs 组内局部

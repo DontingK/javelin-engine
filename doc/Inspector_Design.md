@@ -1,6 +1,6 @@
-# 检视器（Inspector）设计（v0.4）
+# 检查器（Inspector）设计（v0.5）
 
-> 定位：`javelin-editor` 选中节点检视面板——Java 反射收集字段清单（`InspectorReflector`，
+> 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
 > 设计基准=完全参考 Unity（Editor_Design §1）。
 > （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
@@ -235,3 +235,61 @@ VO 删 objId）+ Reflector LAYER_MASK options 下发（value=层索引串）+ ma
 可空值字段「清回 null」的 UI 形态、Inspector 订阅 nodeRenamed（外部改名刷面板——
 场景变更重拉兜底）、设置管线合流（Game/→Settings）。（v0.2 曾留白「组件字段星标
 延迟 / Transform 拖拽星标即时化」——markDirty 翻转沿发布后关闭，见 §7。）
+
+## 11. 检查器注册器（v0.5，2026-10-21 用户实测验收通过）
+
+> 起因：检查器写死「选中节点」单形态，Unity 检查器是多态的——选中什么检查什么
+> （节点→组件清单、材质文件→材质检查器、不支持的→灰提示）。三拍板（2026-10-21）：
+> ①注册器**统一接管 Node 与资产文件**（分轨被否——两类检查器同走注册面，外壳零
+> 特例）；②文件选中通知=**平行事件** ProjectSelectEvent（统一 SelectionChanged
+> 大收口被否——Gizmo/TransformWatch/层级高亮等现有消费方零改动）；③Material
+> 检查器**只读先行**（shader 驱动属性表+资产脏标+file.save 写回的可编辑通道独立
+> 批次拍板）。
+
+**契约（`swing.inspector` 包）**：
+
+- `InspectorProvider`：`keys()`（node 键 = `NODE_KEY` 常量；文件键 = 扩展名含点号
+  小写，对齐 FileTypeRegistry 口径）+ `create()`（EDT）→ InspectorContent。
+- `InspectorContent`：`component()`（自含滚动结构）+ 生命周期 `onAttach` /
+  `onDetach` / `onSelection`（同 provider 内目标切换）——外壳调序恒定
+  create → onAttach → onSelection → … → onDetach；事件订阅 onAttach 订、
+  onDetach 退（Subscription.dispose）。
+- `InspectorRegistry`：静态门面（对齐菜单/面板/文件类型域先例），LinkedHashMap
+  保持注册序、同键重复注册 IllegalStateException fail-fast；`find(InspectorSelection)`
+  ——节点走 NODE_KEY、文件按扩展名 endsWith（忽略大小写）、目录/无选中 null；
+  node 键不参与文件名 endsWith（分轨防「xx.node」误配）。
+- `InspectorSetup`：集中显式注册（FileTypeSetup 先例），经
+  `PluginContext.registerInspector` 收口，接线 EditorCorePlugin.setup。
+- `InspectorSelection`：分发用选中快照（node/file 双槽，互斥后至多一非空）。
+
+**外壳（InspectorPanel 重写为分发壳）**：Dock 面板只做分发与空态。选中驱动 =
+双事件触发（scene.select / project.select）拉态单源读 EditorSelection（连发幂等
+——互斥清槽同点击双事件只触发两次同态 dispatch）；provider 命中且与当前同 →
+`onSelection` 换目标不重建内容件（组件折叠记忆/编辑保护状态保活）；换 provider →
+全量换件。空态分档：无选中 =「未选中任何对象」、有选中无 provider（未支持文件/
+目录）=「无检查器」灰提示（Unity 对不支持资产口径）。
+
+**选中链（EditorSelection）**：双槽互斥（Unity 单 selection 口径）——
+setSelectedNode 清文件槽（静默，文件侧消费方拉态无平行状态）；setSelectedPath
+清节点槽并补发 SceneSelectEvent(null)（Gizmo/层级高亮/变换基线随选中移交复位）+
+收口发布 ProjectSelectEvent；新增 getSelectedPath() 原始路径口（目录也达，
+分发/展示侧用）。
+
+**Node 内容平移（NodeInspectorContent）**：M4 面板逻辑整体迁出（数据通道/回写
+链/编辑保护/折叠记忆口径不变，验收基线 = 节点检查器行为与 v0.4 一致）；差异仅
+事件分工——选中驱动归外壳，本件订阅 scene.changed（重拉）与
+nodeTransformChanged（Transform 定点刷新）。ScrollableContent 升公用
+InsScrollablePanel（Node/材质内容件共用）。
+
+**Material 只读内容（MaterialInspectorContent）**：TextImporter 后台线程读 .mat
+文本源（MaterialImporter 同款解析链——读源即所见，不经 Library 产物）、EDT 组装
+（文件/Shader/面型/GUID 头 + values/textures 条目列表，浮点 InsFormat 4 位口径）；
+代际守卫防连点竞态（选中前进即 +1，旧结果丢弃）、解析失败显错误态不静默。core
+Material 补 getValues()/getTextures() 只读视图（unmodifiable 展示面，变更仍走
+setFloat/setColor/setTexture——红线 10 只禁 write 侧包装，展示视图无碍）。
+
+**遗留**：材质可编辑通道（≈Unity ShaderGUI：shader 驱动属性表 + 资产脏标 +
+file.save 写回 .mat——资产脏标与场景 dirty 不同源，需单独设计拍板）；project
+面板高亮跨域同步（节点接管选中后文件槽被静默清空，项目面板右区条目高亮残留
+视觉态——订阅 ProjectSelectEvent 清高亮留后）；面板标题/文案 i18n（硬编码中文，
+随面板标题接 I18nKey 批次）；.shader/.smesh 等其余资产检查器按需注册。

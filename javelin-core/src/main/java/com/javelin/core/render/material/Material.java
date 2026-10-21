@@ -6,6 +6,8 @@ import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.ArrayList;
 
 /**
@@ -91,6 +93,20 @@ public class Material extends AbsAsset {
         }
         this.surfaceType = surfaceType;
         return this;
+    }
+
+    /**
+     * 数值参数条目只读视图（检查器等展示侧用；变更走 setFloat/setColor）。
+     */
+    public List<MaterialValueEntry> getValues() {
+        return Collections.unmodifiableList(values);
+    }
+
+    /**
+     * 贴图槽条目只读视图（检查器等展示侧用；变更走 setTexture）。
+     */
+    public List<MaterialTextureEntry> getTextures() {
+        return Collections.unmodifiableList(textures);
     }
 
     /**

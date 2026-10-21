@@ -5,7 +5,7 @@ import com.javelin.core.scene.Component;
 import java.util.List;
 
 /**
- * 组件分组 VO：Inspector 快照中单个组件的可检视字段分组（折叠头信息 + 字段列表）。
+ * 组件分组 VO：Inspector 快照中单个组件的可检查字段分组（折叠头信息 + 字段列表）。
  *
  * @author javelin
  * @create 2026/10/9
@@ -21,6 +21,6 @@ public class ComponentInspectorVo {
     public boolean enabled;
     /** 必需组件（如 Transform）：不可禁用/移除，面板不渲染头部勾选 */
     public boolean required;
-    /** 组件内可检视字段列表 */
+    /** 组件内可检查字段列表 */
     public List<InspectorFieldVo> fields;
 }
