@@ -275,6 +275,12 @@ setSelectedNode 清文件槽（静默，文件侧消费方拉态无平行状态�
 收口发布 ProjectSelectEvent；新增 getSelectedPath() 原始路径口（目录也达，
 分发/展示侧用）。
 
+**场景根行选中（2026-10-22 增量，待验收）**：层级树根行点击 = 场景文件进
+project 槽（HierarchyPanel 报 setSelectedPath）——检查器零改动按 .scene 文件
+走既有分发链（暂无 provider 显示「无检查器」灰提示，将来注册 .scene 检查器
+即自动接管；用户拍板场景名/描述编辑不做——Unity 也没有）。选中链其余语义
+不变。详见 Editor_Swing_Design §7.5 增量 10/11。
+
 **Node 内容平移（NodeInspectorContent）**：M4 面板逻辑整体迁出（数据通道/回写
 链/编辑保护/折叠记忆口径不变，验收基线 = 节点检查器行为与 v0.4 一致）；差异仅
 事件分工——选中驱动归外壳，本件订阅 scene.changed（重拉）与

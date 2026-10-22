@@ -4,6 +4,7 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.core.scene.Node;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.NodeRenamedEvent;
+import com.javelin.editor.event.ProjectSelectEvent;
 import com.javelin.editor.event.SceneChangedEvent;
 import com.javelin.editor.event.SceneDirtyEvent;
 import com.javelin.editor.event.SceneSelectEvent;
@@ -28,6 +29,7 @@ import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
@@ -42,6 +44,7 @@ import java.util.Enumeration;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.io.File;
 
 /**
  * 层级面板（左侧场景树，Editor_Swing_Design §7.2——原 web HierarchyPanel 的 Swing
@@ -55,11 +58,13 @@ import java.util.Set;
  * → 定点改行文本。展开态按节点 id 跨换树恢复。</p>
  *
  * <p><b>选中单源</b>：树行点击（含右键即选中）写 {@link EditorSelection}
- * setSelectedNode（场景根选中=清 Node 选中，volatile 直写 EDT 安全——
+ * （节点行 setSelectedNode；场景根行=场景文件 setSelectedPath——文件选中语义，
+ * 检查器按 .scene 文件同链分发，2026-10-22 拍板；volatile 直写 EDT 安全——
  * 2026-10-18 全链引用化拍板：NodeSnap 持 Node 引用作回查键，EDT 不读其字段、
  * 显示数据走拷贝）；
  * 外源选中（创建命令自动选中、将来视口拾取）经 {@code scene.select} 事件反向对齐
- * 树高亮 + scrollPathToVisible（顺带展开父链——创建命令后新节点自动可见）。
+ * 树高亮 + scrollPathToVisible（顺带展开父链——创建命令后新节点自动可见）；
+ * {@code project.select} 选中本场景文件 → 根行高亮、选中他物 → 根行熄灭（跨域对齐）。
  * 程序化同步期抑制回写，防事件回声。</p>
  *
  * <p><b>右键域菜单</b>：右键先落选中再弹 ctx.hierarchy 域 Swing 菜单
@@ -105,6 +110,8 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
     private boolean dirty;
     /** 场景根显示名（快照携带；星标由渲染器按 live dirty 叠加） */
     private String sceneName = PLACEHOLDER_ROOT;
+    /** 场景文件（快照携带；根行选中=文件选中语义的数据源，未存盘 null） */
+    private File sceneFile;
     /** 未就绪重试定时器（EDT 专属：scheduleRetry 仅在 EDT 创建/启动） */
     private Timer retryTimer;
     private int retryCount;
@@ -162,6 +169,7 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
         stopRetry();
         dirty = snapshot.isDirty();
         sceneName = snapshot.getSceneName();
+        sceneFile = snapshot.getSceneFile();
         Set<Node> expandedNodes = collectExpandedNodes();
         DefaultMutableTreeNode rootNode = buildNodeTree(snapshot);
         // 换树全程抑制选中回写：setRoot 会清选中触发 valueChanged，不抑制则
@@ -272,13 +280,16 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
         EditorEventBus.subscribe(SceneDirtyEvent.class, e -> SwingUtilities.invokeLater(() -> {
             dirty = true;
             if (treeMounted) {
-                tree.repaint();
+                // nodeChanged 让 UI 重算根行节点尺寸——repaint 不重算，" *" 撑宽的文本被旧行宽裁出省略号
+                model.nodeChanged((TreeNode) model.getRoot());
             }
         }));
         EditorEventBus.subscribe(NodeRenamedEvent.class, e -> SwingUtilities.invokeLater(
                 () -> applyRename(e.getNode(), e.getNewName())));
         EditorEventBus.subscribe(SceneSelectEvent.class, e -> SwingUtilities.invokeLater(
                 () -> syncSelection(e.getNode())));
+        EditorEventBus.subscribe(ProjectSelectEvent.class, e -> SwingUtilities.invokeLater(
+                () -> syncSceneSelection(e.getPath())));
     }
 
     /** 定点改名（树未就绪或节点已删则静默——结构变更会随之重拉整树兜底） */
@@ -291,12 +302,22 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
         model.nodeChanged(treeNode);
     }
 
-    /** 选中对齐（外源 scene.select / 换树收尾共用）：高亮 + 滚动可见（顺带展开父链） */
+    /** 选中对齐（外源 scene.select / project.select / 换树收尾共用）：高亮 + 滚动可见（顺带展开父链） */
     private void syncSelection(Node node) {
         if (!treeMounted) {
             return;
         }
-        DefaultMutableTreeNode treeNode = node != null ? nodeIndex.get(node) : null;
+        if (node == null) {
+            // 节点槽空 ≠ 清根行：场景选中态（=本场景文件在 project 槽）对齐高亮根行，
+            // 根行已高亮则存活（未存盘场景唯一可见通道）；其余照旧清空
+            if (isSceneSelected()) {
+                selectRootRow();
+            } else if (!isRootRowSelected()) {
+                tree.clearSelection();
+            }
+            return;
+        }
+        DefaultMutableTreeNode treeNode = nodeIndex.get(node);
         suppressSelectionReport = true;
         try {
             if (treeNode != null) {
@@ -308,6 +329,54 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
             }
         } finally {
             suppressSelectionReport = false;
+        }
+    }
+
+    // ------------------------------------------------------------------ 场景选中跨域对齐（EDT）
+
+    /**
+     * project 选中对齐（project.select 事件触发）：选中本场景文件 → 根行高亮；
+     * 选中其他文件/目录 → 根行高亮熄灭（选中已移交 project 域）。
+     */
+    private void syncSceneSelection(File path) {
+        if (!treeMounted) {
+            return;
+        }
+        if (sceneFile != null && sceneFile.equals(path)) {
+            if (!isRootRowSelected()) {
+                selectRootRow();
+            }
+        } else if (isRootRowSelected()) {
+            suppressSelectionReport = true;
+            try {
+                tree.clearSelection();
+            } finally {
+                suppressSelectionReport = false;
+            }
+        }
+    }
+
+    /** 场景选中态：project 槽持有本场景文件（根行选中=文件选中语义） */
+    private boolean isSceneSelected() {
+        return sceneFile != null && sceneFile.equals(EditorSelection.getSelectedPath());
+    }
+
+    /** 根行当前高亮否（树选中即根行——未存盘场景的根行高亮也经此判定存活） */
+    private boolean isRootRowSelected() {
+        TreePath path = tree.getSelectionPath();
+        return path != null && model.getRoot() instanceof DefaultMutableTreeNode root
+                && path.getLastPathComponent() == root;
+    }
+
+    /** 根行对齐高亮（程序化，抑制回写防事件回声） */
+    private void selectRootRow() {
+        if (model.getRoot() instanceof DefaultMutableTreeNode root) {
+            suppressSelectionReport = true;
+            try {
+                tree.setSelectionPath(new TreePath(root.getPath()));
+            } finally {
+                suppressSelectionReport = false;
+            }
         }
     }
 
@@ -353,7 +422,17 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
                     EditorSelection.setSelectedNode(null);
                     return;
                 }
-                // 场景根选中 = 清 Node 选中（根非 Node；Unity 场景头选中语义）
+                // 场景根行选中 = 场景文件选中（project 槽 → 检查器按文件同链分发）；
+                // 未存盘场景无文件，退回清选中
+                if (path.getLastPathComponent() instanceof DefaultMutableTreeNode rootNode
+                        && rootNode.getUserObject() instanceof SceneTreeSnapshot sceneSnap) {
+                    if (sceneSnap.getSceneFile() != null) {
+                        EditorSelection.setSelectedPath(sceneSnap.getSceneFile());
+                    } else {
+                        EditorSelection.setSelectedNode(null);
+                    }
+                    return;
+                }
                 EditorSelection.setSelectedNode(
                         path.getLastPathComponent() instanceof DefaultMutableTreeNode node
                                 && node.getUserObject() instanceof SceneTreeSnapshot.NodeSnap snap

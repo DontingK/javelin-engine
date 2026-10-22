@@ -28,17 +28,19 @@ public final class SceneTreeSnapshot {
 
     /** 未就绪快照（ready=false；不可变，共享单例安全） */
     private static final SceneTreeSnapshot NOT_READY =
-            new SceneTreeSnapshot(false, "", false, new ArrayList<>());
+            new SceneTreeSnapshot(false, "", null, false, new ArrayList<>());
 
     private final boolean ready;
     private final String sceneName;
+    private final File sceneFile;
     private final boolean dirty;
     private final ArrayList<NodeSnap> roots;
 
-    private SceneTreeSnapshot(boolean ready, String sceneName, boolean dirty,
+    private SceneTreeSnapshot(boolean ready, String sceneName, File sceneFile, boolean dirty,
                               ArrayList<NodeSnap> roots) {
         this.ready = ready;
         this.sceneName = sceneName;
+        this.sceneFile = sceneFile;
         this.dirty = dirty;
         this.roots = roots;
     }
@@ -59,7 +61,7 @@ public final class SceneTreeSnapshot {
             roots.add(collect(root));
         }
         return new SceneTreeSnapshot(true, sceneDisplayName(editorScene, gameScene),
-                editorScene.isDirty(), roots);
+                editorScene.getGameSceneFile(), editorScene.isDirty(), roots);
     }
 
     /** 场景根显示名：GameScene.name → 场景文件名去扩展名 → "Untitled"（原桥口径平移） */
@@ -94,6 +96,11 @@ public final class SceneTreeSnapshot {
     /** 场景根显示名（脏星标由消费方按 scene.dirty 事件叠加，不入快照名） */
     public String getSceneName() {
         return sceneName;
+    }
+
+    /** 场景文件（根行选中=文件选中语义的数据源；未存盘场景 null） */
+    public File getSceneFile() {
+        return sceneFile;
     }
 
     /** 快照时点场景脏标记（重拉整树时熄灭星标的数据源） */

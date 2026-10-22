@@ -317,6 +317,23 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
    id 锚点无运行时消费方，M4 实装时随引用化改造。将来场景切换命令落地时须
    setSelectedNode(null) 收口。
 
+增量（2026-10-22 落地，待验收）：
+
+9. **脏星标行宽裁剪坑**：scene.dirty 置星只 repaint——BasicTreeUI 行宽来自布局
+   缓存的节点尺寸，repaint 不触发重算，「场景名 *」撑宽的文本被旧行宽裁出省略
+   号；修 = 根行 `model.nodeChanged`（applyRename 同先例，触发该行尺寸重算，
+   自带重绘无需另补 repaint）。
+10. **场景根行可选中（用户拍板：选中效果=文件选中；场景名/描述编辑不做——
+    Unity 也没有）**：根行点击改报 `setSelectedPath(场景文件)`（project 槽），
+    检查器按 .scene 文件走既有分发链零改动（暂无 provider →「无检查器」灰提示，
+    将来注册 .scene 检查器即自动点亮）；未存盘场景无文件退回清选中。快照补
+    sceneFile 携带（引擎线程读 EditorScene.getGameSceneFile()）。
+11. **根行高亮存活与跨域对齐**：syncSelection 空 Node 事件不再清根行——原回声
+    bug：点根行 → 上报 null → SceneSelectEvent(null) → clearSelection 自灭；现
+    场景选中态（project 槽持本场景文件）对齐高亮根行、换树重拉后恢复（未存盘
+    场景根行已高亮则存活）。新订 project.select：选中本场景文件 → 根行高亮、
+    选中他物 → 根行熄灭（选中移交 project 域）；程序化变更均抑制回写防回声。
+
 ### 7.6 项目面板实装注记（M3，2026-10-18 落地待验收）
 
 组件落位 `swing/project` 两件：`ProjectPanel`（左右分栏 JTree/JList + 面包屑 +

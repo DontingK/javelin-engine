@@ -87,7 +87,7 @@ public final class EditorSelection {
     /**
      * 设置 project 选中（收口发布点；清空节点槽——双槽互斥，Unity 单 selection 口径）。
      *
-     * @param path 选中文件/目录，null 清除（前端上报调用）
+     * @param path 选中文件/目录，null 清除（前端上报/层级树根行=场景文件调用）
      */
     public static void setSelectedPath(File path) {
         selectedPath = path;

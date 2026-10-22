@@ -161,6 +161,8 @@
 | 层级树（/scene/tree 帧通道 + scene.changed 增删刷新 + 选中单源 + accent 高亮 + dirty 星标镜像） | 🪦 web 实装已随 2026-10-18 去 Web 化清退 | 历史验收（2026-10-04 / 2026-10-11）；Swing 版见下行 |
 | 层级树 Swing 实装（HierarchyPanel：SceneTreeSnapshot submitTask 帧快照→EDT 换树 + scene.changed/dirty/nodeRenamed/select 四事件分工 + 展开态按引用恢复 + 右键 ctx.hierarchy 先落选中） | ✅ | ⏳ 待验收（2026-10-18，Editor_Swing_Design §7.5） |
 | 选中/事件链全链引用化（EditorSelection 存 volatile Node + 三事件引用载荷 + Create 命令引用快照 + NodeSnap 引用回查键；ObjectCache 退役、快照拷贝本体保留） | ✅ | ⏳ 待验收（2026-10-18 拍板，Editor_Swing_Design §7.5-8） |
+| 场景根行选中=场景文件（根行点击 setSelectedPath 进 project 槽→检查器 .scene 文件链分发零改动；syncSelection 空事件不清根行修回声自灭 + project.select 跨域对齐：选本场景文件高亮根行/选他物熄灭；未存盘场景无文件退清选中） | ✅（2026-10-22） | ⏳ 待验收 |
+| 脏星标行宽修复（scene.dirty 置星改根行 model.nodeChanged 重算节点尺寸——repaint 不重算、旧行宽裁出省略号） | ✅（2026-10-22） | ⏳ 待验收 |
 | Scene/Game 视图切换（sceneModel 双模式 volatile 直写 + Game 页 resize 画布跟随） | ✅ | ⏳ 待验收（2026-10-11） |
 | Transform 变更检测（TransformWatchAppState 帧级快照 diff → scene.nodeTransformChanged + 置脏） | ✅ | ⏳ 待验收（2026-10-06；触发场景=Gizmo 拖拽，拖拽本体已验 2026-10-14） |
 | GAME 模式输入隔离（飞行 / Gizmo 输入仍活） | ⬜ 留白 | — |
