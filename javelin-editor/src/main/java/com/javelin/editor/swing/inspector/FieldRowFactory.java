@@ -42,9 +42,15 @@ public final class FieldRowFactory {
         InspectorValueType type = InspectorValueType.valueOf(vo.valueType);
         switch (type) {
             case INT:
-                return new JeNumberInput(vo.value, true, vo.range, commit);
-            case FLOAT:
-                return new JeNumberInput(vo.value, false, vo.range, commit);
+            case FLOAT: {
+                JeNumberInput input = new JeNumberInput(vo.value, type == InspectorValueType.INT,
+                        vo.range, commit);
+                if (vo.range != null) {
+                    // 拖动调值每像素步长跟随注解 step（无 range 走控件默认：整 1/浮 0.1）
+                    input.setScrubStep(vo.range.step);
+                }
+                return input;
+            }
             case STRING:
                 return new JeTextInput(vo.value, commit);
             case BOOLEAN:

@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.5）
+# 检查器（Inspector）设计（v0.6）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -41,6 +41,10 @@
 > （Node 新增公开只读口，`components()` 维持 package-private 不动）——贴注解的组件
 > 才进面板、旧白名单 `INSPECTABLE_COMPONENTS` 退役；挂载序=面板分组序（Unity
 > 口径），Transform 构造首挂恒首位；多实例组件全部入面板，节点单组件假设作废。
+> v0.6（2026-10-22，**用户实测验收通过**）：**输入交互增强（§12）**——数字键入
+> 即提交（enter/blur 才应用作废）、文本提交时机归使用方（默认 enter/blur、可选每键
+> 通道）、label 按住左键左右拖调值（Unity scrub 口径，每像素步长可配：默认整 1/浮
+> 0.1、range 字段=注解 step）；滚轮调值与无限拖（指针回绕）试做后按用户要求移除。
 
 ## 1. 总则
 
@@ -158,10 +162,10 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   外源刷新（编辑中/值等价跳过）、isEditing=重建保护判据；提交回调走 FieldCommit
   ｛owner 归属校验锚点 + host 回写宿主 + fieldName/valueType/wire 值｝；
 - **`widget` 控件七件**：JeNumberInput（4 位小数钳制+range 硬钳+非法 blur 回滚+
-  enter/blur 提交值真变才回调）、JeSelect（value/label 分离、程序化置值抑制上报）、
+  **键入即提交（§12）**+值真变才回调）、JeSelect（value/label 分离、程序化置值抑制上报）、
   VectorRow（N 段数字行**等分自适应**——GridBag 等权列 fill HORIZONTAL，Flow 布局
   恒 preferred 挤左形态废弃；RECT 四段两行 X/Y+W/H，2026-10-18 用户拍板；任一段提交
-  整行组包——此刻其余段恒归一态）、CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
+  整行组包——组包读各段 committedText（§12））、CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
   槽+加粗标题；**视觉=灰头/亮内容分层**（头=Panel.background、内容提亮 Button.
   background——tabAreaBackground 在 FlatLightLaf 不存在取之落空实锤）+hover+
   整组四周 1px 边框；AWT 鼠标事件不冒泡——切换/hover 监听逐组件挂）、ColorField
@@ -299,3 +303,28 @@ file.save 写回 .mat——资产脏标与场景 dirty 不同源，需单独设�
 面板高亮跨域同步（节点接管选中后文件槽被静默清空，项目面板右区条目高亮残留
 视觉态——订阅 ProjectSelectEvent 清高亮留后）；面板标题/文案 i18n（硬编码中文，
 随面板标题接 I18nKey 批次）；.shader/.smesh 等其余资产检查器按需注册。
+
+## 12. 输入交互与 label 拖动调值（v0.6，2026-10-22 用户实测验收通过）
+
+> 起因：输入框失焦才应用太钝——数值要改即所见；文本侧用户拍板「机制归控件、
+> 策略归使用方」。滚轮调值与无限拖试做后按用户要求移除（沿革见本节末）。
+
+- **数字键入即提交（JeNumberInput）**：DocumentListener——可解析即钳制回写（live），
+  **不动显示文本**保光标（每键归一化会把光标顶到末尾）；非法中间态（"-"、"0."、
+  空串）跳过，enter/blur 回滚归一显示。三守卫沿用：值数值等价不回调、suppress 旗标
+  （程序化 setText 跳过文档监听）防外源刷新回声提交、live 后 lastCommitted 同步跟进
+  （blur 不重复）。
+- **文本提交时机=使用方决定（JeTextInput）**：默认 enter/blur；三参构造可选
+  `onInputChanged`=每键回调（挂了则 lastCommitted 同步、blur 不重复）。name 行不挂
+  ——每键重命名连树刷新/星标无收益、打一半的中间态入模型；要 live 的使用方按需自接。
+- **VectorRow 组包改读 `committedText()`**：live 输入期段显示文本是原始态（可能
+  未过钳制），整行组包改读各段**已提交值**（恒归一/已钳制）——JeNumberInput 新访问口。
+- **label 拖动调值（ScrubDragger，Unity scrub 口径）**：字段行 label（INT/FLOAT）
+  + VectorRow 段 label（X/Y/Z 各管一段）按住左键左右拖——每像素=scrubStep、
+  **拖动实时提交**（场景跟动，非松手才应用）；悬停/拖动显示水平调整光标。
+  scrubStep：默认整 1/浮 0.1、range 字段=注解 step（FieldRowFactory/VectorRow
+  接线）、`setScrubStep(0)` 禁用。Vector 行主 label（如「位置」）不挂——拖一下
+  三分量同变易误触。
+- **沿革（试做后移除，勿再当候选）**：悬停滚轮调值（步长同源、consume 防面板
+  滚动）——用户要求去掉，悬停数字框滚轮恢复滚动面板；无限拖（Robot.mouseMove
+  指针回绕 + 累计位移）——同批移除，恢复有限拖拽（拖到屏幕边即止）。

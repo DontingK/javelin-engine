@@ -19,8 +19,8 @@ import java.util.function.Consumer;
  * （GridBagLayout 等权列：前缀定宽、输入框 fill HORIZONTAL 吃掉所在列全部剩余宽
  * ——Unity 口径行宽填满，Flow 布局恒按 preferred 挤左的形态 2026-10-18 实测废弃）；
  * 每行段数可配——RECT 四段两行（X/Y + W/H，Web 版 v0.2 形态回归，2026-10-18
- * 用户拍板）、VEC3/ROTATION 单行。任一段提交（段值已归一）即整行组包回写
- * （此刻其余段文本恒为归一态——焦点一次只有一段）。
+ * 用户拍板）、VEC3/ROTATION 单行。任一段提交即整行组包回写——组包读各段
+ * committedText（已提交值，恒归一/已钳制；live 输入期段显示文本仍是原始态）。
  *
  * @author javelin
  * @create 2026/10/18
@@ -62,11 +62,18 @@ public class VectorRow extends JPanel implements FieldEditor {
             gbc.gridx = col * 2;
             gbc.weightx = 0;
             gbc.insets = new Insets(row > 0 ? ROW_GAP : 0, col > 0 ? SEGMENT_GAP : 0, 0, 0);
-            add(segmentLabel(labels[i]), gbc);
+            JLabel segLabel = segmentLabel(labels[i]);
+            add(segLabel, gbc);
             gbc.gridx = col * 2 + 1;
             gbc.weightx = 1;
             gbc.insets = new Insets(row > 0 ? ROW_GAP : 0, 0, 0, lastInRow ? 0 : SEGMENT_GAP);
             JeNumberInput input = new JeNumberInput(segment, integer, range, s -> rowCommit());
+            if (range != null) {
+                // 拖动调值每像素步长跟随注解 step（无 range 走控件默认：整 1/浮 0.1）
+                input.setScrubStep(range.step);
+            }
+            // 段 label 拖动调值（Unity scrub 口径，X/Y/Z 各管一段）
+            ScrubDragger.attach(segLabel, input);
             inputs[i] = input;
             add(input, gbc);
         }
@@ -82,14 +89,14 @@ public class VectorRow extends JPanel implements FieldEditor {
         return label;
     }
 
-    /** 整行组包提交（各段此刻均归一态） */
+    /** 整行组包提交（读各段已提交值——非焦点段恒归一态、编辑段 live 已同步提交） */
     private void rowCommit() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < inputs.length; i++) {
             if (i > 0) {
                 sb.append(',');
             }
-            sb.append(inputs[i].getText().trim());
+            sb.append(inputs[i].committedText());
         }
         commit.accept(sb.toString());
     }

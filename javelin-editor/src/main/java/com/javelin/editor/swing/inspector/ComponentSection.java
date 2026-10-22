@@ -3,7 +3,9 @@ package com.javelin.editor.swing.inspector;
 import com.javelin.core.scene.Node;
 import com.javelin.editor.inspector.ComponentInspectorVo;
 import com.javelin.editor.inspector.InspectorFieldVo;
+import com.javelin.editor.swing.inspector.widget.JeNumberInput;
 import com.javelin.editor.swing.inspector.widget.CollapsiblePanel;
+import com.javelin.editor.swing.inspector.widget.ScrubDragger;
 import com.javelin.editor.swing.SvgIcon;
 
 import javax.swing.Icon;
@@ -82,7 +84,12 @@ public class ComponentSection extends JComponent {
             gbc.fill = GridBagConstraints.NONE;
             gbc.weightx = 0;
             gbc.insets = new Insets(1, 0, 1, 4);
-            panel.add(new JLabel(field.name), gbc);
+            JLabel fieldLabel = new JLabel(field.name);
+            if (editor instanceof JeNumberInput) {
+                // label 按住左键左右拖调值（Unity scrub 口径）
+                ScrubDragger.attach(fieldLabel, (JeNumberInput) editor);
+            }
+            panel.add(fieldLabel, gbc);
             gbc.gridx = 1;
             gbc.fill = GridBagConstraints.HORIZONTAL;
             gbc.weightx = 1;
