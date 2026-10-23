@@ -225,7 +225,7 @@ InspectorValueType + vo 三件）/ `SceneWatchAppState`（快照含 layer/tags�
 `core.assets`（AssetManager.pathOfGuid，AssetLibManager guidPathMap 反查表）/
 InspectorFieldVo.assetName（v0.3）。
 
-**Swing（v0.4，M4 批次 2026-10-18 待验收）**：`swing.inspector` 包——InspectorPanel /
+**Swing（v0.4，M4 批次 2026-10-18 落地、同日用户验收）**：`swing.inspector` 包——InspectorPanel /
 NodeHeaderPanel / ComponentSection / FieldRowFactory / FieldEditor / FieldCommit +
 `widget` 七件（JeNumberInput / JeTextInput / JeSelect / VectorRow / CollapsiblePanel /
 ColorField / LayerMaskField / GuidAssetField）+ `InspectorPanelSetup` factory 替换 +
@@ -279,7 +279,7 @@ setSelectedNode 清文件槽（静默，文件侧消费方拉态无平行状态�
 收口发布 ProjectSelectEvent；新增 getSelectedPath() 原始路径口（目录也达，
 分发/展示侧用）。
 
-**场景根行选中（2026-10-22 增量，待验收）**：层级树根行点击 = 场景文件进
+**场景根行选中（2026-10-22 增量，2026-10-23 用户复验通过）**：层级树根行点击 = 场景文件进
 project 槽（HierarchyPanel 报 setSelectedPath）——检查器零改动按 .scene 文件
 走既有分发链（暂无 provider 显示「无检查器」灰提示，将来注册 .scene 检查器
 即自动接管；用户拍板场景名/描述编辑不做——Unity 也没有）。选中链其余语义

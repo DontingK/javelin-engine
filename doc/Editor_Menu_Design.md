@@ -73,7 +73,7 @@
 > `rootDir/build/jar/lib`（构建工作区）而非产物目录 `Builds/jar/lib`，依赖 jar 全部
 > 落错位、启动脚本 `-cp %~dp0lib\*` 落空致主类不可寻；改 `new File(file, "lib")` 与
 > AOT 形态（`createOutputAotApp`）同口径（GradleProject.createOutputJarApp）。
-> v0.11（2026-10-17）：**project 右键域首期落地（待验收）**——
+> v0.11（2026-10-17）：**project 右键域首期落地（2026-10-23 随 M3 批用户验收）**——
 > EditorSelection project 写入方接线：`/project/select`（ProjectMethod，相对路径
 > 解析 + 边界闸门防逃逸项目根，null 清除；右键路径前端 await 落上报再 openMenu，
 > 菜单 enabled 求值读新选中态）；三实做命令（menu.project：showInExplorer/
@@ -87,7 +87,7 @@
 > 文件类型注册器）：enabled=选中文件 canOpen；首批 .scene 可开（脏场景三键
 > 确认 + submitTask 帧边界切换场景，保存分支复用 SaveSceneMenuCommand.save）。
 > v0.13（2026-10-19）：**project.create.material 创建命令实做（创建族首项，
-> 随 .mat 导入管线落地待验收）**——CreateMaterialMenuCommand：选中目录落
+> 随 .mat 导入管线落地、2026-10-23 用户验收）**——CreateMaterialMenuCommand：选中目录落
 > `material.mat`（编号去重），初始内容=内置 default.shader 的 Material 文本
 > 序列化，**源文本 guid 与伴生 .meta 同源**（先 getOrCreateMeta 拿 guid 再落盘，
 > .scene 保存同口径）；落盘即 submitImport（产 Library 产物/更新 index，

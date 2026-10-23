@@ -3,7 +3,7 @@
 > 本文档描述 `javelin-editor` 模块的整体架构。模块尚在快速演进期，文档随代码同步更新。
 > 最近一次全面梳理：2026-09-25（含本次窗口接入引擎的改造）；2026-09-28 增补设计基准（完全参考 Unity）。
 > 2026-10-04 §10 增补变换 Gizmo v0.1（移动三轴）落地记录；2026-10-05 §10 更新为工具族架构（事件驱动选中 + 距离自适应 + 引擎渲染激活过滤）。
-> 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，待实测验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，待实测验收）。
+> 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，2026-10-14 随拖拽用户验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，2026-10-23 用户验收）。
 > 2026-10-14 §10 变换 Gizmo 拖拽用户实测验收通过（二期编辑器最小闭环 §2.4 主体收官）。
 > 2026-10-14 §10 增补场景视图工具栏（Tools 组 + 局部/世界坐标切换；含游戏视图同高占位，当日实测验收通过）。
 > 2026-10-17 **UI 栈重构拍板：编辑器去 Web 化（纯 Swing + FlatLaf），设计档=Editor_Swing_Design.md**；
@@ -15,7 +15,7 @@
 > 2026-10-23 §10 拾取拍板三增补：编辑器拾取全线统一 GPU ID-buffer（轴拾取终态迁移、编辑器侧
 > 射线拾取退役、CPU 过渡拾取开放项关账）+ 落点=pass 本体进引擎 core（运行时也可用，有意分歧
 > Unity）+ 射线检测与 GPU 拾取共存（运行时 raycast 照常保留）。
-> 2026-10-23 同日落地实现（待验收）：RHI 读回环 + PickPass 覆盖制 + PickSystem + ViewportPickAppState
+> 2026-10-23 同日落地实现（当日用户实测验收）：RHI 读回环 + PickPass 覆盖制 + PickSystem + ViewportPickAppState
 > + Gizmo 轴迁移（CylinderCollider 过渡线退役）——设计档=Engine_Picking_Design.md v0.1。
 
 ## 1. 定位与边界
@@ -188,7 +188,7 @@ EditorApp.main()
   产物，2026-09-26 落地）**——管线中首个真正写出二进制产物的导入器，
   组成：`ShaderParser`（v0.13 语法）/ `ShaderInjector`（声明注入）/ `ShaderImporter`（编排+导出）。
   **`SceneImporter`（.scene → TextImporter 解析验证 → BinaryExporter 二进制 GameScene
-  产物，2026-10-11 落地待验收）**——场景纳入管线：guid 真值源=伴生 .meta（.scene 首行是
+  产物，2026-10-11 落地、2026-10-23 用户验收）**——场景纳入管线：guid 真值源=伴生 .meta（.scene 首行是
   文本协议头不能走文件头自包含，与 loadScene 同口径；meta 缺 guid 拒绝导入）；解析即验证
   （坏档不落残产物）；保存联动=file.save 成功后 submitImport 异步重导（管线线程池，产物即时
   新鲜）；loadScene 不动（仍读 Assets/ 文本源，产物供运行时/打包按 guid 消费）。已知边界：
@@ -215,7 +215,7 @@ EditorApp.main()
 相对路径（实现先重载 index.asset 再过滤——导入管线每次导入重写索引文件、内存表
 不自动跟进；首个消费方=打包对话框启动场景下拉 /build/scenes）。
 
-### 6.5 文件类型注册器（file 包，2026-10-18 落地待验收）
+### 6.5 文件类型注册器（file 包，2026-10-18 落地、2026-10-23 用户验收）
 
 `com.javelin.editor.file` 五件——`FileType` 接口（extensions 含点号小写 /
 icon 裸名 / canOpen / open：EDT 调用、内部自管线程）+ `IconFileType`（纯图标型，
@@ -312,7 +312,7 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   hierarchy 右键域首批命令（create.empty/delete，只写不发通知）、
   SceneWatchAppState 快照 diff 自动通知（结构→scene.changed 重拉整树 /
   改名→scene.nodeRenamed 定点 / **变换→scene.nodeTransformChanged 定点——
-  TransformWatchAppState 帧级快照 diff（2026-10-06 落地待验收，用户拍板：
+  TransformWatchAppState 帧级快照 diff（2026-10-06 落地、2026-10-23 用户验收，用户拍板：
   帧级检测/载荷带新 TRS/置脏/**只盯当前选中节点**——消费方=Inspector 选中
   面板，全场景遍历无消费方；写入方零通知义务，选中节点实变自动发现同帧推送
   + 场景置脏星号亮；SceneSelectEvent 驱动 volatile 选中节点、选中变更静默
@@ -322,7 +322,7 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   视口 Canvas 盖，见 Editor_Menu_Design §1.1）；Inspector 面板对接待续（将消费
   scene.nodeTransformChanged，并配节点数据拉取口做 pull-on-mount 兜底；
   project 面板已落地，见下条）。
-- **项目面板已落地（web 版 2026-10-17 随去 Web 化清退；Swing 版 2026-10-18 待验收，
+- **项目面板已落地（web 版 2026-10-17 随去 Web 化清退；Swing 版 2026-10-18 落地、2026-10-23 用户验收，
   Editor_Swing_Design §7.6）**：Unity Project 窗口布局——左树仅目录（全量树目录
   投影）+ 右区显示选中目录直接子项（目录优先+名称序）+ 面包屑逐级跳转 + 目录
   双击进入，JSplitPane 分栏可拖拽；数据源 `ProjectTreeSnapshot` 全量树快照

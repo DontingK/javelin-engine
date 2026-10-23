@@ -3,9 +3,9 @@
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
-> JVM、无 CEF 进程与 Vite dev server 依赖（落地待验收，见 §9 M6 行注）。
-> **M2 层级面板已实装**（2026-10-18，待验收——实装拍板与坑见 §7.5）；**M3 项目面板
-> 已实装**（2026-10-18，待验收——§7.6）；**M4 检查器面板已实装**（2026-10-18，
+> JVM、无 CEF 进程与 Vite dev server 依赖（2026-10-23 全链用户验收，见 §9 M6 行注）。
+> **M2 层级面板已实装**（2026-10-18 落地、2026-10-23 用户验收——实装拍板与坑见 §7.5）；**M3 项目面板
+> 已实装**（2026-10-18 落地、2026-10-23 用户验收——§7.6）；**M4 检查器面板已实装**（2026-10-18，
 > **用户实测验收通过**——实装拍板见 Inspector_Design v0.4 + §7.7）；控制台与视口
 > 工具栏收口待实装。
 > 本文是编辑器 UI 栈从 JCEF/Web 迁往纯 Swing + FlatLaf 的重构总纲。后续里程碑落地随进度
@@ -267,7 +267,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
 项目面板同日次落（§7.6），检查器面板同日三落（§7.7 + Inspector_Design v0.4）；控制台
 与视口工具栏收口待续。
 
-### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地待验收）
+### 7.5 层级面板实装注记（M2 首面板，2026-10-18 落地、2026-10-23 用户验收）
 
 组件落位 `swing/hierarchy` 两件：`HierarchyPanel`（JTree 封装 + 渲染 + 交互）与
 `SceneTreeSnapshot`（原 /scene/tree 桥 VO 的直调形态：ready/sceneName/dirty + 节点
@@ -317,7 +317,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
    id 锚点无运行时消费方，M4 实装时随引用化改造。将来场景切换命令落地时须
    setSelectedNode(null) 收口。
 
-增量（2026-10-22 落地，待验收）：
+增量（2026-10-22 落地，2026-10-23 用户复验通过）：
 
 9. **脏星标行宽裁剪坑**：scene.dirty 置星只 repaint——BasicTreeUI 行宽来自布局
    缓存的节点尺寸，repaint 不触发重算，「场景名 *」撑宽的文本被旧行宽裁出省略
@@ -334,7 +334,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
     场景根行已高亮则存活）。新订 project.select：选中本场景文件 → 根行高亮、
     选中他物 → 根行熄灭（选中移交 project 域）；程序化变更均抑制回写防回声。
 
-### 7.6 项目面板实装注记（M3，2026-10-18 落地待验收）
+### 7.6 项目面板实装注记（M3，2026-10-18 落地、2026-10-23 用户验收）
 
 组件落位 `swing/project` 两件：`ProjectPanel`（左右分栏 JTree/JList + 面包屑 +
 右键域）与 `ProjectTreeSnapshot`（原 /project/tree 桥逻辑的直调形态：ready +
@@ -367,7 +367,7 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
    setDividerLocation 不生效，DockSplitPane 同款坑）+ 左树最小宽 100px（分割条
    左界钳制源）。原 web「复用 SplitPanel」之说随迁移作废。
 
-### 7.7 检查器面板实装注记（M4，2026-10-18 落地待验收）
+### 7.7 检查器面板实装注记（M4，2026-10-18 落地、同日用户验收）
 
 组件落位 `swing/inspector` 两层：面板层（InspectorPanel 主面板 / NodeHeaderPanel
 节点头 / ComponentSection 组件分组 / FieldRowFactory 类型映射 + FieldEditor 控件
@@ -440,11 +440,11 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
 | 期 | 内容 | 验收标准 |
 |----|------|----------|
 | **M1 窗口+Dock 骨架（本批）** | FlatLaf Dark 初始化；MainFrame 重构（Window 契约保持）；DockRoot/DockSplitPane/DockTabs + 默认布局树；六面板占位（PanelRegistry+EditorPanelSetup）；ViewportTabs 接 CanvasSurface + Scene 工具栏 Swing 化；JMenuBar 挂载；StatusBar 简版；`/render/rce` 等废除清单落地 | 用户实测：编辑器启动渲染正常；视口 resize/最大化/分割条拖动全链路正常；右键菜单、顶部菜单可用；关闭流程正常 |
-| M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地（2026-10-18 待验收，§7.5）；控制台待续** |
-| M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价。**项目面板已落地（2026-10-18 待验收，§7.6）；视口工具栏收口待续** |
+| M2 | 层级、控制台实装（`/scene/tree`/console 桥已随 M6 提前清退，本项只剩 Swing 实装） | 层级树操作（选/右键命令创建删除）与 Web 时代等价；控制台收 build 日志。**层级已落地并验收（2026-10-23 用户验收，§7.5）；控制台待续** |
+| M3 | 项目面板实装；视口工具栏收口 | 项目面板树/选中/右键域与现状等价。**项目面板已落地并验收（2026-10-23 用户验收，§7.6）；视口工具栏收口待续** |
 | M4 | 检查器面板实装 | Inspector_Design 各通道（含 setValue 往返、GUID_ASSET 只读）验收等价。**已落地并验收（2026-10-18 用户实测通过，§7.7 + Inspector_Design v0.4）** |
 | M5 | 「窗口」域菜单（关闭恢复）；布局持久化；拖拽停靠二期 | 关闭→恢复不丢面板；布局重启还原；拖拽停靠可用 |
-| M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，待验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
+| M6 | ~~ProjectFrame/ProjectLoadingFrame/pack Dialog 迁 Swing + EventBridgeForwarder/桥包/jcefmaven 整体移除~~ | ✅ **全项提前完成**（2026-10-17 三窗口 + 2026-10-18 桥包/jcefmaven/jackson 清退，2026-10-23 全链用户验收）：引擎-编辑器全链路纯 JVM、无 CEF 进程与 Vite dev server；jcef-bundle 运行时缓存（353MB）一并删除 |
 
 ## 10. 已知风险与坑预记
 

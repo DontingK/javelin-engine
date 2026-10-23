@@ -415,7 +415,7 @@ Cleaner 方案没有引用计数，"泄漏"表现为**对象被长期持有但�
 4. **临时资源风暴**：每帧创建的大量临时对象会放大 GC + Cleaner 开销，所以临时数据一律走 Frame Arena / 图缓存（RHI 内部确定性管理），不暴露为 Cleaner 对象；
 5. 不使用 `finalize()`（JDK 9 起废弃、不可控），Cleaner 是唯一兜底通道；
 6. 句柄复用：handle 从 ResourceTable 移除前必须检查状态（`DESTROYING` 中禁止复用），防止 ABA 问题；
-7. **兜底销毁漏 free 配套显存（2026-10-23 修）**：TEXTURE/BUFFER 是「对象句柄 + 独占 VkDeviceMemory」两个句柄，Cleaner 任务只带对象句柄时，兜底只 `vkDestroy*` 不 `vkFreeMemory`——显存逐块泄漏（2026-10-09 resize 换绑交 Cleaner 拖窗即 OOM 的 B 项根因；A 项 resize 改当场显式 dispose 已验，B 项 `DestroyTask` 带 memoryHandle 成对释放落地待验收）。
+7. **兜底销毁漏 free 配套显存（2026-10-23 修）**：TEXTURE/BUFFER 是「对象句柄 + 独占 VkDeviceMemory」两个句柄，Cleaner 任务只带对象句柄时，兜底只 `vkDestroy*` 不 `vkFreeMemory`——显存逐块泄漏（2026-10-09 resize 换绑交 Cleaner 拖窗即 OOM 的 B 项根因；A 项 resize 改当场显式 dispose 已验，B 项 `DestroyTask` 带 memoryHandle 成对释放，2026-10-23 用户实测验收）。
 
 ---
 

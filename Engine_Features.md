@@ -69,8 +69,8 @@
 |------|---------|---------|
 | RenderingSystem / FrameLoop / UBO1 帧环形收编 | ✅ | ✅ 一期 Demo（清屏出画面起） |
 | RenderPass 有序列表 + AbstractForwardPass + 透明分桶 | ✅ | ✅ SceneRenderDemo 用户运行 |
-| Material.surfaceType 面型裁决（分桶 + PSO 覆盖 Blend/ZWrite，方案 B，材质档 §4.1） | ✅ | ⬜ 待验收（MaterialTest 单测 + 序列化往返断言已补，demo/编辑器网格待用户跑） |
-| RenderList Pass 名分桶严格制（passes map + RenderPass.shaderPassName + pipelineFor passName 维；GizmoPass 去身份过滤/去双画，材质档 §4.2） | ✅ | ⬜ 待验收（编辑器 gizmo 拖拽/显示待用户跑） |
+| Material.surfaceType 面型裁决（分桶 + PSO 覆盖 Blend/ZWrite，方案 B，材质档 §4.1） | ✅ | ✅ 用户实测（2026-10-23） |
+| RenderList Pass 名分桶严格制（passes map + RenderPass.shaderPassName + pipelineFor passName 维；GizmoPass 去身份过滤/去双画，材质档 §4.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | SceneRenderBridge pull 翻译（场景→RenderObject） | ✅ | ✅ 同上 |
 | GizmoPass 末尾置顶（颜色 LOAD + 深度 CLEAR 两层深度语义） | ✅ | ✅ 随 Gizmo 链（2026-10-14 拖拽验收） |
 | MSAA 视口附件（isMsaaPath 边界：stacking/预览降 1x、overlay 恒 1x） | ✅ | ✅ 用户实测（2026-10-06） |
@@ -83,11 +83,11 @@
 |------|---------|---------|
 | Mesh / VertexAttribute / VertexLayout | ✅ | ✅ 一期 |
 | Shader / Material 数据模型 + 渲染侧桥（MaterialBlock std140 / materialSet / pipelineFor） | ✅ | ✅ MaterialTest 单测 + Demo（2026-09-25） |
-| Material.surfaceType 字段 + Capsule 序列化（旧场景回退 OPAQUE） | ✅ | ⬜ 待验收（SceneSerializationTest 往返断言已补） |
+| Material.surfaceType 字段 + Capsule 序列化（旧场景回退 OPAQUE） | ✅ | ✅ 用户实测（2026-10-23） |
 | Material 序列化（.scene 内嵌往返闭环） | ✅ | ✅ 用户实测（2026-10-04） |
 | Mesh.bounds / Aabb（set 即算 / 惰性兜底 / 上传前钉死） | ✅ | ✅ 单测（2026-10-06） |
 | AssetManager 资产索引查询（listAssetPaths、调用先重载 index.asset） | ✅ | ✅ 随打包启动场景下拉（2026-10-11） |
-| .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ⬜ 待验收（创建→导入→.scene 引用渲染差异，2026-10-19） |
+| .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | 动态 Mesh / 动态纹理 | ⬜ 后置（材质档 §6 / 资产档 §2.8） | — |
 
 ### 2.6 输入（input）
@@ -136,12 +136,12 @@
 |------|---------|---------|
 | Swing + JCEF 窗口体系（MainFrame / Canvas 视口、浮层遮挡约束、菜单一律 Swing） | ✅ | ✅ 编辑器日常使用 |
 | 纯 Swing 主窗口 + 自研 Dock（FlatLaf 亮色 / 二分布局树 / PanelRegistry / ViewportTabs 单 Canvas / JMenuBar 单源挂载） | ✅ | ✅ 用户实测（2026-10-17，去 Web 化 M1） |
-| 项目管理器 ProjectFrame（Swing 版：最近列表 + 新建/打开三模式 + tinyfd 选目录，替换 CEF 页） | ✅ | ⏳ 待验收（2026-10-17；启动链不再依赖 Vite dev server） |
-| 项目加载窗 ProjectLoadingFrame（Swing 版：不确定进度条 + 资产导入/引擎启动引导链原样） | ✅ | ⏳ 待验收（2026-10-17） |
+| 项目管理器 ProjectFrame（Swing 版：最近列表 + 新建/打开三模式 + tinyfd 选目录，替换 CEF 页） | ✅ | ✅ 用户实测（2026-10-23；启动链不再依赖 Vite dev server） |
+| 项目加载窗 ProjectLoadingFrame（Swing 版：不确定进度条 + 资产导入/引擎启动引导链原样） | ✅ | ✅ 用户实测（2026-10-23） |
 | ~~Web 前端基座（Vue 面板体系 / 组件 / 色板单点 style.css :root）~~ | 🪦 已删除 | 2026-10-18 engine-editor-web 整体移除（三窗口+桥清退后无消费方；图标资产随 SvgIcon 体系迁 editor resources） |
 | JS↔Java 桥（方法桥协议 + 事件总线双向 + EDT hop / 引用计数退订） | 🪦 已清退 | 2026-10-18 jcef 包整包删除（桥方法/par/vo/EventBridgeForwarder 全量），jcefmaven、jackson 依赖移除；事件体系保留——BridgeEvent/JsEvent/PongEvent 删、五场景事件转纯 EditorEventBus 事件；Inspector 三 VO 迁 inspector 包（M4 数据模型） |
 | ~~通用 CEF 模态对话框 Dialog~~ | 🪦 已退役 | 2026-10-17 随去 Web 化删除（唯一消费方打包对话框迁 Swing；原待验收场景作废） |
-| 打包对话框 PackDialog（Swing 版：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流，构建链 Java 直调） | ✅ | ⏳ 待验收（2026-10-17；构建链本体已随 2026-10-13 三端验收） |
+| 打包对话框 PackDialog（Swing 版：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流，构建链 Java 直调） | ✅ | ✅ 用户实测（2026-10-23） |
 
 ### 3.2 菜单与命令（menu / selection）
 
@@ -150,8 +150,8 @@
 | 菜单/命令体系（MenuCommand 三域 + MenuRegistry 任意嵌套 + Swing 渲染 + SvgIcon 图标 + EditorSelection 单源） | ✅ | ✅ 首批实测（2026-10-04）+ v0.7 批（2026-10-11） |
 | file.save / Ctrl+S | ✅ | ✅ 用户实测（2026-10-04） |
 | 层级右键域（empty / delete / plane / Unity 结构重排占位） | ✅ | ✅ 随场景树批次（2026-10-04） |
-| hierarchy.create.camera（v0.8） | ✅ | ⏳ 待验收（2026-10-11） |
-| file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ⏳ 待验收 |
+| hierarchy.create.camera（v0.8） | ✅ | ✅ 用户实测（2026-10-23） |
+| file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
 
@@ -160,12 +160,12 @@
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
 | 层级树（/scene/tree 帧通道 + scene.changed 增删刷新 + 选中单源 + accent 高亮 + dirty 星标镜像） | 🪦 web 实装已随 2026-10-18 去 Web 化清退 | 历史验收（2026-10-04 / 2026-10-11）；Swing 版见下行 |
-| 层级树 Swing 实装（HierarchyPanel：SceneTreeSnapshot submitTask 帧快照→EDT 换树 + scene.changed/dirty/nodeRenamed/select 四事件分工 + 展开态按引用恢复 + 右键 ctx.hierarchy 先落选中） | ✅ | ⏳ 待验收（2026-10-18，Editor_Swing_Design §7.5） |
-| 选中/事件链全链引用化（EditorSelection 存 volatile Node + 三事件引用载荷 + Create 命令引用快照 + NodeSnap 引用回查键；ObjectCache 退役、快照拷贝本体保留） | ✅ | ⏳ 待验收（2026-10-18 拍板，Editor_Swing_Design §7.5-8） |
-| 场景根行选中=场景文件（根行点击 setSelectedPath 进 project 槽→检查器 .scene 文件链分发零改动；syncSelection 空事件不清根行修回声自灭 + project.select 跨域对齐：选本场景文件高亮根行/选他物熄灭；未存盘场景无文件退清选中） | ✅（2026-10-22） | ⏳ 待验收 |
-| 脏星标行宽修复（scene.dirty 置星改根行 model.nodeChanged 重算节点尺寸——repaint 不重算、旧行宽裁出省略号） | ✅（2026-10-22） | ⏳ 待验收 |
-| Scene/Game 视图切换（sceneModel 双模式 volatile 直写 + Game 页 resize 画布跟随） | ✅ | ⏳ 待验收（2026-10-11） |
-| Transform 变更检测（TransformWatchAppState 帧级快照 diff → scene.nodeTransformChanged + 置脏） | ✅ | ⏳ 待验收（2026-10-06；触发场景=Gizmo 拖拽，拖拽本体已验 2026-10-14） |
+| 层级树 Swing 实装（HierarchyPanel：SceneTreeSnapshot submitTask 帧快照→EDT 换树 + scene.changed/dirty/nodeRenamed/select 四事件分工 + 展开态按引用恢复 + 右键 ctx.hierarchy 先落选中） | ✅ | ✅ 用户实测（2026-10-23） |
+| 选中/事件链全链引用化（EditorSelection 存 volatile Node + 三事件引用载荷 + Create 命令引用快照 + NodeSnap 引用回查键；ObjectCache 退役、快照拷贝本体保留） | ✅ | ✅ 用户实测（2026-10-23） |
+| 场景根行选中=场景文件（根行点击 setSelectedPath 进 project 槽→检查器 .scene 文件链分发零改动；syncSelection 空事件不清根行修回声自灭 + project.select 跨域对齐：选本场景文件高亮根行/选他物熄灭；未存盘场景无文件退清选中） | ✅（2026-10-22） | ✅ 用户实测（2026-10-23） |
+| 脏星标行宽修复（scene.dirty 置星改根行 model.nodeChanged 重算节点尺寸——repaint 不重算、旧行宽裁出省略号） | ✅（2026-10-22） | ✅ 用户实测（2026-10-23） |
+| Scene/Game 视图切换（sceneModel 双模式 volatile 直写 + Game 页 resize 画布跟随） | ✅ | ✅ 用户实测（2026-10-23） |
+| Transform 变更检测（TransformWatchAppState 帧级快照 diff → scene.nodeTransformChanged + 置脏） | ✅ | ✅ 用户实测（2026-10-23，Gizmo 拖拽联动） |
 | GAME 模式输入隔离（飞行 / Gizmo 输入仍活） | ⬜ 留白 | — |
 
 ### 3.4 Inspector 面板（inspector / Swing）
@@ -173,7 +173,7 @@
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
 | v0.1 节点头五件套（name/active/layer/tag）+ Transform 字段行 + Tag/Layer 下拉编辑 | ✅ | ✅ 用户实测（2026-10-11） |
-| v0.2 Camera 组件接入 + ENUM/COLOR/RECT/LAYER_MASK 类型通道 + 星标即时化（scene.dirty） | ✅ | ⏳ 待验收（2026-10-11） |
+| v0.2 Camera 组件接入 + ENUM/COLOR/RECT/LAYER_MASK 类型通道 + 星标即时化（scene.dirty） | ✅ | ✅ 用户实测（2026-10-23） |
 | v0.3 GUID_ASSET 资产引用三态只读 + MeshRenderer 组件接入 | ✅ | ✅ 随 M4 Swing 版面验收销账（2026-10-18） |
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
@@ -197,19 +197,19 @@
 | .shader 导入（解析 / 注入 / SPIR-V 编译 / Capsule 产物 + 自包含文件头 GUID） | ✅ | ✅ 用户亲测（2026-09-26） |
 | .smesh 网格导入（拓扑 / 法线重算） | ✅ | ✅ 同上 |
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
-| SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ⏳ 待验收（2026-10-11） |
+| SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ✅ 用户实测（2026-10-23） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
-| 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ⏳ 待验收 |
+| 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
-| Unity 两栏布局（Swing ProjectPanel：左目录树 JTree + 右内容区 JList + 面包屑 + 双击进入 + JSplitPane 分栏拖拽；原 web 版 2026-10-17 落地、随去 Web 化清退） | ✅ Swing 实装（2026-10-18） | ⏳ 待验收 |
-| ProjectTreeSnapshot 全量树直调（仅 Assets/src 两根；.meta/隐藏项过滤；目录优先+名称序；后台线程纯 IO → EDT） | ✅（2026-10-18） | ⏳ 待验收 |
-| 选中直写 EditorSelection project 通道（Node 直持 File；目录变更即上报含面包屑导航——原桥「相对路径上报+闸门」随直调消亡） | ✅（2026-10-18） | ⏳ 待验收 |
-| ctx.project 右键域首期（showInExplorer / copyPath / reimport 三实做 + Unity 壳占位；面板三入口先落选中再弹菜单） | ✅ 命令侧（2026-10-17）/ 面板接入（2026-10-18） | ⏳ 待验收 |
+| Unity 两栏布局（Swing ProjectPanel：左目录树 JTree + 右内容区 JList + 面包屑 + 双击进入 + JSplitPane 分栏拖拽；原 web 版 2026-10-17 落地、随去 Web 化清退） | ✅ Swing 实装（2026-10-18） | ✅ 用户实测（2026-10-23） |
+| ProjectTreeSnapshot 全量树直调（仅 Assets/src 两根；.meta/隐藏项过滤；目录优先+名称序；后台线程纯 IO → EDT） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
+| 选中直写 EditorSelection project 通道（Node 直持 File；目录变更即上报含面包屑导航——原桥「相对路径上报+闸门」随直调消亡） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
+| ctx.project 右键域首期（showInExplorer / copyPath / reimport 三实做 + Unity 壳占位；面板三入口先落选中再弹菜单） | ✅ 命令侧（2026-10-17）/ 面板接入（2026-10-18） | ✅ 用户实测（2026-10-23） |
 
 ### 3.8 插件体系与 i18n（plugin / i18n）
 
@@ -232,7 +232,7 @@
 | project-template 游戏模板（quickBuild / GameMain / Game/ 设置持久化 / -PbuildMode） | ✅ | ✅ 随打包链（2026-10-13） |
 | GradleProject 构建链（compile / jarBuild 进程编排） | ✅ | ✅ 用户实测（2026-10-13） |
 | jlink 裁剪 JRE 运行时（jdk.unsupported 必含） | ✅ | ✅ 用户实测（2026-10-11） |
-| 打包对话框（Swing PackDialog：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流回显；原 CEF pack.html + /build 桥于 2026-10-17 迁 Swing，构建链逻辑原样） | ✅ | ✅ 构建链三端实测（2026-10-13）；Swing 迁移待验收（2026-10-17） |
+| 打包对话框（Swing PackDialog：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流回显；原 CEF pack.html + /build 桥于 2026-10-17 迁 Swing，构建链逻辑原样） | ✅ | ✅ 构建链三端实测（2026-10-13）+ Swing 迁移用户实测（2026-10-23） |
 | JAR 形态产物（Builds/jar，双击可玩） | ✅ | ✅ 三端实测（2026-10-13）；lib 目录路径错位修复（2026-10-17） |
 | AOT 形态（native-image 原生 exe / 外置 DLL lib/ / AotGameMain / reflect-config / resource-config） | ✅ | ✅ 三端实测（2026-10-13，AOT/JAR/编辑器一致） |
 | javelin-ast ReflectiveProcessor（编译期生成 reflect-config.json，core/game 分目录） | ✅ | ✅ 随 AOT（2026-10-13） |
@@ -248,20 +248,7 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-| 项 | 落地 | 验收触发场景 |
-|----|------|-------------|
-| Inspector v0.2（Camera 组件 / 类型通道 / 星标即时化） | 2026-10-11 | ~~待实测~~ 随 M4 Swing 版面验收销账（2026-10-18，Web 面板已删无独立验收面） |
-| Scene/Game 视图切换 | 2026-10-11 | 切 GAME 页看运行画面 + 窗口 resize |
-| hierarchy.create.camera | 2026-10-11 | 层级右键建摄像机（Main Camera / 原点 / 默认参） |
-| SceneImporter 场景导入 | 2026-10-11 | 保存场景后核对 Library 重导产物 |
-| Transform 变更检测 | 2026-10-06 | 拖 Gizmo 时 Inspector 数值实时刷新 + 星标亮（拖拽本体已验 2026-10-14） |
-| ProjectFrame / ProjectLoadingFrame 迁 Swing | 2026-10-17 | 启动器建项目/最近列表打开/手动路径打开 → 加载窗进度 → 编辑器进主窗 |
-| PackDialog 迁 Swing（含 /build 桥退役、CEF Dialog/CefFrame 删除） | 2026-10-17 | 构建 > 打包：JAR/AOT 分流（构建模式行随形态显隐）+ 启动场景默认选中 + 日志实时滚底 + 失败弹错 + 产物双击可玩 |
-| jcef 桥包 / jcefmaven / jackson 整体清退（事件包桥语义剥离、Inspector VO 迁包） | 2026-10-18 | 编辑器全链回归：启动 → 开项目 → 编辑器主窗 → 构建打包，全程无 CEF 进程、无 Vite dev server；Inspector 反射通道（InspectorReflector + 三 VO）单测级自查 |
-| M2 层级面板 Swing 实装（HierarchyPanel） | 2026-10-18 | 树展示/点选/右键创建删除（含场景根语境）；改名定点刷新；保存后星标熄灭；展开态跨命令刷新保持；创建后新节点自动选中可见 |
-| M3 项目面板 Swing 实装（ProjectPanel） | 2026-10-18 | 左树目录导航/右区条目/面包屑跳转/双击进入；分栏拖拽；右键域三入口命令（资源管理器定位/路径入剪贴板/重导）菜单正确 |
-| 全链引用化（选中/三事件/命令/树回查键 + ObjectCache 退役） | 2026-10-18 | 与层级面板同场景回归：创建/删除/改名/Gizmo 跟随选中链路全通即证引用化无回归 |
-| 文件类型注册器 + file.open 实做 | 2026-10-18 | 项目面板双击已注册类型文件按注册器分发打开；脏场景下 open 弹三键确认 |
+**当前无挂账**——2026-10-23 用户实测批量销账 15 项：去 Web 化收官链七项（ProjectFrame/ProjectLoadingFrame、PackDialog 迁 Swing、jcef 桥包/jcefmaven/jackson 清退、M2 层级面板、全链引用化、M3 项目面板、文件类型注册器+file.open）+ 场景树 10-22 增量两项（根行选中、脏星标行宽）+ 散件六项（Scene/Game 切换、hierarchy.create.camera、SceneImporter、Transform 变更检测、.mat 全链、Material.surfaceType 面型裁决与 Pass 名分桶——状态已翻入各模块表）。
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 

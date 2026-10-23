@@ -68,7 +68,7 @@
 - **目标**：场景编辑最小闭环——场景视口（飞行相机）+ 层级面板 + 拾取 + Transform 移动/旋转/缩放 + 场景保存/加载；
 - **前置**：
   - **.scene 序列化**（现为 P2，编辑器存取必须）；
-  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：~~.shader 二进制格式 + 解析器（声明注入 + shaderc + 打包）~~——**✅ 已落地（2026-09-26，提交 e03c057）**：导入管线在编辑器 `importer/shader`（归属拍板：不经 javelin-tool），Capsule 二进制产物 + GUID 文件头规则 + .smesh 产物/拓扑/法线一并补齐；~~.mat 格式 + AssetManager 读写未做~~——**✅ 已落地（2026-10-19 待验收）**：.mat = Material 文本序列化（伴生 .meta 口径），MaterialImporter + project.create.material 创建命令，Engine_Material_Design §3.2；
+  - **资产格式层**（原阶段④剩余，编辑器读写的前提）：~~.shader 二进制格式 + 解析器（声明注入 + shaderc + 打包）~~——**✅ 已落地（2026-09-26，提交 e03c057）**：导入管线在编辑器 `importer/shader`（归属拍板：不经 javelin-tool），Capsule 二进制产物 + GUID 文件头规则 + .smesh 产物/拓扑/法线一并补齐；~~.mat 格式 + AssetManager 读写未做~~——**✅ 已落地（2026-10-23 用户实测验收通过）**：.mat = Material 文本序列化（伴生 .meta 口径），MaterialImporter + project.create.material 创建命令，Engine_Material_Design §3.2；
   - **编辑器形态已定：Swing 外壳 + JCEF Web 面板**（~~内嵌 imgui / Nuklear / 独立 Swing 三选一~~ 作废——视口=Vulkan Canvas 挖洞浮于 CEF 之上，浮层遮挡约束由此而来，Editor_Design §1）；
   - `Editor_Design.md`（✅ 已建档 v0.1：JavelinEditor=JavelinEngine 子类、CEF 窗口体系、JS↔Java 桥、资产管线、线程模型）；
 - **产出**：编辑器应用骨架 + 上述最小闭环；
@@ -77,7 +77,7 @@
 进度（2026-10-01 落地，**2026-10-04 用户实测验收通过**——单测 + 编辑器「建树 → 保存 → 重启还原」，含生命周期帧驱动状态机与 Ctrl+S）：**.scene 序列化已落地**（Engine_Scene_Design §9——GameScene/
 Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零收尾
 + 文本通道保存命令 file.save/Ctrl+S）；~~MeshRenderer 材质引用闭环与
-`.mat` 格式仍待做（§9.4 已知限制）~~——**.mat 已落地（2026-10-19 待验收，Engine_Material_Design §3.2）**：guid 化材质引用通道（`material=@guid:`）随框架分流既有，本批补导入器/创建命令。
+`.mat` 格式仍待做（§9.4 已知限制）~~——**.mat 已落地（2026-10-23 用户实测验收通过，Engine_Material_Design §3.2）**：guid 化材质引用通道（`material=@guid:`）随框架分流既有，本批补导入器/创建命令。
 
 **拾取方案拍板（2026-10-06 用户；2026-10-23 统一/落点/共存三增补）**：拾取终态 = **GPU ID-buffer 全线统一**（物体拾取 + Gizmo 轴拾取终态均写 ID 附件、点击读回像素——不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体，Unity 编辑器同路线）；编辑器侧射线拾取退役、「过渡期先落 CPU 数学拾取」开放项**关账不落**；落点 = **pass 本体进引擎 core、运行时也可用**（有意分歧 Unity：Unity 拾取为编辑器内部实现、运行时无对应 API，短板不抄）；RHI 前置 = 拾取附件 + 图像读回路径，~~后置实现、非当前排期~~——**已落地并验收（2026-10-23 用户实测，Engine_Picking_Design.md v0.1：RHI 读回环/PickPass 覆盖制/PickSystem 双通道/编辑器消费 + 轴拾取全线迁移，CylinderCollider 过渡线退役）**（详见 Editor_Design §10 / Engine_Picking_Design）。射线检测与 GPU 拾取**共存**：游戏内大多走射线检测（Physics.Raycast 语义），运行时场景级 raycast（Collider 注册表）照常归 §2.3 Ray 期——射线=物理查询（有 Collider 才打得中），ID-buffer=渲染拾取（看得见即拾得到），两 API 并存不冲突。
 
@@ -85,13 +85,13 @@ Node/Component/Transform/Camera/MeshRenderer write/read + read 全量恢复零�
 
 修复批次（2026-10-17，用户实测复现链定位）：打包 jar 产物 lib 目录路径错位（`build/jar/lib`→`Builds/jar/lib`，依赖落错位、启动脚本 classpath 落空）+ 内置资源释放后 Library 索引不重扫（MetaManager 构造器 sync 早于 releaseAll、refresh 查产物存在即跳过——`@guid:` 引用解析 null 渲染崩）双修复；连带排障定位旧格式 Mesh 产物不迁移坑（Editor_Design §6.3 已知边界，自动检测待拍板）。详见 Editor_Menu_Design v0.10 追记 / Editor_Design §6.3 / Engine_Features §3.6/§4。
 
-进度（2026-10-17，待验收）：**项目面板落地**——Unity 两栏（左目录树/右内容区
+进度（2026-10-17，2026-10-23 用户实测验收通过）：**项目面板落地**——Unity 两栏（左目录树/右内容区
  + 面包屑 + 双击进入），`/project/tree` 全量树（仅 Assets/src 两根，.meta/隐藏项
  过滤）+ `/project/select` 选中上报（EditorSelection project 通道接线）；ctx.project
  右键域首期（Editor_Menu_Design v0.11：showInExplorer/copyPath/reimport 三实做 +
  Unity 壳占位，右键三入口）。详见 Editor_Design §10 / Editor_Menu_Design v0.11。
 
-进度（2026-10-18，待验收）：**M3 项目面板 Swing 实装（ProjectPanel）**——原 web 版
+进度（2026-10-18，2026-10-23 用户实测验收通过）：**M3 项目面板 Swing 实装（ProjectPanel）**——原 web 版
 随去 Web 化清退后的 Java 直调全新实装：ProjectTreeSnapshot 后台线程纯 IO 全量树
 （仅 Assets/src 两根，.meta/隐藏项过滤）+ 左树目录投影/右区直接子项/面包屑/
 双击进入 + 选中直写 EditorSelection（Node 直持 File，目录变更即上报）+ ctx.project
@@ -107,7 +107,7 @@ Transform 三行）+ 编辑保护（重建延后提交补拉）。验收期实�
 节点头 Web 布局回归（图标 36px 占两行+图层/标签并排）、折叠头视觉分层与四周
 边框。详见 Editor_Swing_Design §7.7 / Inspector_Design v0.4。
 
-进度（2026-10-22 落地，待验收）：**层级根行选中 + 脏星标行宽修复**——场景根行
+进度（2026-10-22 落地，2026-10-23 用户实测验收通过）：**层级根行选中 + 脏星标行宽修复**——场景根行
 可选中（=场景文件进 project 槽，检查器按 .scene 文件既有分发链零改动；根行高亮
 存活修复回声自灭 bug + project.select 跨域对齐：选本场景文件高亮/选他物熄灭）；
 scene.dirty 置星改 nodeChanged 重算行尺寸（repaint 不重算、文本被旧行宽裁出
@@ -126,7 +126,7 @@ v0.6）**——数字键入即提交（失焦才应用作废）、文本提交�
  五坑记档专档 §10-5/§10-6（heavyweight 事件形态/dragger 卡死/Canvas minimum
  钳制/弹性侧策略/关闭零重挂）。M2~M6 面板迁移路线见专档里程碑表。
 
-进度（2026-10-17 落地，待验收）：**M6 窗口迁移全项提前——三窗口迁 Swing，CEF 运行时
+进度（2026-10-17 落地，2026-10-23 用户实测验收通过）：**M6 窗口迁移全项提前——三窗口迁 Swing，CEF 运行时
  零使用**——ProjectFrame（最近列表 + 新建/打开三模式，tinyfd 选目录，Java 直调
  RecentProjectManager/GradleProject）、ProjectLoadingFrame（不确定进度条 + 资产导入/
  引擎启动引导链原样）、打包 PackDialog（构建形态/启动场景/构建模式/窗口元信息表单 +
@@ -135,7 +135,7 @@ v0.6）**——数字键入即提交（失焦才应用作废）、文本提交�
  （§7.1）；CEF Dialog/CefFrame 删除，jcef 桥包成死代码待 M2~M4 面板迁移收口。
  详见 Editor_Swing_Design §2/§9。
 
-进度（2026-10-18 落地，待验收）：**M6 收口——jcef 桥包整体清退**：jcef 包全量删除
+进度（2026-10-18 落地，2026-10-23 用户实测验收通过）：**M6 收口——jcef 桥包整体清退**：jcef 包全量删除
 （桥方法/par/vo/EventBridgeForwarder/桥基础设施），jcefmaven、jackson 依赖移除
 （jackson 唯一消费方 JSONUtil 服务桥协议），jcef-bundle 运行时缓存（353MB）删除；
 事件包桥语义剥离（BridgeEvent/JsEvent/PongEvent 删，五场景事件转纯 EditorEventBus
@@ -144,7 +144,7 @@ v0.6）**——数字键入即提交（失焦才应用作废）、文本提交�
 前端工程随之整体删除——代码库去 Web 化收官。详见
 Editor_Swing_Design §7.1/§9/§11。
 
-进度（2026-10-18 落地，待验收）：**M2 首面板——层级面板 Swing 实装**：`swing/hierarchy`
+进度（2026-10-18 落地，2026-10-23 用户实测验收通过）：**M2 首面板——层级面板 Swing 实装**：`swing/hierarchy`
 两件（HierarchyPanel + SceneTreeSnapshot），原 /scene/tree 桥通道的 Java 直调形态——
 submitTask 帧边界组装快照 → invokeLater EDT 换树；四事件分工刷新（scene.changed 重拉 /
 dirty 置星 / nodeRenamed 定点 / select 高亮——本面板为 scene.select 首个消费方）；
@@ -156,7 +156,7 @@ dirty 置星 / nodeRenamed 定点 / select 高亮——本面板为 scene.select
 Create 命令/树回查键全部改 Node 引用，ObjectCache 退役；快照拷贝本体保留
 （跨线程一致性，与句柄问题正交）。
 
-进度（2026-10-19 落地，待验收）：**.mat 资产格式（阶段④剩余收官件）**——
+进度（2026-10-19 落地，2026-10-23 用户实测验收通过）：**.mat 资产格式（阶段④剩余收官件）**——
 「.mat 就是 Material 的序列化」拍板：源 = Material 文本序列化（.scene 源同款
 协议、伴生 .meta 口径，零改 core）；MaterialImporter（SceneImporter 同款，
 shader 残档拒绝导入）+ project.create.material 创建命令（创建族首项实做，
@@ -194,8 +194,8 @@ i18n 首批**（Editor_Plugin_Design v0.1）：插件契约/装载管线/错误�
 |--------|-------------|------|
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
-| 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-19 待验收） |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 待验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 待验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-18 待验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-18 待验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 待验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** |
+| 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

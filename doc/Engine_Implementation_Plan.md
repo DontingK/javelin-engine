@@ -77,7 +77,7 @@
 - **后续（路线一第二、三步）**：+ShadowPass/GBuffer/Lighting 切混合（渲染管线专档第 8 节）；后处理链具体化；
 - **对应文档**：`Engine_Scene_Design.md` 5–7 节、`Engine_Rendering_Design.md`（待写）、RHI 9/19/27 节。
 
-### 阶段 ④ 材质系统——桥接半落地（2026-09-25，待验收）
+### 阶段 ④ 材质系统——桥接半落地（2026-09-25，随 MultiCameraDemo 验收）
 
 - **目标**：材质资产落地，渲染可见差异；
 - **前置**：先写 `Engine_Material_Design.md`（`.mat` 格式 = shader 引用 + 参数值，序列化走 Capsule；材质实例与 RHI 20 节 Material 的创建/缓存桥接）；
