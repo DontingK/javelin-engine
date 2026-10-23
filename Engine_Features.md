@@ -256,7 +256,7 @@
 
 - ~~resize Cleaner 兜底只销毁 image 不释放内存~~ 已修并验收（A 项 resize 显式 dispose 2026-10-09 / B 项 `DestroyTask` 带 `memoryHandle` 成对 free 2026-10-23，均用户实测；坑点存档 Vulkan_Pitfalls #24）；
 - loadScene 失败路径 getEditorGameScene() NPE 未补；
-- CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
+- 导入成功即全量 `updateIndex()` 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。
 - 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受，Editor_Design §9-11）；
 

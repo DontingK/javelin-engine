@@ -6,12 +6,9 @@
 > 2026-10-06 §10 增补编辑器物体拾取终态拍板（GPU ID-buffer，后置实现）；同日 §10 增补变换 Gizmo 拖拽落地记录（含 hover 高亮变色与轴近平行不可选变灰，2026-10-14 随拖拽用户验收）；同日 §10 增补 Transform 变更检测落地（NodeTransformChangeEvent 帧级快照 diff，2026-10-23 用户验收）。
 > 2026-10-14 §10 变换 Gizmo 拖拽用户实测验收通过（二期编辑器最小闭环 §2.4 主体收官）。
 > 2026-10-14 §10 增补场景视图工具栏（Tools 组 + 局部/世界坐标切换；含游戏视图同高占位，当日实测验收通过）。
-> 2026-10-17 **UI 栈重构拍板：编辑器去 Web 化（纯 Swing + FlatLaf），设计档=Editor_Swing_Design.md**；
-> 本文 §1 的技术栈描述与 §3/§5 的窗口/桥接章节随 M1 落地后按新架构改写，rectChange 挖洞链、
-> §9.10 补链等随 M1 废除（见重构档 §2 废除清单）。
-> 2026-10-18 M6 提前收官：jcef 桥包/jcefmaven/jackson 与 engine-editor-web 前端工程整体清退
-> （Editor_Swing_Design §7.1/§9）——本文 §5 桥接相关描述全部成历史沿革；§1/§3/§5 按新架构
-> 改写的欠账仍挂（改写为独立批次，不随清退顺手做）。
+> 2026-10-17 UI 栈重构拍板：编辑器去 Web 化（纯 Swing + FlatLaf），设计档=Editor_Swing_Design.md。
+> 2026-10-18 jcef 桥包/jcefmaven/jackson 与 engine-editor-web 前端工程整体清退（Editor_Swing_Design §7.1/§9）。
+> 2026-10-23 本文 CEF/Web 历史清理：§4 桥接章删除（jcef 体系已不存在）、§1/§2/§3 改写为纯 Swing 架构、§9 历史/失效条目移除——原「按新架构改写」欠账销账。
 > 2026-10-23 §10 拾取拍板三增补：编辑器拾取全线统一 GPU ID-buffer（轴拾取终态迁移、编辑器侧
 > 射线拾取退役、CPU 过渡拾取开放项关账）+ 落点=pass 本体进引擎 core（运行时也可用，有意分歧
 > Unity）+ 射线检测与 GPU 拾取共存（运行时 raycast 照常保留）。
@@ -20,24 +17,23 @@
 
 ## 1. 定位与边界
 
-`javelin-editor` 是 Javelin Engine 的桌面编辑器，技术栈为 **Swing + JCEF（Java Chromium Embedded）**：
-前端 UI 是跑在 CEF 里的 Web 页面（Vite  dev server，如 `http://localhost:5173/page/main.html`），
-后端是 JVM 内的引擎运行时。一块 AWT `Canvas` 嵌入主窗口作为 Vulkan 渲染呈现面。
+`javelin-editor` 是 Javelin Engine 的桌面编辑器，技术栈为 **纯 Swing + FlatLaf**（2026-10-17
+去 Web 化拍板，CEF/Web 前端已整体清退）：面板/Dock/菜单全 Swing 组件，一块 AWT `Canvas`
+嵌入主窗口作为 Vulkan 渲染呈现面（零拷贝）。UI 框架设计见 `Editor_Swing_Design.md`。
 
 **设计基准：完全参考 Unity**（拍板 2026-09-28）。编辑器的交互口径、面板组织、命名与
 概念体系以 Unity Editor 为准绳——已对齐先例：Scene 视图相机控制（`EditorCameraAppState`）、
 `viewportRect`（0-1 左下原点）、Layer/Tag/LayerMask、Hierarchy/Inspector/Project/Console
 面板命名、Node≈GameObject 的场景模型、变换 Gizmo 移动三轴（`TransformGizmoAppState`，
-RGB=XYZ、Global 世界轴口径）。后续编辑器功能设计遇行为分歧时，**以 Unity 的
-做法为默认答案**；仅当引擎架构差异（CEF/Web UI 栈、挖洞式视口等）确实无法对齐时才
+RGB=XYZ、Global 世界轴口径）。后续编辑器功能设计遇行为分歧时，**以 Unity 的做法为默认答案**；仅当引擎架构差异确实无法对齐时才
 自行设计，并在对应设计档注明偏离点与理由。
 
 核心职责：
 
 1. **项目生命周期管理**：新建 / 打开 / 最近项目列表
 2. **资产管线**：GUID 元数据（`.meta`）、导入器 SPI、Library 产物管理、内置资源释放
-3. **引擎宿主**：`EditorApp extends JavelinEngine`，主窗口 `MainFrame` 实现引擎 `Window` 契约
-4. **前后端桥接**：JS ↔ Java 双向调用（注解驱动）
+3. **引擎宿主**：`JavelinEditor extends JavelinEngine`，主窗口 `MainFrame` 实现引擎 `Window` 契约
+4. **Swing UI 框架**：Dock / 面板注册 / 菜单体系（设计档=Editor_Swing_Design.md）
 
 **明确不做的事**：游戏逻辑运行、场景编辑逻辑（二期规划）、输入系统（归引擎 core）。
 
@@ -49,10 +45,9 @@ javelin-editor
  ├─ javelin-rhi、javelin-tool、javelin-log
  ├─ javelin-ast（annotationProcessor，@Reflective 反射注册）
  └─ 第三方：
-    ├─ jcefmaven 146.0.10（CEF 分发与启动）
     ├─ gradle-tooling-api 8.14.3（项目编译 / nativeCompile）
     ├─ lwjgl-jawt（Canvas HWND）、lwjgl-tinyfd（原生文件对话框/错误弹窗）
-    ├─ jackson-databind（桥接 JSON）、jsvg（Swing SVG）
+    ├─ jsvg（Swing SVG）
     └─ slf4j、joml
 ```
 
@@ -61,66 +56,38 @@ javelin-editor
 
 ## 3. 启动流程与窗口体系
 
-编辑器按"三大窗口"组织启动序列：
+编辑器按「三大窗口」组织启动序列（全 Swing，CEF 运行时零使用）：
 
 ```
-EditorApp.main()
-  └─ ProjectFrame（项目管理器，projectManager.html）
-       └─ 打开项目 → ProjectMethod.openProject()
-            └─ ProjectLoadingFrame（加载页，projectLoading.html）
-                 └─ 后台线程 "Engine Main"：
-                      GradleProject → MetaManager → ProjectAssetLibManager
-                      → AssetImportPipeline → BuiltinAssetReleaser
-                      releaseAll() → refresh() → startAndWait() → loadIndex()
-                      └─ EditorApp extends JavelinEngine → editorApp.start()
-                           └─ JavelinEngine: createWindow()=MainFrame → create() → showWindow()
-                                └─ MainFrame（主编辑窗口，main.html）
-                                     ├─ CEF UI 组件（Web 前端，铺满）
-                                     └─ CanvasSurface（Vulkan 呈现面，矩形区域由前端 rectChange 驱动）
+ProjectFrame（启动器：最近列表 + 新建/打开三模式）
+  └─ 打开项目 → ProjectLoadingFrame（加载页）
+       └─ 后台线程 "Engine Main"：
+            GradleProject → PluginManager 装载（先于资产初始化）
+            → MetaManager → ProjectAssetLibManager
+            → AssetImportPipeline → BuiltinAssetReleaser
+            releaseAll() → refresh() → startAndWait() → loadIndex()
+            └─ JavelinEditor extends JavelinEngine → start()
+                 └─ JavelinEngine: createWindow()=MainFrame → create() → showWindow()
+                      └─ MainFrame（主编辑窗口，纯 Swing + FlatLaf + 自研 Dock）
+                           └─ ViewportTabs 单 Canvas + CanvasSurface（Vulkan 呈现面，Dock 布局驱动）
 ```
 
 | 窗口 | 基类 | 说明 |
 |------|------|------|
-| `ProjectFrame` | `CefFrame` | 项目管理器；`windowClosing` 直接 dispose |
-| `ProjectLoadingFrame` | `CefFrame` | 无装饰加载页；承载资产初始化与引擎启动 |
-| `MainFrame` | `CefFrame` | 主编辑窗口；实现引擎 `Window` 接口（见 §5） |
-| `Dialog` | `JDialog` | 通用 CEF 对话框容器（`window/cef/dialog` 包，2026-10-11 落地待验收）：URL 传参构造（默认 dialog.html）、模态 `APPLICATION_MODAL` 挂 MainFrame（未创建时无主屏中央）、`DISPOSE_ON_CLOSE` 连 CefBrowser 跟手销毁；不持单例、调用方管理实例；首个消费方=构建·打包对话框（独立前端页 page/pack.html） |
-| `CefFrame` | `JFrame` | 抽象基类：封装 `CefBrowser` 创建/关闭、`loadURL`、子类布局钩子 `addJcefComponent` |
-| `CanvasSurface` | `Canvas` | 引擎 `RenderSurface` 实现（见 §5） |
+| `ProjectFrame` | `JFrame` | 启动器：最近列表 + 新建/打开三模式（tinyfd 选目录） |
+| `ProjectLoadingFrame` | `JFrame` | 无装饰加载页；承载插件装载、资产初始化与引擎启动引导链 |
+| `MainFrame` | `JFrame` | 主编辑窗口；实现引擎 `Window` 接口（见 §5）+ Dock/面板/菜单体系 |
+| `CanvasSurface` | `Canvas` | 引擎 `RenderSurface` 实现（见 §5），挂 ViewportTabs 单 Canvas |
 
-三个窗口各持静态 `instance` 单例（前端桥反查用）。
-`Dialog` 为运行期按需实例（无单例、关闭即 dispose 销毁浏览器，重开新建）。
+UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas 不 reparent）全量设计在
+`Editor_Swing_Design.md`。
 
-## 4. 前后端桥接（jcef 包）
+## 4. 前后端桥接
 
-### 4.1 JS → Java：`JsJavaBridgeHandler`
-
-- 类加载时扫描 classpath 下所有带 `@BridgeMethod` 注解**类**（包扫描参数当前为空串，即全量扫），
-  反射实例化后注册其中带注解的**方法**；URL 规则：`类前缀 + 方法注解值`（方法注解为空时退化为方法名）。
-- 前端发 `url::json` 格式 query，后端在专用线程池（8~16 核，队列 2000，AbortPolicy）异步执行，
-  通过 `CefQueryCallback` 回传 JSON。
-- 方法封装在 `JavaBridgeMethod`：JSON 反序列化（至多一个请求参数）→ 反射调用 →
-  序列化返回；**方法可声明 `CefBrowser` 参数——注入当前调用者的浏览器实例**
-  （2026-10-11，位置任意至多一个，供 `JavaScriptBridge.send` 向调用页定向实时推送；
-  首个消费方=构建日志 `build.out.info/warn/error`——console.* 前缀保留给控制台面板）。
-  异常按领域分类映射 HTTP 风格码（400 提示/校验、422 领域、500 未知、502 构建），
-  并弹 tinyfd 原生错误框。当前桥方法：`JavelinMethod`（`/render/rce` 渲染区矩形）、
-  `ProjectMethod`（项目管理）、`FileSystemMethod`（目录选择）。
-- **注意**：所有桥方法在桥接线程池执行，不在 EDT；需要触 UI 必须自行 `SwingUtilities`。
-
-### 4.2 Java → JS：`JavaScriptBridge`
-
-静态工具，通过 `cefBrowser.executeJavaScript` 调前端 `window.__javelinBridge.onMessage(type, data)`。
-`CefFrame.send()` 是预留入口（当前注释状态）。**线程口径：executeJavaScript 线程约束
-未证实，对齐 rectChange 先例一律 EDT hop 后调用**（EventBridgeForwarder 与桥方法直推
-同口径）。首个定向实时消费方=构建日志 build.out.*（BuildMethod 的 ConsoleOut 行 →
-调用者浏览器，见 §4.1；类型 `build.out.*`，console.* 前缀保留给控制台）。
-
-### 4.3 CEF 生命周期：`JcefCreator`
-
-静态块即初始化 `CefApp`（install dir `jcef-bundle`、`--disable-gpu`、非 windowless）。
-`createBrowser(url)` = 新建 client + 注册消息路由 + `createBrowser`。
-注意：**首次触碰该类即启动 CEF**，不可在纯引擎路径误加载。
+> 本章已清（2026-10-23）：jcef 桥接体系（JsJavaBridgeHandler / JavaScriptBridge / JcefCreator /
+> CefFrame）已随 2026-10-18 去 Web 化整体删除，历史描述不存档。编辑器 UI 与数据链现状 =
+> Swing 直调（面板/命令/检查器全 Java 内调，设计档=Editor_Swing_Design.md）；跨线程事件走
+> editor.event 事件总线（契约在类 javadoc）。
 
 ## 5. 引擎接入（window/cef 包）
 
@@ -134,10 +101,7 @@ EditorApp.main()
   物理像素换算在 `RenderSurface` 侧
 - `isResized()/acknowledgeResize()` 委托 canvas；`isVisible()` = shown 且非最小化
 - `renderSurface()` 未创建时抛异常
-- `rectChange(RectPar)`：前端推送渲染区矩形 + dpi → `canvas.setBounds/setDpi`（`invokeAndWait` 上 EDT）
-
-> **历史坑**：`Window` 接口方法原叫 `show()`，与 AWT `Component.show()`（deprecated）在
-> `MainFrame` 上构成双重重写，已改名为 `showWindow()`（2026-09-25，全项目 + 文档同步）。
+- 渲染区矩形：由 Dock/ViewportTabs Swing 布局直接驱动 canvas 边界（M1 起无前端上报链）
 
 ### 5.2 CanvasSurface implements RenderSurface
 
@@ -251,9 +215,8 @@ tinyfd 弹窗（同 file.save 隔离口径）。首批注册（拍板）：.scen
 
 | 线程 | 职责 | 注意 |
 |------|------|------|
-| EDT | Swing/CEF UI、窗口事件 | `MainFrame.close()` 的 `dispose` 经 `invokeLater` 回到 EDT；`rectChange` 用 `invokeAndWait` |
-| 引擎主线程 | `EditorApp.start()` 帧循环（`ProjectLoadingFrame` 以 `"Engine Main"` 线程启动） | `pollEvents()` 空实现（Swing 事件自发派发） |
-| js-java-bridge 池 | 桥接方法执行（8~16） | 不在 EDT；异常弹 tinyfd |
+| EDT | Swing UI、窗口事件 | `MainFrame.close()` 的 `dispose` 经 `invokeLater` 回到 EDT |
+| 引擎主线程 | `JavelinEditor.start()` 帧循环（`ProjectLoadingFrame` 以 `"Engine Main"` 线程启动） | `pollEvents()` 空实现（Swing 事件自发派发） |
 | AssetImport-Worker 池 | 导入任务（CPU 核数） | `waitImportFinished()` 轮询等待 |
 
 跨线程共享状态主要经 MetaManager 的 ConcurrentHashMap 缓存与导入任务队列。
@@ -263,33 +226,12 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 
 ## 9. 已知问题与风险（检查结论）
 
-1. **`CefFrame.dispose()` NPE 风险**：`cefBrowser.close(true)` 在 `loadURL` 未执行过时 NPE；
-   close 先于 create 的路径会踩到。
-2. **三窗口静态 instance**：重复 new 会静默覆盖单例，前端桥反查到错误实例。
-3. **`ProjectLoadingFrame` 有 `ThreadUtil.sleep(2000)` 假等待**（纯为加载页观感）。
-4. **导入成功即全量 `updateIndex()`**：每个任务成功都重扫监听目录重写索引，资产量大时是热点。
-5. **`JsJavaBridgeHandler` 类扫描参数为 `""`（全 classpath）**，启动慢且可能误注册；
-   javadoc 里包名 `com.javelin.editor.jecf` 为历史笔误。
-6. **`SettingsManager` javadoc 引用不存在的 `ProjectManagerJFrame`**（现为 `ProjectFrame`）。
-7. **`MainFrame.width()` 语义与 GLFW 实现不同**（逻辑像素 vs framebuffer 像素），
+1. **`ProjectLoadingFrame` 有 `ThreadUtil.sleep(2000)` 假等待**（纯为加载页观感）。
+2. **导入成功即全量 `updateIndex()`**：每个任务成功都重扫监听目录重写索引，资产量大时是热点。
+3. **`SettingsManager` javadoc 引用不存在的 `ProjectManagerJFrame`**（现为 `ProjectFrame`）。
+4. **`MainFrame.width()` 语义与 GLFW 实现不同**（逻辑像素 vs framebuffer 像素），
    当前消费方（帧循环只用 surface 尺寸）不受影响，但若未来有按窗口宽高的逻辑需留意 dpi。
-8. ~~**`importer/shader` 实现缺失**~~——**已落地（2026-09-26）**：`ShaderParser/ShaderInjector/ShaderImporter` 进 main 源集，.shader 经解析、注入、shaderc 编译产出 Capsule 二进制资产（§6.3）；`SimpleMeshImporter` 的产物落盘同日补齐（Mesh 存储即 `ArrayList<MeshAttributeData>` 节点列表，序列化字段直通零转换）。
-9. `EditorApp.main()` 仍是旧的 `new ProjectFrame()` demo 入口；正式入口在 `ProjectLoadingFrame`。
-10. **窗口最大化时 JCEF 面板不跟随 resize（2026-10-17 实测修复）**：拖拽正常、最大化
-    显示不全。根因=三层协作时序坑：content pane 为 null 布局，jcef UI 组件尺寸全靠
-    componentResized 监听手动 setBounds；jcef（CefBrowserWr）原生窗口尺寸由
-    setBounds→wasResized、ancestorResized/Moved→doUpdate→updateUI、paint→doUpdate
-    三条事件链驱动，doUpdate 读的是内层 heavyweight canvas_ 的**当前**边界。拖拽每步
-    都有一波事件、陈旧读数被下一波覆盖（自然收敛）；最大化只有一波事件，jcef 在内层
-    canvas_ 布局到新尺寸**之前**触发的 doUpdate 让原生窗口最后收到旧尺寸、风暴过后
-    无事件再纠正——实测症状即 AWT（jecf bounds）与 CEF 内部（JS rectChange）均已
-    新尺寸、原生可见绘制区停在旧值。修复（`MainFrame.addJcefComponent`/
-    `syncJcefBounds`）：windowStateChanged 后等事件风暴排空（两拍 invokeLater +
-    100ms Timer），手动补跑 jcef 全链 setBounds→validate→paintImmediately
-    （→doUpdate→updateUI），用最终尺寸覆盖陈旧值。教训：**null 布局下 jcef 组件
-    resize 不是 setBounds 一条腿，原生窗口靠事件链收敛，最大化这类单发场景必须
-    显式补链**。
-11. **窗口拖拽 resize 期画面非等比拉伸（2026-10-17 实测拍板：接受现状）**：拖动中
+5. **窗口拖拽 resize 期画面非等比拉伸（2026-10-17 实测拍板：接受现状）**：拖动中
     文字/画面压缩/拉宽，松手立即恢复。机制=窗口客户区每步即变、交换链图像停留在
     旧尺寸等下一帧 renderFrame 里 recreate，失配期 DWM 把旧图非等比铺满新客户区
     （整帧形变，字形最显眼）；拖动期每中间尺寸付一遍交换链重建+图缓存失效重编+
@@ -301,11 +243,8 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 
 ## 10. 演进方向
 
-- **UI 栈重构（2026-10-17 拍板，设计=Editor_Swing_Design.md）**：主窗口弃 JCEF/Web，改纯
-  Swing + FlatLaf（动因=插件扩展 UI 边界/混排坑族/CEF 进程成本）；首批（M1）=窗口 + 自研
-  Dock 框架骨架 + 视口 ViewportTabs 接入 + 面板占位，之后按 M2~M6 逐面板实装直至 jcefmaven
-  移除。视口 CanvasSurface 零拷贝路径不动。**引擎自绘 UI（Godot/Unity 形态）为远期终局**，
-  PanelRegistry/命令域/事件总线的抽象届时可平移，Swing 是过渡宿主。
+- **远期终局=引擎自绘 UI（Godot/Unity 形态）**：PanelRegistry / 命令域 / 事件总线的抽象届时可
+  平移，Swing 是过渡宿主（2026-10-17 起 UI 框架现状=Editor_Swing_Design.md，去 Web 化迁移已收官）。
 - 二期：编辑器基本功能（场景编辑 UI ↔ 引擎 Scene 回写，待编辑器 UI 栈拍板）
   ——**场景树对接已落地（2026-09-30，2026-10-04 用户实测验收通过）**：HierarchyPanel 真数据
   （/scene/tree 帧通道拉取 + /scene/select 写 EditorSelection 单源）、
@@ -430,12 +369,10 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   射线检测（射击命中/AI 感知等），运行时场景级 raycast（Collider 组件注册表，归 Ray 期）照常
   保留，与 ID-buffer 拾取两条 API 并存不冲突：射线=物理查询语义（有 Collider 才打得中），
   ID-buffer=渲染拾取语义（看得见即拾得到）。
-- **GPU 拾取落地记录（2026-10-23，待用户实测验收——设计档=Engine_Picking_Design.md v0.1）**：
+- **GPU 拾取落地记录（2026-10-23，当日用户实测验收——设计档=Engine_Picking_Design.md v0.1）**：
   RHI 读回环（TextureReadbackRing 2 槽非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，拾取 pass 不消费
   材质 Pass 声明）+ PickSystem 双通道（hover/click，帧表 3 环防串帧）+ ViewportPickAppState 消费
   （点击门控/选中收口）+ **Gizmo 轴拾取同批迁移**（hover 源改 PickSystem 直写、拖拽 pickRay 保留
   纯数学、MoveTool 摘 CylinderCollider——CPU 射线过渡线退役）；透明物体可拾取（Unity 口径同批
   确认）；已知边界（hover 1~2 帧延迟、多视口后置）见该档 §8，验收清单 §9。
-- ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
-- 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身
