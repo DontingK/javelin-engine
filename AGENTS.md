@@ -70,7 +70,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| `Engine_Design.md` | 引擎设计总纲（v0.1）：系统大方向全景、职责边界、文档规划（引擎侧，与 RHI 文档互补） |
+| `Engine_Design.md` | 引擎设计总纲（v0.2）：系统大方向全景、职责边界、文档规划、功能模块化方向（Gradle 依赖即包 + core ServiceLoader 自注册，§3.1）（引擎侧，与 RHI 文档互补） |
 | `RHI_Design.md` | RHI 总纲（v0.22）：概述、设计原则、架构取舍、章节索引 |
 | `RHI_Design_Core.md` | 分卷一：包结构、核心数据类型、相机与视口、RenderView、API 全貌清单（第 26 节） |
 | `RHI_Design_Pipeline.md` | 分卷二：渲染管线、多相机、RenderGraph 职责分层、呈现模型、帧执行与同步、线程模型 |

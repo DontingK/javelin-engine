@@ -1,6 +1,6 @@
 # 引擎设计（Engine Design）
 
-> 版本：v0.1
+> 版本：v0.2（v0.1 基础上增 §3.1 功能模块化方向拍板存档）
 > 说明：引擎侧（javelin-core）设计总纲，列出系统大方向、职责边界与文档归属。
 > 本文**只定方向与划分**，各系统的字段级/流程级设计在其专档中展开（已有专档的给出链接，未建的标注"待写"）。
 > 职责边界：本文管"引擎层有什么系统、各管什么"（Unity 式组件模型 + 子系统框架 + 引擎侧渲染组织）；
@@ -88,6 +88,55 @@
 | 音频 | 音频上下文、3D 音源、总线 | 引擎选型未定（OpenAL 等） |
 
 三者在 `Subsystem` 契约里已有对应挂点（earlyUpdate 物理步进、lateUpdate 同步回写；渲染贡献经管线 Pass 列表注册），框架不为它们特设机制。
+
+### 3.1 功能模块化与自注册（方向拍板存档，2026-10-23）
+
+> 讨论起点：Unity 很多功能以安装包（UPM）交付，我们是否照做。拍板：**不做包管理器，
+> Gradle 依赖坐标即包格式**。Unity 被迫发明 UPM 是因为它没有构建系统（C# 由编辑器现场
+> 编译，需要 manifest/依赖解析/registry 自建发行基建）；我们有 Gradle，版本解析、传递
+> 依赖、冲突处理全部白送。**编辑器插件轴（Editor_Plugin_Design）与本节是两条平行轴**：
+> 插件体系扩展的是**编辑器**（Plugins/ 目录 jar 动态装载）；本节是**引擎运行时功能模块**
+> 轴（编译期 Gradle 依赖，游戏项目侧）。
+
+**体验目标**：游戏项目 `build.gradle` 加一行依赖即启用模块、删依赖即停用，**零注册代码**。
+现状缺的正是这半件——「分发」Gradle 已解决，「jar 自描述自动注册」没有通道（当前子系统
+接线在 `JavelinEngine.registerSubsystem()` protected 覆写钩子里，扩展方必须写源码）。
+
+**机制拍板（与编辑器插件体系同构，零新发明）**：
+
+- core 侧 SPI（暂名 `EngineExtension`）：jar 内 `META-INF/services` 声明 + ServiceLoader
+  在引擎 init 早期（`initAll` 之前，结构冻结前）扫**主 classpath**——不需要 Plugins/ 目录、
+  不需要动态 classloader、没有 unload 问题（游戏运行时本就是静态 classpath，比编辑器侧
+  jar 装载更简）；`Subsystem.init(JavelinEngine)` 引擎引用 init 期传入，Extension 无参构造
+  即可，ServiceLoader 实例化无障碍；
+- **组件轴免开发**：`@Reflective`（javelin-ast 编译期注册进 ReflectiveFactory）已就是
+  「jar 自描述」的组件半边，与 ServiceLoader 的子系统半边互补；AOT 兼容顺带成立
+  （`META-INF/services` 是 GraalVM native-image 支持的标准机制）。
+
+**模块清单与依赖形状**（两类的扩展面不同）：
+
+| 类 | 模块 | 扩展面 |
+|----|------|--------|
+| 只依赖 core（CPU 侧） | physics（第一消费者）、audio、animation、navigation、net | Subsystem 钩子即够 |
+| 依赖 core + rhi（渲染侧） | particles、runtime-ui（引擎自绘 UI）、2d、terrain、postfx | 另需「向 RenderGraph 贡献 Pass」扩展点（编辑器 DebugLinePass/PickPass 已趟过模式，但那是编辑器内写死；模块化后要把 Pass 贡献也开口，实现期设计） |
+
+**不做模块的**（防过度包化）：光照（默认管线本体，非可选功能）、拾取/调试线/DebugDrawText
+（编辑器/诊断功能，已有归属）、输入/序列化/资产管线（地基，core 即全部）。scripting
+（脚本运行时）与资产格式插件属**方向级决策**，不按功能模块排队。
+
+**physics 切分边界**（第一消费者预拍）：纯数学 L0（Aabb/相交例程）与 Collider 组件族留
+core（拾取/调试线已消费、场景反序列化不依赖模块存在）；Rigidbody 组件与 PhysicsSubsystem
+进模块；**模块不依赖 rhi**（纯 CPU 侧，渲染调试走编辑器已有 DebugLine/组件绘制器）；
+Rigidbody 带 `@Reflective`，模块自己的编译单元完成注册。
+
+**负面路径**（模块化唯一要新写的错误面）：场景残留组件、运行时缺模块——反序列化走
+ReflectiveFactory 查无此类，须给明确报错（fail-fast 指认「类名 X 未注册，可能来自模块 Y，
+请添加 Gradle 依赖」），不落笼统反射异常。
+
+**落地纪律**（现状已满足，保持即可）与**时机**：子系统接线集中在
+`JavelinEngine.registerSubsystem()` 一处、组件全带 `@Reflective`；SPI 与 physics 模块
+同一批次做（建模块 + SPI + Rigidbody/子系统打包一批次），不提前建空转基建。audio/
+animation 同构复制。
 
 ## 4. 文档规划
 
