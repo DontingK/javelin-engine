@@ -5,6 +5,7 @@
 > （含 1 概述 / 2 设计原则 / 11 架构取舍与坑点 + 完整章节索引）
 > 本卷包含：第 7 单相机多 Pass / 8 多相机分屏多 Pass / 12 引擎侧渲染管线与 RHI 管线区分 / 13 架构调试性评估 / 14 可编排 Pass 体系与默认混合渲染管线 / 18 RenderGraph 图缓存复用 / 19 多相机多角度渲染实现
 > 章节编号全局唯一（1~21），跨卷引用按编号查找，完整索引见总纲。
+> 收敛（2026-10-23）：删拍板期对照论证（12.4 bgfx / 13.4 bgfx 调试 / 14.4 UE-Unity 对比）与同构重复示例（12.6 代码示例、§8 相机B套、19.3 后三 Pass）——结论已存正文，完整历史见 git。
 
 
 
@@ -242,94 +243,7 @@ graph.addGraphicsPass("CamA_Transparent", pass -> {
 
 });
 
-// ========== 相机B整套Deferred ==========
-
-graph.addGraphicsPass("CamB_GBuffer", pass -> {
-
-    pass.setPipeline(gbufferPipeline);
-
-    pass.addColorOutput(albedoTexB, RHILoadOp.CLEAR, new RHIClearColor(0,0,0,1));
-
-    pass.addColorOutput(normalTexB, RHILoadOp.CLEAR, new RHIClearColor(0,0,0,1));
-
-    pass.addColorOutput(worldPosTexB, RHILoadOp.CLEAR, new RHIClearColor(0,0,0,1));
-
-    pass.addDepthOutput(depthTexB, RHILoadOp.CLEAR, new RHIClearDepthStencil(1.0f,0));
-
-    pass.setViewport(new RHIViewport(1400,720,400,360,0,1));
-
-    pass.setScissor(new RHIScissor(1400,720,400,360));
-
-    bindCamera(pass, camB);
-
-    pass.setRenderCallback(cmd -> {
-
-        for(RenderObject obj : scene.getOpaqueObjects()){
-
-            cmd.bindVertexBuffer(obj.vertexBuffer,0);
-
-            cmd.bindUniformBuffer(1, obj.matrixBuffer);
-
-            cmd.drawIndexed(obj.indexCount,1);
-
-        }
-
-    });
-
-});
-
-graph.addGraphicsPass("CamB_Lighting", pass -> {
-
-    pass.setPipeline(lightPipeline);
-
-    pass.addColorOutput(swapchainColorTex, RHILoadOp.LOAD);
-
-    pass.addTextureRead(albedoTexB);
-
-    pass.addTextureRead(normalTexB);
-
-    pass.addTextureRead(worldPosTexB);
-
-    pass.addTextureRead(depthTexB);
-
-    pass.setViewport(new RHIViewport(1400,720,400,360,0,1));
-
-    pass.setScissor(new RHIScissor(1400,720,400,360));
-
-    bindCamera(pass, camB);
-
-    pass.setRenderCallback(cmd -> cmd.draw(3,1));
-
-});
-
-graph.addGraphicsPass("CamB_Transparent", pass -> {
-
-    pass.setPipeline(transparentPipeline);
-
-    pass.addColorOutput(swapchainColorTex, RHILoadOp.LOAD);
-
-    pass.addDepthOutput(depthTexB, RHILoadOp.LOAD);
-
-    pass.addTextureRead(depthTexB);
-
-    pass.setViewport(new RHIViewport(1400,720,400,360,0,1));
-
-    pass.setScissor(new RHIScissor(1400,720,400,360));
-
-    bindCamera(pass, camB);
-
-    pass.setRenderCallback(cmd -> {
-
-        for(RenderObject obj : scene.getTransparentObjects()){
-
-            cmd.drawIndexed(obj.indexCount,1);
-
-        }
-
-    });
-
-});
-
+// ========== 相机B整套Deferred：与相机A完全同构（独立 GBuffer 纹理 + LOAD 叠加写 swapchainColorTex），示例从略 ==========
 graph.submit();
 ```
 
@@ -452,16 +366,6 @@ GPU硬件执行管线
 | 生命周期 | 长生命周期，缓存复用                 | 帧级，每帧构建 / 销毁              |
 | 作用   | GPU 绘制状态                   | 组织渲染任务顺序、资源读写关系           |
 
-### 12.4 和 bgfx 的对照（承接上一节）
-
-
-
-* bgfx 里的 `Program` ≈ GraphicsPipeline（shader 组合），但 bgfx**没有独立 PSO 对象**，混合 / 深度状态是 bitflag 动态拼接，内部隐式缓存 PSO。
-
-* bgfx 的整套帧渲染流程（多个 View）≈ 引擎侧渲染管线。
-
-> bgfx 把「引擎管线编排」和 RHI 层揉在一起，所以上层不需要单独写 RenderGraph。
-
 ### 12.5 常见坑点（重点，写进文档）
 
 
@@ -479,88 +383,6 @@ GPU硬件执行管线
    GraphicsPipeline 只定义**怎么画**；引擎渲染管线定义**画哪些、先后顺序、读写哪些 RT**。
 
 4. 多相机场景：**同一套 GraphicsPipeline 可以被多个 RenderView/Pass 共享**，不需要每个相机单独创建 PSO。
-
-### 12.6 代码示例（Java，直观区分）
-
-#### GraphicsPipeline（RHI 层，一次性创建，全局缓存）
-
-
-
-```
-// 启动/加载阶段创建，只创建一次
-
-GraphicsPipelineDesc gbufferPipelineDesc = new GraphicsPipelineDesc();
-
-gbufferPipelineDesc.vertexShader = loadSPIRV("gbuffer.vert.spv");
-
-gbufferPipelineDesc.fragmentShader = loadSPIRV("gbuffer.frag.spv");
-
-gbufferPipelineDesc.inputLayout = meshInputLayout;
-
-gbufferPipelineDesc.depthStencilState = DepthState.DEPTH_TEST_WRITE;
-
-gbufferPipelineDesc.blendState = BlendState.NO_BLEND;
-
-gbufferPipelineDesc.renderTargetFormats = List.of(RGBA8, RGBA16F, RGBA16F, D32_SFLOAT);
-
-GraphicsPipeline gbufferPipeline = rhi.createGraphicsPipeline(gbufferPipelineDesc);
-
-// 存入全局PipelineCache，后续复用
-
-pipelineCache.put("gbuffer_opaque", gbufferPipeline);
-```
-
-#### 引擎渲染管线（引擎层，每帧构建 RenderGraph）
-
-
-
-```
-// 每帧执行：引擎Deferred管线
-
-public void renderFrame(Scene scene, List<RenderView> views) {
-
-    RenderGraphBuilder graph = rhi.beginRenderGraph();
-
-    // 引擎管线：遍历所有相机视口，生成整套Pass链
-
-    for(RenderView view : views) {
-
-        view.buildRenderGraph(graph, scene);
-
-    }
-
-    graph.submit();
-
-}
-
-// RenderView内部，GBuffer Pass（引擎层Pass）
-
-graph.addGraphicsPass("GBufferPass", pass -> {
-
-    pass.setPipeline(pipelineCache.get("gbuffer_opaque")); // 复用RHI管线
-
-    pass.addColorOutput(albedoTex, RHILoadOp.CLEAR, clearColor);
-
-    pass.addDepthOutput(depthTex, RHILoadOp.CLEAR, depthClear);
-
-    pass.setRenderCallback(cmd -> {
-
-        // 在回调内，多次绑定不同GraphicsPipeline，绘制物体
-
-        for(RenderObject obj : scene.opaqueObjects) {
-
-            cmd.bindPipeline(obj.material.pipeline); // 切换RHI管线
-
-            cmd.bindVertexBuffer(obj.vb,0);
-
-            cmd.drawIndexed(obj.indexCount,1);
-
-        }
-
-    });
-
-});
-```
 
 ### 12.7 扩展设计：管线变体（可选，暂不采用）
 
@@ -749,35 +571,6 @@ renderGraph.setDebugSinglePass(String passName);
 
    RHI 层预留回调，一键触发 RenderDoc 捕获当前帧，不用切外部快捷键。
 
-### 13.4 对比 bgfx 调试体验小结
-
-
-
-| 维度                   | RenderGraph+RHI（当前方案）       | bgfx View+Encoder    |
-| -------------------- | --------------------------- | -------------------- |
-| 上层管线逻辑调试             | 强，导出依赖图，CPU 侧就能排查 Pass 顺序   | 弱，依赖 GPU 抓帧          |
-| GPU 底层命令调试           | 需要埋 DebugMarker，否则间接性强      | 简单，命令直接提交，View 天然分组  |
-| 多视口 / 复杂 Deferred 调试 | 优秀，可隔离单个 RenderView/Pass    | 一般，多 View 同步 bug 难定位 |
-| RT 别名内存调试            | Release 强，Debug 模式要关闭别名才好排查 | 无内存别名，显存占用高，但简单      |
-| 入门调试上手难度             | 高（需要理解两层抽象）                 | 低，扁平 API             |
-| 工具依赖                 | **强依赖自定义导出工具**              | 仅依赖 RenderDoc 即可     |
-
-### 13.5 工程建议
-
-
-
-1. 编译配置区分：
-
-* Debug：**关闭 RT 内存别名、开启所有 DebugUtils、开启资源堆栈追踪、开启 RenderGraph 导出**；
-
-* Release：开启内存别名，关闭调试标记，降低 CPU 开销。
-
-1. 开发流程：优先在 CPU 侧导出渲染图排查管线逻辑，**不要一上来就开 RenderDoc**；RenderDoc 只用来查底层 PSO、shader、屏障、资源布局 bug。
-
-2. 最小化测试：写单元测试，单独跑单个 Pass，验证 GBuffer、后处理 Pass 正确性。
-
-
-
 ***
 
 
@@ -952,30 +745,6 @@ graph.addGraphicsPass("PostProcessPass")
 
 > 这就是 RenderGraph「可编排」的核心价值：
 > **同一套 RHI+RenderGraph 底层，支持多种渲染管线切换**
-> 。
-
-### 14.4 与 UE / Unity 对比
-
-
-
-1. UE5
-
-* RDG 是通用 Pass 编排框架；
-
-* 引擎内置一套默认 Deferred 混合管线；
-
-* 可以用 RenderGraph 钩子插入自定义 Pass；也可以完全重写一整套管线。
-
-1. Unity HDRP
-
-* SRP RenderGraph 做编排；
-
-* HDRP 内置混合管线（Deferred 不透明 + Forward 透明）；
-
-* 用户可注入自定义 Pass；也可以写全新 SRP 管线。
-
-> 共同点：
-> **编排框架和默认管线解耦，框架独立，管线是上层业务**
 > 。
 
 ### 14.5 工程约束 & 坑点
@@ -1292,98 +1061,7 @@ void buildViewPasses(RenderGraphBuilder graph, RenderView view, Scene scene,
 
     });
 
-    // —— Lighting：读本相机 GBuffer，输出本相机光照结果 ——
-
-    graph.addGraphicsPass(view.name + "_Lighting", pass -> {
-
-        pass.setPipeline(pipelineCache.get("lighting"));
-
-        pass.addColorOutput(view.lightingRT, RHILoadOp.CLEAR, CLEAR_GRAY);
-
-        pass.addTextureRead(view.gbufferAlbedo);
-
-        pass.addTextureRead(view.gbufferNormal);
-
-        pass.addTextureRead(view.gbufferWorldPos);
-
-        pass.addTextureRead(view.depthTex);
-
-        pass.setViewport(view.viewport);
-
-        pass.setScissor(view.scissor);
-
-        pass.setRenderCallback(cmd -> {
-
-            cmd.bindDescriptorSet(0, frameSet, 1, new int[]{camOffset});
-
-            cmd.draw(3, 1);   // 全屏三角形
-
-        });
-
-    });
-
-    // —— Transparent：半透明物体混合叠加 ——
-
-    graph.addGraphicsPass(view.name + "_Transparent", pass -> {
-
-        pass.setPipeline(pipelineCache.get("transparent"));
-
-        pass.addColorOutput(view.lightingRT, RHILoadOp.LOAD);   // 叠加，不清屏
-
-        pass.addDepthOutput(view.depthTex, RHILoadOp.LOAD);
-
-        pass.addTextureRead(view.depthTex);
-
-        pass.setViewport(view.viewport);
-
-        pass.setScissor(view.scissor);
-
-        pass.setRenderCallback(cmd -> {
-
-            cmd.bindDescriptorSet(0, frameSet, 1, new int[]{camOffset});
-
-            for (RenderObject obj : scene.getTransparentObjects()) {
-
-                int objOffset = frameUbo.writeAligned(obj.modelMatrix);
-
-                cmd.bindDescriptorSet(1, objSet, 1, new int[]{objOffset});
-
-                cmd.bindPipeline(obj.material.pipeline);
-
-                cmd.bindVertexBuffer(obj.vertexBuffer, 0);
-
-                cmd.drawIndexed(obj.indexCount, 1);
-
-            }
-
-        });
-
-    });
-
-    // —— Composite：本相机画面合成到目标（独立 RT / 分屏 swapchain 区域）——
-
-    graph.addGraphicsPass(view.name + "_Composite", pass -> {
-
-        pass.setPipeline(pipelineCache.get("composite"));
-
-        pass.addColorOutput(view.targetTex, RHILoadOp.LOAD);   // 分屏用 LOAD 叠加
-
-        pass.addTextureRead(view.lightingRT);
-
-        pass.setViewport(view.viewport);
-
-        pass.setScissor(view.scissor);
-
-        pass.setRenderCallback(cmd -> {
-
-            cmd.bindDescriptorSet(0, frameSet, 1, new int[]{camOffset});
-
-            cmd.draw(3, 1);
-
-        });
-
-    });
-
+    // —— Lighting / Transparent / Composite 三 Pass 与第 7、8 节示例同构（读本相机 GBuffer → lightingRT → LOAD 叠加透明 → 合成到 view.targetTex），从略 ——
 }
 ```
 
