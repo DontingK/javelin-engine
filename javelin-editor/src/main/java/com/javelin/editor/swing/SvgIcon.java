@@ -3,6 +3,7 @@ package com.javelin.editor.swing;
 import com.github.weisj.jsvg.SVGDocument;
 import com.github.weisj.jsvg.parser.SVGLoader;
 import com.github.weisj.jsvg.view.ViewBox;
+import com.javelin.editor.plugin.PluginManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +17,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import static com.github.weisj.jsvg.attributes.transform.TransformBox.ViewBox;
 
 /**
- * SVG 图标实现，支持从 classpath 的 {@code /icon/} 目录自动加载 SVG 资源。
+ * SVG 图标实现，支持从 classpath 的 {@code /icon/} 目录自动加载 SVG 资源；
+ * 宿主未命中时按插件装载序依次查各插件 classloader（同名图标先装载者优先）。
  *
  * <p>实现 {@link Icon} 接口，可直接用于 {@link JLabel}、{@link JButton}、{@link JMenuItem} 等 Swing 组件。</p>
  *
@@ -139,7 +141,7 @@ public class SvgIcon implements Icon {
     }
 
     /**
-     * 从 classpath 加载 SVG 文档，带缓存。
+     * 加载 SVG 文档：宿主 classpath 先查，未命中按装载序依次查插件 classloader。
      *
      * @param name SVG 文件名（不含扩展名）
      * @return 解析后的 {@link SVGDocument}，失败返回 {@code null}
@@ -148,6 +150,9 @@ public class SvgIcon implements Icon {
         String path = "/icon/" + name + ".svg";
         return CACHE.computeIfAbsent(path, p -> {
             URL url = SvgIcon.class.getResource(p);
+            if (url == null) {
+                url = PluginManager.findResource(p);
+            }
             if (url == null) {
                 LOGGER.warn("SVG resource not found: {}", p);
                 return null;

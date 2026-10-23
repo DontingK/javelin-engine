@@ -85,6 +85,18 @@ public interface Plugin {
 （editor.core 与 PanelRegistry 同模块，绕过 ctx 编译得过），CR 把关；注册贡献按 namespace
 前缀化后（§7 开放项）此纪律升级为结构性强制。
 
+### 2.3 图标资源约定（2026-10-23 用户拍板）
+
+- **插件供图标走约定路径 `/icon/`、格式 SVG**——与语言包 `lang/` 约定同构：目录即
+  manifest，不占接口方法、零注册零声明。插件 jar 根下放 `/icon/<name>.svg`，消费方
+  `SvgIcon.of("<name>", size)` 零感知命中（全库图标加载单点收口在 SvgIcon.loadDocument）。
+- **解析链两级**（原实现只查宿主 classloader，插件图标查不到——本批修复）：
+  宿主 classpath 先查（内置图标恒优先），未命中按插件装载序依次查各 classloader
+  （classpath 插件先、jar 名序、FAILED 跳过）——同名图标"先装载者优先"，与
+  namespace 冲突裁决同口径。实现 = `PluginManager.findResource(path)` + SvgIcon 兜底链。
+- **装载时序安全**：图标请求点（菜单/面板/检查器）均在 `PluginManager.loadAll` 之后的
+  编辑器主窗构建期；SvgIcon 缓存命中即缓存、miss 不记 null（后装载插件可再命中）。
+
 ---
 
 ## 3. 发现与装载
