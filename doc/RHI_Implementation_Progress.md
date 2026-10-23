@@ -462,6 +462,36 @@ core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow
 
 ---
 
+## FrameArena 现状存档（2026-10-23 调查，无代码变更）
+
+> 背景：帧对象池评估时顺带查清 FrameArena 真实状态。结论先行：**FrameArena 自
+> Stage 5 落地后一直空转**——FrameLoop 每帧 fence 闸门后 reset（`FrameLoop.java:105`），
+> 但全库无任何调用方往 arena 写数据；每帧并行槽各占 1MB HOST_VISIBLE 显存，分配后
+> 永不使用（RenderStats 的 buffer 存活计数含它，数字略有水分）。
+
+- **设计意图**（`RHI_Design_Resources.md` §17.3）：每帧瞬态数据（动态 UBO / 每帧
+  uniform / 瞬时缓冲）走 3 帧环形 bump arena——免逐对象分配、不经 Cleaner；设计
+  默认 64MB×3。
+- **实现**（Stage 5）：`VulkanFrameArena` 单块 1MB HOST_VISIBLE+COHERENT，256B 对齐
+  bump 分配，reset 只归零 offset。
+- **澄清：类注释过时**——"当前为单帧版本"不成立：实际每 FrameState 槽构造期各持
+  一块（`FrameState.java:33`），FrameLoop 帧首 fence await 之后才 reset 本槽，多帧
+  轮换复用语义已成立（26.5 节已知问题表同结论）；阶段⑤待办表"VulkanFrameArena
+  多帧环形 | Stage 6"一行随 FrameState 环形落地自然消解。
+- **为何无人用**：设计要喂的消费方后来全被引擎层专项方案吃掉——每帧 UBO 走
+  RenderingSystem UBO1 持久缓冲（`frameIndex % N` 槽原地写）；Pass push 数据走
+  AbstractForwardPass/PickPass 持久 direct ByteBuffer；DebugText/DebugLine 顶点走
+  双缓冲槽。各消费方"持久缓冲 + 槽位轮换"比通用 arena 更贴合自身需求，通用池遂
+  无接入方。
+- **隐患两处**（已记 `Vulkan_Pitfalls.md` #25，待做小收口）：`VulkanDevice.frameArena()`
+  per-call new（帧内误调即每帧 1MB 泄漏）；`VulkanBuffer.writeAligned` 的"实际应该用
+  FrameArena"过时注释。
+- **归宿**：Buffer staging（deviceLocal 上传，RHI 遗留项）是其赎回路径——
+  宿主→device-local 传输的 host 侧暂存天然适配"写入 → copy → 下帧 reset 复用"。
+  在此之前维持现状（无害但无用的占位）。
+
+---
+
 ## 附录：API 签名确认记录
 
 实现过程中已确认的 LWJGL API 签名（来源：lwjgl-vulkan-3.4.2-sources.jar）：

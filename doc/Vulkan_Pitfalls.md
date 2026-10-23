@@ -309,6 +309,22 @@
 - **出处**：2026-10-09 OOM 排障（A 项用户实测验收）；B 项 2026-10-23 落地待用户验收
   （`RHI_Design_Resources.md` §17.2/§17.6 同步）。
 
+### 25. `Device.frameArena()` 每调一次新造 1MB 显存：帧内误调即逐帧泄漏 ★生命周期级
+
+- **症状**：暂未实踩（当前全库唯一调用点在 FrameState 构造期，一次性合法）；隐患形态 =
+  将来任何代码在帧路径上调 `device.frameArena()` 想取"帧池"，每帧静默分配 1MB
+  HOST_VISIBLE 显存且无人释放——对象链路看不出异常、显存只涨不跌，与 #24 同征象。
+- **根因**：`VulkanDevice.frameArena()`（`VulkanDevice.java:267-269`）实现为
+  `return new VulkanFrameArena(this)`——工厂方法无缓存/单例语义，而 `Device.frameArena()`
+  接口语义暗示"取既有帧池"，调用方自然以为随时可调。配套两处过时注释误导后来者：
+  `VulkanFrameArena` 类注释"当前为单帧版本"（实际 per-FrameState 一块，多帧轮换语义
+  已成立，见进度档 2026-10-23 存档）；`VulkanBuffer.writeAligned:82`"实际应该用
+  FrameArena"（该路径是持久缓冲直写，与帧 arena 无关）。
+- **修法**：`frameArena()` 改懒建单例缓存（后续调用返回同一实例）+ 两处注释修正——
+  **待做**；当前因 arena 整体空转而无实害（现状全貌见
+  `RHI_Implementation_Progress.md`「FrameArena 现状存档（2026-10-23）」）。
+- **出处**：2026-10-23 帧对象池评估的代码审查发现（未实踩，防御性记档）。
+
 ---
 
 ## 六、排障方法论（沉淀）
