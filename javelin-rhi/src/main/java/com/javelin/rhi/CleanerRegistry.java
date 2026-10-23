@@ -23,11 +23,14 @@ public final class CleanerRegistry {
     static final class DestroyTask implements Runnable {
         final VulkanDevice device;
         final long handle;
+        /** 配套 VkDeviceMemory（BUFFER/TEXTURE 各自独占分配的显存；0 = 无）。销毁时先 destroy 对象再 free memory——规范序：内存不得在仍被资源绑定时释放 */
+        final long memoryHandle;
         final ResourceType type;
 
-        DestroyTask(VulkanDevice device, long handle, ResourceType type) {
+        DestroyTask(VulkanDevice device, long handle, long memoryHandle, ResourceType type) {
             this.device = device;
             this.handle = handle;
+            this.memoryHandle = memoryHandle;
             this.type = type;
         }
 
@@ -101,8 +104,18 @@ public final class CleanerRegistry {
             if (task.device.isDisposed()) return;
 
             switch (task.type) {
-                case BUFFER -> org.lwjgl.vulkan.VK10.vkDestroyBuffer(task.device.vkDevice(), task.handle, null);
-                case TEXTURE -> org.lwjgl.vulkan.VK10.vkDestroyImage(task.device.vkDevice(), task.handle, null);
+                case BUFFER -> {
+                    org.lwjgl.vulkan.VK10.vkDestroyBuffer(task.device.vkDevice(), task.handle, null);
+                    if (task.memoryHandle != 0) {
+                        VulkanMemory.free(task.device.vkDevice(), task.memoryHandle);
+                    }
+                }
+                case TEXTURE -> {
+                    org.lwjgl.vulkan.VK10.vkDestroyImage(task.device.vkDevice(), task.handle, null);
+                    if (task.memoryHandle != 0) {
+                        VulkanMemory.free(task.device.vkDevice(), task.memoryHandle);
+                    }
+                }
                 case SAMPLER -> org.lwjgl.vulkan.VK10.vkDestroySampler(task.device.vkDevice(), task.handle, null);
                 case SHADER_MODULE -> org.lwjgl.vulkan.VK10.vkDestroyShaderModule(task.device.vkDevice(), task.handle, null);
                 case PIPELINE -> org.lwjgl.vulkan.VK10.vkDestroyPipeline(task.device.vkDevice(), task.handle, null);
@@ -128,7 +141,12 @@ public final class CleanerRegistry {
      *                 传其他对象会导致任务提前或永不触发
      */
     static Cleaner.Cleanable register(Object resource, VulkanDevice device, long handle, ResourceType type) {
-        return cleaner.register(resource, new DestroyTask(device, handle, type));
+        return cleaner.register(resource, new DestroyTask(device, handle, 0L, type));
+    }
+
+    /** 带配套显存分配的资源注册（BUFFER / TEXTURE）：兜底销毁时 memory 与对象一并释放 */
+    static Cleaner.Cleanable register(Object resource, VulkanDevice device, long handle, long memoryHandle, ResourceType type) {
+        return cleaner.register(resource, new DestroyTask(device, handle, memoryHandle, type));
     }
 
     /** 显式 dispose 时登记：Cleaner 兜底跳过该句柄 */

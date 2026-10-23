@@ -75,8 +75,8 @@ final class VulkanTexture implements Texture {
             }
         }
 
-        // 注册 Cleaner
-        CleanerRegistry.register(this, device, imageHandle, CleanerRegistry.ResourceType.TEXTURE);
+        // 注册 Cleaner（带配套显存：兜底销毁时 image 与 memory 一并释放）
+        CleanerRegistry.register(this, device, imageHandle, memoryHandle, CleanerRegistry.ResourceType.TEXTURE);
         device.stats().onTextureCreated();
     }
 
@@ -170,8 +170,8 @@ final class VulkanTexture implements Texture {
             vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
         }
         CleanerRegistry.markDisposed(imageHandle);
-        VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyImage(device.vkDevice(), imageHandle, null);
+        VulkanMemory.free(device.vkDevice(), memoryHandle);
     }
 
     static int toVkFormat(com.javelin.rhi.types.Format format) {

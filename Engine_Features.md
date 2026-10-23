@@ -264,7 +264,7 @@
 
 ## 7. 已知问题（bug 类，非功能缺口）
 
-- resize Cleaner 兜底只销毁 image 不释放内存（B 项未修）；
+- ~~resize Cleaner 兜底只销毁 image 不释放内存~~ B 项已修待验收（2026-10-23：`DestroyTask` 带 `memoryHandle`，TEXTURE/BUFFER 兜底销毁 free memory 与 destroy 对象成对执行——VulkanBuffer 同病同修；A 项 resize 显式 dispose 2026-10-09 已验；坑点存档 Vulkan_Pitfalls #24）；
 - loadScene 失败路径 getEditorGameScene() NPE 未补；
 - CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。

@@ -1,7 +1,7 @@
 # Vulkan / LWJGL 陷阱记录
 
-> 版本：v1.1
-> 日期：2026-09-25
+> 版本：v1.2
+> 日期：2026-10-23
 > 范围：Javelin Engine 5 RHI 实现过程中实踩的 Vulkan 规范、LWJGL 绑定、GLFW 窗口、Java NIO 陷阱，
 > 以及沉淀下来的 GPU 排障方法论。每条含：症状 → 根因 → 修法 → 出处。
 > 实现进度与排障过程详见 `RHI_Implementation_Progress.md`。
@@ -289,6 +289,25 @@
 - **出处**：2026-10-06 MSAA 抗锯齿首验收——日志 `antialiasing 降档: 设备
   color=[COUNT_1] depth=[COUNT_1]` 实锤（同日修复：props/feats 改无栈参 `calloc()`
   堆分配；全库排查确认其余 `Vk*` 实例字段均为 handle 包装器无自有内存）。
+
+### 24. Cleaner 兜底销毁漏 free 配套显存：GC 回收的资源逐块泄漏设备内存 ★生命周期级
+
+- **症状**：连续拖动窗口 resize 后设备内存耗尽（OOM）——对象销毁链路看不出异常
+  （句柄都在正常 `vkDestroy`），显存却只涨不跌；凡走 GC 兜底的纹理/缓冲同样中招。
+- **根因**：`VkImage` / `VkBuffer` 是「对象句柄 + 独占 `VkDeviceMemory`」**两个**句柄；
+  `CleanerRegistry` 注册时只传了对象句柄，兜底 `executeDestroy` 只
+  `vkDestroyImage/Buffer`，`vkFreeMemory` 无人调用——每次 GC 兜底泄漏一整块显存。
+  2026-10-09 实踩：resize 换绑旧深度纹理断引用交 Cleaner，每 resize 泄漏一块
+  depth 显存直至 OOM。
+- **修法**：A 项（2026-10-09 已验收）——resize 换绑改当场显式 `dispose()`
+  （dispose 本就 free + destroy 成对）；B 项（2026-10-23）——`DestroyTask` 增设
+  `memoryHandle`，TEXTURE/BUFFER 注册走带 memory 重载，兜底销毁时 free memory 与
+  destroy 对象一并执行。销毁序同日统一翻成规范序（**先 destroy 后 free**——内存
+  不得在仍被资源绑定时释放；原 dispose「先 free 后 destroy」靠驱动容忍，属规范
+  违反，与 #13/#17「驱动宽容 ≠ 规范正确」同型），四处（双 dispose + 兜底双分支）
+  一并修正。
+- **出处**：2026-10-09 OOM 排障（A 项用户实测验收）；B 项 2026-10-23 落地待用户验收
+  （`RHI_Design_Resources.md` §17.2/§17.6 同步）。
 
 ---
 

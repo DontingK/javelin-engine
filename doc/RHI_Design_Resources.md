@@ -347,7 +347,8 @@ GPU 异步执行：当前帧提交的命令可能在第 N+1 / N+2 帧才执行�
 
 - Cleaner 可能在任意线程、任意时刻触发（GC 时机不可控），回调内**禁止直接调 Vulkan**；
 - 回调只做一件事：`enqueueDestroy(handle)`（线程安全入队）；
-- RHI 提交线程每帧 `process()`：检查 `frameIndex + 2 <= 当前帧`（或资源最后一次使用的 fence 已信号）→ 真正 `vkDestroy`。
+- RHI 提交线程每帧 `process()`：检查 `frameIndex + 2 <= 当前帧`（或资源最后一次使用的 fence 已信号）→ 真正 `vkDestroy`；
+- **配套显存成对释放（2026-10-23 补）**：`VkImage` / `VkBuffer` 各自独占一块 `VkDeviceMemory`，Cleaner 任务必须带上 memoryHandle——兜底销毁时 free memory 与 destroy 对象一并执行（先 destroy 对象再 free memory——规范序，显式 `dispose()` 同日统一翻正）。只销毁对象漏 free 会让每次 GC 兜底泄漏一块设备内存（坑点存档见 `Vulkan_Pitfalls.md` #24）。
 
 ```java
 class DeferredDestroyQueue {
@@ -413,7 +414,8 @@ Cleaner 方案没有引用计数，"泄漏"表现为**对象被长期持有但�
 3. **GC 时机不可控**：靠 Cleaner 兜底的资源销毁延迟不定。大显存纹理、管线等长生命周期资源**必须显式 `close()`**；Cleaner 只作为"防止忘记释放"的兜底，不作为性能关键路径；
 4. **临时资源风暴**：每帧创建的大量临时对象会放大 GC + Cleaner 开销，所以临时数据一律走 Frame Arena / 图缓存（RHI 内部确定性管理），不暴露为 Cleaner 对象；
 5. 不使用 `finalize()`（JDK 9 起废弃、不可控），Cleaner 是唯一兜底通道；
-6. 句柄复用：handle 从 ResourceTable 移除前必须检查状态（`DESTROYING` 中禁止复用），防止 ABA 问题。
+6. 句柄复用：handle 从 ResourceTable 移除前必须检查状态（`DESTROYING` 中禁止复用），防止 ABA 问题；
+7. **兜底销毁漏 free 配套显存（2026-10-23 修）**：TEXTURE/BUFFER 是「对象句柄 + 独占 VkDeviceMemory」两个句柄，Cleaner 任务只带对象句柄时，兜底只 `vkDestroy*` 不 `vkFreeMemory`——显存逐块泄漏（2026-10-09 resize 换绑交 Cleaner 拖窗即 OOM 的 B 项根因；A 项 resize 改当场显式 dispose 已验，B 项 `DestroyTask` 带 memoryHandle 成对释放落地待验收）。
 
 ---
 

@@ -66,8 +66,8 @@ final class VulkanBuffer implements Buffer {
             }
         }
 
-        // 注册 Cleaner
-        CleanerRegistry.register(this, device, bufferHandle, CleanerRegistry.ResourceType.BUFFER);
+        // 注册 Cleaner（带配套显存：兜底销毁时 buffer 与 memory 一并释放）
+        CleanerRegistry.register(this, device, bufferHandle, memoryHandle, CleanerRegistry.ResourceType.BUFFER);
         device.stats().onBufferCreated();
     }
 
@@ -145,8 +145,8 @@ final class VulkanBuffer implements Buffer {
         disposed = true;
         device.stats().onBufferDisposed();
         CleanerRegistry.markDisposed(bufferHandle);
-        VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyBuffer(device.vkDevice(), bufferHandle, null);
+        VulkanMemory.free(device.vkDevice(), memoryHandle);
     }
 
     private static int toVkBufferUsage(java.util.Set<BufferUsage> usages) {
