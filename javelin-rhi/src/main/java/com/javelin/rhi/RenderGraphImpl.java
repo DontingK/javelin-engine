@@ -2,6 +2,7 @@ package com.javelin.rhi;
 
 import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIClearDepthStencil;
+import com.javelin.rhi.data.RHIClearValue;
 import com.javelin.rhi.data.RHILoadOp;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.data.RHIScissor;
@@ -423,7 +424,7 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
         }
 
         @Override
-        public void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue) {
+        public void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearValue clearValue) {
             checkAttachmentArgs(texture, loadOp, clearValue == null);
             attachments.add(new CompiledGraph.Attachment(
                     texture, CompiledGraph.Attachment.Kind.COLOR, loadOp, clearValue));

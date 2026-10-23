@@ -1,6 +1,6 @@
 # 引擎 GPU 拾取设计（Engine Picking Design）
 
-> 版本：v0.1（2026-10-23 拍板 + 首版实现，落地待用户实测验收）
+> 版本：v0.1（2026-10-23 拍板 + 首版实现 + 用户实测验收通过）
 > 定位：GPU ID-buffer 拾取的全链设计——RHI 读回能力 / core 拾取 pass 与调度系统 / 编辑器消费。
 > 拍板出处：Editor_Design.md §10（2026-10-23 三增补：拾取全线统一 ID-buffer、pass 本体落 core 运行时可用、射线检测与 GPU 拾取共存）。
 > 配套：`doc/RHI_Design_Core.md`（读回 API）、`doc/Editor_Design.md` §10、`doc/Engine_Collision_Design.md`（轴拾取过渡线退役）。

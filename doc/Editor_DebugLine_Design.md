@@ -1,6 +1,6 @@
 # 编辑器调试线设计（Editor DebugLine Design）
 
-> 版本：v0.1（2026-10-23 拍板 + 首版实现，落地待用户实测验收）
+> 版本：v0.1（2026-10-23 拍板 + 首版实现 + 用户实测验收通过）
 > 定位：**编辑器专属**世界空间调试线（对齐 Unity Gizmos.DrawLine 语义）——选中物体 mesh bounds 线框、相机视锥线框等；运行时游戏若将来需要，整套下沉 core（PickPass 反向路径，本档 §6 后置）。
 > 配套：`doc/Engine_Picking_Design.md`（覆盖制 Pass 先例）、`doc/Engine_DebugText_Design.md`（双帧槽 buffer 先例）、`doc/Engine_RenderPipeline_Design.md`（Pass 编排 6.2）。
 

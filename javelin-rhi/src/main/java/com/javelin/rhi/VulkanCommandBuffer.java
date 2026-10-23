@@ -506,8 +506,8 @@ final class VulkanCommandBuffer implements CommandBuffer {
                     .imageExtent(VkExtent3D.calloc(stack)
                             .set(region.width(), region.height(), region.depth()));
 
-            vkCmdCopyImageToBuffer(vkCommandBuffer, src.handle(), dst.handle(),
-                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy);
+            vkCmdCopyImageToBuffer(vkCommandBuffer, src.handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.handle(), copy);
         }
     }
 

@@ -2,6 +2,7 @@ package com.javelin.rhi;
 
 import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIClearDepthStencil;
+import com.javelin.rhi.data.RHIClearValue;
 import com.javelin.rhi.data.RHILoadOp;
 import com.javelin.rhi.data.RHIViewport;
 import com.javelin.rhi.data.RHIScissor;
@@ -30,7 +31,7 @@ public interface PassDef {
      * @param loadOp    LOAD / CLEAR / DONT_CARE
      * @param clearValue loadOp 为 CLEAR 时必填，否则必须为 null
      */
-    void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearColor clearValue);
+    void addColorOutput(Texture texture, RHILoadOp loadOp, RHIClearValue clearValue);
 
     /**
      * 声明颜色附件输出，并限定清屏区域（分区域清屏，多相机/编辑器视口场景）。

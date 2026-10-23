@@ -76,7 +76,7 @@ public final class TextureReadbackRing implements AutoCloseable {
                     MemoryPreference.hostVisibleCoherent()), null);
             CommandBuffer cmd = device.allocateCommandBuffer(false);
             Fence fence = device.createFence(true);   // 初始 signaled：首 submits 可直接用
-            slots.add(new Slot(staging, cmd, fence));
+            this.slots.add(new Slot(staging, cmd, fence));
         }
     }
 

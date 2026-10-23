@@ -26,7 +26,7 @@
 | Buffer staging（deviceLocal 上传） | ⬜ 后置 | — |
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
-| R32Uint 拾取附件 + 图像读回 | ✅ 落地待验收（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ⏳ 待用户实测（随拾取验收） |
+| R32Uint 拾取附件 + 图像读回 | ✅（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ✅ 用户实测（2026-10-23，随拾取全链） |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -153,7 +153,7 @@
 | hierarchy.create.camera（v0.8） | ✅ | ⏳ 待验收（2026-10-11） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ⏳ 待验收 |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
-| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅ 落地待验收（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ⏳ 待用户实测（验收清单见该档 §9） |
+| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
 
 ### 3.3 层级树与场景管理（scene / event）
 
@@ -187,7 +187,7 @@
 | 网格辅助线（EditGridAppState + _CamPos 材质下发） | ✅ | ✅ 实跑通过（2026-09-26）+ 编辑器日常 |
 | 变换 Gizmo 工具族（三轴视觉 / 轴拾取射线 / 拖拽三段式平面相交法 / hover 高亮+近平行变灰） | ✅ | ✅ 用户实测（2026-10-14） |
 | 场景视图工具栏（Tools 组：移动可用/旋转缩放置灰 + 局部/世界坐标切换；游戏视图同高占位空条） | ✅ | ✅ 用户实测（2026-10-14） |
-| DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中） | ✅ 落地待验收（2026-10-23，Editor_DebugLine_Design v0.1） | ⏳ 待用户实测（验收清单见该档 §7） |
+| DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中） | ✅（2026-10-23，Editor_DebugLine_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §7） |
 | Gizmo 旋转 / 缩放工具 | ⬜ 待续 | — |
 
 ### 3.6 资产导入管线（importer / meta / asset）
@@ -267,7 +267,7 @@
 
 ## 7. 已知问题（bug 类，非功能缺口）
 
-- ~~resize Cleaner 兜底只销毁 image 不释放内存~~ B 项已修待验收（2026-10-23：`DestroyTask` 带 `memoryHandle`，TEXTURE/BUFFER 兜底销毁 free memory 与 destroy 对象成对执行——VulkanBuffer 同病同修；A 项 resize 显式 dispose 2026-10-09 已验；坑点存档 Vulkan_Pitfalls #24）；
+- ~~resize Cleaner 兜底只销毁 image 不释放内存~~ 已修并验收（A 项 resize 显式 dispose 2026-10-09 / B 项 `DestroyTask` 带 `memoryHandle` 成对 free 2026-10-23，均用户实测；坑点存档 Vulkan_Pitfalls #24）；
 - loadScene 失败路径 getEditorGameScene() NPE 未补；
 - CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。
