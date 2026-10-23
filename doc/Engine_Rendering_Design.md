@@ -42,7 +42,7 @@ collectFrame(frameIndex, backbuffer):
        sort: opaque 按材质 hash（减少 PSO 切换）
              transparent 相机空间由远及近
              shadowCasters ← castShadow && 主光存在
-  3. UBO1 写入本帧数据（相机/时间/灯光，第 6 节）
+  3. UBO1 写入本帧数据（相机/时间，第 6 节；灯光走 set 1 光照块——2026-10-23 拍板）
   4. 组装 FrameDescription（第 5 节）
 ```
 
@@ -86,7 +86,7 @@ class RenderObject {
 
 ### 4.2 v0.1 着色模型取舍（已关闭，2026-09-25）
 
-- ~~材质系统缺位，直挂贴图内置无光照采样~~——**材质桥已落地**（Engine_Material_Design §4 全项实现）：RenderObject 持 Material；通道 = set0 UBO1（camera/time）+ push（model/tpf）+ set2 材质（MaterialBlock UBO + 贴图槽）；set1 为 ObjectBlock 空占位（per-object 走 push constants，RHI 20.4 编号）；
+- ~~材质系统缺位，直挂贴图内置无光照采样~~——**材质桥已落地**（Engine_Material_Design §4 全项实现）：RenderObject 持 Material；通道 = set0 UBO1（camera/time）+ push（model/tpf）+ set2 材质（MaterialBlock UBO + 贴图槽）；set1 为空布局占位、**预留光照数据**（2026-10-23 拍板：原 ObjectBlock 占位语义作废，per-object 恒走 push constants，RHI 20.4 编号）；
 - 决策存档：原"内置无光照着色程序 + 单贴图 set1"临时形态已删除（`installBuiltinShaders`/`textureSet(Texture)` 移除，MultiCameraDemo 迁移材质路径）。
 
 ### 4.3 RenderList（每视口一份）
@@ -125,7 +125,7 @@ class FrameDescription {
 v0.1 把 PushUniformTest 里**测试内手写**的 UBO1 环形收编为引擎正式资源：
 
 - **归属**：RenderingSystem 持有；按 FrameState 槽位（maxFramesInFlight=2）做 **2 槽 × 槽容量**的 hostVisible 缓冲，槽号 = `frameIndex % 2`，槽位复用前经 FrameState fence 闸门（RHI 24.5 帧版本化）；
-- **槽容量**：单槽 = `对齐(相机块 + 灯光块 + 时间块, 256B)`；**槽内布局为引擎私有约定**（v0.1 字段顺序：camera viewProj → time → lights 数组头），着色器侧 `CameraBlock` 等布局随内置 shader 同改——属引擎/材质边界，材质专档落地时若重排需同步内置 shader；
+- **槽容量**：单槽 = `对齐(相机块 + 时间块, 256B)`（**2026-10-23 拍板：灯光不进 UBO1 槽、走 set 1 光照块**——原「灯光块 / lights 数组头」槽内项作废）；**槽内布局为引擎私有约定**（v0.1 字段顺序：camera viewProj → time），着色器侧 `CameraBlock` 等布局随内置 shader 同改——属引擎/材质边界，材质专档落地时若重排需同步内置 shader；
 - **写入时机**：collectFrame 第 3 步（逻辑侧帧首写，RHI 27.3-4：渲染侧只读绑定）；
 - **动态偏移**：Pass 绑 set0 时传本槽偏移（RHI 19.4-1 机制，PushUniformTest 已验证）；
 - 每相机矩阵不占独立段——相机矩阵**统一进 UBO1**（拍板：set0 UBO1 = 全帧共享；多相机时 viewProj 按相机序排在槽内，Pass 绑定时取对应偏移，等价 19 节 camUniformOffset 语义但并入引擎槽布局）。
@@ -175,7 +175,7 @@ mainLoop 每帧（Engine_Design 2.1）：
 
 - Transform 快照语义（双线程前置，第 8.2）；
 - 遮挡剔除、GPU Instancing、LOD（Scene 8）；
-- 材质系统接入后 RenderObject 字段替换（4.2）与 UBO1 槽内布局重排（第 6 节）；
+- 材质系统接入后 RenderObject 字段替换（4.2）；~~UBO1 槽内布局重排~~（灯光改走 set 1，2026-10-23 拍板，UBO1 槽不再扩排）；
 - 相机后处理配置（每视口 PostProcessChain 差异）、环境/天空盒快照。
 
 ---

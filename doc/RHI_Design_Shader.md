@@ -254,7 +254,7 @@ StandardMetal.shader
 
 - 生成材质声明保证 **GLSL / RHI / CPU 三方布局一致**（消灭 std140 对齐与参数名拼写 bug，第 15.7 节坑点 1）；
 - **注入机制（v0.10 立、v0.13 修订）**：构建工具把两类声明注入每个 vs/fs 块的 `#version` 行之后（v0.13 起取消 `//@auto` 标记，位置固定，无需作者写任何标记）：
-  1. **引擎内置块**（同一份模板，实例名拍板 2026-09-26）：set 0 CameraBlock（实例名 `cam`；set 1 ObjectBlock 为空占位，per-object 走 push constants）+ `layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc`——用户代码直接引用 `cam` / `pc`；
+  1. **引擎内置块**（同一份模板，实例名拍板 2026-09-26）：set 0 CameraBlock（实例名 `cam`；set 1 预留光照数据——2026-10-23 拍板，原 ObjectBlock 空占位语义作废、per-object 恒走 push constants，现仍空布局占位）+ `layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc`——用户代码直接引用 `cam` / `pc`；
   2. **材质声明**（从 Properties 生成）：set 2 MaterialBlock + sampler 槽位；
   **无 `#include`，文件完全自包含**；
 - 构建工具抽取注入后的 vs 块 → `.vert.spv`、fs 块 → `.frag.spv` 编译。
@@ -406,4 +406,3 @@ Shader "PBR_Standard"
 > （注：部分内容可能由 AI 生成）
 
 ---
-

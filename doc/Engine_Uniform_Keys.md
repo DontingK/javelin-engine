@@ -1,0 +1,61 @@
+# 引擎 Uniform 通道 Key 单点表
+
+> push constants 与各 set UBO 的 **key（块名 / 实例名 / 字段 / 偏移 / 类型 / 语义）** 全项目唯一权威表。
+> 改通道字段 = 改契约：本表先改，再同步注入器（ShaderInjector）/ RenderingSystem / 材质桥，已编译 .shader 产物重导。
+> set 编号拍板（2026-10-23）：set0 = 相机类帧数据（历史名 UBO1，实住 set0）、set1 = 预留光照、set2 = 材质；设计论证归 Engine_Rendering_Design §4.2/§6、Engine_Material_Design §4，本文只记事实。
+
+## 1. 总览
+
+| 通道 | 位置 | 块名 | 实例名（key） | 更新节奏 | 绑定方 |
+|---|---|---|---|---|---|
+| 相机 | set 0 / binding 0 | CameraBlock | `cam` | 每视口（动态偏移选相机） | Pass 回调 |
+| 灯光 | set 1（预留） | ——（三期 LightBlock） | —— | ——（三期落地） | —— |
+| 材质数值 | set 2 / binding 0 | MaterialBlock | `material` | 每次绑定时重打包 | drawObject |
+| 材质贴图 | set 2 / binding 1..n | ——（独立 sampler） | TEXTURE_2D 属性名原样 | 首绑解析后固定 | drawObject |
+| 每物件 | push constants | PushBlock | `pc` | 每物件 | drawObject |
+
+## 2. push constants（PushBlock / `pc`）
+
+| 字段 | 类型 | 偏移 | 大小 | 语义 |
+|---|---|---|---|---|
+| `model` | mat4 | 0 | 64B | localToWorld 世界矩阵 |
+| `tpf` | float | 64 | 4B | 帧间隔（秒，Time.getDeltaTime） |
+
+- 管线布局声明范围 **80B**（`RenderingSystem.PUSH_SIZE`；68B 实需 + 对齐）；vendor 上限 128B，余量即 per-object 数据天花板；
+- 打包：小端、列主序（JOML `Matrix4.get` 16 float 直传）。
+
+## 3. set 0 相机（CameraBlock / `cam`）
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `viewProj` | mat4 | view × proj（投影已含 Y 翻转：`proj.m[5] *= -1`） |
+
+- 描述符：`UNIFORM_BUFFER_DYNAMIC` ×1，**stage = VERTEX**（布局只放行顶点阶段；fs 侧注入了声明但若 fs 要实际消费 `cam`，需先扩布局 stage）；
+- 描述符 range = **256B**（`CAMERA_STRIDE`，对齐 minUniformBufferOffsetAlignment）；动态偏移 = 槽基址 + 相机序 × 256；
+- 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
+- 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj 64B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
+
+## 4. set 1 灯光（预留，无 key）
+
+空布局零 binding 占位（PSO 布局数组 `[set0, set1, set2]` 的第 2 位，Vulkan 允许）。三期 LightBlock 落此——届时字段在本表补行。
+
+## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
+
+| binding | 内容 | key 规则 |
+|---|---|---|
+| 0 | MaterialBlock UBO（std140） | .shader Properties **声明序**：COLOR/VECTOR → vec4（16B 对齐）、FLOAT/RANGE → float（4B）；TEXTURE_2D 不入块 |
+| 1..n | sampler2D 贴图槽 | TEXTURE_2D 属性名原样（如 `_AlbedoMap`），按声明序递增编号 |
+
+- 无数值属性不注入 MaterialBlock（空块 16B 占位只存在 CPU 侧）；
+- 排布 CPU/GLSL 同源（`MaterialBlock.pack`：声明序、float 4B、vec4 16B）；
+- 数值参数每次绑定时重打包写入（运行期 `setFloat`/`setColor` 即时生效）；贴图槽仅首绑解析（运行期换贴图 = 换材质实例，v0.1 语义）；
+- 未赋值贴图槽占位：white / bump·normal / black（RHI 21.4）。
+
+## 6. 保留字（用户 .shader 手写即报错）
+
+| 类别 | 保留字 | 拦截时机 |
+|---|---|---|
+| 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` | 构建期（注释里出现也拦） |
+| 实例名 | `cam` / `pc` / `material` | GLSL 编译期（与注入声明重复定义） |
+
+> 注入声明由 ShaderInjector 在每个 vs/fs 块 `#version` 行后固定生成（v0.13：无标记、位置固定），声明内容 = 本表 §2/§3/§5。

@@ -66,7 +66,7 @@ CompositePass（写 backbuffer；多相机 LOAD 叠加） [v0.1 实现]
 |---|------|------|------|------|------|
 | 1 | ShadowPass | 图形（depth-only） | shadowCasters | shadowMap | ❌ 设计完成，后置 |
 | 2 | GBufferPass | 图形 | RenderList.opaque、UBO1 | albedo/normal/worldPos/depth | ❌ 设计完成，第二步 |
-| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(lights) | lightingRT | ❌ 设计完成，第二步 |
+| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 光照块(lights) | lightingRT | ❌ 设计完成，第二步 |
 | 4 | TransparentForwardPass | 图形 | RenderList.transparent、depth、UBO1 | lightingRT / backbuffer（叠加） | ✅ |
 | 5 | PostProcessChain | 链（0..n 个 Pass） | lightingRT / 链上游输出 | 链下游 | ⚠️ 空链直通 |
 | 6 | CompositePass | 图形（全屏） | 链输出 | backbuffer | ✅（单相机可省略） |
@@ -107,14 +107,14 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 | depth | D32_SFLOAT | 深度（视口独立，RHI 19.4-2） |
 
 - **绘制**：`RenderList.opaque`（已按材质排序）循环——每材质一次 PSO 切换，同材质内顺序无关；
-- **uniform**：UBO1（camera）+ push（model/tpf）+ set1（材质贴图）。
+- **uniform**：set0 UBO1（camera）+ push（model/tpf）+ set2（材质；旧「set1=材质」编号已作废）。
 
 ### 4.3 LightingPass
 
 - **职责**：全屏三角形（`cmd.draw(3,1)`，RHI 19.3 既定），读 GBuffer + shadowMap 算光照；
-- **输入**：GBuffer×3、depth（软阴影/重建用）、shadowMap、UBO1（camera + lights）；
+- **输入**：GBuffer×3、depth（软阴影/重建用）、shadowMap、UBO1（camera）+ set 1 光照块（lights）；
 - **输出**：lightingRT（R16G16B16A16_SFLOAT，HDR）；
-- **光源数据**：UBO1 内 lights 数组（方向/点光，数量上限与打包格式随材质/灯光专档拍板，预估 16 盏）；
+- **光源数据**：set 1 光照块内 lights 数组（方向/点光，数量上限与打包格式随材质/灯光专档拍板，预估 16 盏；2026-10-23 拍板落位 set 1，不进 UBO1 槽）；
 - **计算化**：v0.x 用图形全屏 Pass；tiled/clustered 计算光照为 P2 扩展点（插于光照 Pass 之前的计算 Pass）。
 
 ### 4.4 深度复用（决策记录）
@@ -284,14 +284,14 @@ interface RenderPass {
 
 ## 7. uniform / 描述符通道约定（按 Pass）
 
-通道划分已拍板（RHI 实现进度，2026-09-24）：**push = 每物件/每帧高频小量（model/tpf）；set0 UBO1 = 全帧共享引擎内置（camera/time/lights）；set1 = 材质贴图**。
+通道划分已拍板（RHI 实现进度 2026-09-24；**2026-10-23 修订**——材质桥落地后编号定为 set2=材质，set1 拍板预留光照，旧「set1=材质」编号作废）：**push = 每物件/每帧高频小量（model/tpf）；set0 UBO1 = 全帧共享引擎内置（camera/time）；set1 = 光照数据（原 ObjectBlock 空占位语义作废，三期 LightBlock 落此）；set2 = 材质（MaterialBlock UBO + 贴图槽）**。
 
-| Pass | set0 UBO1 | push | set1 材质 |
-|------|-----------|------|----------|
-| GBuffer | camera（动态偏移切视口，19.4-1） | model/tpf | 基色/法线等贴图 |
-| Lighting | camera + lights（+ tpf） | 一般不用 | 一般不用 |
-| Forward（v0.1 不透明/透明） | camera | model/tpf | 材质贴图 |
-| Shadow | light viewProj | model | 一般不用 |
+| Pass | set0 UBO1 | push | set1 光照 | set2 材质 |
+|------|-----------|------|----------|----------|
+| GBuffer | camera（动态偏移切视口，19.4-1） | model/tpf | lights（三期） | 基色/法线等贴图 |
+| Lighting | camera（重建用） | 一般不用 | lights | 一般不用 |
+| Forward（v0.1 不透明/透明） | camera | model/tpf | lights（三期） | 材质贴图/参数 |
+| Shadow | light viewProj | model | 不用 | 不用 |
 
 - **shadowMap 描述符挂点**（set0 扩展 binding vs 独立集合）：待材质系统专档拍板，本文预留——影响 Lighting 与 Forward 的 set0 布局，属材质阶段决策；
 - 动态 UBO 偏移（每视口/每物件切槽）沿用 RHI 19 节机制，**不引入 `setUniform(String, ...)` 字符串路径**（19.4-1 已否决理由）。

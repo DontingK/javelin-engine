@@ -116,7 +116,7 @@ public final class RenderingSystem implements AutoCloseable {
     private final Buffer uboBuffer;
     private final DescriptorSetLayout frameSetLayout;
     private final DescriptorSet frameSet;
-    // set 1 占位（ObjectBlock：per-object 走 push constants，v0.1 空布局，RHI 20.4 编号占位）
+    // set 1 空布局预留光照数据（2026-10-23 拍板，原 ObjectBlock 占位语义作废，per-object 恒走 push constants）
     private final DescriptorSetLayout emptySetLayout;
 
     // 材质桥：set 2 布局按 Shader 缓存；材质资源按 Material 实例缓存；采样器按参数缓存
