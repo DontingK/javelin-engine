@@ -26,7 +26,7 @@
 | Buffer staging（deviceLocal 上传） | ⬜ 后置 | — |
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
-| R32Uint 拾取附件 + 图像读回 | ⬜ 后置（物体拾取前置，2026-10-06 拍板） | — |
+| R32Uint 拾取附件 + 图像读回 | ✅ 落地待验收（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ⏳ 待用户实测（随拾取验收） |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -152,7 +152,7 @@
 | 层级右键域（empty / delete / plane / Unity 结构重排占位） | ✅ | ✅ 随场景树批次（2026-10-04） |
 | hierarchy.create.camera（v0.8） | ✅ | ⏳ 待验收（2026-10-11） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
-| 物体拾取（GPU ID-buffer 终态拍板） | ⬜ 后置非当前排期（2026-10-06 拍板） | — |
+| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅ 落地待验收（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ⏳ 待用户实测（验收清单见该档 §9） |
 
 ### 3.3 层级树与场景管理（scene / event）
 

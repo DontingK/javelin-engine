@@ -22,6 +22,12 @@ public interface Buffer extends GPUResource {
     /** 运行期更新（staging 池） */
     void update(int offset, ByteBuffer data);
 
+    /**
+     * 读回（GPU 已完成后调用）：map → 拷出 → unmap。
+     * 须与 fence await/isSignaled 配合保证 GPU 写入已可见，本方法不做同步。
+     */
+    void read(int offset, int length, ByteBuffer out);
+
     /** Vulkan 句柄 VkBuffer */
     long handle();
 }

@@ -170,7 +170,7 @@ public final class SceneRenderBridge {
                     continue;   // missing-mesh / missing-material：不渲染
                 }
                 ro = new RenderObject(mr.getMesh(), mr.getMaterial(), mr.isCastShadow(),
-                        mr.getNode().getLayer().getMask());
+                        mr.getNode().getLayer().getMask(), mr);
                 rs.addRenderer(ro);
                 renderers.put(mr, ro);
             }

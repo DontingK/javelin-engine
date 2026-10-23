@@ -112,6 +112,25 @@ final class VulkanBuffer implements Buffer {
     }
 
     @Override
+    public void read(int offset, int length, ByteBuffer out) {
+        if (length < 0 || out.remaining() < length) {
+            throw new IllegalArgumentException("read length out of bounds: length=" + length
+                    + " out.remaining=" + out.remaining());
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            org.lwjgl.PointerBuffer ppData = stack.mallocPointer(1);
+            int result = vkMapMemory(device.vkDevice(), memoryHandle, offset, length, 0, ppData);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to map buffer memory");
+            }
+
+            ByteBuffer mapped = ppData.getByteBuffer(0, length);
+            out.put(mapped);
+            vkUnmapMemory(device.vkDevice(), memoryHandle);
+        }
+    }
+
+    @Override
     public long handle() {
         return bufferHandle;
     }

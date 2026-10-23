@@ -128,4 +128,24 @@ public enum Format {
     BC7_UNORM,              // VK_FORMAT_BC7_UNORM_BLOCK
     /** BC7 高质量 RGBA 块压缩，sRGB */
     BC7_SRGB;               // VK_FORMAT_BC7_SRGB_BLOCK
+
+    /** 非压缩格式的每像素字节数（读回拷贝容量计算用）；压缩格式抛出不支持 */
+    public int bytesPerPixel() {
+        return switch (this) {
+            case R8_UNORM, R8_SNORM, R8_UINT, R8_SINT, S8_UINT -> 1;
+            case R8G8_UNORM, R8G8_SNORM, R8G8_UINT, R8G8_SINT,
+                 R16_SFLOAT, R16_UINT, R16_SINT, D16_UNORM -> 2;
+            case R8G8B8A8_UNORM, R8G8B8A8_SNORM, R8G8B8A8_UINT, R8G8B8A8_SINT, R8G8B8A8_SRGB,
+                 B8G8R8A8_UNORM, B8G8R8A8_SRGB,
+                 R16G16_SFLOAT, R16G16_UINT, R16G16_SINT,
+                 R32_SFLOAT, R32_UINT, R32_SINT,
+                 D32_SFLOAT, D24_UNORM_S8_UINT -> 4;
+            case R16G16B16A16_SFLOAT, R16G16B16A16_UINT, R16G16B16A16_SINT,
+                 R32G32_SFLOAT, R32G32_UINT, R32G32_SINT,
+                 D32_SFLOAT_S8_UINT -> 8;
+            case R32G32B32_SFLOAT -> 12;
+            case R32G32B32A32_SFLOAT, R32G32B32A32_UINT, R32G32B32A32_SINT -> 16;
+            default -> throw new UnsupportedOperationException("压缩格式无逐像素字节数: " + this);
+        };
+    }
 }

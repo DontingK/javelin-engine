@@ -5,5 +5,5 @@ package com.javelin.rhi.data;
  * 仅允许 RHIClearColor 和 RHIClearDepthStencil。
  */
 public sealed interface RHIClearValue
-        permits RHIClearColor, RHIClearDepthStencil {
+        permits RHIClearColor, RHIClearUintColor, RHIClearDepthStencil {
 }

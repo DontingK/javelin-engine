@@ -102,4 +102,11 @@ public interface CommandBuffer extends GPUResource {
      * 调用方负责把纹理转换到 TRANSFER_DST 布局（本方法内不插屏障）。
      */
     void copyBufferToTexture(Buffer src, Texture dst, TextureRegion region);
+
+    /**
+     * 纹理 → 缓冲拷贝（读回路径）。
+     * 由 RHI 内部读回路径（TextureReadbackRing 等）调用，上层业务禁止直接调用。
+     * 调用方负责把纹理转换到 TRANSFER_SRC 布局（本方法内不插屏障）。
+     */
+    void copyImageToBuffer(Texture src, Buffer dst, TextureRegion region);
 }

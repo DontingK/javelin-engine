@@ -7,7 +7,6 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.scene.Node;
-import com.javelin.core.scene.component.CylinderCollider;
 import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
 import org.joml.Matrix4f;
@@ -27,10 +26,10 @@ import org.slf4j.LoggerFactory;
  * 用户树、不落盘、GAME 模式自动不可见）。尺度不自持：由 TransformGizmoAppState
  * 距离自适应统一下发（× scaleFactor()），不随选中物体缩放（Unity 移动轴口径）。</p>
  *
- * <p>三轴各挂 {@code CylinderCollider}（fitFromMesh 贴合箭头包围圆柱）——轴
- * hover/拖拽判定的拾取碰撞体（snug 贴合；抓取舒适度是否加粗为实测后调项）。
- * 轴节点经 userData 打轴标（key={@link Axis#USER_DATA_KEY}）供 hover/拖拽
- * 判别轴，不解析节点名。</p>
+ * <p>轴 hover/拖拽判定走 GPU ID-buffer（Engine_Picking_Design.md，2026-10-23
+ * 全线统一拍板）：轴几何进拾取附件（PickPass 画 "Gizmo" 桶、深度关置顶），
+ * CylinderCollider 过渡线退役。轴节点经 userData 打轴标
+ * （key={@link Axis#USER_DATA_KEY}）供 hover/拖拽判别轴，不解析节点名。</p>
  *
  * <p><b>可选性与视觉三态（2026-10-06 用户需求）</b>：轴与视线趋于平行
  * （|cos| 夹角超 {@link #AXIS_PARALLEL_COS} ≈ 10°）时不可选并<b>变灰</b>——
@@ -171,12 +170,11 @@ public class MoveTool extends TransformTools {
             material.setColor(COLOR_PROPERTY, AXIS_COLORS[i][0], AXIS_COLORS[i][1], AXIS_COLORS[i][2], AXIS_COLORS[i][3]);
             renderer.setMaterial(material);
             renderer.setCastShadow(false);
-            // 轴拾取碰撞体：Y 对齐圆柱贴合箭头包围盒，随节点旋转指向各轴
-            CylinderCollider collider = node.addComponent(CylinderCollider.class);
-            collider.fitFromMesh(axisMesh);
+            // 轴拾取已全线迁 GPU ID-buffer（Engine_Picking_Design.md，2026-10-23）：
+            // 轴几何进拾取附件（PickPass 画 "Gizmo" 桶、深度关置顶），CylinderCollider 过渡线退役
             axisNodes[i] = node;
         }
-        log.info("移动工具已创建（三轴复用 axisY 箭头 + CylinderShape 拾取碰撞体，红/绿/蓝 = X/Y/Z，尺度随驱动侧距离自适应）");
+        log.info("移动工具已创建（三轴复用 axisY 箭头 + GPU ID-buffer 轴拾取，红/绿/蓝 = X/Y/Z，尺度随驱动侧距离自适应）");
     }
 
     @Override

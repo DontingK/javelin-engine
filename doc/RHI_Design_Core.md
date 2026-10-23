@@ -95,11 +95,14 @@ public enum RHILoadOp {
 
 }
 
-// 清屏值密封接口
+// 清屏值密封接口（RHIClearUintColor = 整数附件清屏，拾取 2026-10-23——Vulkan 规范
+// UINT 附件须用 uint32 分量，float 清是验证层 mismatch）
 
-public sealed interface RHIClearValue permits RHIClearColor, RHIClearDepthStencil{}
+public sealed interface RHIClearValue permits RHIClearColor, RHIClearUintColor, RHIClearDepthStencil{}
 
 public record RHIClearColor(float r, float g, float b, float a) implements RHIClearValue {}
+
+public record RHIClearUintColor(int r, int g, int b, int a) implements RHIClearValue {}
 
 public record RHIClearDepthStencil(float depth, int stencil) implements RHIClearValue {}
 ```
@@ -497,9 +500,27 @@ interface Buffer extends GPUResource {
 
     void update(int offset, ByteBuffer data);             // 运行期更新（staging 池）
 
+    void read(int offset, int length, ByteBuffer out);    // 读回（GPU 完成后调；拾取 2026-10-23，
+                                                          // 可见性由调用方 fence 保证）
+
     long handle();   // VkBuffer
 
 }
+
+// 拾取读回环（2026-10-23，Engine_Picking_Design.md）：多槽（cmd+fence+staging 池化）
+class TextureReadbackRing implements AutoCloseable {
+
+    boolean submit(Texture t, TextureLayout oldLayout, int x, int y, int w, int h, long tag);
+                       // 非阻塞投递：屏障 oldLayout→TRANSFER_SRC + copyImageToBuffer + fence 提交；
+                       // 槽在飞行（GPU 落后）返回 false 跳帧
+    boolean poll();     // 非阻塞 FIFO 收割最旧完成槽（完成后 resultTag()/readResult(out) 可读）
+
+}
+
+// Fence 增补：boolean isSignaled();（vkGetFenceStatus 非阻塞，读回环跳帧判定）
+// CommandBuffer 增补：void copyImageToBuffer(Texture src, Buffer dst, TextureRegion region);
+//   （RHI 内部读回路径，TRANSFER_SRC 布局调用方预转——copyBufferToTexture 的镜像）
+// Format 增补：int bytesPerPixel();（非压缩格式，读回容量计算）
 ```
 
 ### 26.3 描述符与管线

@@ -78,6 +78,8 @@ public class JavelinEngine {
     private FrameLoop frameLoop;
     protected RenderingSystem renderingSystem;
     protected RenderPipeline renderPipeline;
+    /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
+    private com.javelin.core.render.picking.PickSystem pickSystem;
 
     /** 当前场景（setScene 设置；null = 无场景，直注册模式） */
     protected Scene scene;
@@ -182,6 +184,11 @@ public class JavelinEngine {
             subsystemManager.lateUpdate(Time.getDeltaTime());
             update();
             frameLoop.renderFrame(this::buildFrameGraph);
+            // 拾取读回调度（GPU ID-buffer 拾取，可选服务）：本帧拾取附件已提交，
+            // 收割上一批读回 + 投递本帧点击/悬停像素拷贝（Engine_Picking_Design.md）
+            if (pickSystem != null) {
+                pickSystem.frameEnd(frameLoop.frameCounter());
+            }
             // 录制收尾：本帧统计快照归档并清零，下帧 overlay 经 renderStats() 读到本帧值；
             // 跳帧时 runtime 未变，重复快照保持上一实帧显示、不闪零（§3.1 时序）
             device.resetFrameStats();
@@ -297,6 +304,9 @@ public class JavelinEngine {
         if (renderingSystem != null) {
             renderingSystem.close();
         }
+        if (pickSystem != null) {
+            pickSystem.close();   // waitIdle 之后（frameLoop.close 已做）：摘 Pass + PSO + 读回环
+        }
         // 子系统 GPU 资源统一销毁（shutdownAll 早于 waitIdle 不能碰 GPU，
         // closeGpu 钩子在此安全区统一遍历——RenderingSystem.close() 同层）
         if (subsystemManager != null) {
@@ -316,6 +326,11 @@ public class JavelinEngine {
 
     public JavelinSetting setting() {
         return setting;
+    }
+
+    /** 注册拾取系统（PickSystem 构造时自调）：mainLoop 帧末调度 + shutdown 关闭 */
+    public void setPickSystem(com.javelin.core.render.picking.PickSystem pickSystem) {
+        this.pickSystem = pickSystem;
     }
 
 

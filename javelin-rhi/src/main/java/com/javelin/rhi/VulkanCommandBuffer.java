@@ -2,6 +2,7 @@ package com.javelin.rhi;
 
 import com.javelin.rhi.data.RHIClearColor;
 import com.javelin.rhi.data.RHIClearDepthStencil;
+import com.javelin.rhi.data.RHIClearUintColor;
 import com.javelin.rhi.data.RHIClearValue;
 import com.javelin.rhi.data.RHILoadOp;
 import com.javelin.rhi.data.RHIScissor;
@@ -223,6 +224,9 @@ final class VulkanCommandBuffer implements CommandBuffer {
         }
         if (clearValue instanceof RHIClearColor color) {
             value.color().float32(stack.floats(color.r(), color.g(), color.b(), color.a()));
+        } else if (clearValue instanceof RHIClearUintColor uint) {
+            // 整数附件（UINT/SINT）清屏必须用整数分量（Vulkan 规范）
+            value.color().uint32(stack.ints(uint.r(), uint.g(), uint.b(), uint.a()));
         } else if (clearValue instanceof RHIClearDepthStencil depth) {
             value.depthStencil().set(depth.depth(), depth.stencil());
         }
@@ -481,6 +485,29 @@ final class VulkanCommandBuffer implements CommandBuffer {
 
             vkCmdCopyBufferToImage(vkCommandBuffer, src.handle(), dst.handle(),
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copy);
+        }
+    }
+
+    @Override
+    public void copyImageToBuffer(Texture src, Buffer dst, TextureRegion region) {
+        checkRecording();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkBufferImageCopy.Buffer copy = VkBufferImageCopy.calloc(1, stack);
+            copy.get(0)
+                    .bufferOffset(0)
+                    .bufferRowLength(0)   // 0 = 紧密打包
+                    .bufferImageHeight(0)
+                    .imageSubresource(VkImageSubresourceLayers.calloc(stack)
+                            .aspectMask(aspectMaskOf(src.desc().format()))
+                            .mipLevel(region.mipLevel())
+                            .baseArrayLayer(region.baseLayer())
+                            .layerCount(1))
+                    .imageOffset(VkOffset3D.calloc(stack).set(region.x(), region.y(), region.z()))
+                    .imageExtent(VkExtent3D.calloc(stack)
+                            .set(region.width(), region.height(), region.depth()));
+
+            vkCmdCopyImageToBuffer(vkCommandBuffer, src.handle(), dst.handle(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy);
         }
     }
 

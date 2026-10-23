@@ -83,7 +83,7 @@
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、v0.1 先 Forward 落地路线；§5.3 MSAA 抗锯齿（2026-10-06 实测验收；isMsaaPath 边界见档内、栈分配坑=Vulkan_Pitfalls #23） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有；show 已改名 showWindow） |
-| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器（图标+双击/命令打开，2026-10-18 落地待验收）、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、物体拾取终态=GPU ID-buffer 后置、Transform 变更检测待验收、项目面板 2026-10-17 待验收）——Web/JCEF 窗口与桥接章节已随 2026-10-18 去 Web 化成历史沿革，UI 现状以 Editor_Swing_Design 为准——细节见档内 |
+| `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器（图标+双击/命令打开，2026-10-18 落地待验收）、线程模型、已知问题；§10 演进方向（Gizmo 拖拽已验收 2026-10-14、拾取全线统一=GPU ID-buffer 落地待验收 2026-10-23·Engine_Picking_Design、Transform 变更检测待验收、项目面板 2026-10-17 待验收）——Web/JCEF 窗口与桥接章节已随 2026-10-18 去 Web 化成历史沿革，UI 现状以 Editor_Swing_Design 为准——细节见档内 |
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.13）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、菜单渲染统一 Swing（Web 浮层菜单被视口 Canvas 盖）、engine2 对照取舍、三桥方法协议；「构建」域 JAR/AOT 双链（2026-10-13 三端实测验收）、「project 右键域首期」三实做+Unity 壳占位（2026-10-17 待验收）+open 实做（2026-10-18 文件注册器分发、脏场景三键确认）+create.material 创建族首项（2026-10-19 待验收，含 project.changed 面板刷新链接线）——v0.2~v0.13 沿革与拍板见档内 |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（2026-10-17 拍板：纯 Swing + FlatLaf 替换 JCEF 主窗口，视口零拷贝路径保留）**；自研轻量 Dock（二分布局树 + PanelRegistry 扩展点对齐菜单域先例 + ViewportTabs 单 Canvas 不 reparent）、面板 Vue→Swing 迁移路线（桥退役 Java 直调 + 线程口径）、里程碑 M1~M6；三决策拍板=自研 Dock/一步切换+占位/FlatLaf Dark——细节见档内 |
 | `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.1，2026-10-20）：**插件契约（namespace 命名空间/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集）**；首批已落地并验收（2026-10-20 用户实测）：editor.core 迁移（懒取拍板）+ 菜单 label 全链 I18nKey（key=命令 id 约定）；待拍板=命令 id 前缀化/FileType 冲突策略/默认语言——细节见档内 |
@@ -91,7 +91,8 @@
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入、验收双 Demo |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |
-| `Engine_Collision_Design.md` | 引擎碰撞设计（v0.1）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ L1 场景查询/L2 物理系统预留；Collider 组件族 + fitFromMesh + 世界 Aabb（片①~④全片单测验收关账 2026-10-06，首个消费方=编辑器移动轴拾取）；已拍板：碰撞体=组件、刚体独立后置、编辑器物体拾取走 GPU ID-buffer（Editor_Design §10）——实现细节见档内 |
+| `Engine_Collision_Design.md` | 引擎碰撞设计（v0.1）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ L1 场景查询/L2 物理系统预留；Collider 组件族 + fitFromMesh + 世界 Aabb（片①~④全片单测验收关账 2026-10-06，首个消费方=编辑器移动轴拾取）；已拍板：碰撞体=组件、刚体独立后置、编辑器拾取已迁 GPU ID-buffer（轴拾取 CylinderCollider 过渡线退役 2026-10-23）、射线线收窄为运行时物理查询——实现细节见档内 |
+| `Engine_Picking_Design.md` | GPU 拾取设计（v0.1，2026-10-23 落地待验收）：**RHI 读回环（TextureReadbackRing 2 槽非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，不消费材质 Pass 声明——看得见即拾得）+ PickSystem 双通道（hover/click、帧表 3 环防串帧、落点 core 运行时可用）+ 编辑器消费（点击门控/选中收口/Gizmo 轴迁移）**；透明物体可拾取（Unity 口径）；已知边界（hover 1~2 帧延迟、多视口后置）与验收清单见档内 |
 
 ### 实现进度文档
 
