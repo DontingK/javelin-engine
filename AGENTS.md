@@ -93,6 +93,7 @@
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |
 | `Engine_Collision_Design.md` | 引擎碰撞设计（v0.1）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ L1 场景查询/L2 物理系统预留；Collider 组件族 + fitFromMesh + 世界 Aabb；拍板：碰撞体=组件、刚体独立后置、Ray 收窄为运行时物理查询 |
 | `Engine_Picking_Design.md` | GPU 拾取设计（v0.1）：**RHI 读回环（TextureReadbackRing 非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，不消费材质 Pass 声明——看得见即拾得）+ PickSystem 双通道（hover/click、帧表防串帧、落点 core 运行时可用）+ 编辑器消费（点击门控/选中收口/Gizmo 轴迁移）**；透明物体可拾取（Unity 口径）；已知边界与验收清单见档内 |
+| `Editor_DebugLine_Design.md` | 编辑器调试线设计（v0.1）：**编辑器专属世界空间线框（门面+batch+覆盖制 DebugLinePass 插 Transparent 后深度咬合/MSAA 双分支）+ 组件绘制器策略层（ComponentDebugLine 查表分派，mesh bounds 世界 AABB/相机视锥/BoxCollider）+ 选中驱动每帧 clear 重提交**；GAME 视口无线；验收清单见档内 |
 
 ### 实现进度文档
 

@@ -15,6 +15,7 @@ import com.javelin.editor.appstate.SceneWatchAppState;
 import com.javelin.editor.appstate.TransformWatchAppState;
 import com.javelin.editor.appstate.ViewportPickAppState;
 import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
+import com.javelin.editor.debug.DebugLineAppState;
 import com.javelin.core.render.picking.PickSystem;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
@@ -127,6 +128,9 @@ public class JavelinEditor extends JavelinEngine {
             pickSystem = new PickSystem(this, EDITOR_CAMERA_VIEW);
             pickSystem.enable();
             stateManager.attach(new ViewportPickAppState(transformGizmo));
+            // DebugDrawLine 调试线（Editor_DebugLine_Design.md）：选中物体 bounds/
+            // 相机视锥线框（组件绘制器查表分派），插管线 Transparent 后、Gizmo 前
+            stateManager.attach(new DebugLineAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());

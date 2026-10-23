@@ -35,3 +35,11 @@ tasks.register('generatePickSpv', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
 }
+
+// 编辑器调试线着色器资产生成 CLI（debugline.spv，Editor_DebugLine_Design）：
+// gradlew :javelin-tool:generateDebugLineSpv [--args="<输出目录>"]
+tasks.register('generateDebugLineSpv', JavaExec) {
+    mainClass = 'com.javelin.tool.debugline.DebugLineAssets'
+    classpath = sourceSets.main.runtimeClasspath
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
+}
