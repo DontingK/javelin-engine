@@ -133,6 +133,9 @@ public final class RenderingSystem implements AutoCloseable {
     // 每视口 MSAA 附件（视口独立，同 depthFor 模式；AA 关时惰性创建永不发生）
     private final Map<String, Texture> msaaColorTextures = new HashMap<>();
     private final Map<String, Texture> msaaDepthTextures = new HashMap<>();
+    // 每视口拾取附件（GPU ID-buffer 拾取，Engine_Picking_Design；PickSystem 启用时 PickPass 惰性创建）
+    private final Map<String, Texture> pickIdTextures = new HashMap<>();
+    private final Map<String, Texture> pickDepthTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 最近一次 collectFrame 的帧号（retire 条目时间戳基准）
@@ -205,6 +208,8 @@ public final class RenderingSystem implements AutoCloseable {
             retire(depthTextures.remove(camera.name()));
             retire(msaaColorTextures.remove(camera.name()));
             retire(msaaDepthTextures.remove(camera.name()));
+            retire(pickIdTextures.remove(camera.name()));
+            retire(pickDepthTextures.remove(camera.name()));
         }
     }
 
@@ -358,6 +363,28 @@ public final class RenderingSystem implements AutoCloseable {
     /** 生效采样档（COUNT_1 = AA 关） */
     public SampleCount effectiveSampleCount() {
         return effectiveSamples;
+    }
+
+    /**
+     * 每视口拾取 ID 附件（GPU ID-buffer 拾取，R32_UINT：像素值 = 帧内分配的 pick ID，
+     * 0 = 背景/未命中）。恒 1x（与主画面 MSAA 档解耦，点击像素与附件一一对应），
+     * usage 含 TRANSFER_SRC（点击读回 CopyImageToBuffer）。PickSystem 启用时由
+     * PickPass 惰性创建，resize 换绑同 depthFor。
+     */
+    public Texture pickIdFor(String cameraName) {
+        return pickIdTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                new TextureDesc(TextureType.TYPE_2D, Format.R32_UINT, depthWidth, depthHeight,
+                        1, 1, 1, SampleCount.COUNT_1,
+                        Set.of(TextureUsage.COLOR_ATTACHMENT, TextureUsage.TRANSFER_SRC),
+                        MemoryPreference.deviceLocal()),
+                null));
+    }
+
+    /** 每视口拾取深度附件（拾取 pass 自有深度，与主深度解耦——MSAA resolve 语义无关） */
+    public Texture pickDepthFor(String cameraName) {
+        return pickDepthTextures.computeIfAbsent(cameraName, n ->
+                device.createTexture(TextureDesc.depth2D(depthFormat(), depthWidth, depthHeight,
+                        Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT)), null));
     }
 
     // ═══ 每帧收集（逻辑侧帧首；单线程退化下由图声明回调驱动） ═══
@@ -546,10 +573,15 @@ public final class RenderingSystem implements AutoCloseable {
         return Format.D32_SFLOAT;
     }
 
-    private DescriptorSetLayoutDesc frameLayoutDesc() {
+    /** set0（UBO1 相机）布局契约：覆盖制引擎 pass（拾取等）自建 PSO 复用，与材质管线 set0 同构 */
+    public DescriptorSetLayoutDesc frameSetLayoutDesc() {
         return new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
                         ShaderStage.VERTEX)));
+    }
+
+    private DescriptorSetLayoutDesc frameLayoutDesc() {
+        return frameSetLayoutDesc();
     }
 
     private DescriptorSetLayoutDesc emptySetLayoutDesc() {
@@ -571,6 +603,8 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(depthTextures);
             disposeAll(msaaColorTextures);
             disposeAll(msaaDepthTextures);
+            disposeAll(pickIdTextures);
+            disposeAll(pickDepthTextures);
         }
         depthWidth = w;
         depthHeight = h;
@@ -627,6 +661,8 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(depthTextures);
         disposeAll(msaaColorTextures);
         disposeAll(msaaDepthTextures);
+        disposeAll(pickIdTextures);
+        disposeAll(pickDepthTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         frameSet.dispose();

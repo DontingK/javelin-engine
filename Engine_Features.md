@@ -26,7 +26,7 @@
 | Buffer staging（deviceLocal 上传） | ⬜ 后置 | — |
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
-| R32Uint 拾取附件 + 图像读回 | ⬜ 后置（物体拾取前置，2026-10-06 拍板） | — |
+| R32Uint 拾取附件 + 图像读回 | ✅ 落地待验收（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ⏳ 待用户实测（随拾取验收） |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -151,8 +151,9 @@
 | file.save / Ctrl+S | ✅ | ✅ 用户实测（2026-10-04） |
 | 层级右键域（empty / delete / plane / Unity 结构重排占位） | ✅ | ✅ 随场景树批次（2026-10-04） |
 | hierarchy.create.camera（v0.8） | ✅ | ⏳ 待验收（2026-10-11） |
+| file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ⏳ 待验收 |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
-| 物体拾取（GPU ID-buffer 终态拍板） | ⬜ 后置非当前排期（2026-10-06 拍板） | — |
+| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅ 落地待验收（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ⏳ 待用户实测（验收清单见该档 §9） |
 
 ### 3.3 层级树与场景管理（scene / event）
 
@@ -175,6 +176,8 @@
 | v0.2 Camera 组件接入 + ENUM/COLOR/RECT/LAYER_MASK 类型通道 + 星标即时化（scene.dirty） | ✅ | ⏳ 待验收（2026-10-11） |
 | v0.3 GUID_ASSET 资产引用三态只读 + MeshRenderer 组件接入 | ✅ | ✅ 随 M4 Swing 版面验收销账（2026-10-18） |
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
+| v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
+| v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -184,6 +187,7 @@
 | 网格辅助线（EditGridAppState + _CamPos 材质下发） | ✅ | ✅ 实跑通过（2026-09-26）+ 编辑器日常 |
 | 变换 Gizmo 工具族（三轴视觉 / 轴拾取射线 / 拖拽三段式平面相交法 / hover 高亮+近平行变灰） | ✅ | ✅ 用户实测（2026-10-14） |
 | 场景视图工具栏（Tools 组：移动可用/旋转缩放置灰 + 局部/世界坐标切换；游戏视图同高占位空条） | ✅ | ✅ 用户实测（2026-10-14） |
+| DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中） | ✅ 落地待验收（2026-10-23，Editor_DebugLine_Design v0.1） | ⏳ 待用户实测（验收清单见该档 §7） |
 | Gizmo 旋转 / 缩放工具 | ⬜ 待续 | — |
 
 ### 3.6 资产导入管线（importer / meta / asset）
@@ -195,6 +199,7 @@
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
 | SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ⏳ 待验收（2026-10-11） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
+| 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ⏳ 待验收 |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）
@@ -256,12 +261,13 @@
 | M2 层级面板 Swing 实装（HierarchyPanel） | 2026-10-18 | 树展示/点选/右键创建删除（含场景根语境）；改名定点刷新；保存后星标熄灭；展开态跨命令刷新保持；创建后新节点自动选中可见 |
 | M3 项目面板 Swing 实装（ProjectPanel） | 2026-10-18 | 左树目录导航/右区条目/面包屑跳转/双击进入；分栏拖拽；右键域三入口命令（资源管理器定位/路径入剪贴板/重导）菜单正确 |
 | 全链引用化（选中/三事件/命令/树回查键 + ObjectCache 退役） | 2026-10-18 | 与层级面板同场景回归：创建/删除/改名/Gizmo 跟随选中链路全通即证引用化无回归 |
+| 文件类型注册器 + file.open 实做 | 2026-10-18 | 项目面板双击已注册类型文件按注册器分发打开；脏场景下 open 弹三键确认 |
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 
 ## 7. 已知问题（bug 类，非功能缺口）
 
-- resize Cleaner 兜底只销毁 image 不释放内存（B 项未修）；
+- ~~resize Cleaner 兜底只销毁 image 不释放内存~~ B 项已修待验收（2026-10-23：`DestroyTask` 带 `memoryHandle`，TEXTURE/BUFFER 兜底销毁 free memory 与 destroy 对象成对执行——VulkanBuffer 同病同修；A 项 resize 显式 dispose 2026-10-09 已验；坑点存档 Vulkan_Pitfalls #24）；
 - loadScene 失败路径 getEditorGameScene() NPE 未补；
 - CefFrame.dispose NPE / updateIndex 热点（Editor_Design §9）；
 - Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。

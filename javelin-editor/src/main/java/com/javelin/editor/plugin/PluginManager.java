@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -54,6 +55,21 @@ public final class PluginManager {
     /** 装载结果账本（含 FAILED 条目；顺序 = classpath 先、jar 名序） */
     public static synchronized List<PluginInstance> instances() {
         return new ArrayList<>(INSTANCES);
+    }
+
+    /** 按装载序依次在插件 classpath 查资源（classpath 插件先、jar 名序；FAILED 跳过） */
+    public static synchronized URL findResource(String path) {
+        for (PluginInstance instance : INSTANCES) {
+            ClassLoader cl = instance.classLoader();
+            if (cl == null) {
+                continue;
+            }
+            URL url = cl.getResource(path);
+            if (url != null) {
+                return url;
+            }
+        }
+        return null;
     }
 
     /** classpath 发现（editor.core 路径）——任一环失败直接抛（本体 fail-fast） */

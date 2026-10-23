@@ -9,6 +9,9 @@ public interface Fence extends GPUResource {
     /** CPU 等待 GPU 完成 */
     void await();
 
+    /** 非阻塞完成查询（true = 已 signal；GPU 落后时读回环跳帧用） */
+    boolean isSignaled();
+
     /** 重置栅栏（复用前必须调用） */
     void reset();
 

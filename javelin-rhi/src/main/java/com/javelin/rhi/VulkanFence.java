@@ -55,6 +55,11 @@ final class VulkanFence implements Fence {
     }
 
     @Override
+    public boolean isSignaled() {
+        return vkGetFenceStatus(device.vkDevice(), fenceHandle) == VK_SUCCESS;
+    }
+
+    @Override
     public void reset() {
         int result = vkResetFences(device.vkDevice(), fenceHandle);
         if (result != VK_SUCCESS) {

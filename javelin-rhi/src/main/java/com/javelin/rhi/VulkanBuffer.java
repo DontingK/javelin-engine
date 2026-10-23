@@ -66,8 +66,8 @@ final class VulkanBuffer implements Buffer {
             }
         }
 
-        // 注册 Cleaner
-        CleanerRegistry.register(this, device, bufferHandle, CleanerRegistry.ResourceType.BUFFER);
+        // 注册 Cleaner（带配套显存：兜底销毁时 buffer 与 memory 一并释放）
+        CleanerRegistry.register(this, device, bufferHandle, memoryHandle, CleanerRegistry.ResourceType.BUFFER);
         device.stats().onBufferCreated();
     }
 
@@ -112,6 +112,25 @@ final class VulkanBuffer implements Buffer {
     }
 
     @Override
+    public void read(int offset, int length, ByteBuffer out) {
+        if (length < 0 || out.remaining() < length) {
+            throw new IllegalArgumentException("read length out of bounds: length=" + length
+                    + " out.remaining=" + out.remaining());
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            org.lwjgl.PointerBuffer ppData = stack.mallocPointer(1);
+            int result = vkMapMemory(device.vkDevice(), memoryHandle, offset, length, 0, ppData);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to map buffer memory");
+            }
+
+            ByteBuffer mapped = ppData.getByteBuffer(0, length);
+            out.put(mapped);
+            vkUnmapMemory(device.vkDevice(), memoryHandle);
+        }
+    }
+
+    @Override
     public long handle() {
         return bufferHandle;
     }
@@ -126,8 +145,8 @@ final class VulkanBuffer implements Buffer {
         disposed = true;
         device.stats().onBufferDisposed();
         CleanerRegistry.markDisposed(bufferHandle);
-        VulkanMemory.free(device.vkDevice(), memoryHandle);
         vkDestroyBuffer(device.vkDevice(), bufferHandle, null);
+        VulkanMemory.free(device.vkDevice(), memoryHandle);
     }
 
     private static int toVkBufferUsage(java.util.Set<BufferUsage> usages) {

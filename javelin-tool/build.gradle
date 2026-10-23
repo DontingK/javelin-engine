@@ -27,3 +27,19 @@ application {
     // 若改在 IDEA Run 窗口跑出现乱码则删掉这一条（IDEA 控制台默认 UTF-8）
     applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED', '-Djava.awt.headless=true', '-Dfile.encoding=COMPAT']
 }
+
+// GPU 拾取着色器资产生成 CLI（pick.spv，Engine_Picking_Design）：
+// gradlew :javelin-tool:generatePickSpv [--args="<输出目录>"]
+tasks.register('generatePickSpv', JavaExec) {
+    mainClass = 'com.javelin.tool.pick.PickAssets'
+    classpath = sourceSets.main.runtimeClasspath
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
+}
+
+// 编辑器调试线着色器资产生成 CLI（debugline.spv，Editor_DebugLine_Design）：
+// gradlew :javelin-tool:generateDebugLineSpv [--args="<输出目录>"]
+tasks.register('generateDebugLineSpv', JavaExec) {
+    mainClass = 'com.javelin.tool.debugline.DebugLineAssets'
+    classpath = sourceSets.main.runtimeClasspath
+    jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
+}

@@ -23,12 +23,20 @@ public class RenderObject {
     private final boolean castShadow;
     /** 渲染对象层级掩码（来源 Node.layer；与相机 cullingMask 相交才可见） */
     private final int layerMask;
+    /** 属主组件（MeshRenderer；GPU 拾取 ID→对象映射的数据面，null = 直注册 Demo 对象） */
+    private final Object owner;
+    /** 帧内拾取 ID（PickPass 录制期赋值，0 = 未分配；帧生命周期，无持久语义） */
+    private int pickId;
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow) {
         this(mesh, material, castShadow, ~0);
     }
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask) {
+        this(mesh, material, castShadow, layerMask, null);
+    }
+
+    public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask, Object owner) {
         if (mesh == null || material == null || material.getShader() == null) {
             throw new IllegalArgumentException("mesh / material / material.shader must not be null");
         }
@@ -36,6 +44,7 @@ public class RenderObject {
         this.material = material;
         this.castShadow = castShadow;
         this.layerMask = layerMask;
+        this.owner = owner;
     }
 
     public Mesh mesh() {
@@ -60,6 +69,20 @@ public class RenderObject {
 
     public int layerMask() {
         return layerMask;
+    }
+
+    /** 属主组件（GPU 拾取映射数据面；null = 直注册 Demo 对象） */
+    public Object owner() {
+        return owner;
+    }
+
+    public int pickId() {
+        return pickId;
+    }
+
+    /** 帧内拾取 ID 分配（PickPass 录制期写入；每帧重建，勿跨帧依赖） */
+    public void pickId(int pickId) {
+        this.pickId = pickId;
     }
 
     /** 不透明排序键：同 layout + 同材质的对象相邻（减少 PSO 切换与描述符绑定） */

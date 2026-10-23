@@ -1,7 +1,7 @@
 # Vulkan / LWJGL 陷阱记录
 
-> 版本：v1.1
-> 日期：2026-09-25
+> 版本：v1.2
+> 日期：2026-10-23
 > 范围：Javelin Engine 5 RHI 实现过程中实踩的 Vulkan 规范、LWJGL 绑定、GLFW 窗口、Java NIO 陷阱，
 > 以及沉淀下来的 GPU 排障方法论。每条含：症状 → 根因 → 修法 → 出处。
 > 实现进度与排障过程详见 `RHI_Implementation_Progress.md`。
@@ -289,6 +289,41 @@
 - **出处**：2026-10-06 MSAA 抗锯齿首验收——日志 `antialiasing 降档: 设备
   color=[COUNT_1] depth=[COUNT_1]` 实锤（同日修复：props/feats 改无栈参 `calloc()`
   堆分配；全库排查确认其余 `Vk*` 实例字段均为 handle 包装器无自有内存）。
+
+### 24. Cleaner 兜底销毁漏 free 配套显存：GC 回收的资源逐块泄漏设备内存 ★生命周期级
+
+- **症状**：连续拖动窗口 resize 后设备内存耗尽（OOM）——对象销毁链路看不出异常
+  （句柄都在正常 `vkDestroy`），显存却只涨不跌；凡走 GC 兜底的纹理/缓冲同样中招。
+- **根因**：`VkImage` / `VkBuffer` 是「对象句柄 + 独占 `VkDeviceMemory`」**两个**句柄；
+  `CleanerRegistry` 注册时只传了对象句柄，兜底 `executeDestroy` 只
+  `vkDestroyImage/Buffer`，`vkFreeMemory` 无人调用——每次 GC 兜底泄漏一整块显存。
+  2026-10-09 实踩：resize 换绑旧深度纹理断引用交 Cleaner，每 resize 泄漏一块
+  depth 显存直至 OOM。
+- **修法**：A 项（2026-10-09 已验收）——resize 换绑改当场显式 `dispose()`
+  （dispose 本就 free + destroy 成对）；B 项（2026-10-23）——`DestroyTask` 增设
+  `memoryHandle`，TEXTURE/BUFFER 注册走带 memory 重载，兜底销毁时 free memory 与
+  destroy 对象一并执行。销毁序同日统一翻成规范序（**先 destroy 后 free**——内存
+  不得在仍被资源绑定时释放；原 dispose「先 free 后 destroy」靠驱动容忍，属规范
+  违反，与 #13/#17「驱动宽容 ≠ 规范正确」同型），四处（双 dispose + 兜底双分支）
+  一并修正。
+- **出处**：2026-10-09 OOM 排障（A 项用户实测验收）；B 项 2026-10-23 落地待用户验收
+  （`RHI_Design_Resources.md` §17.2/§17.6 同步）。
+
+### 25. `Device.frameArena()` 每调一次新造 1MB 显存：帧内误调即逐帧泄漏 ★生命周期级
+
+- **症状**：暂未实踩（当前全库唯一调用点在 FrameState 构造期，一次性合法）；隐患形态 =
+  将来任何代码在帧路径上调 `device.frameArena()` 想取"帧池"，每帧静默分配 1MB
+  HOST_VISIBLE 显存且无人释放——对象链路看不出异常、显存只涨不跌，与 #24 同征象。
+- **根因**：`VulkanDevice.frameArena()`（`VulkanDevice.java:267-269`）实现为
+  `return new VulkanFrameArena(this)`——工厂方法无缓存/单例语义，而 `Device.frameArena()`
+  接口语义暗示"取既有帧池"，调用方自然以为随时可调。配套两处过时注释误导后来者：
+  `VulkanFrameArena` 类注释"当前为单帧版本"（实际 per-FrameState 一块，多帧轮换语义
+  已成立，见进度档 2026-10-23 存档）；`VulkanBuffer.writeAligned:82`"实际应该用
+  FrameArena"（该路径是持久缓冲直写，与帧 arena 无关）。
+- **修法**：`frameArena()` 改懒建单例缓存（后续调用返回同一实例）+ 两处注释修正——
+  **待做**；当前因 arena 整体空转而无实害（现状全貌见
+  `RHI_Implementation_Progress.md`「FrameArena 现状存档（2026-10-23）」）。
+- **出处**：2026-10-23 帧对象池评估的代码审查发现（未实踩，防御性记档）。
 
 ---
 

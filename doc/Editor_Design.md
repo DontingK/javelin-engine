@@ -12,6 +12,11 @@
 > 2026-10-18 M6 提前收官：jcef 桥包/jcefmaven/jackson 与 engine-editor-web 前端工程整体清退
 > （Editor_Swing_Design §7.1/§9）——本文 §5 桥接相关描述全部成历史沿革；§1/§3/§5 按新架构
 > 改写的欠账仍挂（改写为独立批次，不随清退顺手做）。
+> 2026-10-23 §10 拾取拍板三增补：编辑器拾取全线统一 GPU ID-buffer（轴拾取终态迁移、编辑器侧
+> 射线拾取退役、CPU 过渡拾取开放项关账）+ 落点=pass 本体进引擎 core（运行时也可用，有意分歧
+> Unity）+ 射线检测与 GPU 拾取共存（运行时 raycast 照常保留）。
+> 2026-10-23 同日落地实现（待验收）：RHI 读回环 + PickPass 覆盖制 + PickSystem + ViewportPickAppState
+> + Gizmo 轴迁移（CylinderCollider 过渡线退役）——设计档=Engine_Picking_Design.md v0.1。
 
 ## 1. 定位与边界
 
@@ -404,17 +409,33 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   游戏视图同高占位空条（GameViewportPanel 同列布局、视觉规格一致；内容留待 Game
   视图工具设计——Unity 口径为显示比例/缩放/Stats 一族）。快捷键（W/E/R）与
   rotate/scale 工具本体留扩展位。
-- **编辑器物体拾取终态拍板（2026-10-06 用户）：GPU ID-buffer，后置实现**——编辑器专用拾取 pass
+- **编辑器物体拾取终态拍板（2026-10-06 用户）：GPU ID-buffer，后置实现**——拾取 pass
   渲染场景时每个可拾取物体把自己的 pick ID（帧内稳定分配，0=背景/未命中）写进离屏整数附件
   （R32Uint，深度测试照常——近者胜），点击帧读回该像素 ID 即得选中对象（Unity 编辑器同路线，
   像素级精确、大网格零拾取代价）。**不依赖用户物体挂 Collider、不给物体隐藏挂载网格碰撞体**
   ——编辑器需求不进用户场景数据面（gizmo 轴挂 CylinderCollider 是编辑器自有节点，性质不同）。
   RHI 前置=拾取附件 + 图像读回路径（CopyImageToBuffer→staging→map，可 1×1 region 按点击坐标拷贝）；
-  **实现后置、非当前排期**。过渡期是否先落 CPU 数学拾取（screenToRay→世界 Aabb 粗筛→
-  逆变换进本地→三角形 MT 精判比 t——碰撞 L0 零件已全验收齐备）为**开放项**（大网格性能梯度：
-  万级三角形 ~1ms、百万级几十 ms；另有 Mesh CPU 副本坑）。运行时场景级 raycast（Collider 组件
-  注册表，Unity Physics.Raycast 语义——无 Collider 即打不中）归 Ray 期，与编辑器拾取两条 API
-  并存不冲突。
+  **实现后置、非当前排期**。
+- **拾取全线统一拍板（2026-10-23 用户）：编辑器拾取一律 ID-buffer，编辑器侧射线拾取退役**——
+  原开放项「过渡期先落 CPU 数学拾取（screenToRay→世界 Aabb 粗筛→逆变换进本地→三角形 MT 精判
+  比 t——碰撞 L0 零件已全验收齐备）」就此**关账不落**：射线拾取场景物体绕不开给物体挂碰撞体/
+  网格碰撞体，正违反本拍板初衷。Gizmo 轴拾取终态同样统一进 ID 附件（轴几何各写 pick ID），
+  现役 CylinderCollider 轴拾取为过渡实现，ID-buffer 落地时迁移。
+- **拾取落点拍板（2026-10-23 用户）：pass 本体进引擎 core，运行时也可用**——拾取 pass/ID 分配/
+  读回调度归 core（默认不挂、按需启用），编辑器与运行时游戏同为消费方。**有意分歧 Unity**：
+  Unity 拾取是编辑器内部实现（HandleUtility.PickGameObject 仅 UnityEditor 命名空间），运行时
+  无对应 API——运行时拾取只有 Physics.Raycast+Collider 一条路、无 Collider 拾取是其已知短板，
+  短板不抄（「分歧以 Unity 为默认答案」就此处显式越过并记录在案）。
+- **射线检测与 GPU 拾取共存（2026-10-23 用户）**：射线**拾取**退役≠射线退役——游戏内大多走
+  射线检测（射击命中/AI 感知等），运行时场景级 raycast（Collider 组件注册表，归 Ray 期）照常
+  保留，与 ID-buffer 拾取两条 API 并存不冲突：射线=物理查询语义（有 Collider 才打得中），
+  ID-buffer=渲染拾取语义（看得见即拾得到）。
+- **GPU 拾取落地记录（2026-10-23，待用户实测验收——设计档=Engine_Picking_Design.md v0.1）**：
+  RHI 读回环（TextureReadbackRing 2 槽非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，拾取 pass 不消费
+  材质 Pass 声明）+ PickSystem 双通道（hover/click，帧表 3 环防串帧）+ ViewportPickAppState 消费
+  （点击门控/选中收口）+ **Gizmo 轴拾取同批迁移**（hover 源改 PickSystem 直写、拖拽 pickRay 保留
+  纯数学、MoveTool 摘 CylinderCollider——CPU 射线过渡线退役）；透明物体可拾取（Unity 口径同批
+  确认）；已知边界（hover 1~2 帧延迟、多视口后置）见该档 §8，验收清单 §9。
 - ~~shader 导入器（依赖 javelin-tool .shader 解析器，见材质档下一步）~~——已落地（2026-09-26，实现在 editor 自身而非 javelin-tool）
 - 桥接包扫描收窄 + `JavaScriptBridge` 推送通道激活（`CefFrame.send`）
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

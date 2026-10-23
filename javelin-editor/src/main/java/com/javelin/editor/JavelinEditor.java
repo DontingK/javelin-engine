@@ -13,7 +13,10 @@ import com.javelin.editor.appstate.EditorAxesAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.appstate.SceneWatchAppState;
 import com.javelin.editor.appstate.TransformWatchAppState;
+import com.javelin.editor.appstate.ViewportPickAppState;
 import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
+import com.javelin.editor.debug.DebugLineAppState;
+import com.javelin.core.render.picking.PickSystem;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
@@ -54,6 +57,10 @@ public class JavelinEditor extends JavelinEngine {
     private final Project project;
     private final EditorScene editorScene;
     private Camera editorCamera;
+    /** GPU ID-buffer 拾取系统（场景未就绪时为 null——ViewportPickAppState 同口径安全跳过） */
+    private PickSystem pickSystem;
+    /** 编辑器相机的渲染视口名（SceneRenderBridge 以相机节点名注册，拾取系统目标视口） */
+    private static final String EDITOR_CAMERA_VIEW = "Editor Camera Node";
     /** 网格状态（场景未就绪时为 null——命令懒取的 null 安全 no-op 口径） */
     private EditGridAppState gridState;
     public JavelinEditor(Project project,
@@ -94,7 +101,7 @@ public class JavelinEditor extends JavelinEngine {
             log.warn("编辑器场景未就绪（loadScene 失败），跳过编辑器相机与网格装配");
         } else {
             Node node = new Node();
-            node.setName("Editor Camera Node");
+            node.setName(EDITOR_CAMERA_VIEW);
             editorCamera = node.addComponent(Camera.class);
             // 编辑器观察网格 ±4000（GRID_SIZE 8000）：默认 far=1000 会把远端地面裁掉
             //（用户高空实测"看到边界"的真凶——非着色器淡出），拉到 10000 覆盖俯瞰距离
@@ -113,7 +120,17 @@ public class JavelinEditor extends JavelinEngine {
             // 坐标轴诊断线（+X 红 / +Y 绿 / +Z 蓝，plane 朝向排查用；编辑器子场景不入树不落盘）
             stateManager.attach(new EditorAxesAppState());
             // 变换 Gizmo（移动工具三轴指示，跟随选中；缩放/旋转形态与拖拽后续扩展）
-            stateManager.attach(new TransformGizmoAppState());
+            TransformGizmoAppState transformGizmo = new TransformGizmoAppState();
+            stateManager.attach(transformGizmo);
+            // GPU ID-buffer 拾取（Engine_Picking_Design.md，2026-10-23 全线统一拍板）：
+            // pass 本体在 core（PickSystem 挂管线，目标=编辑器相机视口）；编辑器消费
+            // 挂在 gizmo 之后——点击门控消费其当帧 hover/拖拽态，hover 轴节点直写 gizmo
+            pickSystem = new PickSystem(this, EDITOR_CAMERA_VIEW);
+            pickSystem.enable();
+            stateManager.attach(new ViewportPickAppState(transformGizmo));
+            // DebugDrawLine 调试线（Editor_DebugLine_Design.md）：选中物体 bounds/
+            // 相机视锥线框（组件绘制器查表分派），插管线 Transparent 后、Gizmo 前
+            stateManager.attach(new DebugLineAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());
@@ -193,6 +210,11 @@ public class JavelinEditor extends JavelinEngine {
 
     public Camera getEditorCamera() {
         return editorCamera;
+    }
+
+    /** GPU 拾取系统（场景未就绪为 null——消费方同口径安全跳过） */
+    public PickSystem getPickSystem() {
+        return pickSystem;
     }
 
     /** 状态管理器（命令懒取入口，网格开关挂卸用） */

@@ -10,7 +10,6 @@ import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Node;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
-import com.javelin.core.scene.component.Collider;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.AbsEditorAppState;
 import com.javelin.editor.event.EditorEventBus;
@@ -47,13 +46,13 @@ import java.util.ArrayList;
  * 场景之上不被遮挡（编辑操作对象始终可见）、内部箭头互有层次（ZWrite On 自写
  * 自测）；绘制对象按 gizmo.shader 实例身份过滤（全部变换工具共用该 shader）。</p>
  *
- * <p>射线检测（2026-10-05）：update 每帧把鼠标（视口逻辑坐标）经
- * {@link Camera#screenToRay}（Unity ScreenPointToRay 口径，viewportRect 归一化）
- * 换算成世界射线，打活动工具子树的碰撞体取最近命中；命中候选再经
- * {@link TransformTools#isSelectable} 工具裁决（2026-10-06：移动轴与视线趋于
- * 平行端视时不可选——屏幕上轴退化为点、拖拽投影病态）；{@link #getHoveredNode()}
- * 暴露命中轴 Node（hover 变更打日志）、{@link #getHoveredAxis()} 经 userData
- * 标判别轴——轴拖拽判定的地基。</p>
+ * <p>hover 拾取（2026-10-23 全线统一拍板，Engine_Picking_Design.md）：轴命中改
+ * GPU ID-buffer——PickPass 把轴几何画进拾取附件（深度关置顶），PickSystem
+ * hover 读回结果经 {@link #setHoveredFromPick} 帧末直写（1~2 帧延迟、静止指针
+ * 零读回）；本类 update 消费时再经 {@link TransformTools#isSelectable} 工具
+ * 裁决（2026-10-06：移动轴与视线趋于平行端视时不可选——屏幕上轴退化为点、
+ * 拖拽投影病态）；{@link #getHoveredNode()} 暴露命中轴 Node（hover 变更打
+ * 日志）、{@link #getHoveredAxis()} 经 userData 标判别轴——轴拖拽判定的地基。</p>
  *
  * <p>拖拽（2026-10-06）：LMB 输入状态机——按下命中柄（hover 当帧结果）交所属
  * 工具 {@link TransformTools#beginDrag}，按住每帧 {@link TransformTools#updateDrag}
@@ -149,8 +148,6 @@ public class TransformGizmoAppState extends AbsEditorAppState {
 
     // 射线检测复用缓冲（每帧零分配）：世界射线 + 屏幕换算基向量 + 命中量
     private final Ray pickRay = new Ray();
-    private final Vector3f hitPointBuf = new Vector3f();
-    private final Vector3f hitNormalBuf = new Vector3f();
 
     /** 视线方向复用向量（相机→选中目标、归一化；轴可选性/变灰基准——与鼠标位置无关） */
     private final Vector3f viewDir = new Vector3f();
@@ -166,6 +163,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
 
     /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新，拖拽中锁定不刷新） */
     private Node hoveredNode;
+    /** PickSystem hover 结果直写位（GPU ID-buffer 拾取，ViewportPickAppState 帧末转发；null = 离开轴/点空） */
+    private Node pickHoverNode;
 
     /** 拖拽中的工具（null = 未拖拽；LMB 边沿驱动 begin/end、持续态驱动 updateDrag） */
     private TransformTools dragTool;
@@ -303,7 +302,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
             viewDir.normalize();
         }
 
-        // 鼠标 → 世界射线（hover 命中与拖拽平面求交用；screenToRay 方向归一化 → t 即世界距离）
+        // 鼠标 → 世界射线（拖拽平面求交用；hover 命中已迁 GPU ID-buffer——
+        // screenToRay 方向归一化 → t 即世界距离）
         int viewportW = javelinEditor.viewportWidth();
         int viewportH = javelinEditor.viewportHeight();
         boolean viewportValid = viewportW > 0 && viewportH > 0;
@@ -321,14 +321,22 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 dragTool.updateDrag(target, pickRay); // hover 锁定拖拽轴，不重检测
             }
         } else if (viewportValid) {
-            // hover 检测（每帧刷新，拖拽判定地基）
-            Node detected = raycastToolNodes();
+            // hover 检测（GPU ID-buffer，Engine_Picking_Design.md）：PickSystem hover 结果
+            // （setHoveredFromPick 帧末直写，1~2 帧延迟）+ 工具裁决过滤——轴归属（toolOf）
+            // 与可选择性（isSelectable，视线近平行变灰）与原射线线同口径
+            Node detected = null;
+            if (pickHoverNode != null) {
+                TransformTools owner = toolOf(pickHoverNode);
+                if (owner != null && owner.isSelectable(pickHoverNode, viewDir)) {
+                    detected = pickHoverNode;
+                }
+            }
             if (detected != hoveredNode) {
                 hoveredNode = detected;
                 if (detected != null) {
-                    log.info("射线检测命中轴节点：{}", detected.getName());
+                    log.info("GPU 拾取命中轴节点：{}", detected.getName());
                 } else {
-                    log.info("射线检测离开轴节点");
+                    log.info("GPU 拾取离开轴节点");
                 }
             }
 
@@ -429,11 +437,24 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     }
 
     /**
-     * 射线检测当前命中的轴 Node（null = 未命中/未激活；update 每帧刷新）——
-     * 拖拽判定的消费口。
+     * 当前 hover 命中的轴 Node（null = 未命中/未激活；update 每帧刷新）——
+     * 拖拽判定的消费口。命中源 = GPU ID-buffer 拾取（PickSystem hover 读回）。
      */
     public Node getHoveredNode() {
         return hoveredNode;
+    }
+
+    /**
+     * PickSystem hover 结果直写（ViewportPickAppState 帧末转发，引擎线程；
+     * 本帧 update 消费——含工具裁决过滤，见 update 内 hover 检测段）。
+     */
+    public void setHoveredFromPick(Node node) {
+        this.pickHoverNode = node;
+    }
+
+    /** 拖拽进行中（ViewportPickAppState 点击门控：拖拽中不发改选中） */
+    public boolean isDragging() {
+        return dragTool != null;
     }
 
     /**
@@ -450,37 +471,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     }
 
     /**
-     * 活动工具子树的碰撞体射线检测（{@link #pickRay}）：最近命中返回所在轴
-     * Node，未命中返回 null（t 以 pickRay.direction 实长为单位，跨轴可比）。
-     * 命中候选再经 {@link TransformTools#isSelectable} 工具裁决（视线基准 =
-     * {@link #viewDir}，如移动轴与视线近平行端视不可选）——不可选候选视同
-     * 未命中，更远的可选候选仍可胜出。
-     */
-    private Node raycastToolNodes() {
-        Node hitNode = null;
-        float bestT = -1f;
-        for (TransformTools tool : tools) {
-            Node toolNode = tool.getToolNode();
-            if (toolNode == null || !toolNode.isActive()) {
-                continue;
-            }
-            for (Transform child : toolNode.getTransform()) {
-                Node childNode = child.getNode();
-                for (Collider collider : childNode.getComponents(Collider.class)) {
-                    float t = collider.collideWithRay(pickRay, hitPointBuf, hitNormalBuf);
-                    if (t >= 0f && (bestT < 0f || t < bestT) && tool.isSelectable(childNode, viewDir)) {
-                        bestT = t;
-                        hitNode = childNode;
-                    }
-                }
-            }
-        }
-        return hitNode;
-    }
-
-    /**
      * 拖拽/悬停节点所属工具（沿 Transform 父链找 toolNode 同一性；
-     * null = 不属任何工具——射线只打工具子树，理论不可达的防御）。
+     * null = 不属任何工具——GPU 拾取命中用户物体等非工具节点时的过滤位）。
      */
     private TransformTools toolOf(Node node) {
         for (TransformTools tool : tools) {
