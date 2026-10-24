@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.13）
+# 编辑器菜单与命令系统设计（v0.14）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -96,6 +96,14 @@
 > 目录锚点不丢位置）；「创建」子菜单加「材质」项（folder/scene/script 占位
 > 不动）。.mat 格式与导入器见 Engine_Material_Design §3.2。
 > 占位剩：创建族 folder/scene/script、paste、rename、delete。
+> v0.14（2026-10-24）：**hierarchy.create.cube 立方体命令实做（替换占位注册行，
+> 当日用户实测验收）**——CreateBoxMenuCommand：网格取新增内置资产 box.smesh
+> （1×1×1 居中，六面各 4 顶点独立法向/UV，三角绕序按几何法向外向逐面叉积
+> 校验——+Y 面沿用 plane 的 0,2,1/0,3,2 模式）；材质=default.shader 运行期
+> 实例，挂入/选中/重名去重（Cube (n)）/线程语义全同 CreatePlaneMenuCommand
+> （自包含一份，「一动作一类」现状；plane/cube 两份同式代码的公共基类抽取
+> 再议——IDEA 重复段告警已现，拍板归用户）；icon=box（图标资源已备）、
+> label 走既有 i18n 立方体条目零新增。
 
 ## 1. 背景与约束
 
@@ -358,6 +366,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |
+| `hierarchy.create.cube` | 立方体 | 场景树右键 → 3D 对象 | 选中节点下创建 1×1×1 居中立方体（无选中=根级），重名去重 Cube (n)，创建后选中新节点；mesh=内置 box.smesh 共享加载（六面外向绕序）、材质=default.shader 运行期实例，挂入/选中/线程语义同 plane 命令；icon=box（2026-10-24 落地 v0.14，替换占位注册，Unity 3D Object → Cube 口径） |
 | `hierarchy.create.camera` | 摄像机 | 场景树右键 → 摄像机 | 选中节点下创建相机（无选中=根级），重名去重 Main Camera (n)，创建后选中新节点；Unity 口径=节点名 Main Camera、原点无旋转、参数全取 Camera 组件默认（fov 60°/near 0.1/far 1000/depth 0/SOLID_COLOR/全屏），main 标志不预设（引擎 main 消费未落地）；相机入用户 game scene——SCENE 模式编辑器视口不受影响（EditorScene 相机 SceneModel 双模式分流）、GAME 模式渲染用户相机，Camera 序列化已通保存可恢复（2026-10-11 落地，替换占位注册） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
@@ -376,8 +385,8 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 不能走 Web）。
 
 场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.7（2026-10-11）结构按
-用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane 已实现、
-立方体/球/三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
+用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane、
+立方体已实现、球/三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
 rename
 撤出（随树内编辑 UI 后置）、未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。
 project 右键域的

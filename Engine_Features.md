@@ -151,6 +151,7 @@
 | file.save / Ctrl+S | ✅ | ✅ 用户实测（2026-10-04） |
 | 层级右键域（empty / delete / plane / Unity 结构重排占位） | ✅ | ✅ 随场景树批次（2026-10-04） |
 | hierarchy.create.camera（v0.8） | ✅ | ✅ 用户实测（2026-10-23） |
+| hierarchy.create.cube（v0.14，内置 box.smesh + CreateBoxMenuCommand） | ✅ | ✅ 用户实测（2026-10-24） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |

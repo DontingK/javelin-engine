@@ -85,7 +85,7 @@
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、MSAA 抗锯齿（§5.3） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器、线程模型、已知问题与演进方向（§9/§10）——CEF/Web 历史章节已清退（2026-10-23，§4 仅留指针），UI 现状以 Editor_Swing_Design 为准 |
-| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.13）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 |
+| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.14）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（纯 Swing + FlatLaf，视口零拷贝路径保留）**、自研轻量 Dock（二分布局树 + PanelRegistry 扩展点 + ViewportTabs 单 Canvas 不 reparent）、面板迁移路线、里程碑 M1~M6、配色单点（§10-3） |
 | `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.1）：**插件契约（namespace/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集）**；待拍板项见档内 |
 | `Inspector_Design.md` | 检查器设计（v0.6）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（ENUM/COLOR/RECT/LAYER_MASK/GUID_ASSET 三态只读）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+材质只读首期）、输入交互增强（键入即提交+label 拖动调值） |

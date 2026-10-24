@@ -1,5 +1,6 @@
 package com.javelin.editor.menu;
 
+import com.javelin.editor.menu.hierarchy.CreateBoxMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreateCameraMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
 import com.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
@@ -27,7 +28,8 @@ import com.javelin.editor.plugin.PluginContext;
  * tools.devtools/tools.refresh 随主窗口去 Web 化退役（2026-10-17，Editor_Swing_Design）。
  * 「场景树右键」域 Unity 壳对齐（结构
  * 2026-10-11 重排）：已实现 hierarchy.delete / hierarchy.create.empty（顶级
- * 「空对象」）/ hierarchy.create.plane（「3D 对象」子菜单）/ hierarchy.create.camera
+ * 「空对象」）/ hierarchy.create.plane、hierarchy.create.cube（「3D 对象」
+ * 子菜单，cube 2026-10-24 落地）/ hierarchy.create.camera
  * （「摄像机」，2026-10-11 落地）；剪切/复制/粘贴、3D 对象其余项、灯光/粒子以
  * {@link UnimplementedMenuCommand} 占位注册置灰，功能落地时逐个替换为实类注册行
  * （rename 随树内编辑 UI 后置，未入菜单）。
@@ -59,6 +61,7 @@ public final class EditorMenuSetup {
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new CreateEmptyMenuCommand());
         context.registerCommand(new CreatePlaneMenuCommand());
+        context.registerCommand(new CreateBoxMenuCommand());
         context.registerCommand(new CreateCameraMenuCommand());
         context.registerCommand(new DeleteMenuCommand());
         // Unity 壳占位（未实现置灰，落地时替换为实类注册行）：剪贴板三项阻塞于
@@ -66,7 +69,6 @@ public final class EditorMenuSetup {
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.cut", "Ctrl+X"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.copy", "Ctrl+C", "copy"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.paste", "Ctrl+V", "paste"));
-        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.cube", null, "box"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.sphere", null));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.pyramid", null));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.light.directional", null));
