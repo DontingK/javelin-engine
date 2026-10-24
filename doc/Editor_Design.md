@@ -14,6 +14,8 @@
 > Unity）+ 射线检测与 GPU 拾取共存（运行时 raycast 照常保留）。
 > 2026-10-23 同日落地实现（当日用户实测验收）：RHI 读回环 + PickPass 覆盖制 + PickSystem + ViewportPickAppState
 > + Gizmo 轴迁移（CylinderCollider 过渡线退役）——设计档=Engine_Picking_Design.md v0.1。
+> 2026-10-24 §10 增补视口聚焦（层级双击 + F 键 → 编辑器相机平滑框住选中物；拍板=双击一律聚焦、
+> 展开/折叠只认三角手柄、F 键同批、平滑过渡）。
 
 ## 1. 定位与边界
 
@@ -375,4 +377,23 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   （点击门控/选中收口）+ **Gizmo 轴拾取同批迁移**（hover 源改 PickSystem 直写、拖拽 pickRay 保留
   纯数学、MoveTool 摘 CylinderCollider——CPU 射线过渡线退役）；透明物体可拾取（Unity 口径同批
   确认）；已知边界（hover 1~2 帧延迟、多视口后置）见该档 §8，验收清单 §9。
+- **视口聚焦（Frame Selected）已落地（2026-10-24，当日用户验收通过）**：双击层级节点行 →
+  编辑器视口相机平滑滑到框住该节点（Unity 同款语义）。三拍板（2026-10-24 用户）：
+  ①**双击一律聚焦**——有子节点的行也聚焦（有意越过 Unity 精确口径「父行双击=折叠」，
+  展开/折叠只认三角手柄：JTree `setToggleClickCount(0)`，JDK 源码核验 BasicTreeUI
+  对 clickCount≤0 不 toggle）；②**F 键同批**（视口内按 F 聚焦当前选中物——
+  EditorCameraAppState javadoc 自 2026-09-27 预留「留待选中系统落地再补」到期兑付）；
+  ③**平滑过渡**。落点：HierarchyPanel 双击 EDT 直写
+  `EditorCameraAppState.requestFrame`（static volatile 意图镜像，先例
+  TransformGizmoAppState）、引擎帧内消费。聚焦语义：**姿态（yaw/pitch）保持当前
+  观察方向**，只动位置与环绕焦点距离（过渡完成后环绕焦点自然落在目标中心）；
+  有网格=世界包围盒（`Mesh.getBounds`→`Aabb.transform` 行和公式）半对角恰落垂直
+  半 FOV 框住（FRAME_MARGIN 1.2 余量、FRAME_DURATION 0.25s，经验初值待调），
+  无网格/退盒=对准节点世界位置、距离维持当前（只平移对准不动远近）；smoothstep
+  缓动、目标请求时刻定格（过渡期间节点移动不跟随）、**手动输入即打断**（Unity
+  口径：用户接管）；僵尸引用按场景归属校验安全跳过（先例 TransformGizmoAppState）。
+  已知边界：GAME 模式不门控（编辑器相机位姿照写、不进渲染列表，同 Gizmo 留白
+  口径）；F 键依赖渲染窗口 OS 焦点（Swing 文本框打字理论收不到，F3 先例同口径，
+  实测串扰再补门控）；距离按垂直 FOV 口径——极窄竖视口（横 FOV 更小）可能侧向
+  裁边，v1 取舍。
 - 内置资源索引生成挪入 javelin-tool，编辑器构建瘦身

@@ -188,6 +188,7 @@
 | 网格辅助线（EditGridAppState + _CamPos 材质下发） | ✅ | ✅ 实跑通过（2026-09-26）+ 编辑器日常 |
 | 变换 Gizmo 工具族（三轴视觉 / 轴拾取射线 / 拖拽三段式平面相交法 / hover 高亮+近平行变灰） | ✅ | ✅ 用户实测（2026-10-14） |
 | 场景视图工具栏（Tools 组：移动可用/旋转缩放置灰 + 局部/世界坐标切换；游戏视图同高占位空条） | ✅ | ✅ 用户实测（2026-10-14） |
+| 视口聚焦（层级双击节点行 / 视口 F 键 → 编辑器相机平滑滑到框住选中物；有网格走世界包围盒、无网格对准位置；姿态不变、手动输入即打断） | ✅（2026-10-24，Editor_Design §10） | ✅ 用户实测（2026-10-24） |
 | DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中） | ✅（2026-10-23，Editor_DebugLine_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §7） |
 | Gizmo 旋转 / 缩放工具 | ⬜ 待续 | — |
 
@@ -249,7 +250,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前无挂账**——2026-10-23 用户实测批量销账 15 项：去 Web 化收官链七项（ProjectFrame/ProjectLoadingFrame、PackDialog 迁 Swing、jcef 桥包/jcefmaven/jackson 清退、M2 层级面板、全链引用化、M3 项目面板、文件类型注册器+file.open）+ 场景树 10-22 增量两项（根行选中、脏星标行宽）+ 散件六项（Scene/Game 切换、hierarchy.create.camera、SceneImporter、Transform 变更检测、.mat 全链、Material.surfaceType 面型裁决与 Pass 名分桶——状态已翻入各模块表）。
+**当前无挂账**——2026-10-24 视口聚焦（层级双击 + F 键）当日落地当日用户验收销账。
+
+2026-10-23 用户实测批量销账 15 项：去 Web 化收官链七项（ProjectFrame/ProjectLoadingFrame、PackDialog 迁 Swing、jcef 桥包/jcefmaven/jackson 清退、M2 层级面板、全链引用化、M3 项目面板、文件类型注册器+file.open）+ 场景树 10-22 增量两项（根行选中、脏星标行宽）+ 散件六项（Scene/Game 切换、hierarchy.create.camera、SceneImporter、Transform 变更检测、.mat 全链、Material.surfaceType 面型裁决与 Pass 名分桶——状态已翻入各模块表）。
 
 ~~通用 CEF 对话框 Dialog~~ 挂账项作废（2026-10-17 类已随去 Web 化删除，验收场景消亡）。
 

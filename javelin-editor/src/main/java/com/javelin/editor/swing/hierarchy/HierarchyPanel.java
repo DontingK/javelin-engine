@@ -2,6 +2,7 @@ package com.javelin.editor.swing.hierarchy;
 
 import com.javelin.editor.JavelinEditor;
 import com.javelin.core.scene.Node;
+import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.NodeRenamedEvent;
 import com.javelin.editor.event.ProjectSelectEvent;
@@ -384,14 +385,30 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
 
     /**
      * JTree 封装：选中监听（收口上报 EditorSelection）+ 鼠标交互（右键即选中/弹
-     * ctx.hierarchy 域菜单、左键点空白清除选中——JTree 默认均不做，Unity 口径补齐）。
+     * ctx.hierarchy 域菜单、左键点空白清除选中——JTree 默认均不做，Unity 口径补齐）；
+     * 双击节点行 = 视口聚焦选中物（2026-10-24 拍板：一律聚焦，展开/折叠只认三角手柄）。
      */
     private final class JTreeWrap extends JTree {
 
         private JTreeWrap(DefaultTreeModel model) {
             super(model);
+            // 双击留给聚焦——展开/折叠只认三角手柄（BasicTreeUI clickCount≤0 不 toggle）
+            setToggleClickCount(0);
             addTreeSelectionListener(selectionListener());
             addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    // 双击节点行 → 视口聚焦（EDT 直写静态镜像，引擎帧内消费）
+                    if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
+                        TreePath path = pathInRowBand(e.getX(), e.getY());
+                        if (path != null
+                                && path.getLastPathComponent() instanceof DefaultMutableTreeNode node
+                                && node.getUserObject() instanceof SceneTreeSnapshot.NodeSnap snap) {
+                            EditorCameraAppState.requestFrame(snap.getNode());
+                        }
+                    }
+                }
+
                 @Override
                 public void mousePressed(MouseEvent e) {
                     if (e.isPopupTrigger()) {

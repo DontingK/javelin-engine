@@ -5,8 +5,14 @@ import com.javelin.core.appstate.AppStateManager;
 import com.javelin.core.input.Input;
 import com.javelin.core.input.KeyCode;
 import com.javelin.core.input.MouseButton;
+import com.javelin.core.physics.collision.Aabb;
+import com.javelin.core.render.mesh.Mesh;
+import com.javelin.core.scene.GameScene;
+import com.javelin.core.scene.Node;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.MeshRenderer;
 import com.javelin.core.scene.component.Transform;
+import com.javelin.editor.selection.EditorSelection;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -25,10 +31,9 @@ import org.joml.Vector3f;
  *   <li><b>Alt+左键拖拽</b>：绕环绕焦点转动（焦点 = pos + forward·focusDistance，
  *       初始取相机到场景原点距离——空场景环绕网格中心）；</li>
  *   <li><b>Alt+右键拖拽</b>：沿视向推拉（上下拖，倍率随焦点距离）。</li>
+ *   <li><b>双击层级节点 / F 键</b>：平滑聚焦选中物——有网格框住世界包围盒、无网格
+ *       对准节点位置；保持当前观察方向只动位置/焦点距离，手动输入即打断。</li>
  * </ul>
- *
- * <p>Unity 的 <b>F（聚焦选中物）</b> 需要选中/拾取系统，留待二期 Ray + Gizmo 选中
- * 再补（届时环绕焦点一并切到选中物包围盒中心）。</p>
  *
  * <p>实现要点：</p>
  * <ul>
@@ -43,6 +48,8 @@ import org.joml.Vector3f;
  *   <li>相机经 {@link com.javelin.editor.JavelinEditor#getEditorCamera()}
  *       （onInitialize 装配的编辑器相机实例）；场景未就绪时为 null，
  *       update 安全跳过。</li>
+ *   <li>聚焦请求走 static volatile 意图镜像（先例 TransformGizmoAppState）：
+ *       EDT 直写安全、引擎帧内消费清引用。</li>
  * </ul>
  *
  * @author Javelin Engine Team
@@ -75,6 +82,43 @@ public class EditorCameraAppState extends AbsEditorAppState {
 
     /** 焦点距离下限（推拉不穿透） */
     private static final float MIN_FOCUS_DISTANCE = 0.5f;
+
+    // ---------------- 聚焦（双击层级 / F 键 → 平滑滑到框住选中物，2026-10-24） ----------------
+
+    /** 聚焦请求（EDT 双击直写、引擎帧内消费后清引用；编辑器单实例进程级） */
+    private static volatile Node frameRequest;
+
+    /** 过渡时长（秒，经验初值待调） */
+    private static final float FRAME_DURATION = 0.25f;
+
+    /** 框住余量（垂直半 FOV 恰框住包围盒半径基础上的放大倍数） */
+    private static final float FRAME_MARGIN = 1.2f;
+
+    /** 退盒阈值（半对角小于此值视为无有效包围盒，走节点位置口径） */
+    private static final float MIN_FRAME_RADIUS = 1.0e-4f;
+
+    /** 过渡进行中 */
+    private boolean framing;
+
+    /** 过渡已进行时长（秒） */
+    private float frameElapsed;
+
+    /** 过渡起点焦点距离 */
+    private float frameStartDistance;
+
+    /** 过渡目标焦点距离 */
+    private float frameTargetDistance;
+
+    // 过渡插值复用对象（update 零分配）
+    private final Vector3f frameStartPosition = new Vector3f();
+    private final Vector3f frameTargetPosition = new Vector3f();
+    private final Vector3f frameCenter = new Vector3f();
+    private final Aabb scratchAabb = new Aabb();
+
+    /** 聚焦请求入口（层级双击 EDT 直写，引擎帧内消费） */
+    public static void requestFrame(Node node) {
+        frameRequest = node;
+    }
 
     // ---------------- 位姿状态（自持 yaw/pitch，旋转不累计） ----------------
 
@@ -154,6 +198,26 @@ public class EditorCameraAppState extends AbsEditorAppState {
         // --- 滚轮：沿视向推拉（步长随焦点距离） ---
         if (Input.scrollDeltaY() != 0.0f) {
             poseChanged |= dolly(Input.scrollDeltaY() * SCROLL_STEP * focusDistance);
+        }
+
+        // --- 聚焦：手动输入即打断过渡（Unity 口径：用户接管） ---
+        if (poseChanged) {
+            framing = false;
+        }
+
+        // --- 聚焦请求消费（层级双击镜像优先；F 键聚焦当前选中物） ---
+        Node request = frameRequest;
+        frameRequest = null;
+        if (request != null) {
+            beginFrame(camera, request);
+        } else if (Input.wasPressed(KeyCode.F)) {
+            beginFrame(camera, EditorSelection.getSelectedNode());
+        }
+
+        // --- 聚焦过渡推进（姿态不变，位置/焦点距离双插值） ---
+        if (framing) {
+            advanceFrame(deltaTime);
+            poseChanged = true;
         }
 
         if (poseChanged) {
@@ -251,6 +315,73 @@ public class EditorCameraAppState extends AbsEditorAppState {
         position.add(scratch);
         focusDistance = Math.max(MIN_FOCUS_DISTANCE, focusDistance - amount);
         return true;
+    }
+
+    // ---------------- 聚焦实现 ----------------
+
+    /**
+     * 聚焦请求受理：框住节点（有网格走世界包围盒；无网格/退盒对准节点位置并维持
+     * 当前焦点距离），姿态保持当前，只动位置与环绕焦点距离。目标在请求时刻定格
+     * （过渡期间节点移动不跟随，Unity 口径）。
+     */
+    private void beginFrame(Camera camera, Node node) {
+        GameScene userScene = javelinEditor.getEditorScene().getGameScene();
+        if (node == null || node.getScene() != userScene) {
+            return;  // 僵尸引用（场景已换/节点已删）安全跳过
+        }
+        Vector3f center = frameCenter;
+        float targetDistance = focusDistance;
+        MeshRenderer renderer = node.getComponent(MeshRenderer.class);
+        Mesh mesh = renderer == null ? null : renderer.getMesh();
+        Aabb worldBounds = null;
+        if (mesh != null) {
+            Aabb localBounds = mesh.getBounds();
+            if (localBounds != null) {
+                worldBounds = localBounds.transform(node.getTransform().getLocalToWorld(), scratchAabb);
+            }
+        }
+        if (worldBounds != null) {
+            Vector3f min = worldBounds.getMin();
+            Vector3f max = worldBounds.getMax();
+            center.set((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f, (min.z + max.z) * 0.5f);
+            float ex = (max.x - min.x) * 0.5f;
+            float ey = (max.y - min.y) * 0.5f;
+            float ez = (max.z - min.z) * 0.5f;
+            float radius = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
+            if (radius > MIN_FRAME_RADIUS) {
+                // 半径恰落在垂直半 FOV 视锥内 → 垂直方向框住，余量另放大
+                float halfFovTan = (float) Math.tan(Math.toRadians(camera.getFov()) * 0.5);
+                targetDistance = Math.max(MIN_FOCUS_DISTANCE, radius * FRAME_MARGIN / halfFovTan);
+            } else {
+                node.getTransform().getWorldPosition(center);
+            }
+        } else {
+            node.getTransform().getWorldPosition(center);
+        }
+
+        frameStartPosition.set(position);
+        frameStartDistance = focusDistance;
+        computeForward(forward);
+        frameTargetPosition.set(center.x - forward.x * targetDistance,
+                center.y - forward.y * targetDistance,
+                center.z - forward.z * targetDistance);
+        frameTargetDistance = targetDistance;
+        frameElapsed = 0.0f;
+        framing = true;
+    }
+
+    /** 聚焦过渡推进（smoothstep 缓动，走完自动收束；仅无手动输入帧会到这） */
+    private void advanceFrame(float deltaTime) {
+        frameElapsed += deltaTime;
+        float t = Math.min(1.0f, frameElapsed / FRAME_DURATION);
+        float ease = t * t * (3.0f - 2.0f * t);
+        position.set(frameStartPosition.x + (frameTargetPosition.x - frameStartPosition.x) * ease,
+                frameStartPosition.y + (frameTargetPosition.y - frameStartPosition.y) * ease,
+                frameStartPosition.z + (frameTargetPosition.z - frameStartPosition.z) * ease);
+        focusDistance = frameStartDistance + (frameTargetDistance - frameStartDistance) * ease;
+        if (t >= 1.0f) {
+            framing = false;
+        }
     }
 
     // ---------------- 位姿读写 ----------------
