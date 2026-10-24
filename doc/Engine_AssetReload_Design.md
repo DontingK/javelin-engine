@@ -1,0 +1,199 @@
+# 引擎资产热重载设计（Engine_AssetReload_Design）
+
+> 版本：v0.2（2026-10-24 当日二稿，推翻 v0.1）
+> 拍板（2026-10-24，用户）：**反射遍历流派（UE ReloadPackages 口径本地化）**——持有引用形态不动（Material.shader / MeshRenderer.material 继续死攥对象），重导后由重载协调器**反射遍历场景对象图**找到持有旧实例的 Asset 字段、换新实例指针。v0.1 令牌表方案（持有者钩子 + 依赖登记表）作废。
+> 关联档：Engine_Material_Design.md §3/§4（材质桥与序列化）、Engine_Rendering_Design.md（RenderingSystem 职责）、Editor_Design.md §1（设计基准=完全参考 Unity）、Editor_Menu_Design.md（project.reimport）。
+
+---
+
+## §1 目标与非目标
+
+**目标**：编辑器内修改 `.shader` / `.mat` / 贴图源文件 → 触发重导 → 画面实时更新，且编辑器状态全程不丢（选中、Gizmo、编辑器相机位姿、进行中的未保存场景修改）。
+
+**非目标**：
+- 游戏运行时热更——重载协调器在编辑器模块，不进 AOT 镜像（反射无 GraalVM reflect-config 代价）；core 侧唯一新增（invalidate/reload）不在热路径；
+- WatchService 后台监听（后置，Windows 上编辑器多段保存误触发坑，见 §5.1）；
+- 跨机协作同步、资产删除联动（§7 留白）。
+
+---
+
+## §2 现状盘点
+
+### 2.1 已就位的部分（本设计基本不动的）
+
+1. **wire 层 guid 令牌早已完成**：资产间引用序列化即 guid——`Material.write` 的 `shader` 字段、`MeshRenderer.write` 的 `mesh/material` 字段走框架 guid 分流；`read` 经 `BinaryImporter.loadAsset(guid, type)`（`BinaryImporter.java:134`，二进制路径）与 `TextInputCapsule`（文本路径，loadScene 主路径）解回实例。**存储格式与运行时持有形态均零改动**。
+2. **渲染链对「新实例」天然自适应**：`SceneRenderBridge.sync` 对 `MeshRenderer` 的 mesh/material **身份变化 = 注销重注**（`SceneRenderBridge.java:161`）——组件材质指针一换，下帧自动 `removeRenderer` + `addRenderer` 重建材质资源；`pipelineFor` 的 key 含 `identityHashCode(shader)`，新 Shader 实例 = 新 key = 新建 PSO。渲染侧重接线**不需要新协议**，需要的只是旧资源回收（§2.2-3）。
+3. **贴图/Mesh 的 GPU 孤儿已有出口**：GPU 句柄回填资产本体（`TextureUpload.upload` 幂等、`texture2D.getGpu()`），实例被换后旧实例 GC 不可达 → RHI Cleaner 兜底销毁（Vulkan_Pitfalls #24 修后可靠）。**此路不泄**。
+4. **导入链已有**：mtime 比对增量（`needImport`）、异步导入管线（`AssetImportPipeline`）+ `ImportListener`、手动强制重导（`project.reimport`，绕过 mtime 比对覆盖写产物）。
+5. **材质数值即时生效**：`materialSet()` 每次调用重打包 MaterialBlock 写 UBO——Inspector 材质编辑通道（遗留项）接入后数值实时是白送的。
+
+### 2.2 卡点（本设计要解决的）
+
+1. **弱缓存被强引用顶住**：`AssetLibManager` 的 guid 缓存是 WeakReference，但场景对象图强持旧实例——外部重导覆盖 Library 产物后，`loadGuid` 永远命中内存里的旧活实例，盘上新产物读不到。且无 `invalidate` 口。**（与持有形态无关，反射流派同样必须解）**
+2. **引用死攥且无失效感知**：持有者不知道资产换了，需要有人替它换指针——反射 Walker 即此角色。
+3. **RenderingSystem 缓存只进不出**：`materialResources` / `materialLayouts` / `materialLayoutDescs` / `pipelines` 仅 `close()` 清理——换实例后旧条目全部变孤儿，每次热刷泄一套 GPU 资源（PSO/描述符集/UBO）。
+4. **触发缺位**：无焦点自动扫描（`tools.refresh` 已随去 Web 化退役），无 watcher。
+
+---
+
+## §3 总体架构
+
+反射遍历流派三层分工：
+
+```
+┌─ core 机制层（仅一件）── AssetLibManager：invalidate(guid) / reload(guid)
+│                          （丢弱缓存条目 → 重读盘上产物，返回 old/new 实例）
+├─ 编辑器重载层 ─────────── AssetReloadService：订阅导入完成 → reload 得新实例 →
+│                          反射 Walker 遍历场景对象图换 Asset 字段指针 →
+│                          Material 后处理 → renderingSystem.requestReconcile()
+└─ 触发层 ──────────────── 焦点扫描（Unity Auto Refresh 口径）/ 手动 project.reimport
+```
+
+分工原则：core 只提供「拿到新实例」的机制（丢缓存+重读），**不做任何持有者感知**（无依赖登记表、无钩子接口——v0.1 的两样全废）；换指针的全部知识（哪些对象、哪些字段）由编辑器侧反射 Walker 在重导时现场获得——**图是全知的，遍历即协议**（UE 口径）。
+
+---
+
+## §4 契约
+
+### 4.1 AssetLibManager / AssetManager 扩展
+
+```java
+// AssetManager 接口新增
+void invalidate(String guid);   // 丢弱缓存条目（cache/guidAssetRefMap/trackedRefs 同步清），
+                                // 下次 loadGuid 走盘读新产物
+
+// AssetLibManager 具体类新增（编辑器侧已有具体类引用先例：ProjectAssetLibManager）
+ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，返回 {old, new}
+```
+
+**此层与持有形态完全解耦**：无论谁持有、持多久，reload 只负责「下次能拿到新实例」。
+
+### 4.2 反射 Walker（编辑器侧，com.javelin.editor.asset.reload）
+
+**入口**：当前 `GameScene`（编辑器场景模型根）。场景外的内存持有者不进遍历——Inspector 材质面板已有代际守卫自刷新；不可达持有者经 invalidate 后下次 loadGuid 自然读新。
+
+**遍历规则**（单一通用算法，不认识任何具体类）：
+
+1. `IdentityHashMap` visited 防环（Node parent/Transform 往返引用实锤存在）；
+2. 对象逐字段（含父类链）：`static` / `transient` / null 跳过；
+3. **字段类型是 `Asset` 子类**：值非 null 且 `getGuid()` 等于目标 guid → 反射写入新实例（`setAccessible`，记命中）；
+4. 字段类型是 `Serializable` / `List` / 数组 → 对元素递归（`ArrayList<MaterialTextureEntry>`、`Node.components` 等全靠此条到达）；
+5. **贴图槽零特判**：`MaterialTextureEntry.texture` 字段类型 Texture2D（Asset）→ 规则 3 直接覆盖。
+
+遍历深度终止于 Asset 字段不递归（Asset 内部字段不会被走）——**Material 是 Asset 也在场景图中被组件持有，但 shader 换代需要进 Material 内部**，见 4.3。
+
+### 4.3 两次遍历与 Material 后处理
+
+一次重导事件只处理一个 guid，shader 与材质各自成事件、各自走一遍 Walker：
+
+- **.mat 重导**：Walker 以 material guid 走场景 → `MeshRenderer.material` 命中换指针 → SceneRenderBridge 下帧注销重注（§2.1-2）。
+- **.shader 重导**：Walker 以 shader guid 走场景——规则 3 只覆盖「字段直接持有 Shader」的形态，而场景实际是组件→Material→Shader 两跳，Asset 字段不递归（§4.2-5）会漏。**故 Walker 增一条：命中 Asset 字段后仍递归进新实例内部**（仅此一跳），使 `Material.shader` 可达。Material 后处理（同次遍历内）：
+  1. 反射直写 `shader` 字段——**不调 `setShader`**（其契约=清参数重置，恰好不要；反射直写=按名保留用户值，正是想要的行为）；
+  2. **补默认值条目（硬约束，NPE 实锤）**：`MaterialBlock.pack` 按新 shader 属性序取值，`findValue` 对 values 缺失的新属性返回 null 直接 NPE（`MaterialBlock.java:37/42` + `Material.findValue`）——Walker 对每个被换 shader 的 Material，按新 properties 为缺失名字补默认值条目（复用 `setShader` 的预填循环逻辑）；
+  3. 已删属性的旧条目残留无害（pack 按 shader 属性序取值、不遍历 values）。
+
+**语义总结**：换 shader = 同名参数保留用户值、新参数取新默认值、已删参数丢弃（不炸）。与 Unity 材质保参行为对齐。
+
+### 4.4 RenderingSystem 孤儿回收（对账）
+
+新增 `requestReconcile()`：置脏标记，**下一帧 collectFrame 首执行 mark-and-sweep**（单线程退化下帧首即安全点；重载是事件不是常态，帧路径零常驻成本）。语义：
+
+- **活集** = 当前 `renderers` 的 Material 实例 + 其 `getShader()`；
+- `materialResources`：key 不在活集 → 退役；在活集但 `builtFromShader != material.getShader()`（shader 被换、UBO 尺寸/贴图槽数已变）→ 退役——**MaterialResources 增记 builtFromShader 字段**，下次 `materialSet` 懒重建；**纯贴图热重载同此通道（Material 身份与 shader 均未变）**：MaterialResources 须同时增记**绑定贴图实例表**（SlotBinding：槽名 → 首绑 Texture2D 实例），对账判据扩为 builtFromShader 变 **或任一贴图槽实例变** → 退役重建——否则活描述符集强持旧贴图（`set.update` 回填过 gpu 句柄），**旧 GPU 贴图既不上屏也永不释放**（Cleaner 因强引用存在永不触发，2026-10-24 补录的实锤缺口）；
+- `materialLayouts` / `materialLayoutDescs`：key（Shader）不在活集 → 退役；
+- `pipelines`：key 是 identityHashCode 拼接串，**需增旁注 `Map<GraphicsPipeline, Shader>`**（最小侵入，不改 key 结构）——旁注 Shader 不在活集 → 退役；
+- **退役 = 两帧模式**（照 `retiredTextures` 先例：stamp + 2 帧后 dispose，GPU in-flight 安全；maxFramesInFlight=2，帧 N 的栅栏在帧 N+2 首被 await）。
+
+**GPU 数据释放责任边界**（两条通道，2026-10-24 拍板视角澄清）：
+1. PSO/布局/UBO/描述符集——由 reconcile **确定性释放**（反射 Walker 只换 Java 指针不碰 GPU，释放责任全在对账，这是 reconcile 不可省的根本原因）；
+2. RHI Texture/Mesh 缓冲（句柄挂资产本体）——旧实例被 Walker 摘引用后，**闸门在其宿主描述符集先释放**（set 强持 gpu 句柄），随后 GC 不可达 → RHI Cleaner 兜底销毁（#24 修后 image+free 成对）。「手动 dispose 优先、Cleaner 仅兜底」口径不变——reconcile 释放 set 就是那个手动 dispose。
+
+### 4.5 Scene 根豁免
+
+打开场景自身 guid 变更：**豁免字段级重映射**——不脏（scene.changed / SceneWatchAppState）→ `loadScene` 整场景重载（编辑器相机/Gizmo 在编辑器侧不受影响，选中经 SceneSelectEvent 恢复）；脏 → 跳过 + 警示日志（Unity 脏场景不静默重载口径，弹窗形式后置 §10）。
+
+---
+
+## §5 编辑器侧（策略层）
+
+### 5.1 触发（Unity Auto Refresh 口径）
+
+- **回焦点扫描**：主窗口 focusGained → Assets/ 目录 mtime 快照 diff → 变更文件 `submitImport`（复用 needImport 增量管线）。自身写盘（file.save 内源重导）的 mtime 更新天然幂等，无防抖特判。
+- **手动口保留**：`project.reimport`（强制重导，现行命令不动）。
+- WatchService 后置：Windows 上编辑器保存是多次写入（事件风暴+中间态误触发），焦点扫描已覆盖主用例。
+
+### 5.2 AssetReloadService（新增，编辑器）
+
+订阅 `ImportListener`（导入完成回调）→ 引擎线程帧首执行：
+
+1. `manager.reload(guid)` → old/new 实例；
+2. `new == null`（产物损坏/导入失败）→ **保持旧引用 + warn**（残档口径：不炸主循环）；
+3. guid 是打开场景 → §4.5 豁免路径；
+4. 反射 Walker 遍历场景（§4.2/4.3，含 Material 后处理）；
+5. `renderingSystem.requestReconcile()`；
+6. 发编辑器事件（消费方：Inspector 材质面板刷新、Project 面板等）。
+
+### 5.3 写盘竞态
+
+导入异步线程写产物 vs 引擎线程 `loadGuid` 读盘：产物写侧改**临时文件 + 原子改名**（单点改动，导入器产物落盘处），读者永远读完整文件；`loadGuidInstance` 的 `synchronized(this)` 串行同 guid 并发读。
+
+---
+
+## §6 失败安全
+
+- **Shader 语法错**：导入器拒绝（残档口径）→ 产物不覆盖 → `invalidate` 不发生 → **画面保持旧版本，天然回退**。验收必测。
+- **换 shader 后 Pass 被删**：严格制下 `pipelineFor` 抛 IllegalStateException（「未声明 Pass」）——**第一期维持现状**（渲染侧显式报错口径一致）；Pass 兼容预校验置灰后置（§10）。
+- **产物损坏 / guid 解析失败**：reload 返回 null → 跳过重映射 + warn（§5.2-2）。
+- **脏持有者**：第一期只有 Scene 脏判据生效（§4.5）；Material 内存脏待 Inspector 材质编辑通道落地后接入（跳过 + warn，Unity 口径）。
+
+---
+
+## §7 边界与已知留白
+
+- **setter 旁路**（反射流派固有代价，记录在案）：Walker 反射直写字段，绕过 `MeshRenderer.setMaterial` 等现有 setter——当前 setter 均为纯赋值等价无碍；**将来任何 Asset 字段的 setter 出现副作用（置脏/发事件）时，必须同步在 Walker 登记对应后处理**（Material 补默认值即首个先例）。Inspector 的「读 getter 写 setter」铁律不受影响（那是检查器编辑通道的规矩，本通道是运行时重载）。
+- **新增持有自动覆盖**：反射流派的收益——将来新增任何 Asset 引用字段（Node→脚本资产、组件→音频等）零申报自动被 Walker 覆盖；代价是上面 setter 旁路一条。
+- 删除资产源文件：Library 产物残留不失效（Unity 同口径），联动清理后置；
+- GAME 视口与 SCENE 视口共用场景 → 热重载对两视口同时生效（Unity 同口径）；
+- Mesh 热重载：协议同构（mesh 指针换 + sync 注销重注 + MeshUpload 幂等 + Cleaner 兜底），但 `.smesh` 外部编辑罕见，批次后置；
+- 反射安全（SecurityManager/setAccessible 限制）：编辑器桌面 JVM 无此约束。
+
+---
+
+## §8 批次划分（按用户派发的增量步执行，只做派发那一片）
+
+| 批次 | 内容 | 触发口 |
+|---|---|---|
+| ① core + 最小闭环 | invalidate/reload + 反射 Walker（含 Material 后处理）+ `requestReconcile` 孤儿回收 | 手动 `project.reimport` 链跑通 |
+| ② | 焦点扫描触发 + Scene 根豁免（脏判据/整重载/警示） | focusGained |
+| ③ | 贴图热重载 + Mesh 热重载（验收 + 旁路核对） | 同上 |
+| ④ | Inspector 材质编辑通道接入 + 内容 hash 替代 mtime（防「时间戳变内容没变」误重导，UE DDC 启示）+ Pass 兼容预校验 | — |
+
+---
+
+## §9 验收清单
+
+1. 改 `.shader` 颜色常量 → 手动 reimport → 画面当帧变；选中/Gizmo/编辑器相机不丢；
+2. 改 `.shader` 属性默认值 → 材质面板同名参数用户值保留、新增属性取新默认值、删属性不炸（NPE 路径专项）；
+3. 改 `.mat` → 场景画面变（资产材质与 .scene 内嵌材质两路都验——内嵌材质在组件 material 字段上 guid null，**.mat 事件不命中它属正确语义**；其 shader 引用仍经 shader 事件覆盖）；
+4. 改贴图源文件 → 画面变（批次③）；
+5. shader 语法错 → 画面保持旧版 + 日志报错（失败回退）；
+6. **F3 RenderStats 存活计数不随热刷次数增长**（孤儿回收验证——11 类存活计数是现成验证工具）；
+7. 连续热刷 ×N 次无显存增长（resize-oom 教训的姊妹验证口径）；
+8. 焦点扫描（批次②）：外部改文件 → 切回编辑器 → 自动生效；编辑器自身保存不误触发。
+
+---
+
+## §10 待拍板项
+
+| 项 | 现状口径 | 备选 |
+|---|---|---|
+| Scene 脏时警示形式 | 日志 warn（第一期） | 顶部弹条/对话框（Unity 式），批次②实测定 |
+| 换 shader 删 Pass 的帧内报错 | 维持渲染侧显式报错（严格制） | 重载前 Pass 兼容预校验、不兼容材质置灰，批次④ |
+| Walker 命中 Asset 后的递归深度 | 仅进一跳（§4.3，Material.shader 需要且仅此需要） | 全递归（Asset 字段全走），暂无第二用例不预扩 |
+
+---
+
+## 版本沿革
+
+- v0.1（2026-10-24）：初稿，令牌表流派（持有者钩子 `AssetReloadAware` + 依赖登记表 + 按实例自描述 guid 匹配）。**同日被用户推翻**——持有引用形态不动，改反射遍历。
+- v0.2（2026-10-24）：反射遍历流派（UE ReloadPackages 口径本地化）：core 缩到 invalidate/reload 一件；持有者钩子/依赖登记全废，换指针知识由反射 Walker 现场遍历获得；Material 补默认值后处理（pack 缺 entry NPE 实锤新增）；其余（SceneRenderBridge 身份重注、孤儿两帧退役、Scene 根豁免、失败安全、批次划分）继承 v0.1 核实成果。**同日补录**：§4.4 增 GPU 释放责任边界 + 纯贴图热重载缺口（MaterialResources 须记贴图槽实例表，否则活 set 强持旧贴图永不释放、画面不更新——对账判据扩为 shader 变或贴图槽实例变）。

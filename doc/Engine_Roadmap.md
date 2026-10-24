@@ -165,13 +165,21 @@ Editor_Design §10 遗留销账）+ .mat 文件类型注册。详见
 Engine_Material_Design §3.2 / Editor_Menu_Design v0.13。
 
 进度（2026-10-20 落地，同日用户实测验收通过）：**插件体系 + editor.core 迁移 + i18n 基建 + 菜单
-i18n 首批**（Editor_Plugin_Design v0.1）：插件契约/装载管线/错误分级落地（ServiceLoader
+ i18n 首批**（Editor_Plugin_Design v0.1）：插件契约/装载管线/错误分级落地（ServiceLoader
 发现，editor.core 即插件无特权——三个 Setup 迁 EditorCorePlugin.setup 经 PluginContext
 收口，引擎依赖懒取）；装载接入 ProjectLoadingFrame（先于资产初始化，Plugins/ 目录
 项目级）；i18n 体系（I18nKey 自持 namespace + I18nScope/EditorLang 门面 + I18n 注册
 中心——`!key!` 兜底不抛、去重 warn、miss/used 采集）+ 菜单 label 全链 I18nKey
 （key=命令 id 约定，域基类默认 label，12 命令类覆写全删），`lang/zh_cn.properties`
 36 条（含 create.material 注册补漏 ac8a514）。待拍板挂账：命令 id 前缀化/FileType 冲突策略/默认语言。详见 Editor_Plugin_Design。
+
+进度（2026-10-24 设计定档，**未实现**）：**资产热重载设计（Engine_AssetReload_Design
+v0.2）**——改 .shader/.mat/贴图编辑器实时刷新；当日两稿拍板反转：v0.1 令牌表流派
+（持有者钩子+依赖登记）被推翻，终态=**反射遍历流派**（持有引用形态不动，重载协调器
+反射走场景对象图换 Asset 字段指针；core 仅增 invalidate/reload，Walker 居编辑器模块
+不进 AOT 镜像）；配套=Material 补默认值后处理（pack 缺 entry NPE 实锤）、RenderingSystem
+孤儿两帧退役（含纯贴图热重载缺口判据：贴图槽实例变亦退役重建）、Scene 根豁免、导入
+失败不 invalidate=天然回退；批次①~④待派发。详见 Engine_AssetReload_Design。
 
 ---
 

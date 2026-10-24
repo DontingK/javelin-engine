@@ -95,6 +95,7 @@
 | `Engine_Collision_Design.md` | 引擎碰撞设计（v0.1）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ L1 场景查询/L2 物理系统预留；Collider 组件族 + fitFromMesh + 世界 Aabb；拍板：碰撞体=组件、刚体独立后置、Ray 收窄为运行时物理查询 |
 | `Engine_Picking_Design.md` | GPU 拾取设计（v0.1）：**RHI 读回环（TextureReadbackRing 非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，不消费材质 Pass 声明——看得见即拾得）+ PickSystem 双通道（hover/click、帧表防串帧、落点 core 运行时可用）+ 编辑器消费（点击门控/选中收口/Gizmo 轴迁移）**；透明物体可拾取（Unity 口径）；已知边界与验收清单见档内 |
 | `Editor_DebugLine_Design.md` | 编辑器调试线设计（v0.1）：**编辑器专属世界空间线框（门面+batch+覆盖制 DebugLinePass 插 Transparent 后深度咬合/MSAA 双分支）+ 组件绘制器策略层（ComponentDebugLine 查表分派，mesh bounds 世界 AABB/相机视锥/BoxCollider）+ 选中驱动每帧 clear 重提交**；GAME 视口无线；验收清单见档内 |
+| `Engine_AssetReload_Design.md` | 资产热重载设计（v0.2）：**反射遍历流派（持有引用不动，重载协调器反射走场景对象图换 Asset 字段指针）+ AssetLibManager invalidate/reload + Material 补默认值后处理（pack 缺 entry NPE 实锤）+ RenderingSystem 孤儿两帧退役 + 焦点扫描/手动 reimport 触发**；setter 旁路警示、失败安全（导入失败不 invalidate=天然回退）与批次划分见档内（v0.1 令牌表方案同日推翻，沿革在档） |
 
 ### 实现进度文档
 
