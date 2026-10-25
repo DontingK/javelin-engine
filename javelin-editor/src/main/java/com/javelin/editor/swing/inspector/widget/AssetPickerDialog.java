@@ -3,6 +3,7 @@ package com.javelin.editor.swing.inspector.widget;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.file.FileType;
 import com.javelin.editor.file.FileTypeRegistry;
+import com.javelin.editor.project.Project;
 import com.javelin.editor.swing.SvgIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,13 +31,16 @@ import java.awt.Dimension;
 import java.awt.Window;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /**
  * 资产选择窗（AssetInput 配套，Unity ObjectField 拾取器口径）：模态列当前类型
- * 全部已导入资产（后台 listAssetPaths 拉取）+ 首项 None（清空合法），搜索框按
+ * 全部已导入**用户可选**资产（后台 listAssetPaths 拉取；.javelin/assets 的 core
+ * 组内置原始体/默认着色器照常列出，editor 组编辑器内部资源过滤不列）+ 首项 None
+ * （清空合法），搜索框按
  * 显示名过滤；双击条目或「确定」提交、「取消」/Esc 放弃。选择结果经
  * {@link #pick} 返回——返回 null = 取消；{@link Selection} 的 guid 为 null = 选中
  * None（清空）。
@@ -169,6 +173,9 @@ public final class AssetPickerDialog extends JDialog {
         Thread loader = new Thread(() -> {
             List<Entry> loaded = new ArrayList<>();
             for (String path : editor.getAssetManager().listAssetPaths(suffix)) {
+                if (isEditorAsset(editor, path)) {
+                    continue;
+                }
                 String guid = editor.getAssetManager().guidOfPath(path);
                 if (guid == null || guid.isEmpty()) {
                     LOGGER.warn("索引条目缺 guid，跳过: {}", path);
@@ -183,6 +190,21 @@ public final class AssetPickerDialog extends JDialog {
         }, "asset-picker-loader");
         loader.setDaemon(true);
         loader.start();
+    }
+
+    /**
+     * 编辑器自有资产判定（仅 .javelin/assets **editor 组**——gizmo/网格辅助线等
+     * 编辑器内部资源，不摆进用户选择列表；core 组内置原始体/默认着色器照常可选，
+     * Unity builtin 口径）。索引键相对各自监视根，editor 组键以 "editor/" 起头——
+     * 以 .javelin/assets 下存在同名文件坐实（防用户 Assets/editor/ 撞名误伤；
+     * 后台线程调用，纯文件存在性 IO）。
+     */
+    private static boolean isEditorAsset(JavelinEditor editor, String path) {
+        if (!path.startsWith("editor/")) {
+            return false;
+        }
+        Project project = editor.getProject();
+        return project != null && new File(project.getEditorDir(), "assets/" + path).isFile();
     }
 
     /** 应用搜索过滤（None 恒首；显示名包含匹配、忽略大小写） */

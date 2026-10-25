@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.10）
+# 检查器（Inspector）设计（v0.11）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -101,6 +101,34 @@
 > 提交链复用字段行既有链（submitTask 帧边界 ｛归属校验→apply→markDirty｝，场景
 > 保存时 .scene 按新 guid 序列化）；只读前身 GuidAssetField 退役删除。运行期在用
 > 引用热切归资产热重载批次（换材质后重载场景生效）。
+> v0.11（2026-10-25，待验收）：**材质编辑即时联动渲染——编辑载体改「缓存共享
+> 实例优先」**（用户报「检查器和场景的材质实例不是同一个、改材质不同步」：原
+> 面板 TextImporter 私有实例编辑、仅落盘重导，场景内存实例无人换指针）——
+> .mat 面板加载链=文本源解析（guid 来源+兜底载体）→ loadGuid 查缓存，命中且
+> **shader guid 与盘面一致** → 直接编辑场景 MeshRenderer 持有的同一实例：数值/
+> 面型提交即时生效（三项前提已核实：RenderingSystem.materialSet 每帧重打包
+> MaterialBlock、收集期逐帧按 surfaceType 分桶、pipelineFor key 含面型）；缓存
+> 未命中由 loadGuid 落 Library 产物并注册（后续场景加载同享）；产物缺失/损坏
+> 或 shader 与盘面分歧（换绑后）走文本解析实例兜底——**分歧守卫**防旧实例防抖
+> 写盘把换绑悄悄导回旧 shader（数据丢失级坑）。**Shader 换绑例外不落共享实例**
+> （渲染侧 MaterialResources 按 shader 首绑烤死 UBO 尺寸/贴图绑定数，live
+> setShader 会越界/错配）：改文本重解析实例上换绑+写盘+重导（生效口径同 v0.8
+> ——盘面先行、场景实例随重载/热重载批次换指针），onShaderCommit 先
+> flushPending 防丢尾改。彻底根治（外部改盘感知、贴图槽 live 编辑、指针级
+> 换绑）归资产热重载批次（Engine_AssetReload_Design v0.2 已定稿待派发）。
+> **同日追修（用户复验报「MeshRenderer 材质回显还是显示 None」）**：根因=
+> FieldRowFactory GUID_ASSET 分支漏传初值（其余通道均构造传 vo.value，AssetInput
+> 无初值构造恒显 None）——修=创建后 setValue(vo.value)（三态齐走：null=None/
+> 空串=内存创建/guid）；同修 AssetInput 显示名**去后缀**（「xxx.mat」→「xxx」，
+> Unity 资产名口径，对齐 Reflector.guidAssetLabel 先例——用户点名「Unity 是直接
+> 显示的文件名称」）。**再追修（用户报「资产选择器不应该能选编辑器的」）**：选择器
+> 列表源=listAssetPaths 扫全部监视根，`.javelin/assets`（BuiltinAssetReleaser 内置
+> 释放目录）的条目一并入列——AssetPickerDialog 补过滤，**范围仅 editor 组**（用户
+> 拍板：core 组内置原始体/默认着色器照常可选=Unity builtin 口径，editor 组
+> gizmo/网格辅助线等编辑器内脏不列）：索引键相对各自监视根，editor 组键以
+> "editor/" 起头、以 `.javelin/assets` 下存在同名文件坐实（防用户 Assets/editor/
+> 撞名误伤，后台线程纯 IO）；项目面板树根仅 Assets/src，拖放通道天然不达
+> .javelin，无需同款守卫。
 
 ## 1. 总则
 

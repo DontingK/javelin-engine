@@ -88,7 +88,7 @@
 | `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.15）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（纯 Swing + FlatLaf，视口零拷贝路径保留）**、自研轻量 Dock（二分布局树 + PanelRegistry 扩展点 + ViewportTabs 单 Canvas 不 reparent）、面板迁移路线、里程碑 M1~M6、配色单点（§10-3） |
 | `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.1）：**插件契约（namespace/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集）**；待拍板项见档内 |
-| `Inspector_Design.md` | 检查器设计（v0.10）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板）、输入交互增强（键入即提交+label 拖动调值） |
+| `Inspector_Design.md` | 检查器设计（v0.11）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板——编辑载体=缓存共享实例优先、数值/面型即时联动渲染）、输入交互增强（键入即提交+label 拖动调值） |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入 |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |

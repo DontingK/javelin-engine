@@ -55,7 +55,9 @@ import java.util.List;
  * ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput（RANGE 按
  * 声明区间硬钳）、面型=JeSelect；提交=写内存实例 + **防抖持久化**（键入即提交
  * ×写盘重导的合并阀，换选/摘除前 flushPending 兜底防丢尾改——Unity 资产即时
- * 保存口径）。贴图槽仍只读（贴图资产管线未通，AssetInput 无 Texture 键）。
+ * 保存口径）。编辑载体=缓存共享实例优先（loadGuid，场景同一对象——数值/面型
+ * 编辑即时联动渲染；shader 换绑例外走盘面重解析，见 onShaderCommit）。贴图槽
+ * 仍只读（贴图资产管线未通，AssetInput 无 Texture 键）。
  *
  * <p>线程契约：onSelection（EDT）起后台加载线程，代际守卫（点击前进即 +1，
  * 晚到的旧结果丢弃）；解析失败显示错误态不静默。</p>
@@ -132,11 +134,21 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         loader.start();
     }
 
-    /** 后台线程加载：.mat 文本源 → Material（纯 IO + guid 解引用，无引擎状态） */
+    /**
+     * 后台线程加载：.mat 文本源解析 → 缓存查共享实例（loadGuid）命中且 shader 与
+     * 盘面一致即作为编辑载体——场景 MeshRenderer 持同一对象，数值/面型编辑即时
+     * 联动渲染（RenderingSystem.materialSet 每帧重打包、收集期逐帧分桶）；缓存
+     * 未命中由 Library 产物加载并注册，产物缺失/损坏或 live 实例与盘面 shader
+     * 分歧（换绑后）回退文本解析实例（盘面权威，编辑落盘重导、联动待热重载批次）。
+     */
     private void load(File file, AssetManager assetManager, int gen) {
         Material material;
         try {
-            material = new TextImporter(file, assetManager).importData(Material.class);
+            Material parsed = new TextImporter(file, assetManager).importData(Material.class);
+            material = sharedInstanceOf(parsed, assetManager);
+            if (material == null) {
+                material = parsed;
+            }
         } catch (Exception e) {
             LOGGER.warn("材质文件解析失败: {}", file.getName(), e);
             SwingUtilities.invokeLater(() -> {
@@ -152,6 +164,37 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
                 build(loaded, file);
             }
         });
+    }
+
+    /**
+     * 缓存优先取共享实例（guid → loadGuid）：命中且 shader 与盘面一致（live 实例
+     * 未与盘面分歧——换绑后、外部改盘后）才作为编辑载体，否则走文本兜底防旧实例
+     * 写盘撤销换绑；加载失败同样回 null。
+     */
+    private static Material sharedInstanceOf(Material parsed, AssetManager assetManager) {
+        String guid = parsed.getGuid();
+        if (guid == null || guid.isBlank()) {
+            return null;
+        }
+        Material shared;
+        try {
+            shared = assetManager.loadGuid(guid, Material.class);
+        } catch (Exception e) {
+            LOGGER.warn("材质共享实例加载失败，回退文本源实例: guid={}", guid, e);
+            return null;
+        }
+        if (shared != null && !sameShaderGuid(parsed, shared)) {
+            LOGGER.info("live 材质实例与盘面 shader 分歧，走文本源实例: guid={}", guid);
+            return null;
+        }
+        return shared;
+    }
+
+    /** 两实例 shader guid 一致判定（null-safe） */
+    private static boolean sameShaderGuid(Material a, Material b) {
+        String ga = a.getShader() != null ? a.getShader().getGuid() : null;
+        String gb = b.getShader() != null ? b.getShader().getGuid() : null;
+        return ga == null ? gb == null : ga.equals(gb);
     }
 
     /** 组装展示（EDT）：材质信息（固定分组）/ 参数 / 贴图槽（可折叠分组） */
@@ -284,7 +327,7 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         scheduleFlush();
     }
 
-    /** 面型提交（透明分桶裁决；渲染侧在用材质的桶迁移随重导/重载生效） */
+    /** 面型提交（透明分桶裁决；收集期逐帧读面型，桶迁移即时生效） */
     private void applySurface(String wire) {
         Material material = this.material;
         if (material == null || wire == null) {
@@ -301,8 +344,10 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     /**
      * Shader 换绑提交（EDT，即时持久化——单发动作不走防抖）：材质必绑 Shader
-     * （Unity 口径，None 拒绝）；换绑 = setShader（core 语义重置参数默认值）→
-     * TextExporter 即时写回 → submitImport 重导 → 面板重刷。
+     * （Unity 口径，None 拒绝）；换绑不落共享实例（渲染侧 MaterialResources 按
+     * shader 首绑烤死，live 换绑 UBO 尺寸/贴图绑定数错配）——文本重解析实例上
+     * setShader（core 语义重置参数默认值）→ TextExporter 即时写回 → submitImport
+     * 重导 → 面板切到该实例（场景实例指针随场景重载/热重载批次换）。
      */
     private void onShaderCommit(String newGuid) {
         Material material = this.material;
@@ -324,9 +369,13 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             shaderInput.setValue(oldGuid);
             return;
         }
+        // 防抖尾改先落盘：换绑从盘面最新态出发（解析失败连同下方写回一并走重载兜底）
+        flushPending();
+        Material rebound;
         try {
-            material.setShader(shader);
-            new TextExporter(file).export(material);
+            rebound = new TextImporter(file, editor.getAssetManager()).importData(Material.class);
+            rebound.setShader(shader);
+            new TextExporter(file).export(rebound);
         } catch (Exception e) {
             // 写回失败=盘面即权威，内存态作废直接从盘面重载（显示随 build 自正）
             LOGGER.error("材质写回失败，从盘面重载: {}", file, e);
@@ -334,7 +383,7 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             return;
         }
         editor.getAssetImportPipeline().submitImport(file);
-        build(material, file);
+        build(rebound, file);
     }
 
     // ------------------------------------------------------------------ 持久化

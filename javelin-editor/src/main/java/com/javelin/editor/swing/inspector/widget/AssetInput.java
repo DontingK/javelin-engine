@@ -234,7 +234,7 @@ public class AssetInput extends JPanel implements FieldEditor {
         }
     }
 
-    /** 显示名：guid 反查源路径尾名（pathMap 内存查，无 IO），未命中退 guid 原串 */
+    /** 显示名：guid 反查源路径尾名去后缀（Unity 资产名口径，pathMap 内存查无 IO），未命中退 guid 原串 */
     private String displayName() {
         JavelinEditor editor = JavelinEditor.getInstance();
         String path = editor != null ? editor.getAssetManager().pathOfGuid(guid) : null;
@@ -242,7 +242,9 @@ public class AssetInput extends JPanel implements FieldEditor {
             return guid;
         }
         int index = path.lastIndexOf('/');
-        return index >= 0 ? path.substring(index + 1) : path;
+        String tail = index >= 0 ? path.substring(index + 1) : path;
+        int dot = tail.lastIndexOf('.');
+        return dot > 0 ? tail.substring(0, dot) : tail;
     }
 
     /** 类型图标（按扩展名查 FileTypeRegistry，懒建缓存） */
