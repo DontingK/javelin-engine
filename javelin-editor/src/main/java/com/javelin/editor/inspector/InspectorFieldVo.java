@@ -1,5 +1,7 @@
 package com.javelin.editor.inspector;
 
+import com.javelin.core.assets.Asset;
+
 import java.util.List;
 
 /**
@@ -27,6 +29,8 @@ public class InspectorFieldVo {
      * 内存创建（guid 空）为 null，面板按 value 空串标记渲染禁用态文案；其他类型 null）
      */
     public String assetName;
+    /** 声明资产类型（GUID_ASSET 类型字段：AssetInput 接受范围与回写 loadGuid 类型；其他类型 null） */
+    public Class<? extends Asset> assetType;
 
     /** 滑条范围元数据（INT 场景三值为注解整型原值，渲染取整由 valueType 决定） */
     public static class Range {

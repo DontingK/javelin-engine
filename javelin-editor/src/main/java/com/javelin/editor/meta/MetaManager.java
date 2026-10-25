@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>管理资源元数据的加载、保存和查询。</p>
  * <p>采用伴生模式：每个资源文件同级目录生成 {@code .meta} 文件（2026-10-25 统一：
  * .shader/.smesh 也落伴生 .meta，guid 为文件头镜像——文件头仍是真值，保证重释放
- * guid 稳定）。</p>
+ * guid 稳定；guid 头为内置资源专属，用户文件缺头走随机 meta guid）。</p>
  * <p>唯一例外：{@code .java}（{@code src/} 下）guid 在文件头且不生成 {@code .meta}。</p>
  *
  * @author: javelin
@@ -348,21 +348,6 @@ public class MetaManager {
     }
 
     /**
-     * 判断 guid 真值是否在文件头（.java / .shader / .smesh）
-     *
-     * <p>文件头 guid 保证重释放/重建缓存后 guid 不变（内置资产引用稳定的根基）。
-     * .shader/.smesh 自 2026-10-25 起也落伴生 .meta，meta 内 guid 为文件头镜像。</p>
-     *
-     * @param file 资源文件
-     * @return 如果 guid 真值在文件头返回 true
-     */
-    private boolean isHeaderGuidFile(File file) {
-        return isScriptFile(file)
-                || file.getName().toLowerCase().endsWith(".shader")
-                || file.getName().toLowerCase().endsWith(".smesh");
-    }
-
-    /**
      * 从 .meta 文件加载元数据
      *
      * @param metaFile .meta 文件
@@ -427,11 +412,19 @@ public class MetaManager {
      * @return 新元数据
      */
     private AssetMeta createNewMeta(File file) {
-        // guid 真值在文件头（.java/.shader/.smesh）从文件头取（缺失注入）——重释放
-        // guid 稳定的根基；其余类型新生成
-        String guid = isHeaderGuidFile(file)
-                ? guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file))
-                : UUID.randomUUID().toString().replace("-", "");
+        // guid 真值在文件头（.java/.shader/.smesh）从文件头取——重释放 guid 稳定的
+        // 根基。缺头处理分层：.java 无 meta、头是唯一真值，注入路径种子 guid；
+        // .shader/.smesh 缺头=用户文件（guid 头是内置资源专属，不注入），走
+        // 随机 guid——meta 即真值，导入器头缺失回退 meta 的路径接住
+        String guid;
+        if (isScriptFile(file)) {
+            guid = guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file));
+        } else {
+            String headerGuid = guidHeaderManager.extractGuid(file);
+            guid = (headerGuid == null || headerGuid.isEmpty())
+                    ? UUID.randomUUID().toString().replace("-", "")
+                    : headerGuid;
+        }
         AssetMeta meta = new AssetMeta(guid, detectAssetType(file));
         meta.setLastModifiedTime(file.lastModified());
         return meta;

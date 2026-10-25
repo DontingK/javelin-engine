@@ -106,6 +106,11 @@ public class SceneSerializationTest {
         }
 
         @Override
+        public String guidOfPath(String path) {
+            return null;   // stub 无 Library 索引，路径反查恒未命中
+        }
+
+        @Override
         @SuppressWarnings("unchecked")
         public <T extends Asset> T loadGuidInstance(String guid, Class<T> assetClass) {
             return (T) assets.get(guid);

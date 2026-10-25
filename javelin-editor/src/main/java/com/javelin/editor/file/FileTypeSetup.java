@@ -9,7 +9,8 @@ import com.javelin.editor.plugin.PluginContext;
  *
  * <p>首批注册（2026-10-18 拍板）：.scene（图标 + 打开器）、.java/.json
  * （纯图标）；.mat 随材质导入管线批次注册（2026-10-19，纯图标——材质编辑
- * 面板后置，双击暂无动作）；.shader/.smesh 等要用时再补注册。</p>
+ * 面板后置，双击暂无动作）；.shader 随创建命令批次注册（2026-10-25，纯图标）；
+ * .smesh 等要用时再补注册。</p>
  *
  * @author javelin
  * @create 2026/10/18
@@ -35,5 +36,6 @@ public final class FileTypeSetup {
         context.registerFileType(new IconFileType("class", ".java"));
         context.registerFileType(new IconFileType("json", ".json"));
         context.registerFileType(new IconFileType("material", ".mat"));
+        context.registerFileType(new IconFileType("shader", ".shader"));
     }
 }

@@ -54,7 +54,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * （v0.4 增量：遍历 node.getComponents() 挂载序，贴 @InsHeader 的组件才进
  * 面板——旧组件白名单退役）；v0.2~v0.3 通道沿革：ENUM/COLOR/RECT/
  * LAYER_MASK 放开（枚举选项随 VO 下发，显示名走 {@link InsEnumLabel}）、
- * GUID_ASSET（Asset 引用型字段只读展示，赋值通道待项目面板拖拽资产落地）。
+ * GUID_ASSET（Asset 引用型字段，AssetInput 可编辑——选择窗/拖拽/None 清空，
+ * 回写 guid 经 loadGuid 解实例）。
  * Collider 组件暂缓（未贴 @InsHeader 即不入面板）。可空值对象
  * （Camera.backgroundColor/viewportRect）：序列化传 null（前端控件兜底
  * 显示），编辑回写即物化显式值。</p>
@@ -179,6 +180,7 @@ public final class InspectorReflector {
         vo.value = serialize(current, prop);
         if (prop.valueType == InspectorValueType.GUID_ASSET) {
             vo.assetName = guidAssetLabel(current);
+            vo.assetType = prop.assetType;
         }
         vo.range = prop.range;
         vo.options = prop.options;
@@ -409,8 +411,12 @@ public final class InspectorReflector {
                 }
             }
         }
+        // GUID_ASSET 声明类型随元数据携带（AssetInput 接受范围与回写 loadGuid 类型；
+        // asSubclass 安全：mapValueType 已验 Asset 可赋型）
+        Class<? extends Asset> assetType = type == InspectorValueType.GUID_ASSET
+                ? field.getType().asSubclass(Asset.class) : null;
         return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),
-                enumType, options);
+                enumType, options, assetType);
     }
 
     /**
@@ -466,8 +472,7 @@ public final class InspectorReflector {
 
     /**
      * 字段类型 → 值类型；不可映射返回 null（即不展示）。
-     * Asset 引用型字段（Mesh/Material 等）→ GUID_ASSET 只读展示（赋值通道待
-     * 项目面板拖拽资产）。暂缓：Collider 组件。
+     * Asset 引用型字段（Mesh/Material 等）→ GUID_ASSET（AssetInput 可编辑）。暂缓：Collider 组件。
      */
     private static InspectorValueType mapValueType(Field field) {
         Class<?> type = field.getType();
@@ -566,6 +571,9 @@ public final class InspectorReflector {
     /** 值字符串 → 类型对象（按值类型分支；失败抛 TipException） */
     private static Object parseValue(PropMeta prop, String value) {
         if (value == null) {
+            if (prop.valueType == InspectorValueType.GUID_ASSET) {
+                return null; // None=清空合法（Unity 口径：MeshRenderer 材质可空）
+            }
             throw new TipException("字段值不能为空: " + prop.fieldName);
         }
         switch (prop.valueType) {
@@ -612,9 +620,19 @@ public final class InspectorReflector {
             case LAYER_MASK:
                 return parseInt(value);
             case GUID_ASSET:
-                // v0.1 只读通道：赋值待项目面板拖拽资产落地（Inspector_Design 遗留）
-                throw new TipException("GUID 资产字段暂不支持字符串回写（赋值走拖拽，待落地）: "
-                        + prop.fieldName);
+                // guid wire → 声明类型实例（loadGuid 共享缓存，同 .scene 序列化口径）；
+                // 空串=内存创建不可回写；guid 未索引即资产不存在，拒绝防静默置 null
+                String guid = value.trim();
+                if (guid.isEmpty()) {
+                    throw new TipException("内存创建资产不可回写: " + prop.fieldName);
+                }
+                JavelinEditor editor = JavelinEditor.getInstance();
+                Asset asset = editor != null
+                        ? editor.getAssetManager().loadGuid(guid, prop.assetType) : null;
+                if (asset == null) {
+                    throw new TipException("资产不存在（guid 未索引）: " + prop.fieldName);
+                }
+                return asset;
             default:
                 throw new TipException("暂不支持的回写类型: " + prop.valueType);
         }
@@ -668,10 +686,13 @@ public final class InspectorReflector {
         final Class<?> enumType;
         /** 枚举选项（ENUM 字段随 VO 下发；其他类型 null） */
         final List<InspectorFieldVo.Option> options;
+        /** 声明资产类型（GUID_ASSET 字段；其他类型 null） */
+        final Class<? extends Asset> assetType;
 
         PropMeta(String fieldName, String displayName, InspectorValueType valueType,
                  Method getter, Method setter, InspectorFieldVo.Range range,
-                 Class<?> enumType, List<InspectorFieldVo.Option> options) {
+                 Class<?> enumType, List<InspectorFieldVo.Option> options,
+                 Class<? extends Asset> assetType) {
             this.fieldName = fieldName;
             this.displayName = displayName;
             this.valueType = valueType;
@@ -680,6 +701,7 @@ public final class InspectorReflector {
             this.range = range;
             this.enumType = enumType;
             this.options = options;
+            this.assetType = assetType;
         }
 
         Object get(Object host) {

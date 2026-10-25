@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.6）
+# 检查器（Inspector）设计（v0.10）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -45,6 +45,62 @@
 > 即提交（enter/blur 才应用作废）、文本提交时机归使用方（默认 enter/blur、可选每键
 > 通道）、label 按住左键左右拖调值（Unity scrub 口径，每像素步长可配：默认整 1/浮
 > 0.1、range 字段=注解 step）；滚轮调值与无限拖（指针回绕）试做后按用户要求移除。
+> v0.7（2026-10-25，待验收）：**.shader 资产只读诊断台（§11 注册器第三键，
+> ShaderInspectorProvider/Content）**——Unity 着色器检查器对照（无编辑字段、诊断
+> 台定位）：后台线程经文件头/meta 解 guid → AssetManager.loadGuid 读 Library 产物
+>（**读产物即编译后真值**，与材质面板读源互补）、EDT 组装三段——头（文件/Shader/
+> GUID）+ 属性声明表（名/类型/默认值或区间或贴图占位）+ Pass 状态表（Cull/ZWrite/
+> ZTest/Blend 底稿摘要）；产物缺失=显式诊断态（对应 Unity 编译错误区，导入失败/
+> 未导入可判）、guid 双源皆缺同显式态；代际守卫同材质面板。「Show compiled
+> code」等价物（注入后 GLSL 查看）留后置。
+> v0.8（2026-10-25 落地待验收，方案经用户拍板「确认」）：**.mat 联动第一项：
+> AssetInput 资产通用输入（Unity ObjectField 口径，§6 widget 第八件）**——构造传
+> {@code Class<? extends Asset>} 声明接受类型（TYPE_SUFFIX 私有表 Shader/Mesh/
+> Material/GameScene 四行，资产管线落地新类型补行、未知类型构造抛错）；值=guid
+> wire 三态（null=None 清空合法/空串=内存创建/非空=guid，GUID_ASSET 同构）；三
+> 输入通道=选择窗（AssetPickerDialog：模态、后台 listAssetPaths 拉取、None 恒首、
+> 搜索过滤、双击/确定提交、取消不动值）+ 项目面板右区拖拽（JList 拖源
+> javaFileListFlavor 传 File；AssetInput 按扩展名过滤 + guid 双源解析——文件头
+> 优先伴生 .meta 兜底）+ setValue 外源刷新；提交走 Consumer<String>（机制归控件、
+> 策略归使用方先例）；FieldEditor 兼容（isEditing 恒 false——原子提交无逐键态）。
+> **core 新口 AssetManager.guidOfPath**（pathMap 反查、pathOfGuid 对偶——选择窗
+> 路径条目取 guid 提交；Stub 桩同步补）。**同日追加：材质检查器 Shader 行换装
+> 落地**（MaterialInspectorContent 增量）——onShaderCommit 提交链：材质必绑
+> Shader（None/空拒绝，显示回滚旧值）→ loadGuid 取 Shader（失败拒绝）→
+> **setShader 即 core 全量重置语义**（values/textures 清空按新属性表填默认值——
+> pack 缺 entry NPE 坑在 core 正面消解，无需编辑器侧重建）→ TextExporter 即时
+> 写回 .mat + submitImport 重导（**Unity 资产即时保存口径拍板：资产无脏标，
+> 改即落盘**）→ build 重刷面板；写回失败=盘面即权威，从盘面重载自正。运行期
+> 在用材质实例热切归资产热重载批次（未实现，重载场景后生效）。参数/贴图槽
+> 编辑见 v0.9（参数已可编辑、贴图槽仍只读）。同日**布局美化**（用户派发）：三段折叠分组（材质/
+> 参数/贴图槽，CollapsiblePanel 灰头亮内容+material 头图标）+ 两列字段网格
+> （FieldGrid：label 列自适应、控件列填满，ComponentSection 同口径）替代原
+> FlowLayout 左挤行；类型感知值展示（COLOR=只读色块 ColorSwatch+数值，圆角/
+> 描边同 ColorField 口径）；贴图已赋显示名（guid 反查尾名）、诊断行（文件/
+> GUID/占位）暗色；重建折叠态复位展开（无记忆机制，后置随需）。
+> v0.9（2026-10-25，待验收）：**材质参数编辑落地（.mat 联动主目标）+ 分组形态拍板**
+> （用户派发「材质不可以折叠/参数为啥不可以编辑」）——①「材质」信息分组**固定
+> 不可折叠**（CollapsiblePanel 增 `setCollapsible(false)`：点击/hover/箭头全关，
+> Unity 材质头口径；参数/贴图槽维持可折叠）；②参数行**类型感知可编辑控件**（全
+> 复用 widget 家族：COLOR=ColorField（拾色器，alpha 保留原值）、VECTOR=VectorRow
+> 四段 X/Y/Z/W（任一段提交整行组包）、FLOAT/RANGE=JeNumberInput（**RANGE 按
+> .shader 声明 min/max 硬钳**，键入即提交+label scrub）、面型=JeSelect 不透明/
+> 透明——透明分桶裁决源）；③**提交链=写内存实例 + 防抖持久化**：键入即提交的
+> 高频提交 × 写盘重导重活，单发 Timer 500ms 合并阀（restart 滚动续期），换选前
+> flushPending / onDetach 兜底防丢尾改，写回失败=盘面即权威从盘面重载——Unity
+> 资产即时保存口径的工程化形态；④换绑 shader 仍即时持久化（单发动作）+ 面板
+> 重刷（参数重置新默认值）。贴图槽编辑待贴图资产管线（AssetInput TYPE_SUFFIX
+> 无 Texture 键）；运行期在用材质热切归资产热重载批次。
+> v0.10（2026-10-25，待验收）：**GUID_ASSET 通道升可编辑（用户派发「MeshRenderer
+> 的检查器需要放出材质输入」）**——字段行工厂 GUID_ASSET 分支换装 AssetInput
+> （**通道级通用：mesh/material 双行同享**，非材质单行特例；声明类型随 VO 新增
+> assetType 下发——PropMeta 由 field.getType().asSubclass(Asset.class) 携带）；
+> 回写侧放开（原「不支持字符串回写」拒绝退役）：wire **null=None 清空合法**（Unity
+> 口径：MeshRenderer 材质可空）、空串=内存创建拒绝、guid 经 **loadGuid 声明类型**
+> 解实例（共享缓存，同 .scene 序列化口径；未索引=资产不存在拒绝防静默置 null）；
+> 提交链复用字段行既有链（submitTask 帧边界 ｛归属校验→apply→markDirty｝，场景
+> 保存时 .scene 按新 guid 序列化）；只读前身 GuidAssetField 退役删除。运行期在用
+> 引用热切归资产热重载批次（换材质后重载场景生效）。
 
 ## 1. 总则
 
@@ -104,10 +160,12 @@ STRING / VEC3_F（"x,y,z"）/ ROTATION（欧拉角度数 "x,y,z"；四元数↔�
 侧）/ ENUM（常量名；options 随 VO 下发，显示名走 InsEnumLabel）/ COLOR（"r,g,b,a"
 0-1 浮点，回写构造自动夹取 [0,1]）/ RECT（"x,y,width,height"）/ LAYER_MASK（位掩码
 int 串，前端勾选式多选按 Layer 名投影）/ **TAG（节点头专用通道，§5）**/
-**GUID_ASSET（v0.3，Asset 引用型字段三态只读：value=null=无资产"None"、空串=内存
-创建（guid 空，前端禁用态「（内存创建）」）、非空=guid 原串；显示名另走 VO
-assetName=guid 反查源路径尾名去后缀（`AssetManager.pathOfGuid`），反查失败兜底 guid；
-回写侧显式抛"不支持字符串回写"——赋值通道=项目面板拖拽资产，拍板 2026-10-17 后置）**。
+**GUID_ASSET（v0.3 引入、v0.10 升可编辑：Asset 引用型字段三态 wire：value=null=无
+资产"None"（清空合法，Unity 口径）、空串=内存创建（guid 空，只读显示禁用态「（内存
+创建）」，回写拒绝）、非空=guid 原串；显示名另走 VO assetName=guid 反查源路径尾名
+去后缀（`AssetManager.pathOfGuid`），反查失败兜底 guid；声明类型随 VO assetType
+下发（AssetInput 接受范围与回写 loadGuid 类型）；回写=guid 经 loadGuid 解实例、
+未索引拒绝；行控件=AssetInput，v0.3 只读形态已随 v0.10 退役）**。
 ENUM/COLOR/RECT/LAYER_MASK 编解码 v0.2 放开（Camera 接入驱动；前端 Ins 控件族与
 VO options 字段 v0.1 已预留，本片纯 Java 侧反射器补齐）。
 
@@ -158,7 +216,7 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
 - **`FieldRowFactory` + `FieldEditor` 契约**：valueType → 控件（INT/FLOAT→
   JeNumberInput、STRING→JeTextInput、BOOLEAN→勾选、ENUM/Layer/Tag→JeSelect、
   VEC3_F/ROTATION→VectorRow(X/Y/Z)、RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
-  LAYER_MASK→LayerMaskField、GUID_ASSET→GuidAssetField）；FieldEditor.setValue=
+  LAYER_MASK→LayerMaskField、GUID_ASSET→AssetInput（v0.10））；FieldEditor.setValue=
   外源刷新（编辑中/值等价跳过）、isEditing=重建保护判据；提交回调走 FieldCommit
   ｛owner 归属校验锚点 + host 回写宿主 + fieldName/valueType/wire 值｝；
 - **`widget` 控件七件**：JeNumberInput（4 位小数钳制+range 硬钳+非法 blur 回滚+
@@ -171,7 +229,12 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   整组四周 1px 边框；AWT 鼠标事件不冒泡——切换/hover 监听逐组件挂）、ColorField
   （**色块+JColorChooser 拍板 2026-10-18：alpha 保留原值不进拾色器；null 未物化
   白色预览首点即物化**）、LayerMaskField（值摘要按钮+JPopupMenu 勾选列表——非
-  CheckBoxMenuItem，勾选不关弹层可连续多选）、GuidAssetField（三态只读暗色显示）。
+  CheckBoxMenuItem，勾选不关弹层可连续多选）。AssetInput（v0.8 资产通用输入：
+  类型图标+显示名类输入框 + 「…」按钮弹 AssetPickerDialog 选择窗；三态 wire、
+  拖放按扩展名过滤、Consumer<String> 提交——v0.10 起 GUID_ASSET 行与 .mat 检查器
+  双宿主，只读前身 GuidAssetField 随之退役删除）；
+  AssetPickerDialog（v0.8 选择窗：模态 + 后台 listAssetPaths 拉取 + None 恒首 +
+  搜索过滤 + 双击/确定提交、取消不动值）。
 - （Web 沿革注：原 engine-editor-web 结构——inspectorService/EntityInspectorPanel/
   InspectorField + Ins 控件族 + 下拉遮挡修复（overflow 吞浮层终局）——随 2026-10-18
   去Web化删除；Swing 无同款遮挡坑（heavyweight popup 天然浮于一切）。）
@@ -228,14 +291,15 @@ InspectorFieldVo.assetName（v0.3）。
 **Swing（v0.4，M4 批次 2026-10-18 落地、同日用户验收）**：`swing.inspector` 包——InspectorPanel /
 NodeHeaderPanel / ComponentSection / FieldRowFactory / FieldEditor / FieldCommit +
 `widget` 七件（JeNumberInput / JeTextInput / JeSelect / VectorRow / CollapsiblePanel /
-ColorField / LayerMaskField / GuidAssetField）+ `InspectorPanelSetup` factory 替换 +
+ColorField / LayerMaskField；GuidAssetField 原七件之一，v0.10 GUID_ASSET 换装
+AssetInput 后退役删除）+ `InspectorPanelSetup` factory 替换 +
 `MainFrame.getStatusBar()`（状态栏提示通道）+ VO 引用化（node/component 直持、字段行
 VO 删 objId）+ Reflector LAYER_MASK options 下发（value=层索引串）+ markDirty 收口。
 （Web 前端清单——inspectorService / EntityInspectorPanel / InspectorField + Ins 控件族
 十件 + InsGuidAsset——已随去 Web 化删除。）
 
-**暂缓**：GUID_ASSET 赋值通道（项目面板拖拽资产，拍板 2026-10-17）、Collider 字段
-（资产引用型同通道复用 GUID_ASSET）、多 tag 展示与编辑、同节点多实例组件收集形态、
+**暂缓**：Collider 字段（资产引用型同通道复用 GUID_ASSET）、多 tag 展示与编辑、
+同节点多实例组件收集形态、
 可空值字段「清回 null」的 UI 形态、Inspector 订阅 nodeRenamed（外部改名刷面板——
 场景变更重拉兜底）、设置管线合流（Game/→Settings）。（v0.2 曾留白「组件字段星标
 延迟 / Transform 拖拽星标即时化」——markDirty 翻转沿发布后关闭，见 §7。）
@@ -298,11 +362,20 @@ InsScrollablePanel（Node/材质内容件共用）。
 Material 补 getValues()/getTextures() 只读视图（unmodifiable 展示面，变更仍走
 setFloat/setColor/setTexture——红线 10 只禁 write 侧包装，展示视图无碍）。
 
+**Shader 只读诊断台（ShaderInspectorContent，v0.7 2026-10-25）**：与材质「读源」
+互补走**读产物**——文件头 guid 优先、伴生 .meta 兜底（用户文件无头），经
+AssetManager.loadGuid 取 Library 编译产物（shaderName/属性元数据/Pass + PassState
+即导入后真值）；EDT 组装三段（头 + 属性声明表 + Pass 状态表，浮点 InsFormat 同
+口径）；产物缺失/guid 双源皆缺=显式诊断态（导入失败或未导入，对应 Unity 着色器
+检查器的编译错误区——诊断信息归导入日志，面板只判存在性）；代际守卫同材质面板。
+着色器源码编辑归外部编辑器体系（Unity 同口径，双击外开待 file.open 打开器批次）。
+
 **遗留**：材质可编辑通道（≈Unity ShaderGUI：shader 驱动属性表 + 资产脏标 +
 file.save 写回 .mat——资产脏标与场景 dirty 不同源，需单独设计拍板）；project
 面板高亮跨域同步（节点接管选中后文件槽被静默清空，项目面板右区条目高亮残留
 视觉态——订阅 ProjectSelectEvent 清高亮留后）；面板标题/文案 i18n（硬编码中文，
-随面板标题接 I18nKey 批次）；.shader/.smesh 等其余资产检查器按需注册。
+随面板标题接 I18nKey 批次）；.smesh 等其余资产检查器按需注册；注入后 GLSL 查看
+（Unity Show compiled code 等价物）留后置。
 
 ## 12. 输入交互与 label 拖动调值（v0.6，2026-10-22 用户实测验收通过）
 

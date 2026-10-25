@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.15）
+# 编辑器菜单与命令系统设计（v0.16）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -116,6 +116,18 @@
 > （同式第四~六份，公共基类抽取仍留拍板——「一动作一类」现状不变）；菜单序
 > plane,cube,sphere,capsule,cylinder,pyramid（Unity 相对序插入）、i18n 新增
 > 圆柱体/胶囊体两行。
+> v0.16（2026-10-25）：**project.create.shader 创建命令实做（创建族第二项，待验收）**——
+> CreateShaderMenuCommand：选中目录落 `NewShader.shader`（编号去重），内容=极简
+> 前向模板（_Color Color 属性走 Properties→MaterialBlock 通路、Pass Forward 不透
+> 底稿）；**用户文件不写 guid 头**（用户拍板：guid 头=内置资源专属，重释放稳定
+> 语义不外溢用户文件）——guid 真值归伴生 .meta 随机分配，导入器走「头缺失回退
+> meta」既有路径；配套收窄 MetaManager.createNewMeta：.shader/.smesh 缺头不再注入
+> 路径种子头（原注入路径恰由本命令首次踩中）、改随机 guid（.java 保持注入——脚本
+> 无 meta、头是唯一真值）；「创建」子菜单序 folder/material/**shader**/scene/script
+> （渲染类资产相邻）、i18n 增「着色器」一行。**图标**：新建 shader.svg（紫色三角+顶点节点，顶点/片元
+> 管线意象、紫呼应 default.shader 固定紫）——菜单项（icon() override）与 .shader
+> 文件条目（FileTypeSetup 补注册纯图标型）共用。占位剩：创建族 folder/scene/script、
+> paste、rename、delete。
 
 ## 1. 背景与约束
 

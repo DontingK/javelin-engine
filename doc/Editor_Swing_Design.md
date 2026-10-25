@@ -366,6 +366,19 @@ M2 层级 + 控制台 → M3 项目 + 视口工具栏 → M4 检查器（436 行
    （右区吸收增量、左树定宽）+ 首个 resize 落初始位 180px（构造期尺寸 0，
    setDividerLocation 不生效，DockSplitPane 同款坑）+ 左树最小宽 100px（分割条
    左界钳制源）。原 web「复用 SplitPanel」之说随迁移作废。
+7. **拖拽≠选中（2026-10-25 增量，随 AssetInput 拖放接入；当日两轮修复）**：右区
+   拖拽源启用后按下 .shader 检查器即切走 → 拖向 .mat 的 AssetInput 落空（用户实测
+   复现）。**根因（JDK BasicListUI 源码实锤）：`setDragEnabled(true)` 后
+   mousePressed 走 dragEnabled 分支——不 `setValueIsAdjusting(true)`，按下即以
+   adjusting=false 触发选中事件**（拖拽源启用前按下事件带 adjusting=true 被
+   getValueIsAdjusting 守卫挡住、release 才报——问题随拖拽源启用而出现正因此）；
+   且该事件在 BasicListUI mousePressed 派发内同步先于本面板 mousePressed 监听
+   （注册序在后），同步压制标记立不起来。终态修复双闸门：①选中监听器上报
+   **invokeLater 推迟一拍**，待 mousePressed 立起 mousePressActive 后再裁决
+   （拖/按中不上报，键盘路径照常）；②选中提交以 mouseReleased 为主（未成拖拽
+   的完整点击才上报，拖拽路径 release 被 DnD 吞掉天然不上报），
+   createTransferable 置 dragOccurred、exportDone（落点/取消皆达）复位。本地
+   高亮不受影响；拖后选中态不变（.mat 保持选中，检查器停留材质面板正合编辑流）。
 
 ### 7.7 检查器面板实装注记（M4，2026-10-18 落地、同日用户验收）
 

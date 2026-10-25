@@ -191,6 +191,20 @@ v0.2）**——改 .shader/.mat/贴图编辑器实时刷新；当日两稿拍板
 胶囊总高 2×直径 1），CreateSphere/Capsule/CylinderMenuCommand 照 cube 模式实装
 （sphere 替换占位、另两项新增菜单项，Editor_Menu_Design v0.15）。
 
+进度（2026-10-25 落地，待验收）：**project.create.shader 着色器创建命令（创建族第二项，
+Editor_Menu_Design v0.16）**——NewShader.shader 极简前向模板（_Color Color 属性
+示范 Properties→MaterialBlock 通路）落选中目录、重名编号去重；**用户文件不写
+guid 头**（拍板：guid 头=内置资源专属，重释放稳定语义不外溢用户文件）——guid
+真值归伴生 .meta 随机分配、导入器走头缺失回退 meta 既有路径；配套
+MetaManager.createNewMeta 收窄：缺头 .shader/.smesh 不再注入路径种子头、改随机
+guid（.java 保持注入——脚本无 meta、头是唯一真值）。配套 .shader 检查器只读诊断台落地（Inspector_Design v0.7：guid 双源解析+Library 产物+属性/Pass 表+导入缺失诊断态）。
+
+进度（2026-10-25 落地待验收，方案用户拍板）：**.mat 联动第一项：AssetInput 资产
+通用输入（Inspector_Design v0.8）**——Unity ObjectField 口径（构造传 Class 声明
+接受类型、guid 三态 wire、选择窗+右区拖放+外源刷新三通道、Consumer 提交）；core
+补 AssetManager.guidOfPath 反查口（选择窗路径条目取 guid）。控件本批无宿主，
+材质编辑面板批次消费联调；**同日追加：材质检查器 Shader 行换装落地**（MaterialInspectorContent：None/加载失败拒绝回滚、setShader 即 core 重置默认值、TextExporter 即时写回 + submitImport 重导——Unity 资产即时保存口径、写回失败从盘面重载）。**参数编辑同日落地（v0.9）**：类型感知控件全复用 widget 家族（COLOR=ColorField/VECTOR=VectorRow 四段/FLOAT·RANGE=JeNumberInput 区间硬钳/面型=JeSelect）+ 提交=写内存 + 防抖 500ms 写盘重导（换选/onDetach flush 兜底）+ 材质信息分组固定不可折叠（CollapsiblePanel setCollapsible）。**GUID_ASSET 通道升可编辑同日落地（v0.10）**：MeshRenderer mesh/material 行换装 AssetInput（通道级通用，VO 新增 assetType 声明类型）、回写放开（None 清空合法/空串拒绝/guid 经 loadGuid 解实例未索引拒绝）——只读前身 GuidAssetField 退役；运行期在用引用热切归资产热重载批次。
+
 ---
 
 ## 3. 三期：光照
@@ -213,7 +227,7 @@ v0.2）**——改 .shader/.mat/贴图编辑器实时刷新；当日两稿拍板
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader（2026-10-25 落地待验收，Editor_Menu_Design v0.16）** |
 | 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 

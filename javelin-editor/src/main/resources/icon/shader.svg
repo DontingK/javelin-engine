@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 着色器：紫色三角+顶点节点（顶点/片元管线意象，紫呼应 default.shader 固定紫；.shader 资产条目图标） -->
+<path d="M8 3.8L13 12.4H3Z" fill="#CE93D8" stroke="#6A1B9A" stroke-linejoin="round"/>
+<circle cx="8" cy="3.8" r="1.7" fill="#7B1FA2" stroke="#4A148C"/>
+<circle cx="3" cy="12.4" r="1.7" fill="#7B1FA2" stroke="#4A148C"/>
+<circle cx="13" cy="12.4" r="1.7" fill="#7B1FA2" stroke="#4A148C"/>
+</svg>

@@ -7,7 +7,7 @@ import com.javelin.editor.plugin.PluginContext;
  * 幂等）。接线在 EditorCorePlugin.setup——注册期早于面板创建与首次选中分发。
  *
  * <p>首批：node（节点组件清单，M4 面板逻辑平移）+ .mat（材质只读，
- * 2026-10-21）。</p>
+ * 2026-10-21）+ .shader（着色器只读诊断台，2026-10-25）。</p>
  *
  * @author javelin
  * @create 2026/10/21
@@ -31,5 +31,6 @@ public final class InspectorSetup {
         setup = true;
         context.registerInspector(new NodeInspectorProvider());
         context.registerInspector(new MaterialInspectorProvider());
+        context.registerInspector(new ShaderInspectorProvider());
     }
 }

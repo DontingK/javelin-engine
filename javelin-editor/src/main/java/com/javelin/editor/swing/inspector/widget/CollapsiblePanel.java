@@ -45,6 +45,8 @@ public class CollapsiblePanel extends JComponent {
     private final JComponent content;
     private final Header header;
     private boolean collapsed;
+    /** 可折叠开关（false = 固定分组：点击不折叠、无 hover 反馈、无箭头指示） */
+    private boolean collapsible = true;
 
     public CollapsiblePanel(String title, JComponent headerLeft, Icon titleIcon, JComponent content) {
         setLayout(new BorderLayout(0, 0));
@@ -76,6 +78,20 @@ public class CollapsiblePanel extends JComponent {
         collapsed = collapse;
         header.setCollapsedVisual(collapse);
         content.setVisible(!collapse);
+        revalidate();
+        repaint();
+    }
+
+    /** 可折叠开关（false = 固定分组：点击不折叠、无 hover、隐藏箭头） */
+    public void setCollapsible(boolean collapsible) {
+        if (this.collapsible == collapsible) {
+            return;
+        }
+        this.collapsible = collapsible;
+        header.arrow.setVisible(collapsible);
+        if (!collapsible) {
+            setCollapsed(false);
+        }
         revalidate();
         repaint();
     }
@@ -117,17 +133,23 @@ public class CollapsiblePanel extends JComponent {
             MouseAdapter headerListener = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    setCollapsed(!collapsed);
+                    if (collapsible) {
+                        setCollapsed(!collapsed);
+                    }
                 }
 
                 @Override
                 public void mouseEntered(MouseEvent e) {
-                    setBackground(hoverBackground);
+                    if (collapsible) {
+                        setBackground(hoverBackground);
+                    }
                 }
 
                 @Override
                 public void mouseExited(MouseEvent e) {
-                    setBackground(baseBackground);
+                    if (collapsible) {
+                        setBackground(baseBackground);
+                    }
                 }
             };
             addMouseListener(headerListener);

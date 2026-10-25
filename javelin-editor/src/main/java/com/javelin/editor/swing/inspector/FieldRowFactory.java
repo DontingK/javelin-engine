@@ -2,8 +2,8 @@ package com.javelin.editor.swing.inspector;
 
 import com.javelin.editor.inspector.InspectorFieldVo;
 import com.javelin.editor.inspector.InspectorValueType;
+import com.javelin.editor.swing.inspector.widget.AssetInput;
 import com.javelin.editor.swing.inspector.widget.ColorField;
-import com.javelin.editor.swing.inspector.widget.GuidAssetField;
 import com.javelin.editor.swing.inspector.widget.JeNumberInput;
 import com.javelin.editor.swing.inspector.widget.JeSelect;
 import com.javelin.editor.swing.inspector.widget.JeTextInput;
@@ -69,7 +69,10 @@ public final class FieldRowFactory {
             case LAYER_MASK:
                 return new LayerMaskField(vo.value, vo.options, commit);
             case GUID_ASSET:
-                return new GuidAssetField(vo.value, vo.assetName);
+                if (vo.assetType == null) {
+                    throw new IllegalStateException("GUID_ASSET 字段缺声明资产类型: " + vo.fieldName);
+                }
+                return new AssetInput(vo.assetType, commit);
             default:
                 throw new IllegalStateException("字段行不支持的值类型: " + type);
         }

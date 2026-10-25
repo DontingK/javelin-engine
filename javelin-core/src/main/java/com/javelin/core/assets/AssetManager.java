@@ -49,4 +49,15 @@ public interface AssetManager {
      */
     String pathOfGuid(String guid);
 
+    /**
+     * 源资产路径反查 GUID（Library 索引 pathMap 查找；未命中返回 null）。
+     *
+     * <p>AssetInput 等选择侧用：按路径列表选中条目时取 guid 提交。索引随
+     * listAssetPaths 重载同口径——先调 listAssetPaths 再逐条反查为推荐序。</p>
+     *
+     * @param path 源资产相对 Library 的相对路径
+     * @return GUID，未命中 null
+     */
+    String guidOfPath(String path);
+
 }

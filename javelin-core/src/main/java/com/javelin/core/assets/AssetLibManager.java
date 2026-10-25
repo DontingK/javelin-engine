@@ -178,6 +178,11 @@ public class AssetLibManager implements AssetManager {
     }
 
     @Override
+    public String guidOfPath(String path) {
+        return pathMap.get(path);
+    }
+
+    @Override
     public List<String> listAssetPaths(String suffix) {
         // 先重载索引：导入管线每次导入后重写 index.asset，内存表不自动跟进
         // （运行期新增导入——如保存场景触发的 SceneImporter 重导——由此拾取）

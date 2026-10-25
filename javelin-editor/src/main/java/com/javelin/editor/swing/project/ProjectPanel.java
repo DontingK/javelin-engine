@@ -25,10 +25,13 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.TransferHandler;
 import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -47,6 +50,7 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,6 +122,10 @@ public class ProjectPanel extends JComponent implements EditorPanel {
     private ProjectTreeSnapshot.Node selectedDir;
     /** 当前目录路径记忆（快照重拉后恢复选中锚点用；onDirSelected 持续更新） */
     private String lastSelectedDirPath;
+    /** 条目上按下未决（压制选中监听上报；是否成拖拽未知，提交留待 release） */
+    private boolean mousePressActive;
+    /** 已成拖拽（release 被吞不上报；exportDone 复位） */
+    private boolean dragOccurred;
     /** 分栏已挂载（首个快照后 loading→分栏一次性切换） */
     private boolean splitMounted;
     /** 首次定分栏位标志（构造期尺寸为 0，setDividerLocation 不生效，首个 resize 落位） */
@@ -189,11 +197,63 @@ public class ProjectPanel extends JComponent implements EditorPanel {
             if (e.getValueIsAdjusting()) {
                 return;
             }
-            // 条目点击=本地高亮+上报（JList 选中变更驱动）；空选中不上报（换目录
-            // 换模型/空白清除，均无清空语义——web 等价口径）
-            ProjectTreeSnapshot.Node node = entryList.getSelectedValue();
-            if (node != null) {
-                EditorSelection.setSelectedPath(node.getFile());
+            // 拖拽≠选中（Unity 口径）。拖拽启用后 JDK BasicListUI 按下即在
+            // mousePressed 派发内改选中且 adjusting=false（dragEnabled 路径不设
+            // adjusting——源码实锤），事件先于本面板 mousePressed 监听到达、压制
+            // 标记尚未立起——故上报 invokeLater 推迟一拍，待 mousePressed 立标记
+            // 后再裁决（拖/按中不上报；键盘路径无 mouse 事件照常上报）。空选中
+            // 不上报（换目录换模型/空白清除，均无清空语义——web 等价口径）
+            SwingUtilities.invokeLater(() -> {
+                if (mousePressActive || dragOccurred) {
+                    return;
+                }
+                ProjectTreeSnapshot.Node node = entryList.getSelectedValue();
+                if (node != null) {
+                    EditorSelection.setSelectedPath(node.getFile());
+                }
+            });
+        });
+        // 拖拽源（AssetInput 消费方，.mat 联动第一项 2026-10-25）：右区条目拖出
+        // javaFileListFlavor 的 File（仅文件，目录无拖拽语义）
+        entryList.setDragEnabled(true);
+        entryList.setTransferHandler(new TransferHandler() {
+            @Override
+            public int getSourceActions(JComponent c) {
+                return COPY;
+            }
+
+            @Override
+            protected Transferable createTransferable(JComponent c) {
+                ProjectTreeSnapshot.Node node = entryList.getSelectedValue();
+                if (node == null || node.isDirectory()) {
+                    return null;
+                }
+                dragOccurred = true;
+                File file = node.getFile();
+                return new Transferable() {
+                    @Override
+                    public DataFlavor[] getTransferDataFlavors() {
+                        return new DataFlavor[]{DataFlavor.javaFileListFlavor};
+                    }
+
+                    @Override
+                    public boolean isDataFlavorSupported(DataFlavor flavor) {
+                        return DataFlavor.javaFileListFlavor.equals(flavor);
+                    }
+
+                    @Override
+                    public Object getTransferData(DataFlavor flavor) {
+                        return List.of(file);
+                    }
+                };
+            }
+
+            @Override
+            protected void exportDone(JComponent c, Transferable data, int action) {
+                // 拖拽结束（落点/取消皆达）：复位拖拽压制标记（release 事件已被
+                // DnD 吞掉不会走到 mouseReleased 复位路径）
+                dragOccurred = false;
+                mousePressActive = false;
             }
         });
         entryList.addMouseListener(new MouseAdapter() {
@@ -206,6 +266,9 @@ public class ProjectPanel extends JComponent implements EditorPanel {
                 // 空白点选清高亮（Unity 口径；不上报——不清单源选中）
                 if (SwingUtilities.isLeftMouseButton(e) && entryRowAt(e) < 0) {
                     entryList.clearSelection();
+                } else if (SwingUtilities.isLeftMouseButton(e)) {
+                    // 条目上按下：压制选中监听上报（是否成拖拽未知，提交留待 release）
+                    mousePressActive = true;
                 }
             }
 
@@ -213,7 +276,16 @@ public class ProjectPanel extends JComponent implements EditorPanel {
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     handleListPopup(e);
+                    return;
                 }
+                if (SwingUtilities.isLeftMouseButton(e) && mousePressActive && !dragOccurred) {
+                    // 未成拖拽的完整点击 = 选中提交（拖拽路径 release 被吞、不上报）
+                    ProjectTreeSnapshot.Node node = entryList.getSelectedValue();
+                    if (node != null) {
+                        EditorSelection.setSelectedPath(node.getFile());
+                    }
+                }
+                mousePressActive = false;
             }
 
             @Override
