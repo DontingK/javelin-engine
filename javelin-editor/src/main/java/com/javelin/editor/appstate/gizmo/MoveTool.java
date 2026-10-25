@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>三轴移动指示：内置 axisY.smesh +Y 箭头（全长约 9.9）复用旋转出三轴
  * （用户拍板 2026-10-04：+X 绕 Z 轴 -90°、+Z 绕 X 轴 +90°，同一 Mesh 共享）；
- * 红/绿/蓝 = XYZ 惯例（同 EditorAxesAppState 诊断线）。材质走内置
+ * 红/绿/蓝 = XYZ 惯例。材质走内置
  * gizmo.shader（unlit 纯色 + _Color 属性），每轴一个材质实例按轴下发颜色；
  * shader Cull Off 容忍外部工具导出的混合绕序。子树归编辑子场景口径（不进
  * 用户树、不落盘、GAME 模式自动不可见）。尺度不自持：由 TransformGizmoAppState

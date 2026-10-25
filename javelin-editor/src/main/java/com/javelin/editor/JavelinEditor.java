@@ -9,7 +9,6 @@ import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.editor.appstate.EditGridAppState;
-import com.javelin.editor.appstate.EditorAxesAppState;
 import com.javelin.editor.appstate.EditorCameraAppState;
 import com.javelin.editor.appstate.SceneWatchAppState;
 import com.javelin.editor.appstate.TransformWatchAppState;
@@ -117,8 +116,6 @@ public class JavelinEditor extends JavelinEngine {
             stateManager.attach(gridState);
             // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
             stateManager.attach(new EditorCameraAppState());
-            // 坐标轴诊断线（+X 红 / +Y 绿 / +Z 蓝，plane 朝向排查用；编辑器子场景不入树不落盘）
-            stateManager.attach(new EditorAxesAppState());
             // 变换 Gizmo（移动工具三轴指示，跟随选中；缩放/旋转形态与拖拽后续扩展）
             TransformGizmoAppState transformGizmo = new TransformGizmoAppState();
             stateManager.attach(transformGizmo);
