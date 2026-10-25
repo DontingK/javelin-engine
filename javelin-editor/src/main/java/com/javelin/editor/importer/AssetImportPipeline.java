@@ -280,6 +280,33 @@ public class AssetImportPipeline {
     }
 
     /**
+     * 等待单个导入任务终态（创建命令同步收口用——新建资产立即拖引用不再撞
+     * 异步导入窗口「GUID 未找到」）。EDT 轮询小睡、超时放弃返回 false 不长阻塞
+     * UI（.mat/.texture 毫秒级、.shader 含 shaderc 编译秒内）。
+     *
+     * @param task      submitImport 返回的任务
+     * @param timeoutMs 超时毫秒（超时≠失败——任务仍在跑，只是不等了）
+     * @return true = 导入成功终态
+     */
+    public boolean awaitImport(ImportTask task, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            ImportTask.Status status = task.getStatus();
+            if (status == ImportTask.Status.SUCCESS || status == ImportTask.Status.FAILED
+                    || status == ImportTask.Status.CANCELLED) {
+                return status == ImportTask.Status.SUCCESS;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 获取或创建设置
      *
      * @param file 文件
@@ -500,6 +527,8 @@ public class AssetImportPipeline {
     private String detectAssetType(File file) {
         String name = file.getName().toLowerCase();
         if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".bmp")) {
+            return "Texture";
+        } else if (name.endsWith(".texture")) {
             return "Texture";
         } else if (name.endsWith(".shader")) {
             return "Shader";

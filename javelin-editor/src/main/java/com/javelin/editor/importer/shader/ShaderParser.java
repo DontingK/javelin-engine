@@ -149,7 +149,7 @@ public final class ShaderParser {
         String displayName = readString();
         expect(',');
         skipTrivia();
-        String typeKeyword = readIdentifier();
+        String typeKeyword = readTypeKeyword();
         MaterialProperty property = switch (typeKeyword) {
             case "Color", "Vector" -> {
                 expect(')');
@@ -441,6 +441,22 @@ public final class ShaderParser {
         skipTrivia();
         if (atEnd() || !isIdentStart(peek())) {
             throw error("期望标识符，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+        }
+        int start = pos;
+        while (pos < src.length() && isIdentPart(src.charAt(pos))) {
+            pos++;
+        }
+        return src.substring(start, pos);
+    }
+
+    /**
+     * 类型关键字读词：允许数字开头——"2D" 合法（readIdentifier 拒收致 2D 属性
+     * 恒炸的死分支，2026-10-25 修）。属性名仍走 readIdentifier 不放宽。
+     */
+    private String readTypeKeyword() {
+        skipTrivia();
+        if (atEnd() || !isIdentPart(peek())) {
+            throw error("期望类型关键字，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
         }
         int start = pos;
         while (pos < src.length() && isIdentPart(src.charAt(pos))) {

@@ -12,6 +12,7 @@ import com.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
 import com.javelin.editor.menu.project.CopyPathMenuCommand;
 import com.javelin.editor.menu.project.CreateMaterialMenuCommand;
 import com.javelin.editor.menu.project.CreateShaderMenuCommand;
+import com.javelin.editor.menu.project.CreateTextureMenuCommand;
 import com.javelin.editor.menu.project.OpenFileMenuCommand;
 import com.javelin.editor.menu.project.ReimportMenuCommand;
 import com.javelin.editor.menu.project.ShowInExplorerMenuCommand;
@@ -98,6 +99,8 @@ public final class EditorMenuSetup {
                 "project.create.material", null));
         context.registerCommand(new CreateShaderMenuCommand(
                 "project.create.shader", null));
+        context.registerCommand(new CreateTextureMenuCommand(
+                "project.create.texture", null));
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.paste", "Ctrl+V"));
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
@@ -146,6 +149,7 @@ public final class EditorMenuSetup {
                         .item("project.create.folder")
                         .item("project.create.material")
                         .item("project.create.shader")
+                        .item("project.create.texture")
                         .item("project.create.scene")
                         .item("project.create.script"))
                 .item("project.paste")

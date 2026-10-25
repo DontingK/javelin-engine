@@ -1,0 +1,6 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 纹理：棋盘格意象（.texture 资产条目图标；与 image 山景照片区分——纹理=可采样图案） -->
+<rect x="2" y="3" width="12" height="10" stroke="#7B1FA2" stroke-width="1.3"/>
+<rect x="8" y="3" width="6" height="5" fill="#CE93D8"/>
+<rect x="2" y="8" width="6" height="5" fill="#CE93D8"/>
+</svg>

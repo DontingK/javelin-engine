@@ -1,5 +1,6 @@
 package com.javelin.core.render.material;
 
+import com.javelin.core.render.texture.Image;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.rhi.types.CompareOp;
@@ -156,7 +157,7 @@ public class MaterialTest {
     @Test
     void textureSlotStoresEngineTextureAsset() {
         Material material = new Material(sampleShader());
-        Texture2D albedo = new Texture2D(4, 4, Format.R8G8B8A8_UNORM, 1);
+        Texture2D albedo = new Texture2D(new Image(4, 4, Format.R8G8B8A8_UNORM, new byte[64]));
 
         material.setTexture("_AlbedoMap", albedo);
 
@@ -170,11 +171,11 @@ public class MaterialTest {
         // Unity whiteTexture / blackTexture / normalTexture 语义；CPU 数据就绪，GPU 上传推迟渲染侧
         assertEquals(1, Texture2D.whiteTexture().getWidth());
         assertNotNull(Texture2D.whiteTexture().getPixels());
-        assertEquals(1, Texture2D.normalTexture().getPixels().get(2));  // bump 蓝通道 0xFF
+        assertEquals(0xFF, Texture2D.normalTexture().getPixels()[2] & 0xFF);  // bump 蓝通道 0xFF
         assertEquals(Texture2D.FilterMode.BILINEAR, Texture2D.whiteTexture().getFilterMode());
         assertEquals(Texture2D.WrapMode.REPEAT, Texture2D.whiteTexture().getWrapMode());
 
-        Texture2D tex = new Texture2D(4, 4, Format.R8G8B8A8_UNORM, 1);
+        Texture2D tex = new Texture2D(new Image(4, 4, Format.R8G8B8A8_UNORM, new byte[64]));
         tex.setFilterMode(Texture2D.FilterMode.POINT);
         tex.setWrapMode(Texture2D.WrapMode.CLAMP);
         assertEquals(Texture2D.FilterMode.POINT, tex.getFilterMode());

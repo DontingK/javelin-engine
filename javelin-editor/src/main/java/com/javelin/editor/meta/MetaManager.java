@@ -585,6 +585,8 @@ public class MetaManager {
         String name = file.getName().toLowerCase();
         if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".bmp")) {
             return "Texture";
+        } else if (name.endsWith(".texture")) {
+            return "Texture";
         } else if (name.endsWith(".shader")) {
             return "Shader";
         } else if (name.endsWith(".wav") || name.endsWith(".mp3") || name.endsWith(".ogg")) {

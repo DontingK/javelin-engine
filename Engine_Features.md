@@ -88,6 +88,8 @@
 | Mesh.bounds / Aabb（set 即算 / 惰性兜底 / 上传前钉死） | ✅ | ✅ 单测（2026-10-06） |
 | AssetManager 资产索引查询（listAssetPaths、调用先重载 index.asset） | ✅ | ✅ 随打包启动场景下拉（2026-10-11） |
 | .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ✅ 用户实测（2026-10-23） |
+| 贴图像素资产 Image + Texture2D 引用层改造（三层模型：Image 磁盘一份/Texture2D 持设置——一图多设置免复制，贴图档 §1） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| .texture 纹理资产（Texture2D 文本序列化 + TextureImporter + 检查器面板 + null-image 渲染占位守卫，贴图档 §7） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 动态 Mesh / 动态纹理 | ⬜ 后置（材质档 §6 / 资产档 §2.8） | — |
 
 ### 2.6 输入（input）
@@ -154,6 +156,7 @@
 | hierarchy.create.cube（v0.14，内置 box.smesh + CreateBoxMenuCommand） | ✅ | ✅ 用户实测（2026-10-24） |
 | hierarchy.create.sphere/.capsule/.cylinder 原始体三件套（v0.15，内置三份 .smesh；生成脚本一次性工具不入库） | ✅ | ✅ 用户实测（2026-10-25） |
 | project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅ 用户实测（2026-10-25） |
+| project.create.texture 创建纹理命令（v0.17，texture.texture=空 image+默认采样设置的 Texture2D 文本序列化；创建族第三项、guid 与 meta 同源四处一致） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
@@ -186,6 +189,7 @@
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
+| v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + 编辑载体=文本私有实例拍板；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -210,6 +214,7 @@
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
 | meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
+| 贴图导入 ImageImporter（.png/.jpg/.jpeg → Image 像素资产；ImageIO 同入口；alpha 通道保留修复；image 文件类型/图标，贴图档 §2） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）
@@ -258,7 +263,16 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**。
+**当前挂账 1 项**：贴图批次单测与 Demo 回归（Texture2DTest 往返两例 /
+ShaderParserTest 全绿——2D 死分支修复后 / SceneRenderDemo·MultiCameraDemo 引用层
+改造回归；编辑器全链已用户实测，跑测归用户）。
+
+2026-10-25 用户实测销账 2 笔（状态已翻入各模块表）：①贴图导入管线 v0.1（§2.5/§3.6
+——Image 像素资产 + Texture2D 三层改造 + ImageImporter + alpha 修复）；②纹理资产
+v0.2（§2.5/§3.2/§3.4/§3.6——project.create.texture + TextureImporter + .texture
+面板 + AssetInput 多后缀 + 材质贴图行换装内联）。连串追修随批验收：NewShader
+_MainTex 属性、ShaderParser 2D 死分支、GuidHeaderManager 二进制读炸 + 拖放 guid
+双源反序 + 无 meta 错误弹窗、材质行单源=shader 声明、贴图行回显漏传。
 
 2026-10-25 用户实测批量销账 6 笔（状态已翻入各模块表）：资产管线 meta 统一与重导检出（§3.6）、project.create.shader 创建命令（§3.2）、检查器 v0.7 .shader 诊断台 / v0.8 AssetInput+材质 Shader 行换装（含 v0.9 参数编辑·分组形态）/ v0.10 GUID_ASSET 升可编辑 / v0.11 材质编辑即时联动渲染（§3.4）。
 

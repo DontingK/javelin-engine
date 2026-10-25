@@ -48,16 +48,18 @@ import java.util.List;
 
 /**
  * 材质检查器内容件（.mat 键）：TextImporter 后台线程读 .mat 文本源
- * （MaterialImporter 同款解析链）、EDT 组装。三段分组（「材质」固定不可折叠、
- * 参数/贴图槽可折叠）+ 两列字段网格（label 列自适应、控件列填满，节点检查器
+ * （MaterialImporter 同款解析链）、EDT 组装。两段分组（「材质」固定不可折叠、
+ * 参数可折叠——贴图行内联参数组）+ 两列字段网格（label 列自适应、控件列填满，节点检查器
  * 同口径）。**可编辑**（v0.8 增量，2026-10-25）：Shader 行 AssetInput 换绑
  * （setShader 重置参数默认值 + 即时写回重导）；参数行类型感知控件——COLOR=
  * ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput（RANGE 按
  * 声明区间硬钳）、面型=JeSelect；提交=写内存实例 + **防抖持久化**（键入即提交
  * ×写盘重导的合并阀，换选/摘除前 flushPending 兜底防丢尾改——Unity 资产即时
  * 保存口径）。编辑载体=缓存共享实例优先（loadGuid，场景同一对象——数值/面型
- * 编辑即时联动渲染；shader 换绑例外走盘面重解析，见 onShaderCommit）。贴图槽
- * 仍只读（贴图资产管线未通，AssetInput 无 Texture 键）。
+ * 编辑即时联动渲染；shader 换绑例外走盘面重解析，见 onShaderCommit）。贴图行
+ * AssetInput 换装 Texture2D（Unity 口径：与其他参数同行内联不分组；None=占位
+ * 贴图合法；materialSet 按材质缓存烤死贴图绑定，live 换绑不重绑——生效=场景
+ * 重载/热重载批次）。
  *
  * <p>线程契约：onSelection（EDT）起后台加载线程，代际守卫（点击前进即 +1，
  * 晚到的旧结果丢弃）；解析失败显示错误态不静默。</p>
@@ -197,22 +199,27 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return ga == null ? gb == null : ga.equals(gb);
     }
 
-    /** 组装展示（EDT）：材质信息（固定分组）/ 参数 / 贴图槽（可折叠分组） */
+    /** 组装展示（EDT）：材质信息（固定分组）/ 参数（可折叠——贴图行内联 Unity 口径） */
     private void build(Material material, File file) {
         this.material = material;
         InsScrollablePanel content = new InsScrollablePanel();
         content.setLayout(new BoxLayout(content, BoxLayout.PAGE_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         content.add(infoSection(material, file));
-        if (!material.getValues().isEmpty()) {
+        if (hasParamRows(material)) {
             content.add(Box.createVerticalStrut(2));
-            content.add(section("参数", null, valuesGrid(material)));
-        }
-        if (!material.getTextures().isEmpty()) {
-            content.add(Box.createVerticalStrut(2));
-            content.add(section("贴图槽", null, texturesGrid(material)));
+            content.add(section("参数", null, rowsGrid(material)));
         }
         mount(content);
+    }
+
+    /** 参数分组行存在判定：shader 声明任一属性即有行；残档回退条目非空 */
+    private static boolean hasParamRows(Material material) {
+        Shader shader = material.getShader();
+        if (shader == null) {
+            return !material.getValues().isEmpty() || !material.getTextures().isEmpty();
+        }
+        return !shader.getProperties().isEmpty();
     }
 
     /** 材质信息分组（固定不可折叠——Unity 材质头信息口径）：文件（暗）/ Shader / 面型 / GUID（暗） */
@@ -229,18 +236,31 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return section;
     }
 
-    /** 参数分组：类型感知可编辑控件（COLOR/VECTOR/FLOAT/RANGE） */
-    private JComponent valuesGrid(Material material) {
+    /**
+     * 参数分组：类型感知可编辑控件。**行单源=shader Properties 声明序**（Unity
+     * 口径：贴图槽与其他参数同行内联不分组、模板增删属性面板即时跟随——旧材质
+     * 条目脱节不遮行；条目缺值回退属性默认值）；TEXTURE_2D 行=AssetInput 换装
+     * Texture2D。shader 不可得回退条目迭代（残档兜底，贴图行只读）。
+     */
+    private JComponent rowsGrid(Material material) {
         FieldGrid grid = new FieldGrid();
-        for (MaterialValueEntry entry : material.getValues()) {
-            grid.add(entry.getName(), valueControl(material, entry));
+        Shader shader = material.getShader();
+        if (shader != null) {
+            for (MaterialProperty property : shader.getProperties()) {
+                String label = displayName(material, property.getName());
+                if (property.getType() == MaterialPropertyType.TEXTURE_2D) {
+                    grid.add(label, textureInput(material, property.getName()));
+                } else {
+                    MaterialValueEntry entry = findValueEntry(material, property.getName());
+                    float[] data = entry != null ? entry.getData() : property.getDefaultValues();
+                    grid.add(label, valueControl(material, property.getName(), data));
+                }
+            }
+            return grid;
         }
-        return grid;
-    }
-
-    /** 贴图槽分组：已赋=显示名（guid 反查尾名）、未赋=占位文案（暗）；编辑待贴图资产管线 */
-    private JComponent texturesGrid(Material material) {
-        FieldGrid grid = new FieldGrid();
+        for (MaterialValueEntry entry : material.getValues()) {
+            grid.add(entry.getName(), valueControl(material, entry.getName(), entry.getData()));
+        }
         for (MaterialTextureEntry entry : material.getTextures()) {
             if (entry.getTexture() != null) {
                 grid.add(entry.getName(), new JLabel(textureName(entry.getTexture())));
@@ -249,6 +269,84 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             }
         }
         return grid;
+    }
+
+    /** 贴图行输入（AssetInput 选择窗/拖放；当前值=Texture2D guid，None=占位贴图） */
+    private JComponent textureInput(Material material, String name) {
+        Texture2D texture = material.getTexture(name);
+        String guid = texture != null ? texture.getGuid() : null;
+        // 初值必传（AssetInput 无初值构造恒显 None——v0.10 GUID_ASSET 回显漏传同坑）
+        AssetInput input = new AssetInput(Texture2D.class, newGuid -> onTextureCommit(name, newGuid));
+        input.setValue(guid);
+        return input;
+    }
+
+    /**
+     * 贴图槽换绑提交（EDT，即时持久化——单发动作不走防抖，Shader 行同款）：
+     * None 清空合法（渲染侧占位贴图）；guid 经 loadGuid 解 Texture2D 实例校验
+     * 存在；空串=内存创建语义对贴图槽无意义拒绝。写内存实例（材质无冻结语义；
+     * materialSet 按材质缓存烤死贴图绑定，live 换绑不重绑——生效=场景重载/
+     * 热重载批次）→ TextExporter 即时写回 → submitImport 重导；拒绝/失败路径
+     * =整面板重刷（build/reload）回滚显示。
+     */
+    private void onTextureCommit(String name, String newGuid) {
+        Material material = this.material;
+        File file = this.currentFile;
+        if (material == null || file == null) {
+            return;
+        }
+        JavelinEditor editor = JavelinEditor.getInstance();
+        Texture2D texture = null;
+        if (newGuid != null) {
+            if (newGuid.isBlank()) {
+                LOGGER.warn("贴图槽不支持内存创建语义，拒绝空串提交: {}", name);
+                build(material, file);
+                return;
+            }
+            if (editor == null) {
+                build(material, file);
+                return;
+            }
+            texture = editor.getAssetManager().loadGuid(newGuid, Texture2D.class);
+            if (texture == null) {
+                LOGGER.warn("纹理加载失败（Library 缺产物？），拒绝换绑: {} guid={}", name, newGuid);
+                build(material, file);
+                return;
+            }
+        }
+        // 防抖尾改先落盘：换绑从盘面最新态出发
+        flushPending();
+        try {
+            material.setTexture(name, texture);
+            new TextExporter(file).export(material);
+        } catch (Exception e) {
+            LOGGER.error("材质写回失败，从盘面重载: {}", file, e);
+            reload(file);
+            return;
+        }
+        if (editor != null) {
+            editor.getAssetImportPipeline().submitImport(file);
+        }
+    }
+
+    /** 数值条目按名查找（面板侧行值回备用；材质 API 无按名取条目口） */
+    private static MaterialValueEntry findValueEntry(Material material, String name) {
+        for (MaterialValueEntry entry : material.getValues()) {
+            if (entry.getName().equals(name)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    /** 行 label = shader Properties 显示名（Unity 口径）；shader 缺失/属性失配回退绑定名 */
+    private static String displayName(Material material, String name) {
+        Shader shader = material.getShader();
+        MaterialProperty property = shader != null ? shader.findProperty(name) : null;
+        if (property != null && property.getDisplayName() != null && !property.getDisplayName().isBlank()) {
+            return property.getDisplayName();
+        }
+        return name;
     }
 
     /** Shader 行输入（拖放/选择窗换绑；当前值=shader guid） */
@@ -269,12 +367,10 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     /** 参数值控件（类型感知，可编辑）：COLOR=ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput */
-    private JComponent valueControl(Material material, MaterialValueEntry entry) {
+    private JComponent valueControl(Material material, String name, float[] data) {
         Shader shader = material.getShader();
-        MaterialProperty property = shader != null ? shader.findProperty(entry.getName()) : null;
+        MaterialProperty property = shader != null ? shader.findProperty(name) : null;
         MaterialPropertyType type = property != null ? property.getType() : null;
-        String name = entry.getName();
-        float[] data = entry.getData();
         String wire = data != null ? InsFormat.join(data) : null;
 
         if (type == MaterialPropertyType.COLOR && data != null && data.length >= 4) {

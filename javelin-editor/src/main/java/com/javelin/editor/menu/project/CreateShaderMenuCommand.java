@@ -4,7 +4,9 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.ProjectChangedEvent;
 import com.javelin.editor.i18n.I18nKey;
+import com.javelin.editor.importer.ImportTask;
 import com.javelin.editor.plugin.EditorLang;
+import com.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +14,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+
+import javax.swing.JOptionPane;
 
 /**
  * 创建着色器资产（project.create.shader，Unity Create → Shader 对齐）：选中目录落
@@ -28,6 +32,8 @@ public class CreateShaderMenuCommand extends ProjectMenuCommand {
     private static final Logger LOGGER = LoggerFactory.getLogger(CreateShaderMenuCommand.class);
 
     private static final String BASE_NAME = "NewShader";
+    /** 导入同步收口超时（毫秒）——.shader 含 shaderc 编译秒级，超时=放弃等待 */
+    private static final long AWAIT_IMPORT_TIMEOUT_MS = 5000;
     private final String id;
     private final String shortcut;
     private final String icon;
@@ -117,9 +123,15 @@ public class CreateShaderMenuCommand extends ProjectMenuCommand {
             return;
         }
 
-        // 落盘即导入：guid 真值归伴生 .meta 随机分配（管线内 getOrCreateMeta），
-        // 盘面变更通知面板重拉树
-        editor.getAssetImportPipeline().submitImport(file);
+        // 落盘即导入并同步收口（新建即可拖引用——异步窗口「GUID 未找到」修复）；
+        // 导入失败弹错（红线 15）；盘面变更通知面板重拉树
+        ImportTask task = editor.getAssetImportPipeline().submitImport(file);
+        editor.getAssetImportPipeline().awaitImport(task, AWAIT_IMPORT_TIMEOUT_MS);
+        if (task.getStatus() == ImportTask.Status.FAILED) {
+            JOptionPane.showMessageDialog(MainFrame.getInstance(),
+                    "新建着色器导入失败: " + task.getErrorMessage(),
+                    "创建着色器", JOptionPane.ERROR_MESSAGE);
+        }
         EditorEventBus.publish(new ProjectChangedEvent());
         LOGGER.info("创建着色器资产: {}", file);
     }

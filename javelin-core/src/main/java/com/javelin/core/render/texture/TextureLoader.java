@@ -19,8 +19,8 @@ import java.util.Set;
 /**
  * 纹理加载工具（引擎侧共用）：ImageIO 解码 → 紧密打包 RGBA → R8G8B8A8_UNORM。
  *
- * <p>两条出路：{@link #loadImage(Path)} 出引擎纹理资产（CPU 侧、device 无关，
- * GPU 上传推迟到渲染侧首绑——Unity Texture2D 心智）；
+ * <p>两条出路：{@link #loadImage(Path)} 出像素资产 {@link Image}（CPU 侧、device
+ * 无关，采样设置归 Texture2D 引用层）；
  * {@link #loadRgba8(Device, Path)} / {@link #createSolid(Device, int, int, int, int)}
  * 出 RHI 纹理句柄（直注册模式过渡期 RenderingSystem 用，材质桥接落地后收编）。
  */
@@ -30,13 +30,13 @@ public final class TextureLoader {
     }
 
     /**
-     * 解码图片文件为引擎纹理资产（Texture2D：CPU 像素 + 元数据，无 GPU 句柄）。
+     * 解码图片文件为像素资产（Image：CPU 像素 + 元数据；Texture2D 引用它）。
      * 占位常量（WHITE / BLACK / NORMAL）见 {@link Texture2D}。
      */
-    public static Texture2D loadImage(Path path) {
+    public static Image loadImage(Path path) {
         DecodedImage decoded = decode(path);
-        return new Texture2D(decoded.width, decoded.height,
-                Format.R8G8B8A8_UNORM, 1, decoded.pixels);
+        return new Image(decoded.width, decoded.height,
+                Format.R8G8B8A8_UNORM, decoded.pixels);
     }
 
     /** 解码图片文件为 RGBA8 采样纹理（device 内部 staging 上传，fence 等待后可用） */
@@ -48,7 +48,7 @@ public final class TextureLoader {
         TextureDesc desc = TextureDesc.texture2D(Format.R8G8B8A8_UNORM,
                 decoded.width, decoded.height,
                 Set.of(TextureUsage.TRANSFER_DST, TextureUsage.SAMPLED));
-        return device.createTexture(desc, UploadData.of(decoded.pixels));
+        return device.createTexture(desc, UploadData.of(ByteBuffer.wrap(decoded.pixels)));
     }
 
     /** 创建 1×1 纯色占位纹理（RHI 16.3 占位贴图思路；无贴图物体的着色兜底） */
@@ -93,26 +93,27 @@ public final class TextureLoader {
 
         int width = image.getWidth();
         int height = image.getHeight();
-        ByteBuffer pixels = ByteBuffer.allocateDirect(width * height * 4);
+        byte[] pixels = new byte[width * height * 4];
+        int i = 0;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int argb = image.getRGB(x, y);
-                pixels.put((byte) (argb >> 16));
-                pixels.put((byte) (argb >> 8));
-                pixels.put((byte) argb);
-                pixels.put((byte) 0xFF);
+                pixels[i++] = (byte) (argb >> 16);
+                pixels[i++] = (byte) (argb >> 8);
+                pixels[i++] = (byte) argb;
+                // 保留真实 alpha：PNG 透明不再被压成不透明（JPEG 恒 0xFF 不受影响）
+                pixels[i++] = (byte) (argb >>> 24);
             }
         }
-        pixels.flip();
         return new DecodedImage(width, height, pixels);
     }
 
     private static final class DecodedImage {
         final int width;
         final int height;
-        final ByteBuffer pixels;
+        final byte[] pixels;
 
-        DecodedImage(int width, int height, ByteBuffer pixels) {
+        DecodedImage(int width, int height, byte[] pixels) {
             this.width = width;
             this.height = height;
             this.pixels = pixels;

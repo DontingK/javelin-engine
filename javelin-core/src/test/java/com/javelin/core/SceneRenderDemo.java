@@ -75,7 +75,7 @@ public final class SceneRenderDemo extends JavelinEngineTestBase {
         byte[] fs = TestShaders.compileResource("shaders/builtin_quad.frag", ShaderStage.FRAGMENT);
 
         Mesh quad = createQuad();
-        Texture2D texture = TextureLoader.loadImage(TextureLoader.resolveDefaultTexturePath());
+        Texture2D texture = new Texture2D(TextureLoader.loadImage(TextureLoader.resolveDefaultTexturePath()));
 
         // 同一 Shader 双面型（拍板 2026-10-17 方案 B）：透明性由材质 surfaceType 裁决，
         // Blend/ZWrite 由渲染侧按面型覆盖，不再各建一份带混合态的 Shader

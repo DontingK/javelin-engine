@@ -42,9 +42,9 @@ public final class TextureUpload {
         if (texture2D.getGpu() != null) {
             return gpu;   // 已上传
         }
-        ByteBuffer pixels = texture2D.getPixels();
+        byte[] pixels = texture2D.getPixels();
         if (pixels == null) {
-            throw new IllegalStateException("纹理未填充像素（setPixels / loadImage 先）");
+            throw new IllegalStateException("纹理未引用像素资源（setImage / loadImage 先）");
         }
         if (texture2D.getMipLevels() != 1) {
             throw new UnsupportedOperationException(
@@ -53,7 +53,7 @@ public final class TextureUpload {
         TextureDesc desc = TextureDesc.texture2D(texture2D.getFormat(),
                 texture2D.getWidth(), texture2D.getHeight(),
                 Set.of(TextureUsage.TRANSFER_DST, TextureUsage.SAMPLED));
-        gpu = device.createTexture(desc, UploadData.of(pixels));
+        gpu = device.createTexture(desc, UploadData.of(ByteBuffer.wrap(pixels)));
         texture2D.setGpu(gpu);
         return gpu;
     }

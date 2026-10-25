@@ -20,6 +20,7 @@
 12. **提交 git 前必须先写进度文档**：本批进度先落 doc/——功能批次写对应设计档（版本段+验收状态）并同步 `Engine_Roadmap.md` 的阶段进度与 §4 映射表，排障坑写 `Vulkan_Pitfalls.md`，然后才提交。git 只是收口，禁止「先提交、进度文档后补」
 13. **没有用户指令禁止提交 git**：commit/push 一律由用户明确发起——验收通过、进度文档收口均不构成提交授权（红线 12 只约束提交前文档先行的顺序，不是提交触发器；历史会话的「验收→提交」模式不延伸到本次）
 14. **javadoc 精简——注释说「是什么、怎么用」，设计档说「为什么」**：类注释最多 3~4 行（一句定位 + 使用方必须知道的契约，如「全程不抛、失败转 FAILED」）；方法注释一句话 + 必要 `@param/@throws`。设计论证（拍板依据、取舍对比、将来规划）一律归 doc/ 设计档，不进 javadoc——参照 PanelRegistry / FileTypeRegistry 既有风格（2026-10-20 拍板）
+15. **错误显性化——异常态该弹错误就弹，禁止代码静默消化本来就不正常的逻辑**：GUI 流程遇异常（解析不到引用、导入失败、状态缺失等）一律弹错误提示框让用户看见（JOptionPane 挂 MainFrame 先例），不许只打日志或写防御分支兜过去——静默兜底掩盖真问题（数据损坏、流程错序）。注意与**正常域的缺失态**区分：设计口径内合法的空状态（如未赋贴图槽=占位贴图、新建纹理未选图=纹理壳）按设计处理不算异常，不弹（2026-10-25 拍板，起因=拖入未导入文件静默失败）
 
 ---
 
@@ -80,15 +81,16 @@
 | `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
 | `Engine_Assets_Design.md` | 引擎资产设计（v0.2）：Mesh 类、VertexAttribute、VertexLayout |
 | `Engine_Material_Design.md` | 引擎材质设计（v0.2）：Shader/Material 数据模型、渲染侧桥接（§4）、.scene 内嵌材质与 .mat 资产格式（§3.2）、序列化坑点存档（§3） |
+| `Engine_Texture_Design.md` | 引擎贴图设计（v0.2）：三层资产模型（Image 像素资产 / Texture2D 引用+设置层 / 材质贴图槽——一图多设置免复制）、.png/.jpg/.jpeg 导入链（ImageImporter）、.texture 纹理资产（创建命令+导入器+检查器面板，编辑载体=文本私有实例）、alpha 修复、边界（mip/压缩/sRGB 后置） |
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.3）：组件模型、Node/Component/Scene、RenderingSystem、生命周期帧驱动状态机（§4）、.scene 序列化（§9）——拍板细节与红线辨析见档内 |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、MSAA 抗锯齿（§5.3） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器、线程模型、已知问题与演进方向（§9/§10）——CEF/Web 历史章节已清退（2026-10-23，§4 仅留指针），UI 现状以 Editor_Swing_Design 为准 |
-| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.16）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 + 创建族（material/shader 命令）
+| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.17）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 + 创建族（material/shader/texture 命令） |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（纯 Swing + FlatLaf，视口零拷贝路径保留）**、自研轻量 Dock（二分布局树 + PanelRegistry 扩展点 + ViewportTabs 单 Canvas 不 reparent）、面板迁移路线、里程碑 M1~M6、配色单点（§10-3） |
 | `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.1）：**插件契约（namespace/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集）**；待拍板项见档内 |
-| `Inspector_Design.md` | 检查器设计（v0.11）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板——编辑载体=缓存共享实例优先、数值/面型即时联动渲染）、输入交互增强（键入即提交+label 拖动调值） |
+| `Inspector_Design.md` | 检查器设计（v0.12）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空、多后缀）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板+.texture 纹理面板——.mat 编辑载体=缓存共享实例优先、.texture=文本私有实例）、输入交互增强（键入即提交+label 拖动调值） |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入 |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |

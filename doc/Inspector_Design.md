@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.11）
+# 检查器（Inspector）设计（v0.12）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -91,6 +91,9 @@
 > 资产即时保存口径的工程化形态；④换绑 shader 仍即时持久化（单发动作）+ 面板
 > 重刷（参数重置新默认值）。贴图槽编辑待贴图资产管线（AssetInput TYPE_SUFFIX
 > 无 Texture 键）；运行期在用材质热切归资产热重载批次。
+> 追修（2026-10-25，用户报「label 不是 shader 里定义的显示名」）：参数/贴图槽行 label
+> 误取条目绑定名（如 `_Tint`）——改 shader Properties 的 **displayName**（Unity 口径，
+> 新增 `displayName(material, name)` 解析，shader 缺失/属性失配/显示名空回退绑定名）。
 > v0.10（2026-10-25，**用户实测验收通过**）：**GUID_ASSET 通道升可编辑（用户派发「MeshRenderer
 > 的检查器需要放出材质输入」）**——字段行工厂 GUID_ASSET 分支换装 AssetInput
 > （**通道级通用：mesh/material 双行同享**，非材质单行特例；声明类型随 VO 新增
@@ -129,6 +132,28 @@
 > "editor/" 起头、以 `.javelin/assets` 下存在同名文件坐实（防用户 Assets/editor/
 > 撞名误伤，后台线程纯 IO）；项目面板树根仅 Assets/src，拖放通道天然不达
 > .javelin，无需同款守卫。
+> v0.12（2026-10-25，**当日用户实测验收通过**）：**.texture 纹理面板（Engine_Texture_Design v0.2
+> 贴图管线批次）**——TextureInspectorProvider/TextureInspectorContent（.texture 键）：
+> 「纹理」固定分组（文件/图=AssetInput/GUID）+「采样」分组（filter/wrap JeSelect
+> 中文名）；图换绑即时写回重导（None 合法=纹理壳、空串拒绝、loadGuid 校验存在）、
+> 采样提交防抖 500ms（.mat 同款合并阀+flushPending 兜底）。**编辑载体拍板=文本
+> 解析私有实例**（与 v0.11 共享实例分歧）：Texture2D 冻结语义（上传后
+> setFilterMode/setWrapMode/setImage 抛）使共享已上传实例不可编辑——即时联动统一
+> 归资产热重载批次。配套 AssetInput/AssetPickerDialog 升**多后缀**（TYPE_SUFFIX
+> 值改列表，Image=[.png/.jpg/.jpeg] 首个多扩展名类型：选择窗按列表枚举、拖放按
+> 列表过滤）；~~材质面板贴图槽行仍只读~~。
+> 追修（2026-10-25，用户报「mat 检查器没有纹理的属性」）：根因=材质面板行单源错位——行枚举
+> material 存量条目（绑 shader 那刻播种），模板后增属性（NewShader 加 _MainTex）存量条目不长
+> →行缺失。修=**参数/贴图槽行单源改 shader Properties 声明**（Unity 口径：模板是属性单源、
+> 条目只存值——模板增删属性面板即时跟随；条目缺值回退属性默认值，提交走 setFloat/setColor
+> 落条目即补齐；shader 不可得回退条目迭代残档兜底）。
+> 再追修（同日，用户报「纹理托不上去 + 纹理为啥单独折叠面板」）：**材质贴图行换装提前落地**
+> （原归下批）——TEXTURE_2D 行换 AssetInput(Texture2D)（选择窗/拖放、None=占位贴图合法、
+> 空串拒绝、loadGuid 校验、即时写回重导=Shader 行同款；拒绝路径=整面板 build 重刷回滚）；
+> **参数/贴图槽合组内联**（Unity 口径：贴图行与其他参数按声明序同网格、不按类型分组——
+> 「贴图槽」独立分组退役）；同批 .texture 面板「采样」两下拉并入固定「纹理」组（不值独立
+> 分组，用户拍板合组）。materialSet 按材质缓存烤死贴图绑定——live 换绑不重绑，生效=场景
+> 重载/热重载批次。
 
 ## 1. 总则
 

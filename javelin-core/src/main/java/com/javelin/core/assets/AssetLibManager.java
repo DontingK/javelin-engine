@@ -99,6 +99,12 @@ public class AssetLibManager implements AssetManager {
             return (T) guidAsset;
         }
         File file = guidMap.get(guid);
+        if (file == null) {
+            // miss 先重载 index 拾取运行期新导入（pathOfGuid/listAssetPaths 同口径——
+            // 创建命令/重导后新 guid 未重载即查的空窗；表为 ConcurrentHashMap 安全）
+            loadIndex();
+            file = guidMap.get(guid);
+        }
         if(file == null){
             LOGGER.warn("GUID {} 未找到", guid);
             return null;

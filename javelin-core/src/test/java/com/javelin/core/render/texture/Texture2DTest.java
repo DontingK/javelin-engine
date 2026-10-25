@@ -1,18 +1,27 @@
 package com.javelin.core.render.texture;
 
+import com.javelin.core.serialize.binary.BinaryExporter;
+import com.javelin.core.serialize.binary.BinaryImporter;
 import com.javelin.rhi.Texture;
 import com.javelin.rhi.desc.TextureDesc;
 import com.javelin.rhi.types.Format;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Texture2D 冻结语义单元测试：上传（句柄回填）后资产不可变，与 Mesh 口径一致。
+ * Texture2D 引用层单测：冻结语义（上传后不可变，与 Mesh 口径一致）+
+ * Image 像素资产 / Texture2D 引用层序列化往返（三层拍板 2026-10-25）。
  */
 public class Texture2DTest {
+
+    @TempDir
+    Path tempDir;
 
     /** 假 GPU 句柄：不碰 Device，仅用于触发"已上传"状态 */
     private static Texture dummyGpu() {
@@ -44,8 +53,7 @@ public class Texture2DTest {
 
     @Test
     void modificationBeforeUploadIsAllowed() {
-        Texture2D texture = new Texture2D(2, 2, Format.R8G8B8A8_UNORM, 1);
-        texture.setPixels(ByteBuffer.allocateDirect(16));
+        Texture2D texture = new Texture2D(new Image(2, 2, Format.R8G8B8A8_UNORM, new byte[16]));
         texture.setFilterMode(Texture2D.FilterMode.POINT);
         texture.setWrapMode(Texture2D.WrapMode.CLAMP);
         assertNull(texture.getGpu());
@@ -53,12 +61,49 @@ public class Texture2DTest {
 
     @Test
     void modificationAfterUploadThrows() {
-        Texture2D texture = new Texture2D(2, 2, Format.R8G8B8A8_UNORM, 1,
-                ByteBuffer.allocateDirect(16));
+        Texture2D texture = new Texture2D(new Image(2, 2, Format.R8G8B8A8_UNORM, new byte[16]));
         texture.setGpu(dummyGpu());
 
-        assertThrows(IllegalStateException.class, () -> texture.setPixels(ByteBuffer.allocateDirect(16)));
+        assertThrows(IllegalStateException.class,
+                () -> texture.setImage(new Image(1, 1, Format.R8G8B8A8_UNORM, new byte[4])));
         assertThrows(IllegalStateException.class, () -> texture.setFilterMode(Texture2D.FilterMode.POINT));
         assertThrows(IllegalStateException.class, () -> texture.setWrapMode(Texture2D.WrapMode.CLAMP));
+    }
+
+    @Test
+    void imageRoundtripRestoresPixelsAndGuid() throws Exception {
+        Image source = new Image(2, 1, Format.R8G8B8A8_UNORM,
+                new byte[]{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, (byte) 0x88});
+        source.setGuid("abc123");
+
+        File file = tempDir.resolve("image.asset").toFile();
+        new BinaryExporter(file).export(source);
+        Image restored = new BinaryImporter(file).importData(Image.class);
+
+        assertEquals("abc123", restored.getGuid());
+        assertEquals(2, restored.getWidth());
+        assertEquals(1, restored.getHeight());
+        assertEquals(Format.R8G8B8A8_UNORM, restored.getFormat());
+        assertArrayEquals(source.getPixels(), restored.getPixels());
+    }
+
+    @Test
+    void textureRoundtripRestoresReferenceAndSettings() throws Exception {
+        // image 无 guid → 图内嵌（guid 分流不触发）
+        Image pixels = new Image(2, 2, Format.R8G8B8A8_UNORM, new byte[16]);
+        Texture2D source = new Texture2D(pixels);
+        source.setFilterMode(Texture2D.FilterMode.POINT);
+        source.setWrapMode(Texture2D.WrapMode.CLAMP);
+
+        File file = tempDir.resolve("texture.asset").toFile();
+        new BinaryExporter(file).export(source);
+        Texture2D restored = new BinaryImporter(file).importData(Texture2D.class);
+
+        assertNotNull(restored.getImage());
+        assertArrayEquals(pixels.getPixels(), restored.getPixels());
+        assertEquals(2, restored.getWidth());
+        assertEquals(Texture2D.FilterMode.POINT, restored.getFilterMode());
+        assertEquals(Texture2D.WrapMode.CLAMP, restored.getWrapMode());
+        assertNull(restored.getGpu());  // gpu 序列化不落地
     }
 }

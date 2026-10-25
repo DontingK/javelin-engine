@@ -128,6 +128,23 @@
 > 管线意象、紫呼应 default.shader 固定紫）——菜单项（icon() override）与 .shader
 > 文件条目（FileTypeSetup 补注册纯图标型）共用。占位剩：创建族 folder/scene/script、
 > paste、rename、delete。
+> v0.17（2026-10-25，**当日用户实测验收通过**）：**project.create.texture 创建纹理命令（创建族第三项，
+> Engine_Texture_Design v0.2 贴图管线批次）**——CreateTextureMenuCommand：选中目录
+> 落 `texture.texture`（编号去重），内容=空 image 引用+默认采样设置的 Texture2D 文本
+> 序列化（「.texture 就是 Texture2D 的序列化」、guid 与伴生 .meta 同源四处一致——
+> CreateMaterialMenuCommand 同款）；落盘即 submitImport（TextureImporter 文本导入器
+> →Library 二进制产物）+ project.changed 面板重拉。「创建」子菜单序
+> folder/material/shader/**texture**/scene/script（渲染类资产相邻）、i18n 增「纹理」
+> 一行、texture.svg 棋盘格图标（菜单项与 .texture 文件条目共用；与 image.svg 山景
+> 照片区分）。占位剩：创建族 folder/scene/script、paste、rename、delete。
+> 追修（2026-10-25 验收后，用户报「新建的材质拖到 MeshRenderer 上 GUID 未找到」）：
+> 根因=**创建命令异步导入窗口**——submitImport 入队即返回，用户立刻拖引用时导入未
+> 完成（guid 未进 index/产物未落 Library），GUID_ASSET 回写链 loadGuid 解不到。修三刀
+> （material/shader/texture 三命令同步受益）：①管线新增 `awaitImport(task, timeout)`
+> （ImportTask.status 升 volatile 保跨线程可见；超时=放弃等待不误报）；②三创建命令
+> submitImport 后同步收口（小体量毫秒级、shader 含编译秒内），导入 FAILED 弹错误框
+> （红线 15）；③AssetLibManager.loadGuid miss 先重载 index 再查（pathOfGuid/
+> listAssetPaths 同口径——表为 ConcurrentHashMap，结构安全）。
 
 ## 1. 背景与约束
 

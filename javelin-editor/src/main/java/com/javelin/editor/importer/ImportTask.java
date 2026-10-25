@@ -31,7 +31,8 @@ public class ImportTask {
     private final File sourceFile;
     private final AssetMeta meta;
     private final ImportSettings settings;
-    private Status status = Status.PENDING;
+    /** 终态轮询跨线程可见（worker 写、EDT awaitImport 读） */
+    private volatile Status status = Status.PENDING;
     private String errorMessage;
     private long startTime;
     private long endTime;

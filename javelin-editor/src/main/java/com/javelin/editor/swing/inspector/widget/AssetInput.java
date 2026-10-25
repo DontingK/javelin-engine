@@ -4,6 +4,8 @@ import com.javelin.core.assets.Asset;
 import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.mesh.Mesh;
+import com.javelin.core.render.texture.Image;
+import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.scene.GameScene;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.file.FileType;
@@ -12,6 +14,7 @@ import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.inspector.FieldEditor;
+import com.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +23,7 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.TransferHandler;
 import javax.swing.UIManager;
@@ -52,21 +56,28 @@ public class AssetInput extends JPanel implements FieldEditor {
 
     private static final int ICON_SIZE = 16;
 
-    /** 资产类型 → 扩展名（listAssetPaths 枚举与拖放过滤同源；资产管线落地新类型时补行） */
-    private static final Map<Class<? extends Asset>, String> TYPE_SUFFIX = Map.of(
-            Shader.class, ".shader",
-            Mesh.class, ".smesh",
-            Material.class, ".mat",
-            GameScene.class, ".scene");
+    /**
+     * 资产类型 → 扩展名列表（listAssetPaths 枚举与拖放过滤同源；贴图三后缀为
+     * 首个多扩展名类型；资产管线落地新类型时补行）
+     */
+    private static final Map<Class<? extends Asset>, List<String>> TYPE_SUFFIX = Map.of(
+            Shader.class, List.of(".shader"),
+            Mesh.class, List.of(".smesh"),
+            Material.class, List.of(".mat"),
+            GameScene.class, List.of(".scene"),
+            Image.class, List.of(".png", ".jpg", ".jpeg"),
+            Texture2D.class, List.of(".texture"));
 
     /** 资产类型 → 选择窗标题（面板文案硬编码中文先例） */
     private static final Map<Class<? extends Asset>, String> TYPE_LABEL = Map.of(
             Shader.class, "选择着色器",
             Mesh.class, "选择网格",
             Material.class, "选择材质",
-            GameScene.class, "选择场景");
+            GameScene.class, "选择场景",
+            Image.class, "选择贴图",
+            Texture2D.class, "选择纹理");
 
-    private final String suffix;
+    private final List<String> suffixes;
     private final String dialogTitle;
     private final Consumer<String> onCommit;
     /** 类型图标（同类型恒一，懒建） */
@@ -80,12 +91,12 @@ public class AssetInput extends JPanel implements FieldEditor {
 
     public AssetInput(Class<? extends Asset> assetType, Consumer<String> onCommit) {
         super(new BorderLayout(1, 0));
-        String resolvedSuffix = TYPE_SUFFIX.get(assetType);
-        if (resolvedSuffix == null) {
+        List<String> resolvedSuffixes = TYPE_SUFFIX.get(assetType);
+        if (resolvedSuffixes == null) {
             throw new IllegalArgumentException("未登记的资产类型: " + assetType.getName()
                     + "（TYPE_SUFFIX 补行后可用）");
         }
-        this.suffix = resolvedSuffix;
+        this.suffixes = resolvedSuffixes;
         this.dialogTitle = TYPE_LABEL.get(assetType);
         this.onCommit = onCommit;
 
@@ -140,13 +151,13 @@ public class AssetInput extends JPanel implements FieldEditor {
     /** 弹选择窗提交（取消不动值） */
     private void openPicker() {
         AssetPickerDialog.Selection selection = AssetPickerDialog.pick(
-                SwingUtilities.getWindowAncestor(this), suffix, dialogTitle);
+                SwingUtilities.getWindowAncestor(this), suffixes, dialogTitle);
         if (selection != null) {
             commit(selection.guid());
         }
     }
 
-    /** 拖放处理：按扩展名过滤，guid 双源解析（文件头优先、伴生 .meta 兜底） */
+    /** 拖放处理：按扩展名过滤，guid 双源解析（伴生 .meta 优先、文件头兜底） */
     private final class AssetDropHandler extends TransferHandler {
 
         @Override
@@ -163,6 +174,10 @@ public class AssetInput extends JPanel implements FieldEditor {
             String resolved = resolveGuid(file);
             if (resolved == null || resolved.isEmpty()) {
                 LOGGER.warn("拖入文件解析不到 guid（未导入？），不提交: {}", file.getName());
+                // EDT 拖放回调内直接弹（SceneFileType 脏场景确认同款 MainFrame 挂窗先例）
+                JOptionPane.showMessageDialog(MainFrame.getInstance(),
+                        "拖入文件解析不到 GUID（可能未导入进项目）: " + file.getName(),
+                        "资产引用", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
             commit(resolved);
@@ -177,7 +192,8 @@ public class AssetInput extends JPanel implements FieldEditor {
             try {
                 Object data = support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
                 if (data instanceof List<?> files && !files.isEmpty() && files.get(0) instanceof File file) {
-                    return file.getName().toLowerCase(Locale.ROOT).endsWith(suffix) ? file : null;
+                    String name = file.getName().toLowerCase(Locale.ROOT);
+                    return suffixes.stream().anyMatch(name::endsWith) ? file : null;
                 }
             } catch (Exception e) {
                 LOGGER.warn("读取拖放数据失败", e);
@@ -185,18 +201,19 @@ public class AssetInput extends JPanel implements FieldEditor {
             return null;
         }
 
-        /** File → guid：文件头（内置资源）优先、伴生 .meta（用户文件）兜底 */
+        /**
+         * File → guid：伴生 .meta 优先（面板拖入的用户文件恒命中——真值=meta、
+         * 用户文件无 guid 头，先读头恒 miss 白费一次源文件读）；文件头兜底仅
+         * 服务外部拖入的带头内置系副本（无 meta）。
+         */
         private String resolveGuid(File file) {
-            String headerGuid = new GuidHeaderManager().extractGuid(file);
-            if (headerGuid != null && !headerGuid.isEmpty()) {
-                return headerGuid;
-            }
             JavelinEditor editor = JavelinEditor.getInstance();
-            if (editor == null) {
-                return null;
+            AssetMeta meta = editor != null ? editor.getMetaManager().getMeta(file) : null;
+            if (meta != null && meta.getGuid() != null && !meta.getGuid().isEmpty()) {
+                return meta.getGuid();
             }
-            AssetMeta meta = editor.getMetaManager().getMeta(file);
-            return meta != null ? meta.getGuid() : null;
+            String headerGuid = new GuidHeaderManager().extractGuid(file);
+            return headerGuid != null && !headerGuid.isEmpty() ? headerGuid : null;
         }
     }
 
@@ -250,7 +267,7 @@ public class AssetInput extends JPanel implements FieldEditor {
     /** 类型图标（按扩展名查 FileTypeRegistry，懒建缓存） */
     private SvgIcon typeIcon() {
         if (typeIcon == null) {
-            FileType type = FileTypeRegistry.find("x" + suffix);
+            FileType type = FileTypeRegistry.find("x" + suffixes.get(0));
             typeIcon = SvgIcon.of(type != null ? type.icon() : "unknown", ICON_SIZE);
         }
         return typeIcon;

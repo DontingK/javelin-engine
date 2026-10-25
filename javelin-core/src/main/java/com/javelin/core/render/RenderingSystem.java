@@ -508,19 +508,26 @@ public final class RenderingSystem implements AutoCloseable {
         set.update(DescriptorUpdate.uniformBuffer(0, ubo, 0, uboSize));
 
         int binding = 1;
+        List<String> textureSlots = new ArrayList<>();
         for (MaterialProperty property : shader.getProperties()) {
             if (property.getType() != MaterialPropertyType.TEXTURE_2D) {
                 continue;
             }
-            Texture2D texture = material.getTexture(property.getName());
-            if (texture == null) {
+            Texture2D assigned = material.getTexture(property.getName());
+            Texture2D texture = assigned;
+            // image 未引用的纹理壳（.texture 新建未选图）同未赋槽走占位——
+            // 上传路径对 null image 会抛，这里挡掉
+            if (texture == null || texture.getImage() == null) {
                 texture = placeholderTexture(property.getTexturePlaceholder());
             }
+            textureSlots.add(property.getName() + "="
+                    + (assigned != null && assigned.getImage() != null ? assigned.getGuid() : "占位"));
             Texture gpu = TextureUpload.upload(device, texture);
             set.update(DescriptorUpdate.sampledTexture(binding++, gpu,
                     samplerFor(texture.getFilterMode(), texture.getWrapMode())));
         }
-        log.info("material set created: shader={} uboBytes={}", shader.getShaderName(), uboSize);
+        log.info("material set created: shader={} uboBytes={} textureSlots={}",
+                shader.getShaderName(), uboSize, textureSlots);
         return new MaterialResources(set, ubo);
     }
 

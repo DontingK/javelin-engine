@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
@@ -67,6 +69,9 @@ public class GuidHeaderManager {
     /**
      * 提取 GUID，不自动注入
      *
+     * <p>只读首行；二进制源（.png 等）解码失败视为「无头」预期态（debug 级），
+     * 不走错误栈——guid 真值归伴生 .meta。</p>
+     *
      * @param file 资源文件
      * @return GUID，不存在返回 null
      */
@@ -74,15 +79,17 @@ public class GuidHeaderManager {
         if (!file.exists() || !file.isFile()) {
             return null;
         }
-        try {
-            List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
-            if (lines.isEmpty()) {
+        try (BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
+            String firstLine = reader.readLine();
+            if (firstLine == null) {
                 return null;
             }
-            String firstLine = lines.get(0).trim();
+            firstLine = firstLine.trim();
             if (firstLine.startsWith(GUID_PREFIX)) {
                 return firstLine.substring(GUID_PREFIX.length()).trim();
             }
+        } catch (CharacterCodingException e) {
+            logger.debug("二进制源无文件头 GUID（预期态）: {}", file.getName());
         } catch (IOException e) {
             logger.error("读取文件头 GUID 失败: {}", file, e);
         }

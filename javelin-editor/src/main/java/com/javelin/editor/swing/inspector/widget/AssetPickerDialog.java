@@ -82,7 +82,7 @@ public final class AssetPickerDialog extends JDialog {
         }
     }
 
-    private final String suffix;
+    private final List<String> suffixes;
     private final JTextField searchField = new JTextField();
     private final DefaultListModel<Entry> model = new DefaultListModel<>();
     private final JList<Entry> list = new JList<>(model);
@@ -91,9 +91,9 @@ public final class AssetPickerDialog extends JDialog {
     /** 提交结果（null = 未提交=取消） */
     private Selection result;
 
-    private AssetPickerDialog(Window owner, String suffix, String title) {
+    private AssetPickerDialog(Window owner, List<String> suffixes, String title) {
         super(owner, title, ModalityType.APPLICATION_MODAL);
-        this.suffix = suffix;
+        this.suffixes = suffixes;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(0, 2));
 
@@ -153,12 +153,12 @@ public final class AssetPickerDialog extends JDialog {
      * 弹出选择（模态阻塞）：后台拉当前类型全部已导入资产后组装列表。
      *
      * @param owner 宿主窗口
-     * @param suffix 资产扩展名（含点号，如 {@code .shader}）
+     * @param suffixes 资产扩展名列表（含点号，如 {@code [.shader]}；贴图多后缀）
      * @param title 窗口标题
      * @return 选择结果；null = 取消（Selection.guid 为 null = 选中 None 清空）
      */
-    public static Selection pick(Window owner, String suffix, String title) {
-        AssetPickerDialog dialog = new AssetPickerDialog(owner, suffix, title);
+    public static Selection pick(Window owner, List<String> suffixes, String title) {
+        AssetPickerDialog dialog = new AssetPickerDialog(owner, suffixes, title);
         dialog.setVisible(true);
         return dialog.result;
     }
@@ -172,16 +172,18 @@ public final class AssetPickerDialog extends JDialog {
         }
         Thread loader = new Thread(() -> {
             List<Entry> loaded = new ArrayList<>();
-            for (String path : editor.getAssetManager().listAssetPaths(suffix)) {
-                if (isEditorAsset(editor, path)) {
-                    continue;
+            for (String suffix : suffixes) {
+                for (String path : editor.getAssetManager().listAssetPaths(suffix)) {
+                    if (isEditorAsset(editor, path)) {
+                        continue;
+                    }
+                    String guid = editor.getAssetManager().guidOfPath(path);
+                    if (guid == null || guid.isEmpty()) {
+                        LOGGER.warn("索引条目缺 guid，跳过: {}", path);
+                        continue;
+                    }
+                    loaded.add(new Entry(guid, tailName(path)));
                 }
-                String guid = editor.getAssetManager().guidOfPath(path);
-                if (guid == null || guid.isEmpty()) {
-                    LOGGER.warn("索引条目缺 guid，跳过: {}", path);
-                    continue;
-                }
-                loaded.add(new Entry(guid, tailName(path)));
             }
             SwingUtilities.invokeLater(() -> {
                 entries = loaded;

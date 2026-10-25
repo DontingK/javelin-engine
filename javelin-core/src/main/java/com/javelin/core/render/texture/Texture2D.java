@@ -2,25 +2,23 @@ package com.javelin.core.render.texture;
 
 import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.assets.AbsAsset;
+import com.javelin.core.serialize.InputCapsule;
+import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.rhi.Texture;
 import com.javelin.rhi.types.Format;
 
-import java.nio.ByteBuffer;
-
 /**
- * 2D 纹理资产（对齐 Unity Texture2D 心智）：CPU 像素数据持有者。
+ * 2D 纹理资产（对齐 Unity Texture2D 心智）：引用 {@link Image} 像素资产 + 采样/派生
+ * 设置（filter/wrap/mipLevels）——同一像素资产可被多个 Texture2D 以不同设置引用，
+ * 磁盘像素只存一份（三层拍板 2026-10-25，Engine_Texture_Design.md §1）。
+ * 宽高/格式/像素经 image 委托读取，image 为 null 时访问即抛。
  *
- * <p>构造/填充均为 CPU 侧操作，device 无关；GPU 句柄由渲染侧首次绑定时
- * 上传后回填（{@link #setGpu}），与 Mesh 的缓冲同一生存期模型：
- * 资产 GC 不可达 → 句柄不可达 → RHI Cleaner 销毁（RHI 17 节），资产层不 dispose。
- * 采样参数（filter/wrap）在此声明，渲染侧建 Sampler 时消费。</p>
+ * <p>GPU 句柄由渲染侧首次绑定时上传后回填（{@link #setGpu}），与 Mesh 的缓冲同一
+ * 生存期模型：资产 GC 不可达 → 句柄不可达 → RHI Cleaner 销毁（RHI 17 节），资产层
+ * 不 dispose；序列化不落地 gpu 字段。内置占位常量（WHITE / BLACK / NORMAL）对齐
+ * Unity whiteTexture / blackTexture / normalTexture（RHI 21.4 未赋槽解析）。</p>
  *
- * <p>内置占位常量（WHITE / BLACK / NORMAL）对齐 Unity 的
- * whiteTexture / blackTexture / normalTexture：上传既已推迟到渲染侧，
- * 占位纹理无需 Device 即可静态可用；未赋值贴图槽的解析见 RHI 21.4 节约定。</p>
- *
- * <p>字段非 final：序列化反序列化需回写（AGENTS.md 红线 9）；
- * 只读靠 API 面保证（无公开修改方法之外的破坏路径）。</p>
+ * <p>字段非 final（红线 9）；只读靠 API 面保证。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -45,14 +43,11 @@ public class Texture2D extends AbsAsset {
         CLAMP
     }
 
-    private int width;
-    private int height;
-    private Format format;
-    private int mipLevels;
+    /** 像素资产引用（Asset 引用走 guid 分流）；null = 未绑定 */
+    private Image image;
+    private int mipLevels = 1;
     private FilterMode filterMode = FilterMode.BILINEAR;
     private WrapMode wrapMode = WrapMode.REPEAT;
-    /** CPU 像素副本（紧密打包，format 决定每像素字节数）；null = 未填充 */
-    private ByteBuffer pixels;
     /** GPU 句柄（渲染侧上传后回填；序列化不落地，随资产 GC 走 Cleaner） */
     private Texture gpu;
 
@@ -63,37 +58,48 @@ public class Texture2D extends AbsAsset {
     }
 
     /**
-     * 创建空纹理（Unity {@code new Texture2D(w, h, format, mipCount)}）。
+     * 引用像素资产创建纹理（采样设置用默认值，setFilterMode/setWrapMode 再调）。
      */
-    public Texture2D(int width, int height, Format format, int mipLevels) {
-        this.width = width;
-        this.height = height;
-        this.format = format;
-        this.mipLevels = mipLevels;
+    public Texture2D(Image image) {
+        this.image = image;
     }
 
     /**
-     * 创建并填充像素（Unity SetPixels 语义；引用专用缓冲，勿再读写原缓冲）。
+     * 像素资产引用；null = 未绑定（宽高/格式/像素访问即抛）。
      */
-    public Texture2D(int width, int height, Format format, int mipLevels, ByteBuffer pixels) {
-        this(width, height, format, mipLevels);
-        this.pixels = pixels;
+    public Image getImage() {
+        return image;
+    }
+
+    /**
+     * 换绑像素资产（上传冻结后禁止；换绑后 GPU 句柄按新资产重新上传）。
+     */
+    public void setImage(Image image) {
+        checkMutable();
+        this.image = image;
     }
 
     public int getWidth() {
-        return width;
+        return requireImage().getWidth();
     }
 
     public int getHeight() {
-        return height;
+        return requireImage().getHeight();
     }
 
     public Format getFormat() {
-        return format;
+        return requireImage().getFormat();
     }
 
     public int getMipLevels() {
         return mipLevels;
+    }
+
+    /**
+     * 像素本体（经 image 委托；上传前必须非空）。
+     */
+    public byte[] getPixels() {
+        return requireImage().getPixels();
     }
 
     public FilterMode getFilterMode() {
@@ -115,21 +121,6 @@ public class Texture2D extends AbsAsset {
     }
 
     /**
-     * CPU 像素副本（紧密打包；上传前必须非空，渲染侧消费后是否丢弃见桥接实现）。
-     */
-    public ByteBuffer getPixels() {
-        return pixels;
-    }
-
-    /**
-     * 填充像素（Unity SetPixels 语义；上传前调用，引用专用缓冲）。
-     */
-    public void setPixels(ByteBuffer pixels) {
-        checkMutable();
-        this.pixels = pixels;
-    }
-
-    /**
      * GPU 句柄（渲染侧绑描述符用）；null = 尚未上传。
      */
     Texture getGpu() {
@@ -143,13 +134,48 @@ public class Texture2D extends AbsAsset {
         this.gpu = gpu;
     }
 
+    /**
+     * 序列化写出：guid/lastModified 由 AbsAsset 写；image 走 Asset 引用 guid 分流
+     * （guid 空 = 图内嵌）；mipLevels/filterMode/wrapMode 直传（红线 10）。
+     */
+    @Override
+    public void write(OutputCapsule output) {
+        super.write(output);
+        output.write("image", image);
+        output.write("mipLevels", mipLevels);
+        output.write("filterMode", filterMode);
+        output.write("wrapMode", wrapMode);
+    }
+
+    /**
+     * 序列化读入：只回写字段引用；枚举/mip 缺失不回写保字段初始默认
+     * （filterMode=BILINEAR、wrapMode=REPEAT、mipLevels=1）。
+     */
+    @Override
+    public void read(InputCapsule input) {
+        super.read(input);
+        image = input.readSerializable("image", Image.class);
+        int mips = input.readInt("mipLevels");
+        if (mips > 0) {
+            mipLevels = mips;
+        }
+        FilterMode fm = input.readEnum("filterMode", FilterMode.class);
+        if (fm != null) {
+            filterMode = fm;
+        }
+        WrapMode wm = input.readEnum("wrapMode", WrapMode.class);
+        if (wm != null) {
+            wrapMode = wm;
+        }
+    }
+
     // ═══ 内置占位（Unity whiteTexture / blackTexture / normalTexture） ═══
 
     private static final class Placeholders {
-        static final Texture2D WHITE = solid(0xFF, 0xFF, 0xFF, 0xFF);
-        static final Texture2D BLACK = solid(0, 0, 0, 0xFF);
+        static final Texture2D WHITE = new Texture2D(Image.solid(0xFF, 0xFF, 0xFF, 0xFF));
+        static final Texture2D BLACK = new Texture2D(Image.solid(0, 0, 0, 0xFF));
         /** 法线占位（Unity normalTexture / 本引擎 "bump" 约定：0.5, 0.5, 1.0） */
-        static final Texture2D NORMAL = solid(0x80, 0x80, 0xFF, 0xFF);
+        static final Texture2D NORMAL = new Texture2D(Image.solid(0x80, 0x80, 0xFF, 0xFF));
     }
 
     public static Texture2D whiteTexture() {
@@ -168,9 +194,14 @@ public class Texture2D extends AbsAsset {
      * 1×1 纯色纹理（占位贴图工厂；device 无关）。
      */
     public static Texture2D solid(int r, int g, int b, int a) {
-        ByteBuffer pixel = ByteBuffer.allocateDirect(4);
-        pixel.put((byte) r).put((byte) g).put((byte) b).put((byte) a).flip();
-        return new Texture2D(1, 1, Format.R8G8B8A8_UNORM, 1, pixel);
+        return new Texture2D(Image.solid(r, g, b, a));
+    }
+
+    private Image requireImage() {
+        if (image == null) {
+            throw new IllegalStateException("纹理未引用像素资源（setImage 先）");
+        }
+        return image;
     }
 
     /**
