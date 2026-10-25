@@ -116,7 +116,7 @@
 > （同式第四~六份，公共基类抽取仍留拍板——「一动作一类」现状不变）；菜单序
 > plane,cube,sphere,capsule,cylinder,pyramid（Unity 相对序插入）、i18n 新增
 > 圆柱体/胶囊体两行。
-> v0.16（2026-10-25）：**project.create.shader 创建命令实做（创建族第二项，待验收）**——
+> v0.16（2026-10-25）：**project.create.shader 创建命令实做（创建族第二项，同日用户实测验收通过）**——
 > CreateShaderMenuCommand：选中目录落 `NewShader.shader`（编号去重），内容=极简
 > 前向模板（_Color Color 属性走 Properties→MaterialBlock 通路、Pass Forward 不透
 > 底稿）；**用户文件不写 guid 头**（用户拍板：guid 头=内置资源专属，重释放稳定

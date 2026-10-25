@@ -153,7 +153,7 @@
 | hierarchy.create.camera（v0.8） | ✅ | ✅ 用户实测（2026-10-23） |
 | hierarchy.create.cube（v0.14，内置 box.smesh + CreateBoxMenuCommand） | ✅ | ✅ 用户实测（2026-10-24） |
 | hierarchy.create.sphere/.capsule/.cylinder 原始体三件套（v0.15，内置三份 .smesh；生成脚本一次性工具不入库） | ✅ | ✅ 用户实测（2026-10-25） |
-| project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅（2026-10-25） | — 待验收（§6） |
+| project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅ 用户实测（2026-10-25） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
@@ -178,10 +178,11 @@
 | v0.1 节点头五件套（name/active/layer/tag）+ Transform 字段行 + Tag/Layer 下拉编辑 | ✅ | ✅ 用户实测（2026-10-11） |
 | v0.2 Camera 组件接入 + ENUM/COLOR/RECT/LAYER_MASK 类型通道 + 星标即时化（scene.dirty） | ✅ | ✅ 用户实测（2026-10-23） |
 | v0.3 GUID_ASSET 资产引用三态只读 + MeshRenderer 组件接入 | ✅ | ✅ 随 M4 Swing 版面验收销账（2026-10-18） |
-| v0.7 .shader 资产只读诊断台（注册器第三键；guid 双源解析 + Library 产物 + 属性/Pass 三段表 + 导入缺失诊断态） | ✅（2026-10-25） | — 待验收（§6） |
-| v0.8 AssetInput 资产通用输入 + 材质检查器 Shader 行换装（Class 类型参数 + 选择窗 + 右区拖放 + guid 三态 wire + setShader 重置默认值 + .mat 即时写回重导；core 补 AssetManager.guidOfPath 反查口） | ✅（2026-10-25） | — 待验收（§6） |
-| v0.9 材质参数编辑（类型感知控件 COLOR/VECTOR/FLOAT·RANGE/面型 + 防抖写盘重导 + 材质信息分组固定不可折叠） | ✅（2026-10-25） | — 待验收（§6） |
-| v0.10 GUID_ASSET 通道升可编辑（MeshRenderer mesh/material 行换装 AssetInput：选择窗/右区拖放/None 清空；VO 新增 assetType 声明类型；回写 guid 经 loadGuid 解实例、未索引拒绝、空串=内存创建拒绝；只读前身 GuidAssetField 退役） | ✅（2026-10-25） | — 待验收（§6） |
+| v0.7 .shader 资产只读诊断台（注册器第三键；guid 双源解析 + Library 产物 + 属性/Pass 三段表 + 导入缺失诊断态） | ✅ 用户实测（2026-10-25） |
+| v0.8 AssetInput 资产通用输入 + 材质检查器 Shader 行换装（Class 类型参数 + 选择窗 + 右区拖放 + guid 三态 wire + setShader 重置默认值 + .mat 即时写回重导；core 补 AssetManager.guidOfPath 反查口） | ✅ 用户实测（2026-10-25） |
+| v0.9 材质参数编辑（类型感知控件 COLOR/VECTOR/FLOAT·RANGE/面型 + 防抖写盘重导 + 材质信息分组固定不可折叠） | ✅ 用户实测（2026-10-25） |
+| v0.10 GUID_ASSET 通道升可编辑（MeshRenderer mesh/material 行换装 AssetInput：选择窗/右区拖放/None 清空；VO 新增 assetType 声明类型；回写 guid 经 loadGuid 解实例、未索引拒绝、空串=内存创建拒绝；只读前身 GuidAssetField 退役） | ✅ 用户实测（2026-10-25） |
+| v0.11 材质编辑即时联动渲染（编辑载体=loadGuid 缓存共享实例优先——命中且 shader 与盘面一致直接编辑场景同一实例、数值/面型即时联动；shader 分歧守卫防旧实例写盘导回旧 shader；Shader 换绑不走共享实例走盘面重解析（MaterialResources 按 shader 首绑烤死）；追修 GUID_ASSET 回显漏传/显示名去后缀、选择窗 editor 组内置资产过滤） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
@@ -207,7 +208,7 @@
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
 | SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ✅ 用户实测（2026-10-23） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
-| meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ⏳ 待验收 |
+| meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
@@ -257,11 +258,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 4 项**——
-2026-10-25 meta 统一与重导检出（gizmo 被 box 遮挡→Library 旧产物坑根治链：.shader/.smesh 落伴生 .meta（guid=文件头镜像）+ releaser 内容字节比对 + needImport 统一 mtime 判定）。验收三步：①重启编辑器——.javelin/assets 与 Assets 下 .shader/.smesh 旁长出 .meta、日志「提交 0 个待导入任务」；②改任一内置源重跑——该文件被检出重导；③手改 Assets 里 .shader 重启——自动重导。
-2026-10-25 project.create.shader 着色器创建命令（Editor_Menu_Design v0.16）：项目面板右键目录→创建→着色器，验收三步——①落 NewShader.shader（重名 NewShader 1.shader 编号去重）、文件**无 guid 头首行**、旁生 .meta（随机 guid）且日志「着色器导入成功」（Library 产物 + index 已建）、面板新文件带 shader 图标（.shader 已注册纯图标文件类型，菜单项同图标）；②项目面板树自动刷新见新文件；③手动改该 .shader 后重启/reimport——按 mtime 检出重导。④点选该 .shader 文件——检查器出着色器诊断台（Shader/GUID/属性表/Pass 状态表；故意改坏源重导后面板显「导入产物缺失」诊断态）。
-2026-10-25 AssetInput 资产通用输入 + 材质检查器 Shader 行换装（.mat 联动第一项，Inspector_Design v0.8，方案用户拍板）：选 .mat → 检查器 Shader 行为 AssetInput——①点「…」弹选择窗（列表/搜索/双击/确定）；②按住 .shader 从右区拖入 Shader 行即换绑（显示名+图标；**拖拽期间检查器不切走——按下即选中上报 bug 已修，拖拽≠选中 Unity 口径**）；③拖 .mat/None 被拒绝回原值；④换绑后参数表重置为新 shader 默认值、.mat 即时写回（重开文件仍新 shader）、日志见重导；⑤选内置 default.shader ↔ 用户 NewShader.shader 往返；⑥布局美化（三段折叠分组+两列网格）观感验收；⑦参数编辑（NewShader 的 _Color 拾色改值→~500ms 落盘重导→重开文件值保持；数字框键入/scrub；面型切透明）；⑧「材质」分组点击不折叠（固定头、无箭头）、参数/贴图槽分组可折叠。
-2026-10-25 GUID_ASSET 通道升可编辑（Inspector_Design v0.10，用户派发「MeshRenderer 检查器放出材质输入」）：选挂 MeshRenderer 的节点 → 检查器「网格渲染器」分组材质/网格行为 AssetInput——①点「…」弹选择窗选 .mat 换绑（显示名+图标；测试资产先项目面板右键→创建→材质造一个，命令创建的节点材质为内存创建只读态）；②从项目面板右区拖 .mat 入材质行即换绑（拖 .smesh 入材质行被拒；网格行同通道收 .smesh）；③选 None 清空材质（渲染侧 null 不渲染）、场景星标即置脏、Ctrl+S 保存重开场景仍新 guid（.scene 按新 guid 序列化）；④拖 .shader 入材质行被拒、状态栏提示资产不存在/不匹配。运行期在用材质热切归资产热重载批次（换绑后重载场景生效）。
+**当前挂账 0 项**。
+
+2026-10-25 用户实测批量销账 6 笔（状态已翻入各模块表）：资产管线 meta 统一与重导检出（§3.6）、project.create.shader 创建命令（§3.2）、检查器 v0.7 .shader 诊断台 / v0.8 AssetInput+材质 Shader 行换装（含 v0.9 参数编辑·分组形态）/ v0.10 GUID_ASSET 升可编辑 / v0.11 材质编辑即时联动渲染（§3.4）。
 
 2026-10-23 用户实测批量销账 15 项：去 Web 化收官链七项（ProjectFrame/ProjectLoadingFrame、PackDialog 迁 Swing、jcef 桥包/jcefmaven/jackson 清退、M2 层级面板、全链引用化、M3 项目面板、文件类型注册器+file.open）+ 场景树 10-22 增量两项（根行选中、脏星标行宽）+ 散件六项（Scene/Game 切换、hierarchy.create.camera、SceneImporter、Transform 变更检测、.mat 全链、Material.surfaceType 面型裁决与 Pass 名分桶——状态已翻入各模块表）。
 
