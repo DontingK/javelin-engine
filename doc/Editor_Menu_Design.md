@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.14）
+# 编辑器菜单与命令系统设计（v0.15）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -104,6 +104,18 @@
 > （自包含一份，「一动作一类」现状；plane/cube 两份同式代码的公共基类抽取
 > 再议——IDEA 重复段告警已现，拍板归用户）；icon=box（图标资源已备）、
 > label 走既有 i18n 立方体条目零新增。
+> v0.15（2026-10-25）：**hierarchy.create.sphere/.capsule/.cylinder 原始体
+> 三件套实做（sphere 替换占位注册行、capsule/cylinder 新增菜单项，当日用户实测验收）**——
+> 三份 .smesh 由旋转体（lathe）生成脚本离线产出（一次性工具，用户拍板不入库——
+> 产物即交付物）：母线 (r,y,2D法线)
+> 绕 +Y 旋转 24 段，硬边（圆柱端盖/侧面交界）用母线重复点分离法线、平滑体
+> （球/胶囊）法线连续，落盘前逐三角形叉积自检外向（多数内向则全局翻转
+> 复验，对齐 box 六面校验口径）；guid 沿用既有文件头（重跑稳定、产物不换档）。
+> 产物尺寸 Unity 口径：球直径 1（UV 球 24×12）、圆柱高 2×直径 1（含端盖）、
+> 胶囊总高 2×直径 1（中段 y∈[-0.5,0.5]+半球盖）。三命令类照 cube 自包含
+> （同式第四~六份，公共基类抽取仍留拍板——「一动作一类」现状不变）；菜单序
+> plane,cube,sphere,capsule,cylinder,pyramid（Unity 相对序插入）、i18n 新增
+> 圆柱体/胶囊体两行。
 
 ## 1. 背景与约束
 
@@ -367,6 +379,9 @@ public class MenuItemVo {        // 顶层与子项同构
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |
 | `hierarchy.create.cube` | 立方体 | 场景树右键 → 3D 对象 | 选中节点下创建 1×1×1 居中立方体（无选中=根级），重名去重 Cube (n)，创建后选中新节点；mesh=内置 box.smesh 共享加载（六面外向绕序）、材质=default.shader 运行期实例，挂入/选中/线程语义同 plane 命令；icon=box（2026-10-24 落地 v0.14，替换占位注册，Unity 3D Object → Cube 口径） |
+| `hierarchy.create.sphere` | 球 | 场景树右键 → 3D 对象 | 选中节点下创建直径 1 球体（UV 球 24×12 分段，无选中=根级），重名去重 Sphere (n)，创建后选中新节点；mesh=内置 sphere.smesh（旋转体算法离线生成、绕序自检）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，替换占位注册，Unity 3D Object → Sphere 口径） |
+| `hierarchy.create.capsule` | 胶囊体 | 场景树右键 → 3D 对象 | 选中节点下创建总高 2×直径 1 胶囊（中段圆柱+上下半球盖，无选中=根级），重名去重 Capsule (n)，创建后选中新节点；mesh=内置 capsule.smesh（离线生成同上）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，新增菜单项，Unity 3D Object → Capsule 口径） |
+| `hierarchy.create.cylinder` | 圆柱体 | 场景树右键 → 3D 对象 | 选中节点下创建高 2×直径 1 圆柱（含端盖，端盖/侧面硬边重复顶点分离法线，无选中=根级），重名去重 Cylinder (n)，创建后选中新节点；mesh=内置 cylinder.smesh（离线生成同上）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，新增菜单项，Unity 3D Object → Cylinder 口径） |
 | `hierarchy.create.camera` | 摄像机 | 场景树右键 → 摄像机 | 选中节点下创建相机（无选中=根级），重名去重 Main Camera (n)，创建后选中新节点；Unity 口径=节点名 Main Camera、原点无旋转、参数全取 Camera 组件默认（fov 60°/near 0.1/far 1000/depth 0/SOLID_COLOR/全屏），main 标志不预设（引擎 main 消费未落地）；相机入用户 game scene——SCENE 模式编辑器视口不受影响（EditorScene 相机 SceneModel 双模式分流）、GAME 模式渲染用户相机，Camera 序列化已通保存可恢复（2026-10-11 落地，替换占位注册） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
@@ -386,7 +401,7 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 
 场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.7（2026-10-11）结构按
 用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane、
-立方体已实现、球/三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
+立方体、球、胶囊、圆柱已实现——原始体 2026-10-25 批次、三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
 rename
 撤出（随树内编辑 UI 后置）、未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。
 project 右键域的
