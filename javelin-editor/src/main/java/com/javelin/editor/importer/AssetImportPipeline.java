@@ -208,8 +208,9 @@ public class AssetImportPipeline {
             task.markEnd(success);
 
             if (success) {
-                if (!isSelfContainedGuidFile(task.getSourceFile())) {
-                    // 更新伴生 meta
+                if (!isScriptFile(task.getSourceFile())) {
+                    // 更新伴生 meta（含 .shader/.smesh——2026-10-25 统一：mtime 对齐
+                    // 源文件，needImport 即据此判等）
                     AssetMeta meta = task.getMeta();
                     meta.setImportSettings(task.getSettings());
                     meta.setLastModifiedTime(task.getSourceFile().lastModified());
@@ -262,8 +263,8 @@ public class AssetImportPipeline {
         AssetMeta meta;
         ImportSettings settings;
 
-        if (isSelfContainedGuidFile(file)) {
-            // 自包含 GUID 文件：从文件头读取 GUID，不创建 .meta
+        if (isScriptFile(file)) {
+            // 脚本：guid 从文件头读（缺失注入），不建 .meta——内存 meta 即可
             String guid = guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file));
             meta = new AssetMeta(guid, detectAssetType(file));
             settings = getOrCreateSettings(file, meta);
@@ -307,10 +308,12 @@ public class AssetImportPipeline {
      * @return 如果需要导入返回 true
      */
     private boolean needImport(File file) {
-        if (isSelfContainedGuidFile(file)) {
-            // 自包含文件：检查 Library 产物是否存在
+        if (isScriptFile(file)) {
+            // 脚本无 meta：产物存在即可（guid 头真值稳定，无 mtime 判定载体）
             return !isImportedInLibrary(file);
         }
+        // 统一 meta mtime 判定（2026-10-25）：.shader/.smesh 也落伴生 .meta——
+        // 源 mtime ≠ meta mtime 即重导（内置资产重释放/用户手改源均经此检出）
         AssetMeta meta = metaManager.getMeta(file);
         if (meta == null) {
             return true;
@@ -431,37 +434,61 @@ public class AssetImportPipeline {
      * @return 如果存在返回 true
      */
     private boolean isImportedInLibrary(File file) {
+        File product = libraryFileFor(file);
+        return product != null && product.exists();
+    }
+
+    /**
+     * 解析源文件对应的 Library 产物文件（guid + ".asset"）。
+     * 自包含文件按文件头 guid，其余按伴生 meta 的 guid；解析失败返回 null。
+     *
+     * @param file 源文件
+     * @return 产物文件（可能不存在），guid 不可得时 null
+     */
+    private File libraryFileFor(File file) {
         String guid;
-        if (isSelfContainedGuidFile(file)) {
+        if (isHeaderGuidFile(file)) {
             guid = guidHeaderManager.extractGuid(file);
         } else {
             AssetMeta meta = metaManager.getMeta(file);
             if (meta == null) {
-                return false;
+                return null;
             }
             guid = meta.getGuid();
         }
         if (guid == null || guid.isEmpty()) {
-            return false;
+            return null;
         }
-        File libraryFile = new File(project.getLibrary(), guid + ".asset");
-        return libraryFile.exists();
+        return new File(project.getLibrary(), guid + ".asset");
     }
 
     /**
-     * 判断是否为自包含 GUID 的资源
+     * 判断是否为脚本文件（src/main/java 下的 .java）
+     *
+     * <p>guid 真值在文件头且不落伴生 .meta（代码树不产 meta）——2026-10-25 文本
+     * 资产 meta 统一后唯一无 meta 例外。</p>
      *
      * @param file 文件
-     * @return 如果是自包含 GUID 资源返回 true
+     * @return 如果是脚本文件返回 true
      */
-    private boolean isSelfContainedGuidFile(File file) {
+    private boolean isScriptFile(File file) {
         String name = file.getName().toLowerCase();
-        if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
-            return true;
-        }
-        // 文本格式资产全目录自包含：GUID 以文件头为唯一真值（内置资源无伴生 .meta），
-        // 删 Library/.javelin 缓存重编译后 GUID 不变，引用不失效
-        return name.endsWith(".shader") || name.endsWith(".smesh");
+        return name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file);
+    }
+
+    /**
+     * 判断 guid 真值是否在文件头（.java / .shader / .smesh）
+     *
+     * <p>文件头 guid 保证重释放/重建缓存后 guid 不变；.shader/.smesh 也落伴生
+     * .meta，meta 内 guid 为文件头镜像。</p>
+     *
+     * @param file 文件
+     * @return 如果 guid 真值在文件头返回 true
+     */
+    private boolean isHeaderGuidFile(File file) {
+        return isScriptFile(file)
+                || file.getName().toLowerCase().endsWith(".shader")
+                || file.getName().toLowerCase().endsWith(".smesh");
     }
 
     /**

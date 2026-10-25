@@ -18,8 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 元数据管理器
  *
  * <p>管理资源元数据的加载、保存和查询。</p>
- * <p>采用伴生模式：每个资源文件同级目录生成 {@code .meta} 文件。</p>
- * <p>对于 {@code .java}（{@code src/} 下）自包含 GUID 的资源，不生成 {@code .meta}。</p>
+ * <p>采用伴生模式：每个资源文件同级目录生成 {@code .meta} 文件（2026-10-25 统一：
+ * .shader/.smesh 也落伴生 .meta，guid 为文件头镜像——文件头仍是真值，保证重释放
+ * guid 稳定）。</p>
+ * <p>唯一例外：{@code .java}（{@code src/} 下）guid 在文件头且不生成 {@code .meta}。</p>
  *
  * @author: javelin
  * @create: 2026/4/7
@@ -88,10 +90,11 @@ public class MetaManager {
             logger.info("清理 {} 个孤儿 .meta 文件", orphanCount);
         }
 
-        // 为没有 .meta 的资源文件创建元数据
+        // 为没有 .meta 的资源文件创建元数据（.shader/.smesh 也走 .meta：guid 从
+        // 文件头取真值，createNewMeta 内处理；仅 .java 保持纯文件头无 meta）
         int createdCount = 0;
         for (File file : resourceFiles) {
-            if (isSelfContainedGuidFile(file)) {
+            if (isScriptFile(file)) {
                 String guid = guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file));
                 String relativePath = project.getRelativePath(file);
                 AssetMeta meta = new AssetMeta(guid, detectAssetType(file));
@@ -118,8 +121,9 @@ public class MetaManager {
     /**
      * 获取或创建资源的元数据
      *
-     * <p>如果资源是自包含 GUID 文件，从文件头提取 GUID 并返回元数据（不创建 .meta）。</p>
-     * <p>否则加载同目录下的 {@code .meta} 文件，不存在则自动创建。</p>
+     * <p>加载同目录下的 {@code .meta} 文件，不存在则自动创建（.shader/.smesh 的
+     * guid 从文件头取）。仅 {@code .java}（src/ 下）例外：从文件头提取 GUID 返回
+     * 元数据、不创建 .meta。</p>
      *
      * @param file 资源文件
      * @return 资源元数据
@@ -127,7 +131,7 @@ public class MetaManager {
     public AssetMeta getOrCreateMeta(File file) {
         String relativePath = project.getRelativePath(file);
 
-        if (isSelfContainedGuidFile(file)) {
+        if (isScriptFile(file)) {
             String guid = guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file));
             AssetMeta meta = guidToMetaCache.get(guid);
             if (meta == null) {
@@ -171,7 +175,7 @@ public class MetaManager {
     public AssetMeta getMeta(File file) {
         String relativePath = project.getRelativePath(file);
 
-        if (isSelfContainedGuidFile(file)) {
+        if (isScriptFile(file)) {
             String guid = guidHeaderManager.extractGuid(file);
             if (guid != null) {
                 return guidToMetaCache.get(guid);
@@ -231,11 +235,14 @@ public class MetaManager {
     /**
      * 保存资源元数据到伴生 {@code .meta} 文件
      *
+     * <p>.shader/.smesh 也落盘（2026-10-25 统一，meta 内 guid 为文件头镜像）；
+     * 仅 {@code .java}（src/ 下）只进内存缓存不落盘。</p>
+     *
      * @param file 资源文件
      * @param meta 元数据
      */
     public void saveMeta(File file, AssetMeta meta) {
-        if (isSelfContainedGuidFile(file)) {
+        if (isScriptFile(file)) {
             cacheMeta(project.getRelativePath(file), meta);
             return;
         }
@@ -260,7 +267,7 @@ public class MetaManager {
     public void deleteMeta(File file) {
         String relativePath = project.getRelativePath(file);
 
-        if (isSelfContainedGuidFile(file)) {
+        if (isScriptFile(file)) {
             String guid = guidHeaderManager.extractGuid(file);
             if (guid != null) {
                 guidToMetaCache.remove(guid);
@@ -297,7 +304,7 @@ public class MetaManager {
         String sourcePath = project.getRelativePath(source);
         String destPath = project.getRelativePath(dest);
 
-        if (isSelfContainedGuidFile(source)) {
+        if (isScriptFile(source)) {
             String guid = guidHeaderManager.extractGuid(source);
             if (guid != null) {
                 pathToGuidCache.remove(sourcePath);
@@ -327,21 +334,32 @@ public class MetaManager {
     }
 
     /**
-     * 判断是否为自包含 GUID 的资源
+     * 判断是否为脚本文件（src/main/java 下的 .java）
      *
-     * <p>{@code src/main/java} 下的 {@code .java} 与全部文本格式资产
-     * （{@code .shader} / {@code .smesh}）为自包含 GUID 资源（GUID 以文件头为准——
-     * 内置资源无伴生 .meta）。</p>
+     * <p>guid 真值在文件头且<b>不落伴生 .meta</b>（代码树不产 meta 文件）——
+     * 2026-10-25 文本资产 meta 统一后唯一无 meta 例外。</p>
      *
-     * @param file 文件
-     * @return 如果是自包含 GUID 资源返回 true
+     * @param file 资源文件
+     * @return 如果是脚本文件返回 true
      */
-    private boolean isSelfContainedGuidFile(File file) {
+    private boolean isScriptFile(File file) {
         String name = file.getName().toLowerCase();
-        if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
-            return true;
-        }
-        return name.endsWith(".shader") || name.endsWith(".smesh");
+        return name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file);
+    }
+
+    /**
+     * 判断 guid 真值是否在文件头（.java / .shader / .smesh）
+     *
+     * <p>文件头 guid 保证重释放/重建缓存后 guid 不变（内置资产引用稳定的根基）。
+     * .shader/.smesh 自 2026-10-25 起也落伴生 .meta，meta 内 guid 为文件头镜像。</p>
+     *
+     * @param file 资源文件
+     * @return 如果 guid 真值在文件头返回 true
+     */
+    private boolean isHeaderGuidFile(File file) {
+        return isScriptFile(file)
+                || file.getName().toLowerCase().endsWith(".shader")
+                || file.getName().toLowerCase().endsWith(".smesh");
     }
 
     /**
@@ -409,7 +427,11 @@ public class MetaManager {
      * @return 新元数据
      */
     private AssetMeta createNewMeta(File file) {
-        String guid = UUID.randomUUID().toString().replace("-", "");
+        // guid 真值在文件头（.java/.shader/.smesh）从文件头取（缺失注入）——重释放
+        // guid 稳定的根基；其余类型新生成
+        String guid = isHeaderGuidFile(file)
+                ? guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file))
+                : UUID.randomUUID().toString().replace("-", "");
         AssetMeta meta = new AssetMeta(guid, detectAssetType(file));
         meta.setLastModifiedTime(file.lastModified());
         return meta;
@@ -439,8 +461,9 @@ public class MetaManager {
     /**
      * 更新 Library 索引文件
      *
-     * <p>扫描所有 {@code .meta} 文件、{@code src/main/java} 下的 {@code .java} 与全部
-     * 自包含文本资产（{@code .shader} / {@code .smesh}，guid 从文件头提取），生成
+     * <p>扫描所有 {@code .meta} 文件与 {@code src/main/java} 下的 {@code .java}
+     * （.java 无伴生 .meta，guid 从文件头提取；.shader/.smesh 由 .meta 分支收录，
+     * 文件头分支保留为 meta 缺失时的兜底），生成
      * {@code Library/index.asset}，存储 guid → Library 产物路径的映射。</p>
      */
     public synchronized void updateIndex() {
@@ -502,7 +525,7 @@ public class MetaManager {
                         index.put(guid, sourcePath);
                     }
                 } else if (name.endsWith(".shader") || name.endsWith(".smesh")) {
-                    // 自包含 GUID 文本资产（无伴生 .meta）：guid 从文件头取，产物路径即 guid
+                    // 兜底：meta 缺失时 guid 仍从文件头可解（正常路径走上方 .meta 分支）
                     String guid = guidHeaderManager.extractGuid(file);
                     if (guid != null) {
                         String sourcePath = getRelativePath(rootDir, file);

@@ -201,6 +201,7 @@
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
 | SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ✅ 用户实测（2026-10-23） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
+| meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ⏳ 待验收 |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
@@ -250,7 +251,7 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前无挂账**——2026-10-24 视口聚焦（层级双击 + F 键）当日落地当日用户验收销账。
+**当前挂账 1 项**——2026-10-25 meta 统一与重导检出（gizmo 被 box 遮挡→Library 旧产物坑根治链：.shader/.smesh 落伴生 .meta（guid=文件头镜像）+ releaser 内容字节比对 + needImport 统一 mtime 判定）。验收三步：①重启编辑器——.javelin/assets 与 Assets 下 .shader/.smesh 旁长出 .meta、日志「提交 0 个待导入任务」；②改任一内置源重跑——该文件被检出重导；③手改 Assets 里 .shader 重启——自动重导。
 
 2026-10-23 用户实测批量销账 15 项：去 Web 化收官链七项（ProjectFrame/ProjectLoadingFrame、PackDialog 迁 Swing、jcef 桥包/jcefmaven/jackson 清退、M2 层级面板、全链引用化、M3 项目面板、文件类型注册器+file.open）+ 场景树 10-22 增量两项（根行选中、脏星标行宽）+ 散件六项（Scene/Game 切换、hierarchy.create.camera、SceneImporter、Transform 变更检测、.mat 全链、Material.surfaceType 面型裁决与 Pass 名分桶——状态已翻入各模块表）。
 

@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.Enumeration;
 
 /**
@@ -156,21 +158,49 @@ public class BuiltinAssetReleaser {
         if (resource == null) {
             throw new RuntimeException("资源不存在：" + classpathPath);
         }
+        byte[] source;
         try (InputStream inputStream = resource.openStream()) {
-            FileUtil.copy(inputStream, file);
+            source = inputStream.readAllBytes();
         }
+        if (file.exists() && contentEquals(file, source)) {
+            // 内容未变：不重拷；把 meta 的 mtime 对齐当前文件——needImport 按
+            // file vs meta mtime 判等，对齐即不触发重导（旧项目无 meta 时顺带补建）
+            syncMetaMtime(file, importSettings);
+            return;
+        }
+        FileUtil.copy(new ByteArrayInputStream(source), file);
         GuidHeaderManager guidHeaderManager = new GuidHeaderManager();
         String guid = guidHeaderManager.extractGuid(file);
         if (StringUtil.isEmpty(guid)) {
             throw new RuntimeException("资源guid为空,异常数据：" + classpathPath);
         }
 
-        // 生成 meta 文件
-        AssetMeta assetMeta = new AssetMeta(guid, importSettings.getType());
-        assetMeta.setLastModifiedTime(0);
-        assetMeta.setImportSettings(importSettings);
-        metaManager.saveMeta(file, assetMeta);
+        File metaFile = new File(file.getParentFile(), file.getName() + ".meta");
+        if (!metaFile.exists()) {
+            // 首次释放建 meta（mtime=当前文件；产物缺失由 refresh 的产物存在性兜底导入）。
+            // 内容已变且 meta 已存在时不动 meta——保留旧 mtime 与新文件 mtime 不等，
+            // refresh 检出差异触发重导，导入完成后回写对齐
+            AssetMeta assetMeta = new AssetMeta(guid, importSettings.getType());
+            assetMeta.setLastModifiedTime(file.lastModified());
+            assetMeta.setImportSettings(importSettings);
+            metaManager.saveMeta(file, assetMeta);
+        }
         LOGGER.info("已释放内置资源 {}", resource.getPath());
+    }
+
+    /** 内容未变时的 meta 对齐：mtime = 当前文件 mtime（meta 缺失则按文件头 guid 补建） */
+    private void syncMetaMtime(File file, ImportSettings importSettings) {
+        AssetMeta meta = metaManager.getMeta(file);
+        if (meta == null) {
+            String guid = new GuidHeaderManager().extractGuid(file);
+            if (StringUtil.isEmpty(guid)) {
+                throw new RuntimeException("资源guid为空,异常数据：" + file);
+            }
+            meta = new AssetMeta(guid, importSettings.getType());
+            meta.setImportSettings(importSettings);
+        }
+        meta.setLastModifiedTime(file.lastModified());
+        metaManager.saveMeta(file, meta);
     }
 
     /**
@@ -186,5 +216,10 @@ public class BuiltinAssetReleaser {
             return classpathPath.substring(prefix.length());
         }
         return classpathPath;
+    }
+
+    /** 逐字节比对已释放文件与内置源（KB 级文件整读，成本忽略） */
+    private static boolean contentEquals(File file, byte[] source) throws IOException {
+        return Arrays.equals(Files.readAllBytes(file.toPath()), source);
     }
 }

@@ -136,10 +136,15 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
 ### 6.2 元数据（meta 包）
 
 - **伴生 `.meta`**：每个资源文件同级 `文件名.meta`（文本序列化），存 guid / 类型 / 导入设置 / 源文件 mtime。
-- **自包含 GUID**：`src/main/java` 下 `.java` 与**全部文本格式资产（`.shader` / `.smesh`）**
-  不建 `.meta`，GUID 以 `// @javelin-guid:` 文件头形式由 `GuidHeaderManager` 提取/注入
-  （拍板 2026-09-26：内置资源无伴生 .meta，GUID 以文件头为唯一真值——删 `Library`/`.javelin`
-  缓存重编译后 GUID 不变，引用不失效；无头文件首次导入自动注入确定性 GUID）。
+- **文件头 GUID 类资产（`.shader` / `.smesh`）也落伴生 `.meta`（2026-10-25 统一，
+  推翻 2026-09-26「自包含不建 meta」半边）**：GUID 真值仍为 `// @javelin-guid:`
+  文件头（`GuidHeaderManager` 提取/注入——删缓存重编译 guid 不变、内置重释放 guid
+  稳定的根基保留），meta 内 guid 为文件头**镜像**（createNewMeta 按头取）；meta
+  同时承载导入设置与源 mtime（needImport 判等依据）。旧项目零迁移（sync/releaser
+  自动补建 meta、guid 不变、引用不受影响）。
+- **唯一无 meta 例外：`src/main/java` 下 `.java`**（代码树不产 meta；脚本导入器
+  未落地、meta 无消费方——头 GUID 脚手架保留，meta 形态待脚本功能真落地再拍，
+  2026-10-25）。
 - `MetaManager`：构造即 `sync()`（建缺、清孤儿、重建缓存），维护 guid↔path 三向缓存，
   GUID 重复视为致命错误抛异常；`updateIndex()` 生成 `Library/index.asset`。
 - 类型检测按扩展名粗分（Texture/Shader/Audio/Scene/Material/Script/Mesh/Data）。
@@ -160,18 +165,25 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
   新鲜）；loadScene 不动（仍读 Assets/ 文本源，产物供运行时/打包按 guid 消费）。已知边界：
   连续快速保存的同文件导入任务可能在多 worker 交叠写同一产物（极低概率、下次保存自愈），
   同文件任务去重归管线后续。
-- `AssetImportPipeline`：生产者 `refresh()`（扫监听目录，mtime 变化或产物缺失才提交）/
-  `reimportAll()`（清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
-  `ImportTask` 记录状态/耗时/错误。
+- `AssetImportPipeline`：生产者 `refresh()`（扫监听目录，`needImport` 统一判
+  **源 mtime ≠ meta mtime** 或产物缺失才提交——`.java` 例外查产物存在性）/ `reimportAll()`
+  （清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
+  `ImportTask` 记录状态/耗时/错误；导入成功回写 meta（导入设置 + mtime 对齐源文件，
+  含 .shader/.smesh——其导入设置自此真持久化）。
 - `BuiltinAssetReleaser`：按构建期 `builtin-asset.index` 把 classpath 内置资源释放到
-  `.javelin/assets/{name}/` 并写 meta（资源自带 GUID 文件头校验）。**释放完须重写 Library
-  索引（2026-10-17 修复）**：MetaManager 构造器 sync/updateIndex 早于释放执行
-  （`.javelin/assets` 尚空，内置条目被漏），而 refresh 对自包含 guid 文件只查产物存在性
-  （已存在即跳过、不再触发 updateIndex）——缺失条目永久滞留，场景 `@guid:` 引用解析为
-  null 直至 RenderObject 崩；`releaseAll()` 末尾补 `metaManager.updateIndex()` 收口。
+  `.javelin/assets/{name}/`（资源自带 GUID 文件头校验）。**内容字节比对驱动重导
+  （2026-10-25）**：内容相同→跳过重拷 + meta 的 mtime 对齐当前文件（不触发重导）；
+  内容变化→重拷且**不动 meta**（旧 mtime 与新文件 mtime 不等被 refresh 检出重导）；
+  首次释放→建 meta（mtime=当前，首导入由产物缺失兜底）。修掉的坑：旧实现 dev 每次
+  启动无条件重拷（mtime 恒新）+ refresh 只查产物存在性——内置源更新永不重导，Library
+  旧产物静默劫持运行时行为（**2026-10-25 gizmo 被 box 遮挡案根因**：10-04 旧产物仍是
+  `Pass Forward` 声明、箭头落 Opaque 桶按场景深度绘制——排查法=产物时间戳 vs 源
+  git 改动日期对照）。**释放完须重写 Library 索引（2026-10-17 修复）**：MetaManager
+  构造器 sync/updateIndex 早于释放执行（`.javelin/assets` 尚空，内置条目被漏）；
+  `releaseAll()` 末尾补 `metaManager.updateIndex()` 收口。
   已知边界（遗留待拍板）：2026-10-04「Mesh 产物自描述 guid」修正前导入的 `.smesh`
-  旧产物不自动迁移（needImport 只查产物存在性）——guid null 致场景保存时内联空壳 Mesh
-  （已上传、CPU 副本已释放），对策=删产物重导；是否加旧格式自动检测待议。
+  旧产物不自动迁移（meta 补建时 mtime 已对齐、不触发重导）——guid null 致场景保存时
+  内联空壳 Mesh（已上传、CPU 副本已释放），对策=删产物重导；是否加旧格式自动检测待议。
 
 ### 6.4 Library 管理（asset 包）
 
