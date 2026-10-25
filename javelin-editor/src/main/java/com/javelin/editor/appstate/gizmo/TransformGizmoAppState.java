@@ -85,7 +85,7 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     /**
      * 距离自适应分母：箭头世界长 ≈ 9.9 × 相机距离 / 本值；80 → 箭头约占视口 1/8（实测定稿可调）
      */
-    private static final float TOOLS_SCALE = 8;
+    private static final float TOOLS_SCALE = 12;
 
     /**
      * Gizmo 总根（常驻编辑子场景；工具子树挂其下，位置跟随选中节点）
