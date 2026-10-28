@@ -79,7 +79,8 @@ public class AssetLibManager implements AssetManager {
         }
     }
 
-    private Asset loadCache(String guid) {
+    // protected：编辑器子类（ProjectAssetLibManager）reload 需查缓存命中取 old 实例
+    protected Asset loadCache(String guid) {
         update();
         GuidAssetRef guidAssetRef = cache.get(guid);
         if (guidAssetRef != null) {

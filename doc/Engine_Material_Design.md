@@ -1,8 +1,9 @@
 # 引擎材质设计（Engine Material Design）
 
-> 版本：v0.2（2026-10-19）
+> 版本：v0.3（2026-10-27）
 > 说明：引擎侧材质/着色器数据模型与加载链路设计。着色器文件语法（.shader）、多 Pass 与材质实例模型的概念定义在 RHI 分卷四（20/21 节），本文只管引擎侧落地：包结构、编译产物形态、加载链路、渲染侧桥接。
 > 拍板（2026-09-25）：**Shader = .shader 源码文件编译后的结构**；**离线二进制资产**（着色器源码不进 core）；**RHI 资源渲染侧懒创建**（Shader/Material 纯数据、device 无关）。
+> v0.3（2026-10-27 落地，**待验收**）：**坏 shader 渲染回退默认 shader**——判据 = `Shader.isValid()`（至少一个 Pass 且 vs/fs SPIR-V byte[] 均非 null，拍板：无有效二进制 = 坏 shader）。编译失败也落 **stub 产物**（空字段 Shader + guid，ShaderImporter 不再以失败收口——走完成链保 meta/index/热重载闭环）；渲染链（SceneRenderBridge.sync 注册分支 + RenderingSystem.materialSet/pipelineFor 入口）经 `DefaultShader.resolve` 回退默认材质单例（内置资产 `core/shader/default.shader`，空 Properties 平色紫，DefaultShader 静态门面 + JavelinEngine.initialize 注入 AssetManager）；修复后 reimport 真产物经热重载 walker 换代（stub 带 guid 可匹配）——**无「修复后需重载场景」边界**。missing-material 语义不变（material null 不渲染）。诊断台加坏态显示；创建命令 SUCCESS 带 errorMessage 也弹框（红线 15）。v0.2 沿革见下。
 > v0.2（2026-10-19）：**.mat 资产格式已落地并验收（2026-10-23 用户实测）**——.mat = Material 的文本序列化（与 .scene 源同款协议），导入器/创建命令/文件类型见 §3.2；v0.1 沿革见各节注记。
 
 ## 1. 定位与总则

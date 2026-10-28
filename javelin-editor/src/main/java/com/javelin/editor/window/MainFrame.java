@@ -3,6 +3,8 @@ package com.javelin.editor.window;
 import com.javelin.core.input.InputSink;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.EditorFocusGainedEvent;
 import com.javelin.editor.menu.MenuBarFactory;
 import com.javelin.editor.swing.StatusBar;
 import com.javelin.editor.swing.dock.DockRoot;
@@ -95,6 +97,14 @@ public class MainFrame extends JFrame implements Window {
             @Override
             public void windowClosing(WindowEvent e) {
                 close = true;
+            }
+        });
+        // 焦点扫描触发器（Unity Auto Refresh 口径，热重载批次②）：重获焦点 → 总线
+        // → AssetReloadService 扫描 Assets/ 变更自动导入（自身写盘 mtime 幂等不重触发）
+        addWindowFocusListener(new WindowAdapter() {
+            @Override
+            public void windowGainedFocus(WindowEvent e) {
+                EditorEventBus.publish(new EditorFocusGainedEvent());
             }
         });
         setTitle(setting.getTitle());

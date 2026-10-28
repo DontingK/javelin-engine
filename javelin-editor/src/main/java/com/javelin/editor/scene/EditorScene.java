@@ -4,6 +4,7 @@ import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Collider;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.editor.event.EditorEventBus;
@@ -115,6 +116,24 @@ public class EditorScene implements Scene {
             return gameScene.getCameras();
         }
         return editorScene.getCameras();
+    }
+
+    /**
+     * 物理查询只打用户场景——编辑器辅助对象（网格/相机等）不参与，
+     * GAME/SCENE 模式同口径（渲染合并仅渲染事，物理查询无编辑器对象语义）。
+     */
+    @Override
+    public List<Collider> getColliders() {
+        return gameScene.getColliders();
+    }
+
+    /**
+     * 主相机 = 用户场景口径（与 getColliders 同——运行时语义只打用户场景；
+     * 编辑器相机从不置 isMain，同 Unity SceneView 相机非 Camera.main）。
+     */
+    @Override
+    public Camera getMainCamera() {
+        return gameScene.getMainCamera();
     }
 
     @Override

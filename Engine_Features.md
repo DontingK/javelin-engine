@@ -49,7 +49,7 @@
 | .scene 文本序列化 + 保存/重载（含内嵌材质） | ✅ | ✅ 用户实测（2026-10-04 建树→保存→重启还原） |
 | 渲染激活过滤 isActiveInHierarchy（Unity 口径，翻转即时注销） | ✅ | ✅ 随 Gizmo 显隐 / 编辑器日常 |
 | Node.userData 运行态挂载（不入序列化） | ✅ | — 随 Gizmo 轴判别 |
-| 场景级 raycast（Collider 注册表查询，L1） | ⬜ 归 Ray 期 | — |
+| 场景级 raycast（Collider 注册表查询，L1——Physics 静态门面 + RaycastHit + Scene.getColliders 投影） | ✅（2026-10-28） | ⏳ 待验收（PhysicsTest 14 用例；Engine_Collision_Design §10） |
 | environment / sun | ⬜ 三期（随光照） | — |
 
 ### 2.3 相机（render.Camera）
@@ -59,9 +59,10 @@
 | 透视 / 正交投影（FOV 弧度制） | ✅ | ✅ CameraTest 单测 + Demo |
 | cullingMask / viewportRect / depth 渲染排序 / per-camera 清屏 | ✅ | ✅ 多相机 Demo + 编辑器日常 |
 | ClearFlags（SOLID_COLOR / DEPTH_ONLY / DONT_CLEAR） | ✅ | ✅ 同上（Skybox 项后置） |
-| Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化） | ✅ | ✅ CameraTest 单测（2026-10-06） |
+| Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
+| 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ⏳ 待验收（运行时） |
 | ClearFlags Skybox 项 | ⬜ 待天空盒 | — |
-| main 相机语义消费 | ⬜ 未落地 | — |
+| main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ⏳ 待验收（GameSceneTest） |
 
 ### 2.4 渲染系统与管线（render）
 
@@ -108,7 +109,7 @@
 | L0 纯数学层（Ray / 球 / 盒 / 圆柱相交例程，解析解对照） | ✅ | ✅ 单测全绿（2026-10-06） |
 | Collider 组件族 + fitFromMesh（Box 精确 / Sphere 保守 / Cylinder 半径取 max） | ✅ | ✅ 单测（2026-10-06） |
 | 世界 Aabb（行和公式=精确值，8 角点仅对照基准） | ✅ | ✅ 单测（2026-10-06） |
-| L1 场景查询 API 面 | ⬜ 归 Ray 期 | — |
+| L1 场景查询 API 面（Physics 静态门面：raycast 最近命中 + raycastAll 全命中；maxDistance/layerMask 参数——Unity 口径；Engine_Collision_Design §10） | ✅（2026-10-28） | ⏳ 待验收（PhysicsTest 单测） |
 | L2 物理（刚体 / MeshCollider / 物理库选型） | ⬜ 待拍板（窄相 vs 物理库） | — |
 
 ### 2.8 子系统 / 调试 / 窗口（subsystem / appstate / debug / window）
@@ -117,6 +118,7 @@
 |------|---------|---------|
 | Subsystem / AppState 双层（底层冻结可暂停 / 控制层挂卸单心跳） | ✅ | ✅ 一期接线 Demo |
 | 窗口抽象 + GLFW 实现（Window 与 RenderSurface 分离、showWindow） | ✅ | ✅ 一期 |
+| 引擎静态实例 + 渲染表面访问口（JavelinEngine.getInstance()（构造赋值/shutdown 摘除）+ renderSurface()——相机 screenToRay 尺寸自取源，JavelinEditor.getInstance 同款先例） | ✅（2026-10-28） | ⏳ 待验收（运行时） |
 | DebugText 点阵调试文本（含汉字、行级 printf / attr 调色 / clear） | ✅ | ✅ 用户实测（2026-09-27；AOT 资源路径 2026-10-13 复验） |
 | RenderStats / GPUInfo（11 类存活计数 + draw call 快照双缓冲）+ F3 overlay | ✅ | ✅ 用户复跑（2026-09-27） |
 | vsync 语义（MAILBOX 防撕裂不限速）+ maxFps 限帧器（0=不限） | ✅ | ✅ 用户实测（2026-10-06/07） |
@@ -237,6 +239,7 @@
 | 装载接入（ProjectLoadingFrame Engine Main 线程、GradleProject 后资产初始化前；Plugins/ 目录项目级） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
+| 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ⏳ 待验收（随焦点扫描批次） |
 | 异常/弹窗消息 i18n（~116 条 TipException 等） | ⬜ 第二批 | — |
 | 面板/窗口标题 i18n、Inspector 注解 label key 化、源码机检、i18n 报告命令 | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
 
@@ -263,9 +266,35 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 1 项**：贴图批次单测与 Demo 回归（Texture2DTest 往返两例 /
+**当前挂账 5 项**：
+
+①贴图批次单测与 Demo 回归（Texture2DTest 往返两例 /
 ShaderParserTest 全绿——2D 死分支修复后 / SceneRenderDemo·MultiCameraDemo 引用层
 改造回归；编辑器全链已用户实测，跑测归用户）。
+
+②资产热重载批次①（2026-10-27 落地，Engine_AssetReload_Design v0.3——invalidate/reload
++ 反射 Walker（含 Material 补默认值后处理）+ requestReconcile 孤儿回收 + AssetReloadService
+手动 reimport 链 + 材质面板 AssetReloadedEvent 最小钩子；验收清单见该档 §9：改 .shader/.mat
+→ 选中 reimport → 画面当帧变 / 同名参数用户值保留 / F3 存活计数不涨）。
+
+③坏 shader stub 产物 + 渲染回退默认 shader（2026-10-27 落地，Engine_Material_Design
+v0.3——Shader.isValid 判据 + ShaderImporter 编译失败落 stub + DefaultShader 门面渲染链
+回退（bridge.sync/materialSet/pipelineFor）+ 修复后热重载 walker 换代恢复；验收：改坏
+.shader → reimport → 画面回退默认紫色 + 诊断台坏态 + 创建命令弹框；修复 → reimport →
+画面恢复）。
+
+④焦点扫描资产刷新 + 导入进度模态框（2026-10-27 落地，Engine_AssetReload_Design §5.1——
+主窗口重获焦点 → EditorFocusGainedEvent → AssetReloadService 后台 refresh() 扫描自动导入
+（Unity Auto Refresh 口径）→ 有待导入弹 ImportProgressDialog 模态小框（Timer 轮询在途数
+自动关）；验收：外部改 .mat/.shader/贴图 → 切回编辑器 → 自动生效（模态进度框闪现），
+自身保存不误触发）。
+
+⑤L1 场景级 raycast（2026-10-28 落地，Engine_Collision_Design v0.2 §10——Physics 静态门面
+（raycast 最近命中 + raycastAll 全命中；maxDistance/layerMask 参数，Unity 口径——同日
+Ray.limit 方案短暂落地即回退）+ RaycastHit + Scene.getColliders 注册表投影 + 引擎 setScene
+接线；随批相机链 Scene.getMainCamera（Unity Camera.main 口径）+ JavelinEngine.mouseRay
+（窗口尺寸+鼠标坐标组装）；验收 = 跑 PhysicsTest 14 用例 + GameSceneTest 主相机用例全绿
+（javelin-core）；mouseRay 归运行时装机验证）。
 
 2026-10-25 用户实测销账 2 笔（状态已翻入各模块表）：①贴图导入管线 v0.1（§2.5/§3.6
 ——Image 像素资产 + Texture2D 三层改造 + ImageImporter + alpha 修复）；②纹理资产

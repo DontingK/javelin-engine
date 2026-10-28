@@ -4,6 +4,8 @@ import com.javelin.core.render.RenderCamera;
 import com.javelin.core.render.RenderObject;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.render.RenderingSystem;
+import com.javelin.core.render.material.DefaultShader;
+import com.javelin.core.render.material.Material;
 import com.javelin.core.math.Color;
 import com.javelin.core.math.Rect;
 import com.javelin.core.scene.component.Camera;
@@ -35,7 +37,9 @@ import java.util.Set;
  * 组件 isActiveAndEnabled 过滤（节点层级激活 + 组件 enabled，Unity 口径）：禁用
  * 即注销，启用即重注（2026-10-17 组件头勾选实锤——仅过滤节点激活藏不住组件级禁用）。
  * MeshRenderer 的 mesh/material 为 null 时不渲染（missing 语义），
- * mesh/material 身份变化 = 注销重注（v0.1）。
+ * mesh/material 身份变化 = 注销重注（v0.1）；material 非 null 但 shader 无效
+ * （null / SPIR-V 缺失——编译失败 stub 产物）→ DefaultShader 回退默认材质渲染
+ * （拍板 2026-10-27，原「残材质显式报错」口径随 stub 产物路径作废）。
  *
  * <p>时序：JavelinEngine 在 collectFrame 之前调用 {@link #sync}；
  * 场景切换经 {@link #clear} 全注销。多线程化后本类整体移到逻辑线程（RHI 27.2）。
@@ -158,18 +162,22 @@ public final class SceneRenderBridge {
                 continue;
             }
             RenderObject ro = renderers.get(mr);
+            // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V
+            // 缺失（编译失败 stub 产物）→ 默认材质单例（默认 shader 渲染）；null 原样
+            // （missing-material 语义不变）——单例 identity 稳定，比较不抖动
+            Material renderMaterial = DefaultShader.resolve(mr.getMaterial());
             boolean identityChanged = ro != null
-                    && (ro.mesh() != mr.getMesh() || ro.material() != mr.getMaterial());
+                    && (ro.mesh() != mr.getMesh() || ro.material() != renderMaterial);
             if (identityChanged) {
                 rs.removeRenderer(ro);
                 renderers.remove(mr);
                 ro = null;
             }
             if (ro == null) {
-                if (mr.getMesh() == null || mr.getMaterial() == null) {
+                if (mr.getMesh() == null || renderMaterial == null) {
                     continue;   // missing-mesh / missing-material：不渲染
                 }
-                ro = new RenderObject(mr.getMesh(), mr.getMaterial(), mr.isCastShadow(),
+                ro = new RenderObject(mr.getMesh(), renderMaterial, mr.isCastShadow(),
                         mr.getNode().getLayer().getMask(), mr);
                 rs.addRenderer(ro);
                 renderers.put(mr, ro);

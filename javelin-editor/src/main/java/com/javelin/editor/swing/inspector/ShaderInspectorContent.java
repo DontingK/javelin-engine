@@ -7,6 +7,7 @@ import com.javelin.core.render.material.Shader;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.GuidHeaderManager;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.inspector.widget.InsFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,10 +42,8 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ShaderInspectorContent.class);
 
-    private static final String EMPTY_TEXT = "未选中着色器";
-    private static final String LOADING_TEXT = "加载中…";
-
-    private final JLabel statusLabel = new JLabel(EMPTY_TEXT, SwingConstants.CENTER);
+    private final JLabel statusLabel =
+            new JLabel(EditorLang.text("shader.inspector.empty"), SwingConstants.CENTER);
     private JScrollPane scrollPane;
     /** 当前展示文件（同文件重复 onSelection 跳过；代际守卫基准） */
     private File currentFile;
@@ -73,7 +72,7 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
         }
         currentFile = file;
         int gen = ++generation;
-        showStatus(LOADING_TEXT);
+        showStatus(EditorLang.text("shader.inspector.loading"));
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
             LOGGER.warn("编辑器实例未创建，跳过着色器检查器加载");
@@ -98,7 +97,7 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
         if (resolvedGuid == null || resolvedGuid.isEmpty()) {
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
-                    showStatus("未找到 GUID（文件头与伴生 .meta 均缺，未导入？）");
+                    showStatus(EditorLang.text("shader.inspector.noGuid"));
                 }
             });
             return;
@@ -107,7 +106,10 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
         SwingUtilities.invokeLater(() -> {
             if (gen == generation) {
                 if (shader == null) {
-                    showStatus("导入产物缺失：导入失败或未导入（重导查看日志）");
+                    showStatus(EditorLang.text("shader.inspector.missingProduct"));
+                } else if (!shader.isValid()) {
+                    // 编译失败 stub 产物（字段全空，拍板 2026-10-27）——坏 shader 标记
+                    showStatus(EditorLang.text("shader.inspector.broken"));
                 } else {
                     build(shader, file, resolvedGuid);
                 }

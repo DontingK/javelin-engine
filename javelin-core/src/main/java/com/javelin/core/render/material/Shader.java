@@ -125,6 +125,23 @@ public class Shader extends AbsAsset {
         return null;
     }
 
+    /**
+     * 着色器二进制完整性判定（坏 shader 渲染回退判据，拍板 2026-10-27）：
+     * 至少一个 Pass 且每个 Pass 的 vs/fs SPIR-V 均非空——编译失败 stub 产物
+     * / 坏产物（byte[] 读回 null）→ false，渲染侧回退默认 shader。
+     */
+    public boolean isValid() {
+        if (passes.isEmpty()) {
+            return false;
+        }
+        for (ShaderPass pass : passes) {
+            if (pass.getVertexSpirv() == null || pass.getFragmentSpirv() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // forwardPass() 已移除（严格制，拍板 2026-10-17）：Pass 名即阶段归属，
     // 收集侧按 pass 名分发（RenderingSystem.collectList）、PSO 按 pass 名取用
     // （pipelineFor + RenderPass.shaderPassName），"Forward"/其他名一律 pass(name)

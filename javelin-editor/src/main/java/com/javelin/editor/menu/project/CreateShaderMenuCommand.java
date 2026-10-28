@@ -127,10 +127,11 @@ public class CreateShaderMenuCommand extends ProjectMenuCommand {
         // 导入失败弹错（红线 15）；盘面变更通知面板重拉树
         ImportTask task = editor.getAssetImportPipeline().submitImport(file);
         editor.getAssetImportPipeline().awaitImport(task, AWAIT_IMPORT_TIMEOUT_MS);
-        if (task.getStatus() == ImportTask.Status.FAILED) {
+        // 编译失败落 stub 产物（任务 SUCCESS 但带 errorMessage）——错误显性化（红线 15）
+        if (task.getStatus() == ImportTask.Status.FAILED || task.getErrorMessage() != null) {
             JOptionPane.showMessageDialog(MainFrame.getInstance(),
-                    "新建着色器导入失败: " + task.getErrorMessage(),
-                    "创建着色器", JOptionPane.ERROR_MESSAGE);
+                    EditorLang.text("create.shader.import.failed", task.getErrorMessage()),
+                    EditorLang.text("create.shader.dialog.title"), JOptionPane.ERROR_MESSAGE);
         }
         EditorEventBus.publish(new ProjectChangedEvent());
         LOGGER.info("创建着色器资产: {}", file);

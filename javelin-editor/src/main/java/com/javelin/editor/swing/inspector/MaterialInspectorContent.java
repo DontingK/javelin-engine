@@ -10,6 +10,9 @@ import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.material.SurfaceType;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.editor.JavelinEditor;
+import com.javelin.editor.event.AssetReloadedEvent;
+import com.javelin.editor.event.EditorEventBus;
+import com.javelin.editor.event.Subscription;
 import com.javelin.editor.inspector.InspectorFieldVo;
 import com.javelin.editor.serializable.TextImporter;
 import com.javelin.editor.serializable.TextExporter;
@@ -90,6 +93,8 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     private AssetInput shaderInput;
     /** 值编辑持久化防抖定时器（单发 restart 合并；懒建） */
     private Timer flushTimer;
+    /** 热重载事件订阅（onAttach 订 / onDetach 退，InspectorContent 生命周期契约） */
+    private Subscription reloadSubscription;
 
     public MaterialInspectorContent() {
         setLayout(new BorderLayout(0, 0));
@@ -116,8 +121,36 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     @Override
+    public void onAttach() {
+        reloadSubscription = EditorEventBus.subscribe(AssetReloadedEvent.class, this::onAssetReloaded);
+    }
+
+    @Override
     public void onDetach() {
         flushPending();
+        if (reloadSubscription != null) {
+            reloadSubscription.dispose();
+            reloadSubscription = null;
+        }
+    }
+
+    /**
+     * 资产热重载完成（重载协调器引擎线程发布 → 总线泵线程）：本面板编辑目标被换
+     * → EDT 先 flushPending（携带未落盘尾改）再重拉编辑载体——换指针后场景持有
+     * 盘上新实例，不重拉则编辑旧实例，即时联动退化成防抖反馈（Inspector_Design
+     * v0.11 载体契约随热重载批次①保住；批次④全量接入刷新链）。
+     */
+    private void onAssetReloaded(AssetReloadedEvent event) {
+        File file = currentFile;
+        if (file == null || !file.equals(event.getSourceFile())) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (file.equals(currentFile)) {
+                flushPending();
+                reload(file);
+            }
+        });
     }
 
     /** 加载/重载入口：代际前进 + 加载态 + 后台线程读源（EDT 调用） */

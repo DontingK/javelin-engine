@@ -4,6 +4,7 @@ import com.javelin.ast.annotation.Reflective;
 import com.javelin.core.assets.AbsAsset;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Collider;
 import com.javelin.core.scene.component.Transform;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
@@ -17,7 +18,7 @@ import java.util.List;
  * <p>持有 Transform 树根（rootNodes），挂入走两条路：scene.add(root) 提交裸树，
  * 或 transform.setParent 挂到已入场景的节点下自动加入（设计文档 3 节）；
  * 摘除（remove 或 setParent 摘到场景外）时递归整树 onDisable → onDestroy 退出场景，
- * 并维护组件注册表（components / cameras / renderables，增删 O(1)，
+ * 并维护组件注册表（components / cameras / renderables / colliders，增删 O(1)，
  * 不每帧遍历场景树，6.1 节）。</p>
  *
  * <p>渲染衔接（用户拍板 2026-09-25，接口组件视角）：getCameras/getRenderables
@@ -45,6 +46,7 @@ public class GameScene extends AbsAsset implements Scene {
     private ArrayList<Component> components = new ArrayList<>();
     private List<Camera> cameras = new ArrayList<>();
     private List<Renderable> renderables = new ArrayList<>();
+    private List<Collider> colliders = new ArrayList<>();
 
     public GameScene() {
     }
@@ -205,11 +207,34 @@ public class GameScene extends AbsAsset implements Scene {
     }
 
     /**
+     * 主相机（Unity {@code Camera.main} 口径：首个<b>激活且 enabled</b> 的 isMain
+     * 相机；无则 null——不按「首个相机」兜底）。
+     */
+    @Override
+    public Camera getMainCamera() {
+        for (int i = 0; i < cameras.size(); i++) {
+            Camera camera = cameras.get(i);
+            if (camera.isMain() && camera.isActiveAndEnabled()) {
+                return camera;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 可渲染组件注册表（MeshRenderer；引擎层 pull 翻译用；返回内部列表，只读）。
      */
     @Override
     public List<Renderable> getRenderables() {
         return renderables;
+    }
+
+    /**
+     * 碰撞体注册表（L1 物理查询遍历源，Physics 门面消费；返回内部列表，只读）。
+     */
+    @Override
+    public List<Collider> getColliders() {
+        return colliders;
     }
 
     // ═══ Node 联动钩子（package-private，同包调用） ═══
@@ -232,12 +257,16 @@ public class GameScene extends AbsAsset implements Scene {
         if (component instanceof Renderable) {
             renderables.add((Renderable) component);
         }
+        if (component instanceof Collider) {
+            colliders.add((Collider) component);
+        }
     }
 
     private void unregister(Component component) {
         components.remove(component);
         cameras.remove(component);
         renderables.remove(component);
+        colliders.remove(component);
     }
 
     /**
@@ -273,9 +302,9 @@ public class GameScene extends AbsAsset implements Scene {
         // 去重保共享回链（node/parent 双向引用）
         output.write("rootNodes", rootNodes);
         // 注册表主表直传（update 顺序=序列化时点顺序；与 Node.components 引用同一
-        // 批组件实例，identity 去重后共享保持）。cameras/renderables 为其 instanceof
-        // 分流投影，read 时重建（renderables 元素接口未继承 Serializable 走不了列表
-        // 泛型通道，分流表本身也是派生数据）
+        // 批组件实例，identity 去重后共享保持）。cameras/renderables/colliders 为其
+        // instanceof 分流投影，read 时重建（renderables 元素接口未继承 Serializable
+        // 走不了列表泛型通道，分流表本身也是派生数据）
         output.write("components", components);
     }
 
@@ -288,17 +317,21 @@ public class GameScene extends AbsAsset implements Scene {
         // 注册表主表回写
         ArrayList<Component> componentList = input.readArrayList("components", Component.class);
         components = componentList != null ? componentList : new ArrayList<>();
-        // cameras/renderables 分流表重建（register 的 instanceof 口径——元素实例在
-        // 导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套 populate，
-        // 时序安全；红线 10 辨析见设计档 §9.3）
+        // cameras/renderables/colliders 分流表重建（register 的 instanceof 口径——元素
+        // 实例在导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套
+        // populate，时序安全；红线 10 辨析见设计档 §9.3）
         cameras = new ArrayList<>();
         renderables = new ArrayList<>();
+        colliders = new ArrayList<>();
         for (Component component : components) {
             if (component instanceof Camera) {
                 cameras.add((Camera) component);
             }
             if (component instanceof Renderable) {
                 renderables.add((Renderable) component);
+            }
+            if (component instanceof Collider) {
+                colliders.add((Collider) component);
             }
         }
     }

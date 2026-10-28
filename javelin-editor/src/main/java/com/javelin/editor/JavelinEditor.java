@@ -19,6 +19,8 @@ import com.javelin.core.render.picking.PickSystem;
 import com.javelin.core.settings.JavelinSetting;
 import com.javelin.core.window.Window;
 import com.javelin.editor.asset.BuiltinAssetReleaser;
+import com.javelin.editor.asset.ProjectAssetLibManager;
+import com.javelin.editor.asset.reload.AssetReloadService;
 import com.javelin.editor.importer.AssetImportPipeline;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.MetaManager;
@@ -135,6 +137,13 @@ public class JavelinEditor extends JavelinEngine {
         // 写入方零通知义务，实变自动发现推送 scene.nodeTransformChanged + 置脏；挂载序在
         // TransformGizmoAppState 之后——拖拽 apply 当帧检出同帧通知）
         stateManager.attach(new TransformWatchAppState());
+        // 资产热重载协调器（Engine_AssetReload_Design.md 批次①）：订阅导入完成 →
+        // reload 新实例 → 反射 Walker 换场景指针 → 渲染侧对账（触发口=手动 reimport）
+        if (assetManager instanceof ProjectAssetLibManager projectAssetManager) {
+            new AssetReloadService(assetImportPipeline, projectAssetManager, renderingSystem);
+        } else {
+            log.warn("assetManager 非 ProjectAssetLibManager，资产热重载未接入");
+        }
         // 主窗口菜单条装配（菜单命令已随插件装载期注册——早于建窗，MenuBarFactory 消费注册表）
         if (window instanceof MainFrame mainFrame) {
             mainFrame.installMenuBar();

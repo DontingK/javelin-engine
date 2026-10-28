@@ -391,6 +391,13 @@ public class AssetImportPipeline {
     }
 
     /**
+     * 获取在途导入数（已提交未完成——导入进度框轮询源，比队列尺寸更稳定）
+     */
+    public int getImportingCount() {
+        return importCount.get();
+    }
+
+    /**
      * 清空导入队列
      */
     public void clearQueue() {

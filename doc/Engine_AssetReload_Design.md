@@ -1,6 +1,6 @@
 # 引擎资产热重载设计（Engine_AssetReload_Design）
 
-> 版本：v0.2（2026-10-24 当日二稿，推翻 v0.1）
+> 版本：v0.3（2026-10-27 批次①落地，待验收）
 > 拍板（2026-10-24，用户）：**反射遍历流派（UE ReloadPackages 口径本地化）**——持有引用形态不动（Material.shader / MeshRenderer.material 继续死攥对象），重导后由重载协调器**反射遍历场景对象图**找到持有旧实例的 Asset 字段、换新实例指针。v0.1 令牌表方案（持有者钩子 + 依赖登记表）作废。
 > 关联档：Engine_Material_Design.md §3/§4（材质桥与序列化）、Engine_Rendering_Design.md（RenderingSystem 职责）、Editor_Design.md §1（设计基准=完全参考 Unity）、Editor_Menu_Design.md（project.reimport）。
 
@@ -118,9 +118,10 @@ ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，�
 
 ### 5.1 触发（Unity Auto Refresh 口径）
 
-- **回焦点扫描**：主窗口 focusGained → Assets/ 目录 mtime 快照 diff → 变更文件 `submitImport`（复用 needImport 增量管线）。自身写盘（file.save 内源重导）的 mtime 更新天然幂等，无防抖特判。
+- **回焦点扫描**（批次②落地，2026-10-27）：主窗口 focusGained → `EditorFocusGainedEvent`（总线解耦窗口与扫描）→ `AssetReloadService` 后台线程跑 `AssetImportPipeline.refresh()`（现成扫描逻辑：walkAssetDir → needImport/未导入 → submitImport，纯 IO 不占 EDT）→ 有待导入弹 **ImportProgressDialog 模态小框**（Swing Timer 轮询 `getImportingCount()` 归零自动关；不可手动关——关了焦点回落重扫描重弹循环）。导入中不重扫（自身写盘 file.save 内源重导 mtime 幂等，重复提交无益）。
 - **手动口保留**：`project.reimport`（强制重导，现行命令不动）。
 - WatchService 后置：Windows 上编辑器保存是多次写入（事件风暴+中间态误触发），焦点扫描已覆盖主用例。
+- **批次②剩余**：Scene 根豁免（.scene 重导整场景重载/脏警示）——外部改 .scene 经扫描重导 Library 但场景对象图 warn 跳过，画面不刷新。
 
 ### 5.2 AssetReloadService（新增，编辑器）
 
@@ -141,7 +142,7 @@ ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，�
 
 ## §6 失败安全
 
-- **Shader 语法错**：导入器拒绝（残档口径）→ 产物不覆盖 → `invalidate` 不发生 → **画面保持旧版本，天然回退**。验收必测。
+- **Shader 语法错**：导入器落 **stub 产物**（空字段 Shader + guid，任务 SUCCESS 带 errorMessage——拍板 2026-10-27，原「导入拒绝不覆盖产物保持旧版」口径作废）→ 热重载 reload → 场景换到 stub → 渲染侧 `Shader.isValid()` 判坏回退默认 shader（紫色，DefaultShader 门面）；**修复后 reimport 真产物 → walker stub→real 换代 + Material 补默认值恢复**（stub 带 guid 可匹配，无「需重载场景」边界）。验收必测。
 - **换 shader 后 Pass 被删**：严格制下 `pipelineFor` 抛 IllegalStateException（「未声明 Pass」）——**第一期维持现状**（渲染侧显式报错口径一致）；Pass 兼容预校验置灰后置（§10）。
 - **产物损坏 / guid 解析失败**：reload 返回 null → 跳过重映射 + warn（§5.2-2）。
 - **脏持有者**：第一期只有 Scene 脏判据生效（§4.5）；Material 内存脏待 Inspector 材质编辑通道落地后接入（跳过 + warn，Unity 口径）。
@@ -176,7 +177,7 @@ ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，�
 2. 改 `.shader` 属性默认值 → 材质面板同名参数用户值保留、新增属性取新默认值、删属性不炸（NPE 路径专项）；
 3. 改 `.mat` → 场景画面变（资产材质与 .scene 内嵌材质两路都验——内嵌材质在组件 material 字段上 guid null，**.mat 事件不命中它属正确语义**；其 shader 引用仍经 shader 事件覆盖）；
 4. 改贴图源文件 → 画面变（批次③）；
-5. shader 语法错 → 画面保持旧版 + 日志报错（失败回退）；
+5. shader 语法错 → 画面回退默认 shader（紫）+ stub 产物标记 + 创建命令错误弹框（stub 拍板 2026-10-27）；修复后 reimport 画面恢复；
 6. **F3 RenderStats 存活计数不随热刷次数增长**（孤儿回收验证——11 类存活计数是现成验证工具）；
 7. 连续热刷 ×N 次无显存增长（resize-oom 教训的姊妹验证口径）；
 8. 焦点扫描（批次②）：外部改文件 → 切回编辑器 → 自动生效；编辑器自身保存不误触发。
@@ -197,3 +198,11 @@ ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，�
 
 - v0.1（2026-10-24）：初稿，令牌表流派（持有者钩子 `AssetReloadAware` + 依赖登记表 + 按实例自描述 guid 匹配）。**同日被用户推翻**——持有引用形态不动，改反射遍历。
 - v0.2（2026-10-24）：反射遍历流派（UE ReloadPackages 口径本地化）：core 缩到 invalidate/reload 一件；持有者钩子/依赖登记全废，换指针知识由反射 Walker 现场遍历获得；Material 补默认值后处理（pack 缺 entry NPE 实锤新增）；其余（SceneRenderBridge 身份重注、孤儿两帧退役、Scene 根豁免、失败安全、批次划分）继承 v0.1 核实成果。**同日补录**：§4.4 增 GPU 释放责任边界 + 纯贴图热重载缺口（MaterialResources 须记贴图槽实例表，否则活 set 强持旧贴图永不释放、画面不更新——对账判据扩为 shader 变或贴图槽实例变）。
+- v0.3（2026-10-27）：**批次①落地（待用户验收）**——
+  - **reload 归属拍板（2026-10-27，用户）**：core `AssetLibManager` 的 `cache/guidAssetRefMap/trackedRefs/refQueue` 本就 protected，唯一 core 资产侧改动 = `loadCache` 放 protected；**invalidate/reload 实现落编辑器 `ProjectAssetLibManager`**（自持弱缓存结构的子类即编辑器重实现的管理器），core 接口不加 API。
+  - **Walker 落 `editor/asset/reload`**：遍历规则照 §4.2/§4.3；判据实现细节：`MaterialResources.SlotBinding` 记首绑 assigned 实例 + usedPlaceholder 状态——**纹理壳后补图（setImage）是「实例同、image 状态变」，占位状态比对覆盖之**；占位贴图（WHITE/BLACK/NORMAL）是静态单例，实例身份比对可靠；贴图槽壳/占位不区分统一走 stale 判据。
+  - **reconcile 活集口径核实**：`materialSet/pipelineFor` 消费方只有 AbstractForwardPass（均出自 renderers），PickPass/DebugLinePass 自建 PSO 不经缓存——活集 = renderers 的 Material+Shader 安全，无误杀路径。
+  - **材质面板最小钩子（批次④提前项）**：`MaterialInspectorContent` 订 `AssetReloadedEvent`（onAttach 订/onDetach 退，契约随 InspectorContent 生命周期）→ 匹配本面板文件即 flushPending + 重拉编辑载体——**防 v0.11 即时联动退化**：reload 把场景换到盘上新实例后，不重拉则面板编辑旧实例，同实例联动成防抖反馈；批次④全量接入（内容 hash、Pass 预校验）仍后置。
+  - **批次边界**：.png/.jpg/.jpeg 像素源（Image 产物换装要连 Texture2D/GPU 重传）跳过归批次③；.scene 重导 warn 跳过（豁免路径批次②）；Mesh 热重载走 Walker 协议同构（批次③验收）。触发口 = 手动 `project.reimport`（ImportListener → submitTask 引擎帧首），焦点扫描批次②。
+  - **同日增补**：坏 shader **stub 产物 + 渲染回退默认 shader**（Engine_Material_Design v0.3）——`Shader.isValid()` 判据 + `DefaultShader` 门面（JavelinEngine.initialize 注入 AssetManager）；ShaderImporter 编译失败落 stub（任务 SUCCESS 带 errorMessage）走完成链 → 热重载 reload → walker 换到 stub → 渲染判坏回退默认紫色；§6 失败安全 / §9 #5 拍板同步更新（原「保持旧版本」口径作废）；reconcile 活集显式加默认材质单例防误退役。
+  - **同日增补二**：**焦点扫描落地（批次②）+ 导入进度模态框**——MainFrame windowGainedFocus → EditorFocusGainedEvent → AssetReloadService 后台 refresh() 复用（pipeline 加 getImportingCount 在途 getter）→ ImportProgressDialog 模态小框（Timer 轮询自动关，不可手动关防焦点循环）；批次②剩余 Scene 根豁免仍后置。

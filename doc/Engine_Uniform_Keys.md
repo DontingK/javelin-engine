@@ -9,7 +9,7 @@
 | 通道 | 位置 | 块名 | 实例名（key） | 更新节奏 | 绑定方 |
 |---|---|---|---|---|---|
 | 相机 | set 0 / binding 0 | CameraBlock | `cam` | 每视口（动态偏移选相机） | Pass 回调 |
-| 灯光 | set 1（预留） | ——（三期 LightBlock） | —— | ——（三期落地） | —— |
+| 灯光 | set 1（多 binding，未实装） | ——（LightingParamsBlock + 三个 SSBO，2026-10-28 拍板） | 每视口每帧（剔除后） | RenderingSystem / ClusterBuildPass |
 | 材质数值 | set 2 / binding 0 | MaterialBlock | `material` | 每次绑定时重打包 | drawObject |
 | 材质贴图 | set 2 / binding 1..n | ——（独立 sampler） | TEXTURE_2D 属性名原样 | 首绑解析后固定 | drawObject |
 | 每物件 | push constants | PushBlock | `pc` | 每物件 | drawObject |
@@ -35,9 +35,19 @@
 - 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
 - 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj 64B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
 
-## 4. set 1 灯光（预留，无 key）
+## 4. set 1 灯光（三期契约已拍板，未实装）
 
-空布局零 binding 占位（PSO 布局数组 `[set0, set1, set2]` 的第 2 位，Vulkan 允许）。三期 LightBlock 落此——届时字段在本表补行。
+2026-10-28 拍板（Engine_Lighting_Design v0.1）：**跳过 UBO 数组中间档，直接 clustered + SSBO（Forward+ 形态）**——原「LightBlock UBO 落此」预留口径作废。set1 = 光照域多 binding（FRAGMENT）：
+
+| binding | 类型 | key（实例名） | 内容 |
+|---|---|---|---|
+| 0 | UBO | `lighting` | LightingParamsBlock：方向光数组（≤8，槽 0=主光）+ 灯数计数 + cluster grid 元数据 + 环境项（主光阴影段批次④占位） |
+| 1 | SSBO | `lightList` | 点/聚光列表（视空间 64B/灯统一结构，容量 4096，强度预排序） |
+| 2 | SSBO | `clusterGrid` | 每 cluster {offset, count}（8B/cell） |
+| 3 | SSBO | `clusterIndices` | 变长光索引池（每 cluster 上限 64，截尾=去最弱） |
+
+- 字段/偏移详表与设计论证（切分几何、构建三步、截断语义）归 `Engine_Lighting_Design.md`，实装随三期批次②③落位、本表届时补字段行；
+- ClusterBuildPass 构建侧为 compute 布局，另行声明（不与着色布局混用）。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 
@@ -55,7 +65,7 @@
 
 | 类别 | 保留字 | 拦截时机 |
 |---|---|---|
-| 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` | 构建期（注释里出现也拦） |
-| 实例名 | `cam` / `pc` / `material` | GLSL 编译期（与注入声明重复定义） |
+| 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` / `LightingParamsBlock`（三期，随实装生效） | 构建期（注释里出现也拦） |
+| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList` / `clusterGrid` / `clusterIndices`（三期，随实装生效） | GLSL 编译期（与注入声明重复定义） |
 
 > 注入声明由 ShaderInjector 在每个 vs/fs 块 `#version` 行后固定生成（v0.13：无标记、位置固定），声明内容 = 本表 §2/§3/§5。

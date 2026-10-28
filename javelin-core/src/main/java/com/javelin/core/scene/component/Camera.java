@@ -1,6 +1,7 @@
 package com.javelin.core.scene.component;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.JavelinEngine;
 import com.javelin.core.inspector.InsField;
 import com.javelin.core.inspector.InsHeader;
 import com.javelin.core.inspector.InsLayerMask;
@@ -14,6 +15,7 @@ import com.javelin.core.scene.LayerMask;
 import com.javelin.core.scene.Component;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
+import com.javelin.rhi.render.RenderSurface;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -172,6 +174,33 @@ public class Camera extends Component {
     }
 
     /**
+     * 屏幕点 → 世界射线（尺寸自取：渲染表面像素——{@code JavelinEngine.getInstance()
+     * .renderSurface()}，Unity {@code Screen} 全局 + {@code ScreenPointToRay(pos)} 口径
+     * 的本地化；x/y 须与渲染表面同像素空间）。
+     *
+     * <p>坐标空间：x/y 须与渲染表面同像素空间——运行时鼠标坐标（{@link com.javelin.core.input.Input}）
+     * 通常即窗口帧缓冲像素（系统缩放≠100% 时 glfw 光标坐标与帧缓冲可能差倍率）；编辑器画布
+     * 逻辑坐标同理（dpi≠1 差倍率——编辑器内部路径用显式尺寸重载自洽）。其余语义同
+     * {@link #screenToRay(float, float, float, float, Ray)}。</p>
+     *
+     * @param screenX 屏幕像素 x（渲染目标坐标，原点左上）
+     * @param screenY 屏幕像素 y（原点左上）
+     * @param out     输出射线（origin=相机世界位置，direction 归一化）
+     * @return out
+     * @throws IllegalStateException 引擎未启动（无渲染表面尺寸）/ 相机未挂节点
+     * @throws UnsupportedOperationException 正交投影（后置）
+     */
+    public Ray screenToRay(float screenX, float screenY, Ray out) {
+        JavelinEngine engine = JavelinEngine.getInstance();
+        RenderSurface surface = engine != null ? engine.renderSurface() : null;
+        if (surface == null) {
+            throw new IllegalStateException(
+                    "引擎未启动：screenToRay 无渲染表面尺寸可换算（可改用显式尺寸重载传 targetWidth/targetHeight）");
+        }
+        return screenToRay(screenX, screenY, surface.width(), surface.height(), out);
+    }
+
+    /**
      * 屏幕点 → 世界射线（Unity {@code Camera.ScreenPointToRay} 口径——经本相机
      * {@code viewportRect} 归一化，仅透视投影）。
      *
@@ -182,6 +211,9 @@ public class Camera extends Component {
      *（RH：面向 +Z 屏幕右 = −X——EditorCameraAppState 2026-10-04 实测修正同源，
      * 拾取换算必守，用 localX 会左右镜像）；投影已含 Vulkan Y 翻转
      *（view +y 上 ↔ NDC −y），屏幕顶 = NDC −1 = 视线上方。</p>
+     *
+     * <p>尺寸显式版：单测/离屏渲染目标/坐标空间与渲染表面不同源（如编辑器画布逻辑
+     * 坐标）时用本重载。</p>
      *
      * @param screenX     屏幕像素 x（渲染目标坐标）
      * @param screenY     屏幕像素 y（原点左上）

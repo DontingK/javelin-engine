@@ -61,7 +61,28 @@
 - **目标**：屏幕点 → 世界射线（逆 viewProj）→ 射 vs 碰撞体 → RaycastHit；
 - **前置**：②的碰撞体与包围盒；
 - **产出**：Ray/RaycastHit 数据类型 + Camera 屏幕射线生成 + 场景级 raycast 查询（**Ray 已随碰撞 L0 落地**（2026-10-05 片①）；**Camera.screenToRay 已进核心并单测验收**——2026-10-05 随 Gizmo 轴拾取落地、CameraTest 2026-10-06 验收，Unity ScreenPointToRay 口径）；
-- **验收**：点击拾取场景物体正确（为编辑器拾取闭环）。
+- **验收**：~~点击拾取场景物体正确（为编辑器拾取闭环）~~——编辑器拾取已改道 GPU ID-buffer 并于 2026-10-23 实测验收（§2.4 拾取闭环收官）；Ray 线定位收窄为**运行时物理查询**，验收 = PhysicsTest 单测（用户运行）。
+
+进度（2026-10-28 落地，**待用户验收**）：**L1 场景级 raycast（运行时物理查询线）**——拍板：
+API 落点 = 静态门面 `Physics`（Unity 口径）、首批查询面 = 单命中 `raycast` + 全命中
+`raycastAll`（2×3 重载：默认/限距/layerMask；射程口径三拍定稿=**maxDistance 查询参数**
+（Unity 口径）——同日 jME 式 `Ray.limit` 方案曾短暂落地即回退，沿革见 Collision 档 §10）。
+`physics.query` 包新增 `Physics`
+（绑定场景 `setScene`，JavelinEngine.setScene 绑定/shutdown 解绑）+ `RaycastHit`（point/normal
+复用缓冲 + distance + collider/node 引用）；查询源 = `Scene.getColliders` 注册表投影
+（GameScene 与 cameras/renderables 同构增 colliders 分流表，EditorScene 透传用户场景）；
+过滤序 = 非激活/禁用跳过 → layerMask → 最近命中；distance/maxDistance 一律世界单位（入口
+一次性方向归一化，同 Unity Ray 语义）；退化值闸门（NaN/±Inf → `!isFinite` 显式挡）；
+未命中 out 不变（零分配复用）；未绑定场景抛 IllegalStateException（错误显性化）。
+PhysicsTest 14 用例（最近命中/限距含边界/layerMask/激活过滤/摘出注销/
+排序 clear/归一化/世界变换端到端/未绑定抛/零方向）。**随批相机→射线组装链**：`Scene.getMainCamera`
+（Unity `Camera.main` 口径——首个激活且 enabled 的 isMain，无则 null；GameSceneTest 主相机用例）
++ `JavelinEngine.mouseRay(camera, out)`（Input 鼠标坐标；尺寸自取渲染表面——等效 Unity
+`Camera.main.ScreenPointToRay(Input.mousePosition)`；**Camera.screenToRay 增简式
+`(x, y, out)` 尺寸自取 = 引擎静态实例渲染表面 `JavelinEngine.getInstance().renderSurface()`
+（构造赋值/shutdown 摘除 + `renderSurface()` 访问口），显式尺寸重载保留给单测/离屏/编辑器
+逻辑坐标路径**；归运行时装机验证）。设计归 Engine_Collision_Design §10（v0.2）/
+Engine_Scene_Design §5.2。
 
 ### 2.4 编辑器基本——✅ 主体验收收官（2026-10-14；物体拾取 ID-buffer 2026-10-23 用户实测验收——拾取闭环收官）
 
@@ -232,18 +253,56 @@ Inspector 贴图槽编辑挂账另批。
  参数/贴图槽行 label 误用绑定名改 displayName（Unity 口径）。遗留：材质贴图槽行换装
  Texture2D（下批）、编辑即时联动归热重载批次。
 
+进度（2026-10-27 落地，**待用户验收**）：**资产热重载批次①（Engine_AssetReload_Design v0.3）**——
+反射遍历流派最小闭环：core 仅 `loadCache` 放 protected（拍板 2026-10-27：reload 归编辑器
+`ProjectAssetLibManager`，core 接口不加 API）；`invalidate/reload`（丢弱缓存条目 + 重读盘上
+产物，失败保持旧引用残档口径）+ 反射 Walker（`editor/asset/reload`，材质补默认值后处理，
+setter 旁路口径）+ `requestReconcile` 孤儿回收（RenderingSystem mark-and-sweep 两帧退役，
+`MaterialResources` 增 builtFromShader/SlotBinding 贴图槽对账——活集口径已核实无误杀）+
+`AssetReloadService`（订 ImportListener → submitTask 引擎帧首 reload→换指针→对账→
+AssetReloadedEvent）+ 材质面板最小钩子（AssetReloadedEvent 重拉编辑载体，保 v0.11 即时
+联动不退化）。验收口：改 .shader/.mat → 手动 reimport → 画面当帧变 + F3 存活计数不涨；
+.png 像素源/焦点扫描/.scene 豁免归批次②③。
+
+进度（2026-10-27 落地，**待用户验收**）：**坏 shader stub 产物 + 渲染回退默认 shader
+（Engine_Material_Design v0.3）**——判据 = `Shader.isValid()`（至少一个 Pass 且 vs/fs
+SPIR-V byte[] 均非 null，拍板：无有效二进制 = 坏 shader）；ShaderImporter 编译失败落
+**stub 产物**（空字段 Shader + guid，任务 SUCCESS 带 errorMessage——原「保持旧版本
+天然回退」口径作废，§6/验收 #5 同步）；渲染链（bridge.sync 注册分支 + materialSet/
+pipelineFor 入口）经 `DefaultShader` 门面回退默认材质单例（内置 `core/shader/default.shader`
+平色紫，JavelinEngine.initialize 注入 AssetManager，missing-material 语义不变）；
+reconcile 活集显式加默认材质防误退役；修复后 reimport 真产物经热重载 walker 换代恢复
+（stub 带 guid 可匹配，无「需重载场景」边界）；诊断台坏态显示 + 创建命令 SUCCESS 带
+errorMessage 也弹框（红线 15）。附带收益：坏 shader 不再炸帧循环（mainLoop 对
+renderFrame 无异常隔离，原 RenderObject ctor 抛错直通 shutdown）。
+
+进度（2026-10-27 落地，**待用户验收**）：**焦点扫描资产刷新 + 导入进度模态框（热重载
+批次②焦点扫描部分，Engine_AssetReload_Design §5.1）**——MainFrame windowGainedFocus →
+EditorFocusGainedEvent（总线解耦窗口与扫描）→ AssetReloadService 后台线程跑
+`AssetImportPipeline.refresh()`（现成扫描逻辑复用：walkAssetDir → needImport/未导入 →
+submitImport，纯 IO 不占 EDT；导入中不重扫防重复提交）→ 有待导入弹 **ImportProgressDialog
+模态小框**（不确定进度条 + 剩余项数，Timer 轮询 `getImportingCount()` 归零自动关；不可
+手动关防焦点回落重扫重弹循环；模态泵内 Timer 正常触发）；自身写盘 mtime 幂等无防抖特判。
+**同批 i18n**：进度框 / 创建着色器弹框 / 着色器诊断台状态行 10 条文案随批接 EditorLang
+（lang/zh_cn.properties `asset.import.*`/`create.shader.*`/`shader.inspector.*`——新功能
+文案不再攒批进第二批，Editor_Plugin_Design §7.2-0）。批次②剩余 Scene 根豁免仍后置
+（外部改 .scene 重导 Library 但场景 warn 跳过）。
+
 ---
 
 ## 3. 三期：光照
 
 - **目标**：场景开灯出可见差异——灯光数据通路 + 有光照着色 + 阴影；
-- **内容**：
-  1. **Light 组件**（DIRECTIONAL/POINT，Scene 5.3 设计稿已备，主光 `Scene.sun` 待定）；
-  2. **灯光块走 set 1**（2026-10-23 拍板，原「UBO1 槽内扩排塞 lights 块」作废）：set 1 空占位布局换为光照布局（lights 数组块，数量上限/打包随灯光专档拍板），UBO1 槽维持 1280B = 4×256B 相机块 + 256B 时间块不动；
-  3. **着色模型**：v0.x Forward = Lambert + 环境项（管线档 4.5 取舍：与 Deferred LightingPass 的光照一致性属已知取舍，统一模型随材质/着色专档回填）；
-  4. **ShadowPass**（设计已完成：管线档 4.1，shadowMap D32 2048²，depth-only，实现后置项到此兑现）；
-- **验收**：方向光/点光下物体明暗正确 + 主方向光投影正确（用户运行）；混合/纯 Forward 可配置切换（管线档第 8 节路线第二步的回填点）；
-- **三期扩展（可选排序）**：Deferred 混合（GBuffer/Lighting，管线档 4.2/4.3 设计已备）、后处理链具体化（Bloom/Tonemap + HDR 切换点，管线档 4.6）。
+- **拍板（2026-10-28，`Engine_Lighting_Design.md` v0.1 单点）**：**clustered + SSBO（Forward+ 形态）一步到位，跳过 UBO 数组 / 逐盏画光体积中间档**——只面向 PC、质量优先；正透明同读一份 cluster（管线档 4.5 两路光照一致性取舍**消解**）；默认参数 = 16×16 tile × Z32 指数切分、每 cluster 索引上限 64（截尾=去最弱）、光列表容量 4096；主光 = 首个激活 isMain 方向光（`Scene.getSun()`，与 getMainCamera 对称，`Scene.sun` 字段引用案弃用）；shadowMap 挂点 = set1 binding4；
+- **内容**（四批，灯光档 §9）：
+  1. **RHI 底座前置（新增段）**：SSBO 实装（现仅设计稿 API）+ ComputePipeline/dispatch + RenderGraph compute Pass 节点与 Buffer 读写同步——compute 写 SSBO → 图形 Pass 读回最小闭环为验收；
+  2. **Light 组件 + 收集**：DIRECTIONAL/POINT/SPOT（字段级归灯光档 §4）+ Scene lights 注册表 + 视锥剔除/强度预排序/视空间 64B 打包；
+  3. **cluster 构建 + Forward 消费（= Forward+ 成形）**：ClusterBuildPass（compute，每视口，三步构建）+ 着色器光照段注入 + Lambert + 环境项 + SPOT（后半）；
+  4. **ShadowPass + Deferred 复用**：ShadowPass（管线档 4.1 兑现）+ GBuffer/LightingPass 同一 cluster 直喂 + 混合/纯 Forward 可配置切换；
+- **验收**：方向光/点光下物体明暗正确 + 主方向光投影正确（用户运行）；几十盏场景帧率稳（F3 帧时间不劣化超阈值）；混合/纯 Forward 可配置切换且两路光照一致（管线档 §8 步骤二回填点）；
+- **三期扩展（可选排序）**：后处理链具体化（Bloom/Tonemap + HDR 切换点，管线档 4.6）、clustered 后置项（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）；
+- **GI 目标态拍板（2026-10-28）**：**探针实时 GI（DDGI 路线，团结引擎实时 GI / HDRP APV 产业验证）**——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；GI 第一步 = SSAO（后处理链 Pass，管线档 4.6 挂点，零新底座）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数；探针采样前置 = 3D 纹理/纹理数组（RHI 现仅 Texture2D，待核实）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档；
+- **光追方向（后续需求，2026-10-28 记录）**：rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；前置约束 = 三期批次①通用性红线（灯光档 §9——Buffer 进图同步+storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口）。
 
 ---
 
@@ -255,7 +314,7 @@ Inspector 贴图槽编辑挂账另批。
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
 | 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** |
-| 三期 | 灯光 + ShadowPass（Deferred/后处理为扩展） | 未开始 |
+| 三期 | 灯光 + ShadowPass（clustered Forward+ 拍板 2026-10-28——四批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass+Deferred 复用；Engine_Lighting_Design v0.1） | 🔄 设计拍板收口（2026-10-28），实装未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
 ## 5. 跨期遗留（不阻塞当期推进）

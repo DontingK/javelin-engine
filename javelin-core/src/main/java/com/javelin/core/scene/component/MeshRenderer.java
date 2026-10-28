@@ -74,9 +74,9 @@ public class MeshRenderer extends Component implements Renderable {
      * 引用 Library 导入资产）；guid 为空 → @ref 内嵌对象图（Mesh 数据完整可
      * 兜底共享；Material write/read 已于 2026-10-04 落地，内嵌数据面完整
      * 往返——历史与 .mat 资产格式待项见 Engine_Scene_Design §9.4）。mesh/
-     * material 为 null 走 missing 语义（SceneRenderBridge 跳过不渲染）；残材质
-     * （shader null——落地前旧场景、二进制 null guid 引用丢失）属文件损坏口径，
-     * 渲染侧 RenderObject 显式报错（用户拍板 2026-10-04：不静默跳过）。</p>
+     * material 为 null 走 missing 语义（SceneRenderBridge 跳过不渲染）；shader 无效
+     * （null / SPIR-V 缺失——编译失败 stub 产物）走 DefaultShader 回退默认材质渲染
+     * （拍板 2026-10-27，原「残材质显式报错」口径随 stub 产物路径作废）。</p>
      */
     @Override
     public void write(OutputCapsule output) {

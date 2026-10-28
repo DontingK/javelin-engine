@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -19,8 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code lang/zh_cn.properties} 必备默认 + {@code lang/{语言}.properties}
  * 可选），显示时查表解析——缺失显示 "!全域名!" + 去重 warn，不抛异常。
  * 当前语言启动期一次设定（默认 zh_cn），须早于语言包注册；miss/used 采集
- * 供 i18n 报告（后续批次）。插值走 MessageFormat（{0} 序，文案中单引号
- * 需双写转义）。
+ * 供 i18n 报告（后续批次）。插值走自实现 {@code {}} 顺位替换（拍板 2026-10-27：
+ * 弃 MessageFormat——{0} 编辑期不直观，且顺带消解其单引号转义坑）。
  *
  * @author javelin
  * @create 2026/10/20
@@ -108,7 +107,29 @@ public final class I18n {
             return "!" + fullKey + "!";
         }
         USED.add(fullKey);
-        return args == null || args.length == 0 ? pattern : MessageFormat.format(pattern, args);
+        return args == null || args.length == 0 ? pattern : interpolate(pattern, args);
+    }
+
+    /**
+     * 占位插值：{@code {}} 顺位替换（拍板 2026-10-27，弃 MessageFormat）。参数多于
+     * 占位符多余参数丢弃；占位符多于参数余下 {@code {}} 原样保留（文案错配显性可见）。
+     */
+    private static String interpolate(String pattern, Object[] args) {
+        int idx = pattern.indexOf("{}");
+        if (idx < 0) {
+            return pattern;
+        }
+        StringBuilder sb = new StringBuilder(pattern.length() + 16);
+        int from = 0;
+        for (Object arg : args) {
+            idx = pattern.indexOf("{}", from);
+            if (idx < 0) {
+                break;
+            }
+            sb.append(pattern, from, idx).append(arg);
+            from = idx + 2;
+        }
+        return sb.append(pattern, from, pattern.length()).toString();
     }
 
     /** 缺失 key 快照（报告/调试用） */

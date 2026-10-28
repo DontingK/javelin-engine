@@ -3,7 +3,7 @@ package com.javelin.editor.i18n;
 import java.util.Arrays;
 
 /**
- * i18n 文案键（值对象）：命名空间 + 局部键 + {0} 序插值参数。自持 namespace，
+ * i18n 文案键（值对象）：命名空间 + 局部键 + {} 顺位插值参数。自持 namespace，
  * 跨上下文传递（异常/状态栏等解析方不知来源的场景）也可解析——按 namespace
  * 路由到对应插件语言包，key 为插件局部名。出口统一收本类型，缺失显示
  * "!key!" 兜底；便捷构造（自动带命名空间）见 PluginContext 的 i18n facade。

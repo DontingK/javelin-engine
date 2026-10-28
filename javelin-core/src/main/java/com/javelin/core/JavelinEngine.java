@@ -6,18 +6,23 @@ import com.javelin.core.assets.AssetLibManager;
 import com.javelin.core.assets.AssetManager;
 import com.javelin.core.debug.DebugDrawTextSubsystem;
 import com.javelin.core.debug.RenderStatsAppState;
+import com.javelin.core.input.Input;
 import com.javelin.core.input.InputSubsystem;
 import com.javelin.core.math.Color;
+import com.javelin.core.physics.Ray;
+import com.javelin.core.physics.query.Physics;
 import com.javelin.core.render.FrameDescription;
 import com.javelin.core.render.FrameLoop;
 import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
+import com.javelin.core.render.material.DefaultShader;
 import com.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.core.render.pipeline.RenderPipeline;
 import com.javelin.core.scene.GameScene;
 import com.javelin.core.scene.Scene;
 import com.javelin.core.scene.SceneRenderBridge;
+import com.javelin.core.scene.component.Camera;
 import com.javelin.core.settings.AntialiasingMode;
 import com.javelin.core.settings.GameSettings;
 import com.javelin.core.settings.JavelinSetting;
@@ -61,6 +66,9 @@ public class JavelinEngine {
 
     private static final Logger log = LoggerFactory.getLogger(JavelinEngine.class);
 
+    /** 当前引擎实例（构造赋值、shutdown 摘除；JavelinEditor.getInstance 同款先例——相机射线等静态取用口） */
+    private static JavelinEngine engineInstance;
+
     private final JavelinSetting setting;
 
     /**
@@ -76,6 +84,11 @@ public class JavelinEngine {
     private Instance instance;
     private Device device;
     private FrameLoop frameLoop;
+    /**
+     * 渲染表面（渲染目标）——initialize 时取自窗口；尺寸=渲染目标像素
+     *（运行时=窗口帧缓冲、编辑器=画布物理像素）。Camera 射线换算（screenToRay 简式）真值源。
+     */
+    private RenderSurface renderSurface;
     protected RenderingSystem renderingSystem;
     protected RenderPipeline renderPipeline;
     /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
@@ -98,6 +111,15 @@ public class JavelinEngine {
 
     public JavelinEngine(JavelinSetting setting) {
         this.setting = setting;
+        engineInstance = this;
+    }
+
+    /**
+     * 当前引擎实例（构造时赋值、shutdown 摘除；未创建/已关停返回 null）。
+     * 无状态取用口（相机射线尺寸、渲染表面查询等）经此免手动穿参。
+     */
+    public static JavelinEngine getInstance() {
+        return engineInstance;
     }
 
 
@@ -117,14 +139,16 @@ public class JavelinEngine {
         window.showWindow();
 
         assetManager = createAssetManager();
+        // 默认 shader 门面注入（坏 shader 渲染回退判据，拍板 2026-10-27）
+        DefaultShader.init(assetManager);
         subsystemManager = createSubsystemManager();
         registerSubsystem(subsystemManager);
 
         // RHI 初始化序列（VkSurfaceKHR 由 createDevice 内部创建并持有，上层不再重复创建）
-        RenderSurface surface = window.renderSurface();
-        instance = createInstance(surface);
-        device = createDevice(surface);
-        frameLoop = createFrameLoop(surface);
+        renderSurface = window.renderSurface();
+        instance = createInstance(renderSurface);
+        device = createDevice(renderSurface);
+        frameLoop = createFrameLoop(renderSurface);
         renderingSystem = createRenderingSystem();
         renderPipeline = createRenderPipeline();
         log.info("RHI initialized: {}x{}, vsync={}, maxFps={}",
@@ -321,6 +345,12 @@ public class JavelinEngine {
         if (window != null) {
             window.close();
         }
+        // L1 物理查询门面解绑（场景随引擎关停不再可查）
+        Physics.setScene(null);
+        // 引擎静态实例摘除（关停后 getInstance() 返回 null）
+        if (engineInstance == this) {
+            engineInstance = null;
+        }
         Time.reset();
     }
 
@@ -448,6 +478,8 @@ public class JavelinEngine {
     /**
      * 设置当前场景：旧场景注册的渲染侧包装全部注销，新场景下一帧起经
      * SceneRenderBridge pull 进渲染系统。重复设同一引用为幂等空操作。
+     * 同时绑定 L1 物理查询门面（{@code Physics.raycast} 查当前场景，
+     * Engine_Collision_Design.md §10）。
      */
     public void setScene(Scene scene) {
         if (this.scene == scene) {
@@ -457,6 +489,7 @@ public class JavelinEngine {
             sceneRenderBridge.clear(renderingSystem);
         }
         this.scene = scene;
+        Physics.setScene(scene);
     }
 
     /** 当前场景（start() 调用前/未设置时为 null） */
@@ -465,10 +498,39 @@ public class JavelinEngine {
     }
 
     /**
+     * 从鼠标当前位置发射世界射线（坐标取 {@link Input} 鼠标像素坐标，尺寸自取渲染表面
+     * ——同 {@link Camera#screenToRay(float, float, Ray)}，左上原点）。等价 Unity
+     * {@code Camera.main.ScreenPointToRay(Input.mousePosition)} 组合的本引擎形态。
+     *
+     * <p>坐标空间与渲染表面同像素（运行时=窗口帧缓冲、编辑器=画布物理像素——
+     * 编辑器画布逻辑坐标在 dpi≠1 时须先换算，编辑器内部路径继续用显式尺寸重载）。</p>
+     *
+     * @param camera 目标相机（通常 {@code scene().getMainCamera()}）
+     * @param out    输出射线（复用实例零分配；direction 归一化——与 maxDistance/distance
+     *               的世界距离口径一致）
+     * @return out
+     * @throws IllegalStateException 相机 null（场景无主相机）/ 引擎未启动（无渲染表面尺寸）
+     */
+    public Ray mouseRay(Camera camera, Ray out) {
+        if (camera == null) {
+            throw new IllegalStateException("mouseRay 相机为 null：场景无主相机（Scene.getMainCamera）或未传入");
+        }
+        return camera.screenToRay(Input.mouseX(), Input.mouseY(), out);
+    }
+
+    /**
      * 主窗口；start() 调用前为 null
      */
     public Window window() {
         return window;
+    }
+
+    /**
+     * 渲染表面（渲染目标）——尺寸=渲染目标像素（运行时=窗口帧缓冲、编辑器=画布物理像素）；
+     * {@code Camera.screenToRay(x, y, out)} 简式的尺寸真值源。start() 前为 null。
+     */
+    public RenderSurface renderSurface() {
+        return renderSurface;
     }
 
     public Instance instance() {

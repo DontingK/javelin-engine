@@ -1,9 +1,10 @@
 # 引擎渲染管线设计（Engine Render Pipeline Design）
 
-> 版本：v0.2
+> 版本：v0.3
 > 日期：2026-09-24
 > 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展机制）。
 > v0.2 变更（2026-09-25）：**钩子点枚举（PipelineHook）移除**——编排改为**有序 Pass 列表**（`RenderPass.addToGraph`），扩展 = 向列表指定位置插入自定义 Pass（6.2）；散点表述同步清扫。
+> v0.3 变更（2026-10-28）：**光照拍板 clustered Forward+（一步到位）**——ClusterBuildPass（compute）入 Pass 清单转正三期（2.2/3.1/3.2/4.3）、set1 改 cluster 套件多 binding（§7）、管线 4.5 两路光照一致性取舍**消解**（正透明同读一份 cluster，Engine_Lighting_Design v0.1 单点）；原「tiled/clustered 为 P2」口径作废。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
 > - RHI 文档管**「图怎么推导执行」**（依赖拓扑、屏障、图缓存——22 节「声明在引擎，推导执行在 RHI」）；
@@ -33,7 +34,7 @@
 | 类型 | 用途 | 本文出现位置 |
 |------|------|-------------|
 | 图形 Pass | 几何绘制 / 全屏效果 | 管线主体 |
-| 计算 Pass | tiled 光照、Bloom 降采样、粒子模拟 | 仅扩展点（P2），v0.1 管线全图形 |
+| 计算 Pass | **clustered 光分簇（ClusterBuildPass，2026-10-28 转正三期）**、Bloom 降采样、粒子模拟 | 其余仍扩展点（P2）；v0.1 管线全图形 |
 
 **不建拷贝 Pass**：Deferred→Forward 的深度复用直接走透明 Pass 内 `addDepthOutput(depth, LOAD)` + `addTextureRead(depth)` 的读写同资源模式（RHI 7 节 TransparentPass 既定写法），兑现 RHI 14.5「尽量避免真实深度拷贝」。
 
@@ -47,6 +48,8 @@
 ### 3.1 完整形态（目标态）
 
 ```
+ClusterBuildPass（compute，每视口光分簇索引）        [三期新增，Engine_Lighting_Design]
+   ↓ clusterGrid/clusterIndices（着色消费，不依赖几何）
 ShadowPass（可选，主方向光 depth-only）          [设计完成，实现后置]
    ↓ shadowMap
 GBufferPass（Deferred：本视口全部不透明物体）     [设计完成，实现第二步]
@@ -64,9 +67,10 @@ CompositePass（写 backbuffer；多相机 LOAD 叠加） [v0.1 实现]
 
 | # | Pass | 类型 | 输入 | 输出 | v0.1 |
 |---|------|------|------|------|------|
+| 0 | ClusterBuildPass | 计算 | lightList（视空间灯列表）、相机参数 | clusterGrid（offset/count）+ clusterIndices（变长索引池） | ❌ 三期新增（Engine_Lighting_Design §6） |
 | 1 | ShadowPass | 图形（depth-only） | shadowCasters | shadowMap | ❌ 设计完成，后置 |
 | 2 | GBufferPass | 图形 | RenderList.opaque、UBO1 | albedo/normal/worldPos/depth | ❌ 设计完成，第二步 |
-| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 光照块(lights) | lightingRT | ❌ 设计完成，第二步 |
+| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 cluster 套件 | lightingRT | ❌ 设计完成，第二步 |
 | 4 | TransparentForwardPass | 图形 | RenderList.transparent、depth、UBO1 | lightingRT / backbuffer（叠加） | ✅ |
 | 5 | PostProcessChain | 链（0..n 个 Pass） | lightingRT / 链上游输出 | 链下游 | ⚠️ 空链直通 |
 | 6 | CompositePass | 图形（全屏） | 链输出 | backbuffer | ✅（单相机可省略） |
@@ -88,7 +92,7 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 
 ### 4.1 ShadowPass（实现后置）
 
-- **职责**：主方向光（`Scene.sun`）视角渲染全部 `RenderList.shadowCasters`，depth-only；
+- **职责**：主方向光（`Scene.getSun()`，主光解析口径 2026-10-28 改定，Engine_Lighting_Design §4）视角渲染全部 `RenderList.shadowCasters`，depth-only；
 - **输出**：shadowMap（D32_SFLOAT，默认 2048²，灯光正交包围盒决定 frustum）；
 - **uniform**：light viewProj（UBO1）+ 每物体 model（push）；
 - **消费方**：GBuffer（着色时采样）与 Forward 不透明着色分支——需要材质系统提供带阴影采样的着色路径；
@@ -114,8 +118,8 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 - **职责**：全屏三角形（`cmd.draw(3,1)`，RHI 19.3 既定），读 GBuffer + shadowMap 算光照；
 - **输入**：GBuffer×3、depth（软阴影/重建用）、shadowMap、UBO1（camera）+ set 1 光照块（lights）；
 - **输出**：lightingRT（R16G16B16A16_SFLOAT，HDR）；
-- **光源数据**：set 1 光照块内 lights 数组（方向/点光，数量上限与打包格式随材质/灯光专档拍板，预估 16 盏；2026-10-23 拍板落位 set 1，不进 UBO1 槽）；
-- **计算化**：v0.x 用图形全屏 Pass；tiled/clustered 计算光照为 P2 扩展点（插于光照 Pass 之前的计算 Pass）。
+- **光源数据**：set 1 **cluster 套件**（2026-10-28 拍板改定，原「lights 数组块、预估 16 盏」口径作废）——LightingParamsBlock（方向光+元数据+环境）+ lightList / clusterGrid / clusterIndices 三 SSBO，契约归 `Engine_Lighting_Design.md` §3、key 单点 Uniform_Keys §4；
+- **计算化**：消费方为全屏图形 Pass；上游 ClusterBuildPass（compute 分簇）先行走图（RHI compute 节点，批次①）——本 Pass 自身的 tiled/clustered 化描述作废（已是 cluster 消费侧）；
 
 ### 4.4 深度复用（决策记录）
 
@@ -130,7 +134,7 @@ addTextureRead(depthTex)                   // 着色可读（如软粒子）
 
 - **职责**：`RenderList.transparent`（由远及近，场景层排序——**不属于 RenderGraph**，RHI 14.5-3）Forward 绘制，叠加到上游输出；
 - **状态**：颜色混合 ON（alpha blend）、深度测试 ON / 深度写入 OFF（PSO 按 `Material.surfaceType=TRANSPARENT` 覆盖得出，2026-10-17 方案 B——见 Material_Design §4.1）、depth LOAD 复用（4.4）；
-- **着色**：v0.x Forward 透明着色为简化模型（Lambert + 环境项）——**与 Deferred LightingPass 的光照模型一致性属已知取舍**，统一光照模型待材质专档拍板后回填两处；
+- **着色**：v0.x Forward 透明着色为简化模型（Lambert + 环境项）——**与 Deferred LightingPass 读同一套 set1 cluster 契约、同一着色公式**（2026-10-28 clustered 拍板，原「两路一致性属已知取舍」消解，统一光照模型待材质专档回填两处）；
 - **输出**：混合态目标（混合管线=lightingRT LOAD；v0.1=backbuffer LOAD）。
 
 ### 4.6 PostProcessChain（结构落地，细节占位）
@@ -178,6 +182,8 @@ pipeline.postProcess().remove("Bloom");
 | shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ❌ |
 | GBuffer×3 | 见 4.2 | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ |
 | lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌（直写 backbuffer） |
+| lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ❌ 三期 |
+| clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（ClusterBuildPass）；resize 重建 | ❌ 三期 |
 | 后处理中间 RT | 链内自定 | 链内自定 | 链持有 | 帧临时（RHI 17.4 别名，P1） | ⚠️ 空链无 |
 
 ### 5.2 规则
@@ -239,6 +245,7 @@ class PipelineContext {
     Texture msaaColor;                  // 本视口 MSAA 颜色附件（null = AA 关；与 msaaDepth 成对，5.3）
     Texture msaaDepth;                  // 本视口 MSAA 深度附件（overlay 家族仍用 1x depth）
     // Deferred 阶段扩展：gbuffer×3 / lightingRT / shadowMap
+    // 三期光照扩展（Engine_Lighting_Design §8）：lightList / clusterGrid / clusterIndices
 }
 ```
 
@@ -284,16 +291,16 @@ interface RenderPass {
 
 ## 7. uniform / 描述符通道约定（按 Pass）
 
-通道划分已拍板（RHI 实现进度 2026-09-24；**2026-10-23 修订**——材质桥落地后编号定为 set2=材质，set1 拍板预留光照，旧「set1=材质」编号作废）：**push = 每物件/每帧高频小量（model/tpf）；set0 UBO1 = 全帧共享引擎内置（camera/time）；set1 = 光照数据（原 ObjectBlock 空占位语义作废，三期 LightBlock 落此）；set2 = 材质（MaterialBlock UBO + 贴图槽）**。
+通道划分已拍板（RHI 实现进度 2026-09-24；**2026-10-23 修订**——材质桥落地后编号定为 set2=材质，set1 拍板预留光照，旧「set1=材质」编号作废；**2026-10-28 再修订**——set1 光照改 clustered 多 binding 契约）：**push = 每物件/每帧高频小量（model/tpf）；set0 UBO1 = 全帧共享引擎内置（camera/time）；set1 = 光照数据（LightingParamsBlock UBO + lightList/clusterGrid/clusterIndices 三 SSBO——原「LightBlock 落此」预留口径作废，Engine_Lighting_Design §3、Uniform_Keys §4 单点）；set2 = 材质（MaterialBlock UBO + 贴图槽）**。
 
 | Pass | set0 UBO1 | push | set1 光照 | set2 材质 |
 |------|-----------|------|----------|----------|
-| GBuffer | camera（动态偏移切视口，19.4-1） | model/tpf | lights（三期） | 基色/法线等贴图 |
-| Lighting | camera（重建用） | 一般不用 | lights | 一般不用 |
-| Forward（v0.1 不透明/透明） | camera | model/tpf | lights（三期） | 材质贴图/参数 |
+| GBuffer | camera（动态偏移切视口，19.4-1） | model/tpf | cluster 套件（三期） | 基色/法线等贴图 |
+| Lighting | camera（重建用） | 一般不用 | cluster 套件 + shadowMap（binding4，批次④） | 一般不用 |
+| Forward（v0.1 不透明/透明） | camera | model/tpf | cluster 套件（三期）+ shadowMap（批次④） | 材质贴图/参数 |
 | Shadow | light viewProj | model | 不用 | 不用 |
 
-- **shadowMap 描述符挂点**（set0 扩展 binding vs 独立集合）：待材质系统专档拍板，本文预留——影响 Lighting 与 Forward 的 set0 布局，属材质阶段决策；
+- **shadowMap 描述符挂点**：**已拍板（2026-10-28）set1 扩展 binding4 combined depth-sampler**（阴影属光照域，set0 维持纯相机；sunViewProj 走 LightingParamsBlock，Engine_Lighting_Design §3.3/§3.4）——原「待材质系统专档拍板、属材质阶段决策」口径作废；随批次④落位；
 - 动态 UBO 偏移（每视口/每物件切槽）沿用 RHI 19 节机制，**不引入 `setUniform(String, ...)` 字符串路径**（19.4-1 已否决理由）。
 
 ## 8. 实现路线（已拍板：实现先 Forward）
@@ -306,10 +313,13 @@ interface RenderPass {
 
 每步独立的约束：不改动 RHI 已发布 API；新增引擎 Pass 仍走「声明读写 + 回调录制」。
 
+**与光照批次（Engine_Lighting_Design §9 四批）的咬合（2026-10-28）**：光照批次①（RHI SSBO/compute 底座）先于本表一切后续步骤；批次②③（cluster 构建 + Forward 消费）在步骤一形态上落地 = Forward+ 成形；步骤二 = 光照批次④（ShadowPass + GBuffer/Lighting 复用同一 cluster）+ 混合/Forward 切换；步骤三不变。
+
 ## 9. 待定（P2）
 
-- GBuffer 布局与材质/着色模型绑定（4.2 格式拍板）、灯光数量上限与打包、shadowMap 描述符挂点（第 7 节）；
-- tiled/clustered 计算光照（LightingPass 计算化）、SSR 等光照后扩展 Pass 示例（插入 Pass 列表）；
+- GBuffer 布局与材质/着色模型绑定（4.2 格式拍板，归材质/着色模型专档）；
+- ~~灯光数量上限与打包、shadowMap 描述符挂点~~（2026-10-28 拍板收口：clustered 多 binding 契约 + set1 binding4，§7/Engine_Lighting_Design）；
+- ~~tiled/clustered 计算光照~~（2026-10-28 转正三期主路线）；clustered 自身后置项（前缀和计算化/脏标记/Morton）归 Engine_Lighting_Design §10；SSR 等光照后扩展 Pass 示例（插入 Pass 列表）仍 P2；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；
 - UI Pass 组、环境（天空盒/雾，Scene.environment）。
 - MSAA 后置项（5.3）：stacking 相机/预览视口/分屏区域清屏的 MSAA 路径、运行期切换

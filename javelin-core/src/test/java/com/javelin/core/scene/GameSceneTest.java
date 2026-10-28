@@ -426,4 +426,49 @@ public class GameSceneTest {
         assertThrows(IllegalArgumentException.class, () -> a.getTransform().setParent(a.getTransform()));
         assertThrows(IllegalArgumentException.class, () -> a.getTransform().setParent(b.getTransform()));
     }
+
+    // ═══ 主相机（Unity Camera.main 口径） ═══
+
+    @Test
+    void mainCameraQueryFollowsUnitySemantics() {
+        GameScene scene = new GameScene("main-camera-test");
+
+        // 无相机 → null
+        assertNull(scene.getMainCamera());
+
+        // 有相机但未标 main → null（不按「首个相机」兜底）
+        Node nodePlain = new Node();
+        nodePlain.addComponent(Camera.class);
+        scene.add(nodePlain);
+        assertNull(scene.getMainCamera());
+
+        // 标 main → 命中
+        Node nodeMain = new Node();
+        Camera main = nodeMain.addComponent(Camera.class);
+        main.setMain(true);
+        scene.add(nodeMain);
+        assertSame(main, scene.getMainCamera());
+
+        // 非激活节点上的 main 相机不命中（inactive 不算）
+        nodeMain.setActive(false);
+        assertNull(scene.getMainCamera());
+        nodeMain.setActive(true);
+
+        // 组件禁用同样不命中
+        main.setEnabled(false);
+        assertNull(scene.getMainCamera());
+        main.setEnabled(true);
+        assertSame(main, scene.getMainCamera());
+
+        // 多个 main：取挂入序首个
+        Node nodeSecond = new Node();
+        Camera second = nodeSecond.addComponent(Camera.class);
+        second.setMain(true);
+        scene.add(nodeSecond);
+        assertSame(main, scene.getMainCamera());
+
+        // 摘出场景注销（主相机退场）
+        scene.remove(nodeMain);
+        assertSame(second, scene.getMainCamera());
+    }
 }

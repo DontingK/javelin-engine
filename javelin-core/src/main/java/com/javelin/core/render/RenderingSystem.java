@@ -5,6 +5,7 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.MaterialBlock;
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.MaterialPropertyType;
+import com.javelin.core.render.material.DefaultShader;
 import com.javelin.core.render.material.PassState;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.material.ShaderPass;
@@ -52,8 +53,10 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -127,6 +130,8 @@ public final class RenderingSystem implements AutoCloseable {
 
     private Format colorAttachmentFormat;
     private final Map<String, GraphicsPipeline> pipelines = new HashMap<>();
+    // PSO 旁注（key 结构不动，对账判据用）：pipeline → 所属 Shader（资产热重载 reconcile 退役旧 Shader 的 PSO）
+    private final Map<GraphicsPipeline, Shader> pipelineOwners = new HashMap<>();
 
     // 每相机深度纹理（视口独立，RHI 19.4-2）
     private final Map<String, Texture> depthTextures = new HashMap<>();
@@ -138,6 +143,10 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> pickDepthTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
+    // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
+    private final List<RetiredResource> retiredResources = new ArrayList<>();
+    // 资产热重载对账脏标记（requestReconcile 置位，collectFrame 帧首消费）
+    private boolean reconcilePending;
     // 最近一次 collectFrame 的帧号（retire 条目时间戳基准）
     private long lastFrame = -1;
     /** 生效采样档（构造期由引擎钳制后传入；COUNT_1 = AA 关） */
@@ -252,6 +261,11 @@ public final class RenderingSystem implements AutoCloseable {
                                         PrimitiveTopology topology, SampleCount samples,
                                         String passName) {
         checkOpen();
+        // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
+        material = DefaultShader.resolve(material);
+        if (material == null) {
+            throw new IllegalArgumentException("material must not be null");
+        }
         Shader shader = material.getShader();
         String key = System.identityHashCode(shader) + ":" + layout.hashCode()
                 + ":" + topology + ":" + samples + ":" + material.getSurfaceType()
@@ -296,6 +310,7 @@ public final class RenderingSystem implements AutoCloseable {
                 samples);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
+        pipelineOwners.put(created, shader);
         log.info("material PSO created: shader={} pass={} layout={} topology={} surfaceType={}",
                 shader.getShaderName(), pass.getName(), layout, topology, material.getSurfaceType());
         return created;
@@ -310,9 +325,12 @@ public final class RenderingSystem implements AutoCloseable {
      */
     public DescriptorSet materialSet(Material material) {
         checkOpen();
-        if (material == null || material.getShader() == null) {
+        // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
+        Material resolved = DefaultShader.resolve(material);
+        if (resolved == null || resolved.getShader() == null) {
             throw new IllegalArgumentException("material / material.shader must not be null");
         }
+        material = resolved;
         MaterialResources resources = materialResources.computeIfAbsent(material, this::createMaterialResources);
         resources.ubo.writeAligned(0, FloatBuffer.wrap(MaterialBlock.pack(material)));
         return resources.set;
@@ -404,6 +422,10 @@ public final class RenderingSystem implements AutoCloseable {
         int h = frameLoop.swapChain().height();
         ensureDepthSize(w, h);
         drainRetired(frameIndex);
+        if (reconcilePending) {
+            reconcilePending = false;
+            reconcile();
+        }
         lastFrame = frameIndex;
 
         int slotBase = (int) (frameIndex % frameSlots) * SLOT_SIZE;
@@ -509,6 +531,7 @@ public final class RenderingSystem implements AutoCloseable {
 
         int binding = 1;
         List<String> textureSlots = new ArrayList<>();
+        List<SlotBinding> slotBindings = new ArrayList<>();
         for (MaterialProperty property : shader.getProperties()) {
             if (property.getType() != MaterialPropertyType.TEXTURE_2D) {
                 continue;
@@ -520,6 +543,7 @@ public final class RenderingSystem implements AutoCloseable {
             if (texture == null || texture.getImage() == null) {
                 texture = placeholderTexture(property.getTexturePlaceholder());
             }
+            slotBindings.add(new SlotBinding(property.getName(), assigned, texture != assigned));
             textureSlots.add(property.getName() + "="
                     + (assigned != null && assigned.getImage() != null ? assigned.getGuid() : "占位"));
             Texture gpu = TextureUpload.upload(device, texture);
@@ -528,7 +552,7 @@ public final class RenderingSystem implements AutoCloseable {
         }
         log.info("material set created: shader={} uboBytes={} textureSlots={}",
                 shader.getShaderName(), uboSize, textureSlots);
-        return new MaterialResources(set, ubo);
+        return new MaterialResources(set, ubo, shader, slotBindings);
     }
 
     /** 未赋值贴图槽的占位解析（RHI 21.4：white / bump / black） */
@@ -631,16 +655,106 @@ public final class RenderingSystem implements AutoCloseable {
 
     /** 退役纹理到期销毁：stamp + 2 帧（maxFramesInFlight=2，帧 N 的栅栏在帧 N+2 首被 await） */
     private void drainRetired(long frameIndex) {
-        if (retiredTextures.isEmpty()) {
-            return;
+        if (!retiredTextures.isEmpty()) {
+            retiredTextures.removeIf(r -> {
+                if (frameIndex >= r.frame + 2) {
+                    r.texture.dispose();
+                    return true;
+                }
+                return false;
+            });
         }
-        retiredTextures.removeIf(r -> {
-            if (frameIndex >= r.frame + 2) {
-                r.texture.dispose();
+        if (!retiredResources.isEmpty()) {
+            retiredResources.removeIf(r -> {
+                if (frameIndex >= r.frame + 2) {
+                    r.disposeAction.run();
+                    return true;
+                }
+                return false;
+            });
+        }
+    }
+
+    // ═══ 资产热重载对账（Engine_AssetReload_Design.md §4.4） ═══
+
+    /**
+     * 资产热重载对账请求：置脏标记，下一帧 collectFrame 首执行 mark-and-sweep
+     * 孤儿回收（单线程退化下帧首即安全点；重载是事件不是常态，帧路径零常驻成本）。
+     * 全程不抛。
+     */
+    public void requestReconcile() {
+        reconcilePending = true;
+    }
+
+    /**
+     * 对账：活集 = renderers 的 Material 实例 + 其 Shader + 默认材质单例（坏 shader
+     * 回退渲染体，DefaultShader.resolve 的资源键；materialSet/pipelineFor 消费方只有
+     * AbstractForwardPass，均出自 renderers；PickPass/DebugLinePass 自建
+     * PSO 不经缓存）。孤儿/烤死状态退役走两帧队列（GPU in-flight 安全）：
+     * <ul>
+     *   <li>materialResources：实例不在活集（.mat 换指针）/ builtFromShader 变
+     *   （shader 被换）/ 任一贴图槽实例或占位状态变（贴图热重载——活描述符集强持
+     *   旧 GPU 贴图既不上屏也永不释放）→ 退役重建；</li>
+     *   <li>materialLayouts / materialLayoutDescs：key Shader 不在活集 → 退役；</li>
+     *   <li>pipelines：旁注 Shader 不在活集 → 退役（identityHashCode 换代后旧条目
+     *   永不再命中）。</li>
+     * </ul>
+     */
+    private void reconcile() {
+        Set<Material> liveMaterials = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<Shader> liveShaders = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (RenderObject ro : renderers) {
+            Material m = ro.material();
+            if (m == null) {
+                continue;
+            }
+            liveMaterials.add(m);
+            if (m.getShader() != null) {
+                liveShaders.add(m.getShader());
+            }
+        }
+        // 默认材质单例（坏 shader 回退渲染体，DefaultShader.resolve 资源键）显式入活集——防对账误退役
+        Material defaultMaterial = DefaultShader.current();
+        if (defaultMaterial != null) {
+            liveMaterials.add(defaultMaterial);
+            if (defaultMaterial.getShader() != null) {
+                liveShaders.add(defaultMaterial.getShader());
+            }
+        }
+        materialResources.entrySet().removeIf(e -> {
+            if (!liveMaterials.contains(e.getKey()) || e.getValue().stale(e.getKey())) {
+                MaterialResources r = e.getValue();
+                retireResource(() -> {
+                    r.set.dispose();
+                    r.ubo.dispose();
+                });
                 return true;
             }
             return false;
         });
+        materialLayouts.entrySet().removeIf(e -> {
+            if (!liveShaders.contains(e.getKey())) {
+                DescriptorSetLayout layout = e.getValue();
+                retireResource(layout::dispose);
+                return true;
+            }
+            return false;
+        });
+        materialLayoutDescs.keySet().removeIf(s -> !liveShaders.contains(s));
+        pipelines.entrySet().removeIf(e -> {
+            Shader owner = pipelineOwners.get(e.getValue());
+            if (owner != null && !liveShaders.contains(owner)) {
+                GraphicsPipeline pipeline = e.getValue();
+                retireResource(pipeline::dispose);
+                pipelineOwners.remove(pipeline);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void retireResource(Runnable disposeAction) {
+        retiredResources.add(new RetiredResource(disposeAction, lastFrame));
     }
 
     private void checkOpen() {
@@ -658,6 +772,7 @@ public final class RenderingSystem implements AutoCloseable {
         closed = true;
         pipelines.values().forEach(GraphicsPipeline::dispose);
         pipelines.clear();
+        pipelineOwners.clear();
         materialResources.values().forEach(r -> {
             r.set.dispose();
             r.ubo.dispose();
@@ -672,6 +787,8 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(pickDepthTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
+        retiredResources.forEach(r -> r.disposeAction.run());
+        retiredResources.clear();
         frameSet.dispose();
         frameSetLayout.dispose();
         emptySetLayout.dispose();
@@ -680,14 +797,60 @@ public final class RenderingSystem implements AutoCloseable {
         uboBuffer.dispose();
     }
 
-    /** 材质实例的渲染侧资源（set 2 描述符集 + MaterialBlock UBO） */
+    /** 材质实例的渲染侧资源（set 2 描述符集 + MaterialBlock UBO + 首绑对账凭据） */
     private static final class MaterialResources {
         final DescriptorSet set;
         final Buffer ubo;
+        /** 首绑 Shader（对账判据：被换即退役重建——UBO 尺寸/贴图槽数已变） */
+        final Shader builtFromShader;
+        /** 首绑贴图槽实例表（对账判据：任一槽实例/占位状态变 → 退役重建） */
+        final List<SlotBinding> slotBindings;
 
-        MaterialResources(DescriptorSet set, Buffer ubo) {
+        MaterialResources(DescriptorSet set, Buffer ubo, Shader builtFromShader,
+                          List<SlotBinding> slotBindings) {
             this.set = set;
             this.ubo = ubo;
+            this.builtFromShader = builtFromShader;
+            this.slotBindings = slotBindings;
+        }
+
+        /** 对账判据：shader 被换 或 任一贴图槽实例变/占位状态变（纹理壳后补图，Engine_AssetReload_Design §4.4） */
+        boolean stale(Material material) {
+            if (builtFromShader != material.getShader()) {
+                return true;
+            }
+            for (SlotBinding b : slotBindings) {
+                Texture2D assigned = material.getTexture(b.slot);
+                boolean placeholderNow = assigned == null || assigned.getImage() == null;
+                if (assigned != b.assigned || placeholderNow != b.usedPlaceholder) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /** 首绑贴图槽凭据（assigned 可 null = 占位；usedPlaceholder = 首绑走的是占位单例） */
+    private static final class SlotBinding {
+        final String slot;
+        final Texture2D assigned;
+        final boolean usedPlaceholder;
+
+        SlotBinding(String slot, Texture2D assigned, boolean usedPlaceholder) {
+            this.slot = slot;
+            this.assigned = assigned;
+            this.usedPlaceholder = usedPlaceholder;
+        }
+    }
+
+    /** 退役渲染资源条目（两帧 dispose，同 RetiredTexture 语义；disposeAction 须幂等安全） */
+    private static final class RetiredResource {
+        final Runnable disposeAction;
+        final long frame;
+
+        RetiredResource(Runnable disposeAction, long frame) {
+            this.disposeAction = disposeAction;
+            this.frame = frame;
         }
     }
 

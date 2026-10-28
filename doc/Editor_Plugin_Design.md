@@ -1,8 +1,11 @@
-# 编辑器插件体系与 i18n 设计（v0.1）
+# 编辑器插件体系与 i18n 设计（v0.2）
 
 > 状态：**首批落地，已验收**（2026-10-20 用户实测通过）——插件静态骨架（契约/装载/账本/
 > 隔离）+ editor.core 迁移（编辑器即插件通电）+ i18n 基建（注册中心/scope/门面）+
 > 菜单 i18n 首批（label 全链 I18nKey）。
+> v0.2（2026-10-27）：**插值改自实现 `{}` 顺位替换（弃 MessageFormat，拍板 2026-10-27
+> ——{0} 编辑期不直观 + 单引号转义坑消解）**；新功能文案随批接 i18n（§7.2-0，不再攒批进
+> 第二批）。
 > 本档为插件体系与 i18n 的**总纲**：契约语义、装载管线、错误分级、i18n 解析链、
 > 拍板依据与后置路线。javadoc 只留钩子（AGENTS 红线 14），论证全归本档。
 
@@ -188,7 +191,7 @@ ProjectFrame 选项目 → ProjectLoadingFrame 后台线程 "Engine Main"：
 
 ### 4.1 I18nKey（值对象）
 
-三字段：`namespace`（路由键）+ `key`（局部键，语言包文件内键名）+ `args`（{0} 序插值）。
+三字段：`namespace`（路由键）+ `key`（局部键，语言包文件内键名）+ `args`（{} 顺位插值）。
 `fullKey()` = `namespace + "." + key`（显示/采集/报告口径）；`text()` 显示点解析入口
 （缺失显示 `!fullKey!` 兜底）。
 
@@ -235,8 +238,9 @@ namespace**（魔法推导与「namespace 显式声明」拍板冲突，挪包�
   只覆盖 PropertyResourceBundle）。
 - **语言切换**：`setLanguage` 启动期一次（注册后锁定抛异常）——**重启生效**口径；
   默认 `zh_cn`。从 editor.settings 读语言项属后续接线。
-- **解析**：`get(namespace, key, args)`——命中走 **MessageFormat** 插值
-  （**文案中单引号需双写 `''` 转义**，写 properties 时的经典坑）；缺失返回
+- **解析**：`get(namespace, key, args)`——命中走 **{} 顺位插值**（自实现顺位替换，
+  **拍板 2026-10-27 弃 MessageFormat**：{0} 编辑期不直观，顺带消解其单引号转义坑；
+  参数多于占位符丢弃，占位符多于参数余下 `{}` 原样保留显性可见）；缺失返回
   `!fullKey!` + **按 key 去重 warn**（状态栏/菜单每次 repaint 都走解析，不去重一次
   刷新刷几十条 warn 淹掉信号）——**全程不抛**（2026-10-20 用户拍板，IntelliJ/Rails
   同款）：缺 key 是开发者 bug，key 原样显示在界面上恰是最快定位方式，不该让用户付出
@@ -300,13 +304,13 @@ myplugin.jar
  └─ META-INF/services/com.javelin.editor.plugin.Plugin → 入口类
 ```
 
-语言包（key 局部名 + {0} 序插值）：
+语言包（key 局部名 + {} 顺位插值）：
 
 ```properties
 # lang/zh_cn.properties
 plugin.name=我的工具插件
 toolbar.title=工具
-error.loadFailed=资源 {0} 加载失败
+error.loadFailed=资源 {} 加载失败
 ```
 
 插件侧（namespace 全程一次）：
@@ -390,7 +394,8 @@ PluginManager.loadAll → EditorCorePlugin.setup → 三个 Setup 经 ctx。
    插件类，close 后 NoClassDefFound）。
 3. **ServiceLoader 迭代抛 ServiceConfigurationError**（Error 非 Exception）——第三方
    装载的 catch 必须含 Error 分支（`ServiceConfigurationError | RuntimeException`）。
-4. **MessageFormat 单引号是转义字符**：文案含 `'` 需双写 `''` 才输出单引号。
+4. ~~**MessageFormat 单引号是转义字符**：文案含 `'` 需双写 `''` 才输出单引号。~~
+   **坑已消解（2026-10-27）**：插值改自实现 `{}` 顺位替换后不再有单引号转义语义。
 5. **菜单/面板 repaint 期反复解析**：缺失 warn 必须按 key 去重，否则刷屏。
 
 ---
@@ -408,6 +413,10 @@ PluginManager.loadAll → EditorCorePlugin.setup → 三个 Setup 经 ctx。
 
 ### 7.2 后置批次
 
+0. **新功能文案随批接 i18n**（2026-10-27 落地，待验收）：导入进度框（`asset.import.*`
+   3 条）/ 创建着色器弹框（`create.shader.*` 2 条）/ 着色器诊断台状态行
+   （`shader.inspector.*` 5 条）随功能批次接入 EditorLang，不再攒批——第二批
+   （下面第 1 条 ~116 条）范围随之后推；
 1. **异常/弹窗消息 i18n**（~116 条）：TipException/ValidationException 构造器收
    I18nKey + tinyfd 弹窗文案 + 状态栏通道；
 2. **面板/窗口标题 i18n**：PanelDescriptor.title（「层级/项目/属性/控制台」）+ 窗口

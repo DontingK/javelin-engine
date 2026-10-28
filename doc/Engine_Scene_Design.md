@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.3（2026-10-01：§9 .scene 序列化落地）
+> 版本：v0.4（2026-10-28：GameScene 增 **colliders 注册表分流投影**（Scene 接口 `getColliders`）——L1 物理查询遍历源，Physics 门面消费，见 Engine_Collision_Design.md §10；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -101,7 +101,8 @@ class Transform {
 
 1. **递归**：`root` 及其 Transform 子树**整棵**加入场景（children 无需逐个 add）；
 2. **归属检查**：节点已在其他场景 / 已在本场景 → 抛 `IllegalStateException`；
-3. **组件登记**：`MeshRenderer` / `Camera` / `Light` 自动进入 RenderingSystem 注册表；
+3. **组件登记**：进 GameScene 组件注册表并按类型分流（cameras / renderables /
+   colliders——colliders 为 L1 物理查询投影，2026-10-28 增，Engine_Collision_Design §10）；
 4. **生命周期不在此触发**——由 `update` 帧驱动状态机统一驱动（下帧 awake/enable，
    §4，2026-10-02 拍板）。
 
@@ -110,7 +111,7 @@ class Transform {
 1. 递归注销整棵子树；
 2. 即时触发 `onDisable`（按通知态）→ `onDestroy`（Unity 卸载同步语义——帧驱动
    生命周期唯一即时触发点）；
-3. 从 RenderingSystem 注册表移除（该组件不再被渲染收集）；
+3. 从组件注册表移除（该组件不再被渲染收集 / 不再进物理查询）；
 4. 重置组件生命周期状态（awaked/notifyEnabled/started）——裸态可重挂，整轮重跑。
 
 ## 4. 生命周期
@@ -167,6 +168,16 @@ class Camera extends Component {
     // 投影矩阵按 Vulkan NDC 约定生成（Y 向下、深度 [0,1]）——见 RHI 文档第 5 节坐标约定
 }
 ```
+
+- **主相机查询**（2026-10-28）：`Scene.getMainCamera()`——Unity `Camera.main` 口径
+  （首个**激活且 enabled** 的 isMain 相机；无则 null，不按「首个相机」兜底）；
+  编辑器 `EditorScene` 透用户场景（编辑器相机从不置 isMain，同 Unity SceneView 相机
+  非 Camera.main）。首个消费方 = `JavelinEngine.mouseRay`（鼠标射线组装）。
+- **射线换算**（2026-10-28）：`screenToRay(x, y, out)` 尺寸**自取渲染表面**
+  （`JavelinEngine.getInstance().renderSurface()`——引擎静态实例新增，构造赋值/
+  shutdown 摘除；`renderSurface()` 访问口 initialize 时取自窗口）；显式尺寸重载
+  保留给单测/离屏目标/坐标空间与渲染表面不同源（编辑器画布逻辑坐标 dpi≠1 差倍率，
+  编辑器内部路径继续用显式重载自洽）。
 
 ### 5.3 Light
 
@@ -247,9 +258,10 @@ read 只回写）。
 MeshRenderer 的 mesh/material 是外部资产，guid 语义不变。
 
 **注册表**：components 主表直传落盘（与 Node.components 引用同一批组件实例，
-identity 去重共享保持；update 顺序=序列化时点）；cameras/renderables 为
+identity 去重共享保持；update 顺序=序列化时点）；cameras/renderables/colliders 为
 instanceof 分流投影，read 时从 components 重建（renderables 元素接口 Renderable
-未继承 Serializable 走不了列表泛型通道，分流表本身也是派生数据）。
+未继承 Serializable 走不了列表泛型通道，分流表本身也是派生数据；colliders 同口径
+——元素实例在列表填充阶段已存在，instanceof 不解引用字段，时序安全）。
 
 **生命周期（拍板 2026-10-02，两步演进）**：生命周期回调统一由 update 帧驱动
 状态机驱动（§4）——反序列化 read 零回调、生命周期状态（awaked/notifyEnabled/
@@ -270,7 +282,7 @@ read 全量恢复，前两者移除——注册表 read 重建后幂等判据自
 | Node | name/active/components（含 Transform）/transform + scene（根 id 引用）+ layer/tags 投影 | ObjectId.id |
 | Camera | 全部用户字段（枚举走 name()；Color/Rect 直传） | — |
 | MeshRenderer | mesh/material（资产引用）+ castShadow/receiveShadow | — |
-| GameScene | super（guid/lastModified 内嵌）+ name + rootNodes + components 主表 | cameras/renderables 分流投影（read 重建） |
+| GameScene | super（guid/lastModified 内嵌）+ name + rootNodes + components 主表 | cameras/renderables/colliders 分流投影（read 重建） |
 
 read 侧要点：Transform 直接回写 parent/children **不走 setParent**（不触发
 onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolve 类钩子）。

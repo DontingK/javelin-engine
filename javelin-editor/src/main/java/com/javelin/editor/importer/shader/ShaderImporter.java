@@ -7,6 +7,7 @@ import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
+import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.project.Project;
 import com.javelin.tool.shaderc.ShaderCompiler;
@@ -30,7 +31,8 @@ import java.util.List;
  *
  * <p>本导入器是管线中首个真正写出二进制产物的实现；加载侧经
  * {@code AssetLibManager.loadGuid(guid, Shader.class)} 取回完整 Shader。
- * 解析/编译失败 → task.setErrorMessage → 引擎运行期替换内置默认材质（RHI 21.6-4）。</p>
+ * 解析/编译失败 → 落 stub 产物（空字段 Shader + guid，拍板 2026-10-27：原「导入失败
+ * 不覆盖产物保持旧版」口径作废）→ 渲染侧按 Shader.isValid() 判坏回退默认 shader。</p>
  *
  * <p>源文件首行 {@code // @javelin-guid:} 头由 GuidHeaderManager 消费（内置资源 GUID
  * 以文件头为准，删缓存重编译 GUID 不变），对解析器透明。</p>
@@ -95,10 +97,40 @@ public class ShaderImporter implements AssetImporter {
         } catch (ShaderParseException e) {
             LOGGER.error("着色器解析失败: {}", sourceName, e);
             task.setErrorMessage("着色器解析失败: " + e.getMessage());
-            return false;
+            return exportStub(sourceFile, task, project, e.getMessage());
         } catch (Exception e) {
             LOGGER.error("着色器导入失败: {}", sourceName, e);
             task.setErrorMessage("着色器导入失败: " + e.getMessage());
+            return exportStub(sourceFile, task, project, e.getMessage());
+        }
+    }
+
+    /**
+     * 编译/解析失败 stub 产物（拍板 2026-10-27）：落空字段 Shader（字段全空、仅 guid，
+     * 替换旧产物）——loadGuid 有实例返回，渲染侧按 {@link Shader#isValid()} 判坏回退
+     * 默认 shader（紫色）；修复后 reimport 真产物经热重载换代（stub 带 guid 可匹配）。
+     * 返回 true = 产物已落（走导入完成链：meta/index/onImportComplete），
+     * false = guid 双源均缺无处落 stub（维持导入失败口径）。
+     */
+    private boolean exportStub(File sourceFile, ImportTask task, Project project, String reason) {
+        String guid = guidHeaderManager.extractGuid(sourceFile);
+        if (guid == null || guid.isEmpty()) {
+            AssetMeta meta = task.getMeta();
+            guid = meta != null ? meta.getGuid() : null;
+        }
+        if (guid == null || guid.isEmpty()) {
+            return false;
+        }
+        try {
+            Shader stub = new Shader();
+            stub.setGuid(guid);
+            File outputFile = new File(project.getLibrary(), guid + EXTENSION);
+            new BinaryExporter(outputFile).export(stub);
+            LOGGER.error("着色器编译失败，落 stub 产物（渲染回退默认 shader）: {} [{}] -> {}",
+                    sourceFile.getName(), reason, outputFile.getName());
+            return true;
+        } catch (Exception exportError) {
+            LOGGER.error("stub 产物落盘失败: {}", sourceFile.getName(), exportError);
             return false;
         }
     }

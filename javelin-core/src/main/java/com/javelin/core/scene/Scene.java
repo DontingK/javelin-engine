@@ -3,6 +3,7 @@ package com.javelin.core.scene;
 import com.javelin.core.assets.Asset;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.scene.component.Camera;
+import com.javelin.core.scene.component.Collider;
 import com.javelin.core.serialize.Serializable;
 
 import java.util.List;
@@ -13,6 +14,8 @@ public interface Scene extends Serializable, Asset {
     String getName();
     List<Renderable> getRenderables();
     List<Camera> getCameras();
+    Camera getMainCamera();
+    List<Collider> getColliders();
     void update(float tpf);
 
 }
