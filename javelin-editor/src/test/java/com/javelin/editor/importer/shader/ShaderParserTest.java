@@ -19,13 +19,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * .shader 解析器 + 注入器 CPU 单测（不起 shaderc，纯语法层验证）。
  *
  * <p>覆盖：v0.13 全语法（Properties 五类型 / Pass 状态命令 / vs/fs 捕获）、
- * GUID 文件头透明、GLSL 注释中大括号不破坏块捕获、错误报行号、
+ * GLSL 注释中大括号不破坏块捕获、错误报行号、
  * 注入声明顺序与保留字校验（RHI 21.5 / 21.6）。
  */
 public class ShaderParserTest {
 
     private static final String FULL_SHADER = """
-            // @javelin-guid: 0123456789abcdef0123456789abcdef
             Shader "TestFull"
             {
                 Properties

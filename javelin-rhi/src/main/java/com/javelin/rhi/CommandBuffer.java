@@ -73,6 +73,12 @@ public interface CommandBuffer extends GPUResource {
 
     void drawIndexed(int indexCount, int instanceCount);
 
+    /**
+     * 发起索引绘制（三参重载，参数序对齐 vkCmdDrawIndexed）：firstIndex 指向
+     * 已绑定索引缓冲内的起始索引，子网格范围绘制用（MeshDraw 消费）。
+     */
+    void drawIndexed(int indexCount, int instanceCount, int firstIndex);
+
     void dispatch(int x, int y, int z);
 
     void setViewport(RHIViewport viewport);

@@ -11,7 +11,6 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.file.FileType;
 import com.javelin.editor.file.FileTypeRegistry;
 import com.javelin.editor.meta.AssetMeta;
-import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.inspector.FieldEditor;
 import com.javelin.editor.window.MainFrame;
@@ -202,18 +201,14 @@ public class AssetInput extends JPanel implements FieldEditor {
         }
 
         /**
-         * File → guid：伴生 .meta 优先（面板拖入的用户文件恒命中——真值=meta、
-         * 用户文件无 guid 头，先读头恒 miss 白费一次源文件读）；文件头兜底仅
-         * 服务外部拖入的带头内置系副本（无 meta）。
+         * File → guid：伴生 .meta 单源（guid 真值=伴生 .meta，2026-10-29 拍板——
+         * guid 头只剩 src 下 .java 专属）；无 meta/无 guid = 未导入文件，null 走弹错。
          */
         private String resolveGuid(File file) {
             JavelinEditor editor = JavelinEditor.getInstance();
             AssetMeta meta = editor != null ? editor.getMetaManager().getMeta(file) : null;
-            if (meta != null && meta.getGuid() != null && !meta.getGuid().isEmpty()) {
-                return meta.getGuid();
-            }
-            String headerGuid = new GuidHeaderManager().extractGuid(file);
-            return headerGuid != null && !headerGuid.isEmpty() ? headerGuid : null;
+            return (meta != null && meta.getGuid() != null && !meta.getGuid().isEmpty())
+                    ? meta.getGuid() : null;
         }
     }
 

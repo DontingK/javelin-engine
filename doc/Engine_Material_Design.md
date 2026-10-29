@@ -1,8 +1,9 @@
 # 引擎材质设计（Engine Material Design）
 
-> 版本：v0.3（2026-10-27）
+> 版本：v0.4（2026-10-29）
 > 说明：引擎侧材质/着色器数据模型与加载链路设计。着色器文件语法（.shader）、多 Pass 与材质实例模型的概念定义在 RHI 分卷四（20/21 节），本文只管引擎侧落地：包结构、编译产物形态、加载链路、渲染侧桥接。
 > 拍板（2026-09-25）：**Shader = .shader 源码文件编译后的结构**；**离线二进制资产**（着色器源码不进 core）；**RHI 资源渲染侧懒创建**（Shader/Material 纯数据、device 无关）。
+> v0.4（2026-10-29）：**DefaultShader 门面改名 DefaultMaterial（用户拍板）**——门面身份 = 共享默认材质单例（懒建一次全引擎复用，语义不变），§4 增补；多材质粒度（每 (renderer, 子网格) 一 RenderObject + 缺失位默认材质兜底）随 Mesh 子网格落地同日增补（Engine_Scene_Design §5.1）。
 > v0.3（2026-10-27 落地，**待验收**）：**坏 shader 渲染回退默认 shader**——判据 = `Shader.isValid()`（至少一个 Pass 且 vs/fs SPIR-V byte[] 均非 null，拍板：无有效二进制 = 坏 shader）。编译失败也落 **stub 产物**（空字段 Shader + guid，ShaderImporter 不再以失败收口——走完成链保 meta/index/热重载闭环）；渲染链（SceneRenderBridge.sync 注册分支 + RenderingSystem.materialSet/pipelineFor 入口）经 `DefaultShader.resolve` 回退默认材质单例（内置资产 `core/shader/default.shader`，空 Properties 平色紫，DefaultShader 静态门面 + JavelinEngine.initialize 注入 AssetManager）；修复后 reimport 真产物经热重载 walker 换代（stub 带 guid 可匹配）——**无「修复后需重载场景」边界**。missing-material 语义不变（material null 不渲染）。诊断台加坏态显示；创建命令 SUCCESS 带 errorMessage 也弹框（红线 15）。v0.2 沿革见下。
 > v0.2（2026-10-19）：**.mat 资产格式已落地并验收（2026-10-23 用户实测）**——.mat = Material 的文本序列化（与 .scene 源同款协议），导入器/创建命令/文件类型见 §3.2；v0.1 沿革见各节注记。
 
@@ -75,6 +76,18 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 2. **material UBO + 描述符集**：Material 首次渲染时按属性表写 UBO（std140 排布，排布器 = `MaterialBlock.pack`，CPU/GLSL 同源规则：声明序、float 4B 对齐、vec4 16B 对齐、空块 16B 占位）+ 建 set；**数值参数每次绑定时重打包写入**（运行期 setFloat/setColor 即时生效）；贴图槽经 `TextureUpload.upload(device, texture2D)`（render.texture 包，幂等、返回 GPU 句柄）首绑懒上传——句柄回填资产（`setGpu`，package-private），同 Mesh 缓冲生命周期（GC → Cleaner）；filter/wrap 参数建 Sampler 时消费（SamplerDesc 作缓存键）；未赋值贴图槽按占位约定解析（white → Texture2D.WHITE、bump/normal → NORMAL、black → BLACK，RHI 21.4 节）；**贴图槽仅首绑解析——运行期换贴图 = 换材质实例（v0.1 语义）**；
 3. **PSO 按 Pass 取用（严格制，2026-10-17）**：`pipelineFor(Material, layout, topology, samples, passName)`——管线 Pass 经 `RenderPass.shaderPassName()` 声明自己消费的 shader Pass 名（前向主通道 "Forward"，GizmoPass "Gizmo"），`Shader.pass(name)` 直查、**无回退**（forwardPass() 已废除：不声明即不画），PassState → GraphicsPipelineDesc 固定状态（其中 Blend/depthWrite 按材质 surfaceType 覆盖，§4.1），缓存键 = shader identity + layout + topology + samples + surfaceType + passName（当前 RenderingSystem 的 HashMap 缓存；RHI 16.4 节 PipelineCache 落地后收编）；
 4. **Pass 名即阶段归属**（RHI 21.1：Queue 是冗余声明）：收集侧按 shader 声明的 Pass 名分发进 RenderList（"Forward" → 前向主通道按 surfaceType 分桶；其他名如 "Gizmo" → 自定义桶，管线有则消费、无则忽略——Unity LightMode 不匹配同口径）；材质用不到的 Pass 不实例化 PSO（RHI 20.7-3）。有 `Pass GBuffer` 的 shader 将来进 Deferred 几何，无 Forward 声明不进前向主通道（gizmo 即此——单画，不再双画）。
+
+**多材质粒度（2026-10-29，Mesh 子网格落地后）**：SceneRenderBridge 每 (MeshRenderer,
+子网格) 一个 RenderObject（各自持 material + 子网格序号，Engine_Scene_Design §5.1）——
+材质桥接三个环节（set 2 布局 / UBO+描述符集 / PSO）按 RenderObject 粒度天然成立
+（materialSet 按 Material 实例幂等缓存，重复调用零成本）；缺失位材质走
+DefaultMaterial 默认材质兜底渲染（原「material null 不渲染」口径作废）。
+
+**DefaultMaterial 门面（2026-10-29 由 DefaultShader 改名，用户拍板）**：门面身份 =
+**共享默认材质单例**（加载默认 shader + `new Material(shader)` 懒建一次全引擎复用，
+identity 稳定渲染链逐帧比较不抖动；仅坏 shader 热重载换代时置空下帧重建）——API
+resolve / resolveOrDefault（多材质缺失兜底）/ current / init / onShaderReloaded 全保留，
+DEFAULT_SHADER_PATH 语义不变（默认材质的 shader 来源路径）。
 
 ### 4.1 面型裁决：Material.surfaceType（拍板 2026-10-17，方案 B）
 

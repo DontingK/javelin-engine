@@ -1,9 +1,10 @@
 # 引擎资产设计（Engine Assets Design）
 
-> 版本：v0.2
+> 版本：v0.3
 > 说明：引擎侧资产格式与类设计（Mesh / 纹理 / .mat 材质），与 RHI 文档（`RHI_Design.md` 系列）和引擎场景设计（`Engine_Scene_Design.md`）配套。
 > 关联：RHI 第 20/21 节（Material / .shader 语法）、第 25 节（数据上传）、第 26 节（Buffer）；`Engine_Scene_Design.md` 5.1（MeshRenderer）。
 > v0.2：第 2 节 Mesh 修订——per-attribute 数据（Unity 式）+ 数据驱动属性推断 + VertexLayout 规范化排序与缓存 + 首次上传冻结。
+> v0.3（2026-10-29）：§2.9 Mesh 子网格——单索引数组 + SubMesh 区间列表（Unity subMeshCount/SetTriangles 语义）+ .smesh [SUBMESH_N] 段；消费侧多材质见 Engine_Scene_Design §5.1。
 
 ## 1. 总则
 
@@ -19,7 +20,7 @@
 - **不可变**：构建期填数据，**首次上传后冻结**（再改抛异常）——GPU 数据只读，多线程共享安全；
 - **可共享**：多个 MeshRenderer 引用同一 Mesh（`Engine_Scene_Design.md` 5.1）；
 - **双层**：CPU 几何数据（资产层）+ GPU 缓冲（RHI 层）；
-- **一个 Mesh 一个材质起步**（submesh / 材质槽 P2）。
+- **子网格**（2026-10-29 落地，§2.9）：单索引数组 + 区间列表，MeshRenderer 多材质按子网格对应（`Engine_Scene_Design.md` 5.1）。
 
 ### 2.2 类定义（per-attribute，Unity 式）
 
@@ -151,9 +152,49 @@ mesh.recalculateBounds();   // AABB（视锥剔除必需）
 - **CPU 数据处置**：上传后**默认释放 CPU 副本**（`keepCpuCopy=false`，省内存）；需要 CPU 数据（物理 / 编辑器）时显式保留；
 - **销毁**：Mesh 对象 GC 不可达 → Cleaner（RHI 17 节）延迟销毁 vertexBuffer / indexBuffer。
 
-### 2.8 待定（P2）
+### 2.9 Mesh 子网格（2026-10-29 落地）
 
-- **submesh / 材质槽**（一个 Mesh 多个材质：角色身体 + 衣服）——`MeshRenderer` 对应多材质数组；
+> **拍板**（用户 2026-10-29）：子网格 = 单索引数组 + 区间列表（不搞每子网格独立索引缓冲——
+> 单索引缓冲不变，Vulkan `vkCmdDrawIndexed` firstIndex 范围绘制）；运行时 API 参考 Unity
+> （`subMeshCount` / `SetTriangles` 语义）。消费侧：MeshRenderer 多材质列表 i 位对应子网格 i
+> （`Engine_Scene_Design.md` 5.1）。
+
+**数据面**：
+
+```java
+// Mesh 增量字段（序列化直通，红线 10）
+ArrayList<SubMesh> submeshes;   // 区间列表；空 = 单一隐式全量子网格
+
+// SubMesh 节点（照 MeshAttributeData 模式：@Reflective + Serializable，字段非 final）
+class SubMesh {
+    int firstIndex;   // 区间起点（指向 Mesh.indices）
+    int indexCount;   // 区间索引数
+}
+```
+
+**API（Unity 语义映射）**：
+
+| API | Unity 对应 | 说明 |
+|---|---|---|
+| `setSubmeshes(List<int[]>)` | `SetTriangles` 批量形式 | 每个 int[] 一个子网格，内部拼接为 indices + 记录区间 |
+| `getSubmeshCount()` | `subMeshCount` | 无显式子网格 = 1 隐式全量 |
+| `getSubmeshFirstIndex(i)` / `getSubmeshIndexCount(i)` | — | 区间访问器（上传前后均可用；越界抛 IllegalArgumentException） |
+
+**序列化**：`submeshes` 直通进 Mesh 产物（write 直传 / read 只回写引用）；旧产物无该键 =
+单一隐式全量子网格（向后兼容，加载不破）。区间是运行数据非顶点数据——上传清理 CPU 副本时保留。
+
+**上传校验**（MeshUpload，显性化红线 15）：区间须在索引数组范围内、indexCount > 0。
+
+**.smesh 格式扩展**：`[SUBMESH0]`/`[SUBMESH1]`… 段（每行逗号分隔索引，同 [INDEX] 风格），
+序号从 0 连续递增；`[INDEX]` 与 `[SUBMESH_N]` 互斥（同现=错误显性化）；无子网格段 = 单一
+隐式全量（内置 .smesh 不动，向后兼容）。
+
+**绘制链**：RHI `drawIndexed(indexCount, instanceCount, firstIndex)` 三参扩展（参数序对齐
+vkCmdDrawIndexed）；MeshDraw `drawIndexed(cmd, mesh, submesh)` 解析区间；RenderObject 增
+`submesh` 序号（每 (renderer, 子网格) 一实例，`Engine_Scene_Design.md` 5.1）。
+
+### 2.10 待定（P2）
+
 - **.mesh 二进制格式**（快加载）：紧凑头 + 顶点/索引块 + 包围盒；.obj 仅作导入源；
 - 多绑定点（分离布局）、显式 location、U8/U16/HALF 格式；
 - 骨骼网格（SkinnedMesh）对称设计（自带 SkinnedMesh 字段，`Engine_Scene_Design.md` 5.1）；

@@ -5,11 +5,9 @@ import com.javelin.editor.importer.AssetImportPipeline;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.meta.AssetMeta;
-import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.meta.MetaManager;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.util.FileUtil;
-import com.javelin.editor.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +22,8 @@ import java.util.Enumeration;
  * 编辑器内置资源释放器。
  *
  * <p>负责将打包在 classpath 中的内置资源释放到项目目录的 assets 文件夹中，
- * 并生成对应的 meta 文件。</p>
+ * 伴生 {@code .meta} 随包一起打包释放（guid 真值单源=伴生 .meta，2026-10-29 拍板：
+ * guid 头只剩 src 下 .java 专属）。</p>
  *
  * <p>扫描机制：运行时通过 {@link ClassLoader#getResources(String)} 获取所有
  * {@code builtin-asset.index} 索引文件，从每条路径的 {@code builtin-asset-{name}/} 前缀
@@ -99,9 +98,9 @@ public class BuiltinAssetReleaser {
             }
         }
         // 释放完内置资源须重写 Library 索引：MetaManager 构造器的 sync/updateIndex
-        // 早于本方法执行（.javelin/assets 尚空，内置条目被漏）；而 refresh 对自包含
-        // guid 文件只查 Library 产物存在性（已存在即跳过、不再触发 updateIndex），
-        // 缺失条目将永久滞留——场景里 @guid 引用解析为 null 直至渲染层崩
+        // 早于本方法执行（.javelin/assets 尚空，内置条目被漏）；而 refresh 对 mtime
+        // 已对齐的资产不重导、也不再触发 updateIndex，缺失条目将永久滞留——场景里
+        // @guid 引用解析为 null 直至渲染层崩
         metaManager.updateIndex();
     }
 
@@ -164,43 +163,57 @@ public class BuiltinAssetReleaser {
         }
         if (file.exists() && contentEquals(file, source)) {
             // 内容未变：不重拷；把 meta 的 mtime 对齐当前文件——needImport 按
-            // file vs meta mtime 判等，对齐即不触发重导（旧项目无 meta 时顺带补建）
-            syncMetaMtime(file, importSettings);
+            // file vs meta mtime 判等，对齐即不触发重导（meta 缺失时从包内补释放）
+            syncMetaMtime(file, classpathPath, importSettings);
             return;
         }
         FileUtil.copy(new ByteArrayInputStream(source), file);
-        GuidHeaderManager guidHeaderManager = new GuidHeaderManager();
-        String guid = guidHeaderManager.extractGuid(file);
-        if (StringUtil.isEmpty(guid)) {
-            throw new RuntimeException("资源guid为空,异常数据：" + classpathPath);
-        }
-
-        File metaFile = new File(file.getParentFile(), file.getName() + ".meta");
-        if (!metaFile.exists()) {
-            // 首次释放建 meta（mtime=当前文件；产物缺失由 refresh 的产物存在性兜底导入）。
-            // 内容已变且 meta 已存在时不动 meta——保留旧 mtime 与新文件 mtime 不等，
-            // refresh 检出差异触发重导，导入完成后回写对齐
-            AssetMeta assetMeta = new AssetMeta(guid, importSettings.getType());
-            assetMeta.setLastModifiedTime(file.lastModified());
-            assetMeta.setImportSettings(importSettings);
-            metaManager.saveMeta(file, assetMeta);
-        }
+        releaseMeta(file, classpathPath, importSettings);
         LOGGER.info("已释放内置资源 {}", resource.getPath());
     }
 
-    /** 内容未变时的 meta 对齐：mtime = 当前文件 mtime（meta 缺失则按文件头 guid 补建） */
-    private void syncMetaMtime(File file, ImportSettings importSettings) {
-        AssetMeta meta = metaManager.getMeta(file);
-        if (meta == null) {
-            String guid = new GuidHeaderManager().extractGuid(file);
-            if (StringUtil.isEmpty(guid)) {
-                throw new RuntimeException("资源guid为空,异常数据：" + file);
-            }
-            meta = new AssetMeta(guid, importSettings.getType());
+    /**
+     * 释放伴生 {@code .meta}（包内 {@code {classpathPath}.meta} 同拷）。
+     * meta 已存在时不动——保留旧 mtime 与新文件 mtime 不等，refresh 检出差异
+     * 触发重导（内置资源换版本生效路径）；缺失时补拷，mtime 保持 0 与文件 mtime
+     * 不等，同样由 refresh 兜底导入（导入完成回写对齐）。
+     */
+    private void releaseMeta(File file, String classpathPath, ImportSettings importSettings) throws IOException {
+        File metaFile = new File(file.getParentFile(), file.getName() + ".meta");
+        if (metaFile.exists()) {
+            return;
+        }
+        byte[] metaSource = readResource(classpathPath + ".meta");
+        FileUtil.copy(new ByteArrayInputStream(metaSource), metaFile);
+        // 包内 meta importSettings 为空：补默认导入设置落盘（mtime 不动=触发重导）
+        AssetMeta meta = metaManager.getOrCreateMeta(file);
+        meta.setImportSettings(importSettings);
+        metaManager.saveMeta(file, meta);
+    }
+
+    /** 内容未变时的 meta 对齐：缺 meta 从包内补释放，mtime = 当前文件 mtime（判等即不重导） */
+    private void syncMetaMtime(File file, String classpathPath, ImportSettings importSettings) throws IOException {
+        File metaFile = new File(file.getParentFile(), file.getName() + ".meta");
+        if (!metaFile.exists()) {
+            FileUtil.copy(new ByteArrayInputStream(readResource(classpathPath + ".meta")), metaFile);
+        }
+        AssetMeta meta = metaManager.getOrCreateMeta(file);
+        if (meta.getImportSettings() == null) {
             meta.setImportSettings(importSettings);
         }
         meta.setLastModifiedTime(file.lastModified());
         metaManager.saveMeta(file, meta);
+    }
+
+    /** 读包内资源字节；缺失直接抛错（缺伴生 .meta 属打包异常，显性化不兜底） */
+    private byte[] readResource(String classpathPath) throws IOException {
+        URL url = this.getClass().getClassLoader().getResource(classpathPath);
+        if (url == null) {
+            throw new RuntimeException("包内资源不存在: " + classpathPath);
+        }
+        try (InputStream is = url.openStream()) {
+            return is.readAllBytes();
+        }
     }
 
     /**

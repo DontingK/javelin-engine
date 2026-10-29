@@ -63,10 +63,11 @@ public interface Plugin {
 - **name/description 返回 I18nKey、author/version/link 裸 String**：作者名/版本号/URL
   是 locale 无关的，翻译无意义；名称/描述是插件管理界面给用户看的多语言文本。
   default 方法减样板（小插件只写 namespace/name/version/setup 四项）。
-- **语言包走约定路径不声明**（2026-10-20 用户拍板，原 `i18nBaseName()` 移除）：
-  插件 jar 根下 `lang/` 一种语言一个文件，`lang/zh_cn.properties` **必备默认**、
-  `lang/en.properties` 等可选。`lang/` 目录就是语言包的 manifest——少一个接口方法，
-  宿主还能不实例化插件就静态审计 jar 支持哪些语言。
+- **语言包注册制**（2026-10-29 拍板，原「约定路径 lang/zh_cn.properties」规范废除）：
+  插件 setup 期经 `PluginContext.registerLanguagePack(域, 语言, 文件路径)` 显式注册
+  ——文件布局插件自定、一个文件对应一个域，集中式语言包指向其他插件域即可翻译
+  对方（同键后注册覆盖先注册，装载序语义）；支持语言另经 `registerLanguage(文件名,
+  显示名)` 注册（语言设置菜单选项源）。`lang/` 目录 manifest 审计语义随之作废。
 - **version 语义化版本校验 fail-fast**（装载期）：将来兼容性检查
   （「本编辑器要求插件 ≥ x.y」）的数据源，脏版本号早暴露。
 
@@ -79,9 +80,20 @@ public interface Plugin {
 | `registerPanel(PanelDescriptor)` | PanelRegistry | id 重复抛 |
 | `registerCommand(MenuCommand)` | CommandService | id 重复抛 |
 | `registerFileType(FileType)` | FileTypeRegistry | 扩展名重复抛 |
+| `registerInspector(InspectorProvider)` | InspectorRegistry | 键重复抛 |
+| `registerLanguage(fileName, displayName)` | I18n 语言注册表 | 参数空抛；fileName 重复忽略（先注册者优先，editor.core 恒先装） |
+| `registerLanguagePack(namespace, language, path)` | I18n.registerPack | 参数空抛/文件缺失抛（setup 失败 = 弹框 + 确认后关闭编辑器，§3.4）；同键后注册覆盖 |
 | `i18n()` | — | 返回命名空间绑定的 I18nScope（§4.2） |
 
 持有 namespace 作宿主归属记录锚点（将来源码 i18n 报告分桶、插件管理界面的数据源）。
+
+**语言注册制 + 语言包注册制**（2026-10-29 拍板，否决 Lang 枚举）：支持语言由插件
+setup 期 `registerLanguage` 注册（I18n 注册表 fileName→显示名，注册序），语言包按
+`registerLanguagePack(域, 语言, 路径)` 显式注册（`lang/{lang}.properties` 固定路径
+规范废除——文件布局插件自定、一文件一域）；editor.core 注册 en_US（默认语言）/
+zh_CN 语言 + 两域语言包，新语言包 = 对应插件注册即生效，集中式语言包按域逐文件
+注册即可翻译其他插件。语言设置菜单（file.preferences，Editor_Menu_Design v0.18）
+选项源即语言注册表。
 
 **纪律口径**：editor.core 的 setup() 经 ctx 注册（三个 Setup 类签名已改 `setup(PluginContext)`，
 内部全部 `context.registerXxx`），无特权直调静态门面通道——同模块下这靠约定不靠编译器
@@ -143,25 +155,27 @@ editor.core 无 File 路径：宿主自行 ServiceLoader 主 classloader 发现�
 ```
 loadAll(pluginsDir)（进程一次，重复调抛）：
   ① classpath 段（editor.core 路径）：ServiceLoader 发现 → of() 校验
-     → I18n.registerBundle → setup → 账本 + info 日志
-     ——任一环失败异常直接抛 = 编辑器起不来（fail-fast）
+     → setup（语言包随 setup registerPack）→ 账本 + info 日志
   ② jar 段：目录下 *.jar 按文件名排序（装载序确定）→ PluginInstance.load
-     → namespace 查重 → I18n.registerBundle → setup
-     ——装载失败/冲突/setup 失败一律 warn 跳过 + FAILED 账本，编辑器照常运行
+     → namespace 查重 → setup → 账本 + info 日志
+  ——任何环失败（本体/第三方、发现/装载/冲突/setup）一律弹错误框显示信息，
+  用户确认后关闭编辑器 System.exit（错误显性化拍板 2026-10-29，原「第三方
+  warn 跳过」口径作废——静默降级掩盖真问题）
 ```
 
 拍板与语义细节：
 
-- **第三方 namespace 冲突 = 后来者跳过 + warn + close，不 fail-fast**（实现期定，修正
-  早前「撞名 fail-fast」措辞）：按错误隔离分级推导，撞名的第三方插件属于「坏插件」，
-  不该杀编辑器；且 classpath 恒先装载，**editor.core 的命名空间结构性不可能被抢占**
-  （撞了必被跳过），防覆盖底线自动成立。classpath 内部撞名（本体级错误）仍 fail-fast。
-- **两处 close 语义不同**：撞名跳过 close classloader（setup 未跑、零注册引用，安全）；
-  **setup 失败不 close**——部分注册的面板 factory 可能引用插件类，close 会导致后续
-  NoClassDefFound，宁可留着句柄。无回滚（半注册贡献保留），账本记 FAILED。
-- **语言包注册在 setup 之前**（两段管线一致）：保证元数据 name/description 与 setup
-  期文案即有翻译。`I18n.registerBundle` 失败分级随段：classpath 段 fatal / jar 段
-  catch 后**降级装载**（i18n 不可用、插件照常，§4.6 兼容矩阵）。
+- **任何插件报错 = 弹框 + 确认后关闭编辑器**（2026-10-29 拍板，原「第三方 warn
+  跳过/撞名跳过」口径作废）：红线 15 错误显性化推到装载期——静默跳过坏插件会
+  让「插件为什么没生效」变成排障难题；弹框（EDT invokeAndWait 阻塞 Engine Main
+  至确认）显示 **namespace + 包路径 + 错误信息**（包路径供排障定位，jar 插件显示
+  完整路径、classpath 插件标「classpath（本体）」），确认后 System.exit 关闭编辑器。
+  文案硬编码中文——装载期语言包未注册（随 setup），i18n 不可用。
+- **classpath 内部撞名（本体级）恒 fail-fast**：classpath 恒先装载，editor.core 的
+  命名空间结构性不可能被第三方抢占（撞了即报错弹框）。
+- **语言包注册随 setup**（2026-10-29 改，原「setup 之前 registerBundle」随固定路径
+  规范废除）：registerPack 显式域+路径，查表逐键回退使注册时序自由——setup 失败
+  （含语言包路径缺失）即弹框关编辑器。
 
 ### 3.5 装载时序与线程（2026-10-20 用户拍板）
 
@@ -220,7 +234,7 @@ new JLabel(EditorLang.text("panel.hierarchy.title"));
 ```
 
 namespace 在整个插件只出现于 `namespace()` 一处。第三方插件照抄：自己的 Lang 门面 +
-自己的 `lang/zh_cn.properties`。**metadata 特例**（name/description 在 setup 前被调，
+自己的 `lang/en_US.properties`。**metadata 特例**（name/description 在 setup 前被调，
 scope 尚未注入）：`I18nKey.of(namespace(), "plugin.name")` 自引用，每插件两处可接受。
 
 否决的备选：**注册边界自动加 ns**（异常 key 不过注册面，上下文丢失）；**包名反推
@@ -228,17 +242,22 @@ namespace**（魔法推导与「namespace 显式声明」拍板冲突，挪包�
 
 ### 4.3 I18n 注册中心（静态门面）
 
-- **装载**：`registerBundle(namespace, classLoader)`——按约定路径读
-  `lang/zh_cn.properties`（**必备**，缺失/损坏抛——分级在调用方：classpath 段 fatal，
-  jar 段 catch 降级装载，§4.6）+ `lang/{当前语言}.properties`（可选，缺失 warn 回退
-  默认）；当前语言文件覆盖默认条目合并为单表。**不走 ResourceBundle**：其 `_zh_CN`
-  大小写命名与父子链回退和约定路径不匹配，且我们的回退语义（默认文件 → `!key!`）
-  本就是定制的；自实现 Properties 加载（**必须 `load(Reader)` 显式 UTF-8**——
-  `load(InputStream)` 至今按 spec 是 ISO-8859-1，中文必乱码，JDK 9 的 UTF-8 改动
-  只覆盖 PropertyResourceBundle）。
-- **语言切换**：`setLanguage` 启动期一次（注册后锁定抛异常）——**重启生效**口径；
-  默认 `zh_cn`。从 editor.settings 读语言项属后续接线。
-- **解析**：`get(namespace, key, args)`——命中走 **{} 顺位插值**（自实现顺位替换，
+- **装载**：`registerPack(namespace, language, classLoader, path)`——插件 setup 期
+  按「域 + 语言 + 文件路径」显式注册（2026-10-29 拍板，`registerBundle` 固定路径
+  `lang/{lang}.properties` 规范废除：文件布局插件自定、一文件一域，集中式语言包
+  按域逐文件注册即可翻译其他插件，同键后注册覆盖先注册=装载序语义）。路径缺失/
+  损坏抛——分级在调用方：editor.core（classpath 段）fail-fast，第三方 setup 失败
+  warn 跳过（§4.6）。查表存储 = 域 → 语言 →（局部键 → 文案）三级表。
+  **不走 ResourceBundle**：其 `_zh_CN` 大小写命名与父子链回退和注册制不匹配，且
+  我们的回退语义本就是定制的；自实现 Properties 加载（**必须 `load(Reader)` 显式
+  UTF-8**——`load(InputStream)` 至今按 spec 是 ISO-8859-1，中文必乱码，JDK 9 的
+  UTF-8 改动只覆盖 PropertyResourceBundle）。
+- **语言切换**：`setLanguage` 启动期一次（二次调用抛——不随注册冻结，重启生效
+  口径）；默认 `en_US`（2026-10-29 拍板，原 zh_cn）。editor.settings 语言项已接线
+  （JavelinEditor.main 启动解析）。
+- **解析**：`get(namespace, key, args)`——**当前语言 → 该域默认语言逐键回退**（域基线
+  = 该域第一个注册的语言包，2026-10-29 拍板——英文不特殊，中文作者的插件基线可为
+  zh_CN；查表时解析，语言包注册时序自由）；命中走 **{} 顺位插值**（自实现顺位替换，
   **拍板 2026-10-27 弃 MessageFormat**：{0} 编辑期不直观，顺带消解其单引号转义坑；
   参数多于占位符丢弃，占位符多于参数余下 `{}` 原样保留显性可见）；缺失返回
   `!fullKey!` + **按 key 去重 warn**（状态栏/菜单每次 repaint 都走解析，不去重一次
@@ -271,49 +290,67 @@ namespace**（魔法推导与「namespace 显式声明」拍板冲突，挪包�
 3. **源码机检**：properties 之外源码无中文字面量（白名单豁免 log）——测试/构建任务
    扫 CJK 字符串字面量即 fail，漏国际化从人眼 CR 变 CI 红线。
 
-### 4.6 第三方插件兼容矩阵（2026-10-20 补拍）
+### 4.6 第三方插件兼容矩阵（2026-10-20 拍，2026-10-29 随注册制修订）
 
-第三方插件的 i18n 是**约定而非门槛**——缺什么都不拒载插件本体，只降级文案能力：
+第三方插件的 i18n 是**约定而非门槛**——文本文件缺失不拒载插件本体，只降级文案
+能力（2026-10-29 修订：语言包随 setup 注册、缺包路径 setup 抛 = 整插件装载失败
+走弹框，不再有「无包降级装载」档；有包缺键仍逐键回退）：
 
 | 场景 | 行为 | 用户所见 |
 |------|------|----------|
-| 带全量语言包（默认 + 当前语言） | 正常注册 | 各语言正常显示 |
-| 只有默认文件、缺当前语言文件 | warn + 回退默认条目 | 显示默认语言文案（键不黑） |
-| **完全无语言包 / 包损坏** | warn + **降级装载**（PluginManager jar 段 catch，原「跳过整个插件」口径作废——功能完好不该因文本文件被拒，Unity/IntelliJ 同宽） | 硬编码文案的插件照常工作；用键则 `!ns.key!` 兜底 + miss 进该插件报告桶 |
+| 带全量语言包（基线 + 当前语言） | 正常注册 | 各语言正常显示 |
+| 只有基线包、缺当前语言包 | 当前语言查表 miss 逐键回退域基线 | 显示基线语言文案（键不黑） |
+| **完全无语言包 / 路径缺失** | registerPack 抛 = setup 失败 = **弹框 + 确认后关闭编辑器**（§3.4 错误显性化——想用 i18n 就把包带上） | 错误框指认插件与路径 |
 | 有包但缺个别 key | `!ns.key!` 显示 + 去重 warn | 界面直接指认哪个插件缺翻 |
-
-对照口径：**editor.core 无包/坏包 = fatal**（本体文案必须表驱动，宿主纪律不降级）——
-分级由调用方段位决定，I18n 自身恒抛。
+| 有包但翻译不全 | 缺键逐键回退**该域基线**（第一个注册的语言包） | 基线语言补位（键不黑） |
 
 **插件作者的接入姿势**（零耦合）：自带 Lang 静态门面（setup 期 `init(context.i18n())`
-一次）+ 自己的 `lang/zh_cn.properties`；渲染面（核心菜单里的插件命令标签等）经
+一次）+ `registerLanguagePack(namespace(), …)` 注册自己的语言包；渲染面（核心菜单里的
+插件命令标签等）经
 `label().text()` 解析，注册表不关心 key 属于哪个命名空间——任何 namespace 的键在任何
-UI 位置都可渲染。**隔离保证**：namespace 路由 + 撞名后来者跳过 → 第三方无法覆盖
-editor.core 或其他插件的任何文案；miss/used 采集按 namespace 分桶，每个作者拿到
-自己的缺翻工单，不用翻别人的报告。
+UI 位置都可渲染。**隔离保证**：namespace 路由分桶，miss/used 采集按 namespace 分桶，
+每个作者拿到
+自己的缺翻工单，不用翻别人的报告。（修订：集中式语言包经 `registerLanguagePack`
+指向其他插件域即可翻译对方，同键后注册覆盖先注册——显式声明域的覆盖行为自负，
+这是 2026-10-29 语言包注册制拍板的组成部分。）
 
 ### 4.7 插件国际化示例（完整链路）
 
-jar 内布局（语言包 = 约定路径两个文本文件，无其他）：
+jar 内布局（语言包注册制：文件布局自定，示例用 `lang/` 目录；一文件一域、
+键 = 目标域局部键）：
 
 ```
 myplugin.jar
  ├─ com/example/myplugin/（MyPlugin 入口 / MyLang 门面 / 功能类）
- ├─ lang/zh_cn.properties          ← 必备默认
- ├─ lang/en.properties             ← 可选（缺键回退默认条目）
+ ├─ lang/en_US.properties          ← 自己域的英文（注册目标域 = 自己 namespace）
+ ├─ lang/zh_CN.properties          ← 自己域的中文（可选）
  └─ META-INF/services/com.javelin.editor.plugin.Plugin → 入口类
 ```
 
 语言包（key 局部名 + {} 顺位插值）：
 
 ```properties
-# lang/zh_cn.properties
+# lang/en_US.properties
 plugin.name=我的工具插件
 toolbar.title=工具
 error.loadFailed=资源 {} 加载失败
 ```
 
-插件侧（namespace 全程一次）：
+插件 setup 注册（域 + 语言 + 路径显式声明）：
+
+```java
+public void setup(PluginContext ctx) {
+    MyLang.init(ctx.i18n());
+    ctx.registerLanguage("en_US", "English");          // 语言菜单选项（重复忽略）
+    ctx.registerLanguage("zh_CN", "中文");
+    ctx.registerLanguagePack(namespace(), "en_US", "lang/en_US.properties");
+    ctx.registerLanguagePack(namespace(), "zh_CN", "lang/zh_CN.properties");
+    // 集中式语言包（可选）：指向其他插件域即可翻译对方，一文件一域
+    // ctx.registerLanguagePack("editor.core", "zh_CN", "lang/editor.core.zh_CN.properties");
+}
+```
+
+插件侧（namespace 全程一次；MyPlugin.setup 的语言注册与上文示例同款，此处从略）：
 
 ```java
 public final class MyLang {                       // 静态门面：init 一次，用点零 namespace
@@ -408,7 +445,7 @@ PluginManager.loadAll → EditorCorePlugin.setup → 三个 Setup 经 ctx。
 |----|------|------|
 | 命令 id 前缀化 | 第三方命令 id 若撞核心域（如 hierarchy.cut）fail-fast 拒绝 | 第三方进公共域的规则 + 菜单结构注入位（Unity 固定注入位口径） |
 | FileType 扩展名冲突策略 | 现状 fail-fast（扩展名无法命名空间化） | 第三方接管 .scene 该拒（推荐维持 fail-fast）还是先注册者胜 |
-| 默认语言 | 必备默认文件 = zh_cn（槽位即此拍板落点） | 英文默认则换必备文件名 + I18n.DEFAULT_LANGUAGE |
+| 默认语言 | ✅ **已拍板（2026-10-29）：默认 en_US**——编辑器启动初始语言（`I18n.DEFAULT_LANGUAGE`）；**语言包注册制后缺键回退基线 = 各域第一个注册的语言包（域基线，英文不特殊）**——editor.core 域基线 = 先注册的 en_US 文件（新建 en_US.properties 全量 50 键英文翻译），第三方插件（如中文作者）先注册 zh_CN 即基线中文；「必备默认文件」概念作废 | 语言设置菜单批的设计前提（首启系统语言 → 不支持逐键回退各域基线兜底成立） |
 | 组件显示名口径 | @InsHeader 中文名（「变换/相机」） | Unity 口径即英文类名——若切英文，这批标签免搬运 |
 
 ### 7.2 后置批次

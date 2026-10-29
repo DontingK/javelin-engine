@@ -79,26 +79,26 @@
 | `RHI_Design_Resources.md` | 分卷三：资源描述符与绑定、Shader SPIR-V 加载与 PipelineCache、资源生命周期 |
 | `RHI_Design_Shader.md` | 分卷四：Shader 多 Pass 与 Material 实例模型、着色器文件语法（.shader） |
 | `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
-| `Engine_Assets_Design.md` | 引擎资产设计（v0.2）：Mesh 类、VertexAttribute、VertexLayout |
-| `Engine_Material_Design.md` | 引擎材质设计（v0.3）：Shader/Material 数据模型、渲染侧桥接（§4）、.scene 内嵌材质与 .mat 资产格式（§3.2）、坏 shader stub 产物与 DefaultShader 渲染回退、序列化坑点存档（§3） |
+| `Engine_Assets_Design.md` | 引擎资产设计（v0.3）：Mesh 类、VertexAttribute、VertexLayout、**Mesh 子网格（SubMesh 区间列表 + setSubmeshes/getSubmeshCount，Unity subMeshCount/SetTriangles 语义，§2.9，2026-10-29）** |
+| `Engine_Material_Design.md` | 引擎材质设计（v0.4）：Shader/Material 数据模型、渲染侧桥接（§4）、.scene 内嵌材质与 .mat 资产格式（§3.2）、坏 shader stub 产物与 DefaultMaterial 渲染回退（原 DefaultShader，2026-10-29 改名）、序列化坑点存档（§3） |
 | `Engine_Texture_Design.md` | 引擎贴图设计（v0.2）：三层资产模型（Image 像素资产 / Texture2D 引用+设置层 / 材质贴图槽——一图多设置免复制）、.png/.jpg/.jpeg 导入链（ImageImporter）、.texture 纹理资产（创建命令+导入器+检查器面板，编辑载体=文本私有实例）、alpha 修复、边界（mip/压缩/sRGB 后置） |
-| `Engine_Scene_Design.md` | 引擎场景设计（v0.4）：组件模型、Node/Component/Scene、RenderingSystem、生命周期帧驱动状态机（§4）、.scene 序列化（§9）、colliders 注册表分流投影（L1 物理查询遍历源，2026-10-28）——拍板细节与红线辨析见档内 |
+| `Engine_Scene_Design.md` | 引擎场景设计（v0.5）：组件模型、Node/Component/Scene、RenderingSystem、生命周期帧驱动状态机（§4）、.scene 序列化（§9）、colliders 注册表分流投影（L1 物理查询遍历源，2026-10-28）、**MeshRenderer 多材质（materials[i] 对应子网格 i + 每 (renderer, 子网格) 一 RenderObject + 缺失位默认材质兜底，§5.1，2026-10-29）**——拍板细节与红线辨析见档内 |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
 | `Engine_Lighting_Design.md` | 引擎光照设计（v0.1）：**clustered + SSBO（Forward+ 形态，2026-10-28 拍板一步到位、跳过 UBO 数组/逐盏画光中间档）**——Light 组件+收集（视空间 64B 打包/强度预排序）、cluster 三件套（grid/变长索引池/参数 UBO，每 cluster 上限 64 截尾=去最弱）、ClusterBuildPass（compute 三步构建）、Lambert+环境项着色消费、四批实装路线（①RHI SSBO/compute 底座②组件收集③构建+Forward=Forward+ 成形④ShadowPass+Deferred 复用）；主光=Scene.getSun（与 getMainCamera 对称） |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、MSAA 抗锯齿（§5.3） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器、线程模型、已知问题与演进方向（§9/§10）——CEF/Web 历史章节已清退（2026-10-23，§4 仅留指针），UI 现状以 Editor_Swing_Design 为准 |
-| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.17）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 + 创建族（material/shader/texture 命令） |
+| `Editor_Menu_Design.md` | 编辑器菜单与命令系统设计（v0.18）：**命令=类实现 MenuCommand（三域基类）+ EditorSelection 单源**、Command 数据内核/lambda 双通道、MenuRegistry 声明式结构（子菜单任意嵌套）、file/project/hierarchy/build 四域命令实做 + 创建族（material/shader/texture 命令）+ file.preferences 首选项命令（语言设置首批，2026-10-29） |
 | `Editor_Swing_Design.md` | 编辑器 Swing UI 框架设计（v0.1）：**去 Web 化重构总纲（纯 Swing + FlatLaf，视口零拷贝路径保留）**、自研轻量 Dock（二分布局树 + PanelRegistry 扩展点 + ViewportTabs 单 Canvas 不 reparent）、面板迁移路线、里程碑 M1~M6、配色单点（§10-3） |
-| `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.2）：**插件契约（namespace/元数据/约定路径语言包）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线与错误分级（本体 fail-fast/第三方 warn 跳过）+ I18nKey/I18nScope/Lang 门面 + I18n 注册中心（!key! 兜底/去重 warn/miss-used 采集/{} 顺位插值）**；待拍板项见档内 |
-| `Inspector_Design.md` | 检查器设计（v0.12）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、12 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空、多后缀）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板+.texture 纹理面板——.mat 编辑载体=缓存共享实例优先、.texture=文本私有实例）、输入交互增强（键入即提交+label 拖动调值） |
+| `Editor_Plugin_Design.md` | 编辑器插件体系与 i18n 总纲（v0.2）：**插件契约（namespace/元数据）+ ServiceLoader 发现（editor.core 即插件无特权）+ 装载管线（语言包随 setup registerPack 显式域+路径注册；任何插件报错弹框 + 确认后关闭编辑器，2026-10-29）+ I18nKey/I18nScope/EditorLang 门面 + I18n 注册中心（语言包注册制：registerLanguage 支持语言 + registerPack「域+语言+路径」显式注册、!key! 兜底/去重 warn/miss-used 采集/{} 顺位插值/缺键逐键回退该域基线）**；待拍板项见档内 |
+| `Inspector_Design.md` | 检查器设计（v0.13）：**@InsField 字段闸门 + @InsHeader 组件闸门（opt-in）+ 读 getter 写 setter 铁律**、节点头四件套、13 值类型通道（GUID_ASSET 可编辑——AssetInput 选择窗/拖放/None 清空、多后缀；GUID_ASSET_LIST 资产列表多材质行——行数跟随子网格数、整列表 setter 回写，2026-10-29）、浮点 4 位小数口径、两列布局 label/控件列 4px 例外、检查器注册器（Node+资产统一接管+.shader 诊断台+.mat 可编辑材质面板+.texture 纹理面板——.mat 编辑载体=缓存共享实例优先、.texture=文本私有实例）、输入交互增强（键入即提交+label 拖动调值） |
 | `Engine_Input_Design.md` | 引擎输入设计（v0.1）：三层架构（Window 回调→InputSubsystem 状态机→Input 静态门面）、bind/查询合流 Input、边沿双缓冲帧语义、GLFW/AWT 双接入 |
 | `Engine_DebugText_Design.md` | DebugDrawText 调试文本设计（v0.1）：bgfx 式全屏点阵文本（含汉字，静态 16x16 1bpp 字库/用户提供 TTF 经 tool 光栅化）、.spv 内嵌 core、attr 16+16 色调色板、持续到 clear、buildFrameGraph overlay 挂点 |
 | `Engine_RenderStats_Design.md` | 渲染统计设计（v0.1）：GPUInfo（设备/驱动信息）/RenderStats（11 类存活资源计数 + draw call/三角形快照双缓冲）RHI 打点口径、引擎显式 resetFrameStats、F3 开关 DebugText overlay（默认显示，占行 0~7） |
 | `Engine_Collision_Design.md` | 引擎碰撞设计（v0.2）：纯数学层 L0（Ray/碰撞形状/Aabb/相交例程，D1~D9 决策表）+ **L1 场景级 raycast 落地（Physics 静态门面 raycast/raycastAll + RaycastHit + Scene.getColliders 注册表投影，§10）**/L2 物理系统预留；Collider 组件族 + fitFromMesh + 世界 Aabb；拍板：碰撞体=组件、刚体独立后置、Ray 收窄为运行时物理查询、射程=maxDistance 参数（Unity 口径，三拍定稿） |
 | `Engine_Picking_Design.md` | GPU 拾取设计（v0.1）：**RHI 读回环（TextureReadbackRing 非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，不消费材质 Pass 声明——看得见即拾得）+ PickSystem 双通道（hover/click、帧表防串帧、落点 core 运行时可用）+ 编辑器消费（点击门控/选中收口/Gizmo 轴迁移）**；透明物体可拾取（Unity 口径）；已知边界与验收清单见档内 |
 | `Editor_DebugLine_Design.md` | 编辑器调试线设计（v0.1）：**编辑器专属世界空间线框（门面+batch+覆盖制 DebugLinePass 插 Transparent 后深度咬合/MSAA 双分支）+ 组件绘制器策略层（ComponentDebugLine 查表分派，mesh bounds 世界 AABB/相机视锥/BoxCollider）+ 选中驱动每帧 clear 重提交**；GAME 视口无线；验收清单见档内 |
-| `Engine_AssetReload_Design.md` | 资产热重载设计（v0.3）：**反射遍历流派（持有引用不动，重载协调器反射走场景对象图换 Asset 字段指针）+ AssetLibManager invalidate/reload + Material 补默认值后处理（pack 缺 entry NPE 实锤）+ RenderingSystem 孤儿两帧退役 + 焦点扫描/手动 reimport 触发**；setter 旁路警示、失败安全（导入失败不 invalidate=天然回退）与批次划分见档内（v0.1 令牌表方案同日推翻，沿革在档） |
+| `Engine_AssetReload_Design.md` | 资产热重载设计（v0.4）：**反射遍历流派（持有引用不动，重载协调器反射走场景对象图换 Asset 字段指针）+ AssetLibManager invalidate/reload + Material 补默认值后处理（pack 缺 entry NPE 实锤）+ RenderingSystem 孤儿两帧退役 + 焦点扫描/手动 reimport 触发**；**热重载范围收窄只 shader（2026-10-29 拍板——文件真值源+渲染侧按实例身份烤死；.mat/.texture/.smesh/像素源摘出「后面再加」，targetClass 加回分支即恢复）**；setter 旁路警示、失败安全（导入失败不 invalidate=天然回退）与批次划分见档内（v0.1 令牌表方案同日推翻，沿革在档） |
 
 ### 实现进度文档
 

@@ -6,7 +6,6 @@ import com.javelin.core.render.material.PassState;
 import com.javelin.core.render.material.Shader;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.meta.AssetMeta;
-import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.inspector.widget.InsFormat;
 import org.slf4j.Logger;
@@ -84,15 +83,10 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
         loader.start();
     }
 
-    /** 后台线程加载：guid 解析（文件头优先、伴生 .meta 兜底）→ Library 产物（纯 IO） */
+    /** 后台线程加载：guid 解析（伴生 .meta 单源，2026-10-29 拍板）→ Library 产物（纯 IO） */
     private void load(File file, JavelinEditor editor, AssetManager assetManager, int gen) {
-        String guid = new GuidHeaderManager().extractGuid(file);
-        if (guid == null || guid.isEmpty()) {
-            AssetMeta meta = editor.getMetaManager().getMeta(file);
-            if (meta != null) {
-                guid = meta.getGuid();
-            }
-        }
+        AssetMeta meta = editor.getMetaManager().getMeta(file);
+        String guid = (meta != null) ? meta.getGuid() : null;
         final String resolvedGuid = guid;
         if (resolvedGuid == null || resolvedGuid.isEmpty()) {
             SwingUtilities.invokeLater(() -> {

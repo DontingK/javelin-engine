@@ -8,7 +8,6 @@ import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
 import com.javelin.editor.meta.AssetMeta;
-import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.project.Project;
 import com.javelin.tool.shaderc.ShaderCompiler;
 import com.javelin.tool.shaderc.ShaderStage;
@@ -34,8 +33,8 @@ import java.util.List;
  * 解析/编译失败 → 落 stub 产物（空字段 Shader + guid，拍板 2026-10-27：原「导入失败
  * 不覆盖产物保持旧版」口径作废）→ 渲染侧按 Shader.isValid() 判坏回退默认 shader。</p>
  *
- * <p>源文件首行 {@code // @javelin-guid:} 头由 GuidHeaderManager 消费（内置资源 GUID
- * 以文件头为准，删缓存重编译 GUID 不变），对解析器透明。</p>
+ * <p>guid 真值=伴生 {@code .meta}（2026-10-29 拍板——guid 头只剩 src 下 .java
+ * 专属，内置资源 .meta 随包一起释放）。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -45,9 +44,6 @@ public class ShaderImporter implements AssetImporter {
     private static final Logger LOGGER = LoggerFactory.getLogger(ShaderImporter.class);
 
     private static final List<String> SUPPORTED_EXTENSIONS = List.of(".shader");
-
-    /** 源码文件头 GUID 读取（自包含真值源优先于 meta） */
-    private final GuidHeaderManager guidHeaderManager = new GuidHeaderManager();
 
     @Override
     public String getName() {
@@ -75,14 +71,10 @@ public class ShaderImporter implements AssetImporter {
             // ①~④ 解析 → 注入 → 编译 → 装配
             Shader shader = buildShader(source, sourceName);
 
-            // ⑤ guid 回写 + 二进制产物：优先源码文件头（自包含 GUID 唯一真值——
-            // 删缓存重编译不变），文件头缺失才回退 meta 的 guid。
-            // 产物路径用同一个解析出的 guid 拼装——保证产物文件名、shader 内 guid、
-            // index 三者同源（不用 getOutputFile：那边固定取 meta.guid）
-            String guid = guidHeaderManager.extractGuid(sourceFile);
-            if (guid == null || guid.isEmpty()) {
-                guid = task.getMeta().getGuid();
-            }
+            // ⑤ guid 回写 + 二进制产物：guid 真值=伴生 .meta（2026-10-29 拍板）。
+            // 产物路径用 meta guid 拼装——保证产物文件名、shader 内 guid、index
+            // 三者同源（不用 getOutputFile：那边固定取 meta.guid）
+            String guid = task.getMeta().getGuid();
             shader.setGuid(guid);
             shader.setLastModified(sourceFile.lastModified());
 
@@ -110,14 +102,11 @@ public class ShaderImporter implements AssetImporter {
      * 替换旧产物）——loadGuid 有实例返回，渲染侧按 {@link Shader#isValid()} 判坏回退
      * 默认 shader（紫色）；修复后 reimport 真产物经热重载换代（stub 带 guid 可匹配）。
      * 返回 true = 产物已落（走导入完成链：meta/index/onImportComplete），
-     * false = guid 双源均缺无处落 stub（维持导入失败口径）。
+     * false = meta 缺 guid 无处落 stub（维持导入失败口径）。
      */
     private boolean exportStub(File sourceFile, ImportTask task, Project project, String reason) {
-        String guid = guidHeaderManager.extractGuid(sourceFile);
-        if (guid == null || guid.isEmpty()) {
-            AssetMeta meta = task.getMeta();
-            guid = meta != null ? meta.getGuid() : null;
-        }
+        AssetMeta meta = task.getMeta();
+        String guid = meta != null ? meta.getGuid() : null;
         if (guid == null || guid.isEmpty()) {
             return false;
         }

@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.16）
+# 编辑器菜单与命令系统设计（v0.18）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -110,7 +110,8 @@
 > 产物即交付物）：母线 (r,y,2D法线)
 > 绕 +Y 旋转 24 段，硬边（圆柱端盖/侧面交界）用母线重复点分离法线、平滑体
 > （球/胶囊）法线连续，落盘前逐三角形叉积自检外向（多数内向则全局翻转
-> 复验，对齐 box 六面校验口径）；guid 沿用既有文件头（重跑稳定、产物不换档）。
+> 复验，对齐 box 六面校验口径）；guid 沿用既有文件头（重跑稳定、产物不换档；
+> 2026-10-29 拍板废除文件头真值——guid 归伴生 .meta 随包释放，见 Editor_Design §6.2）。
 > 产物尺寸 Unity 口径：球直径 1（UV 球 24×12）、圆柱高 2×直径 1（含端盖）、
 > 胶囊总高 2×直径 1（中段 y∈[-0.5,0.5]+半球盖）。三命令类照 cube 自包含
 > （同式第四~六份，公共基类抽取仍留拍板——「一动作一类」现状不变）；菜单序
@@ -120,7 +121,8 @@
 > CreateShaderMenuCommand：选中目录落 `NewShader.shader`（编号去重），内容=极简
 > 前向模板（_Color Color 属性走 Properties→MaterialBlock 通路、Pass Forward 不透
 > 底稿）；**用户文件不写 guid 头**（用户拍板：guid 头=内置资源专属，重释放稳定
-> 语义不外溢用户文件）——guid 真值归伴生 .meta 随机分配，导入器走「头缺失回退
+> 语义不外溢用户文件——**2026-10-29 再收窄废除：guid 头只剩 src 下 .java，「内置
+> 资源专属」口径作废、内置资源改 .meta 随包释放，见 Editor_Design §6.2**）——guid 真值归伴生 .meta 随机分配，导入器走「头缺失回退
 > meta」既有路径；配套收窄 MetaManager.createNewMeta：.shader/.smesh 缺头不再注入
 > 路径种子头（原注入路径恰由本命令首次踩中）、改随机 guid（.java 保持注入——脚本
 > 无 meta、头是唯一真值）；「创建」子菜单序 folder/material/**shader**/scene/script
@@ -145,6 +147,22 @@
 > submitImport 后同步收口（小体量毫秒级、shader 含编译秒内），导入 FAILED 弹错误框
 > （红线 15）；③AssetLibManager.loadGuid miss 先重载 index 再查（pathOfGuid/
 > listAssetPaths 同口径——表为 ConcurrentHashMap，结构安全）。
+> v0.18（2026-10-29，**待验收**）：**file.preferences 首选项命令（文件域第二项）**——
+> PreferencesMenuCommand 弹 `window/PreferencesDialog`（模态挂 MainFrame、
+> invokeLater 弹窗对齐 PackDialog 线程契约），语言设置首批；**语言包注册制拍板**
+> （同日，否决 Lang 枚举）：支持语言由插件注册（`I18n.registerLanguage(fileName,
+> displayName)` 经 PluginContext 收口），语言包按 `registerLanguagePack(域, 语言,
+> 路径)` 显式注册（`lang/{lang}.properties` 固定路径规范废除——文件布局自定、
+> 一文件一域，集中式语言包可翻译其他插件域），editor.core setup 注册 en_US/zh_CN
+> 语言 + 两域语言包，语言设置菜单选项源 = I18n.languages() 注册表；**确定写回
+> EditorSettings.language 存盘 + 重启生效**（拍板 2026-10-29：全部配置修改重启生效——I18n 语言启动期一次
+> 设定不热切）；启动链语言解析落 `JavelinEditor.main`（SettingsManager.
+> loadStandaloneEditorSettings 独立读 ~/.javelin/editor.settings：已存值优先、
+> 未设置按系统语言「语言_国家」tag 解析；**缺键逐键回退该域基线 = 该域第一个
+> 注册的语言包**（2026-10-29 拍板——英文不特殊，中文作者的插件基线可为 zh_CN），
+> setLanguage 启动期一次）。菜单序
+> 保存 ─ 分隔 ─ 首选项；i18n 增 file.preferences + preferences.* 5 条随批。
+> 命名拍板：「首选项」非「设置」（Unity Preferences / Windows 惯例，用户 2026-10-29）。
 
 ## 1. 背景与约束
 
@@ -402,6 +420,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | id | label | 菜单 | 语义 |
 |---|---|---|---|
 | `file.save` | 保存 | 文件 | TextExporter 写回 gameSceneFile（.scene 文本协议），成功 clearDirty + scene.changed 推送（2026-10-01 落地，随 Engine_Scene_Design §9 .scene 序列化） |
+| `file.preferences` | 首选项 | 文件 | 弹 PreferencesDialog（模态挂 MainFrame）——语言设置首批（Lang 下拉），确定写回 EditorSettings.language 存盘 + 重启生效（2026-10-29 落地 v0.18，待验收） |
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |

@@ -48,7 +48,7 @@ public abstract class AbstractForwardPass implements RenderPass {
         pushData.limit(RenderingSystem.PUSH_TPF_OFFSET + Float.BYTES);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
-        MeshDraw.drawIndexed(cmd, ro.mesh());
+        MeshDraw.drawIndexed(cmd, ro.mesh(), ro.submesh());
     }
 
     /**

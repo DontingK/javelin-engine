@@ -11,6 +11,7 @@ import com.javelin.editor.event.Subscription;
 import com.javelin.editor.exception.TipException;
 import com.javelin.editor.inspector.ComponentInspectorVo;
 import com.javelin.editor.inspector.InspectorReflector;
+import com.javelin.editor.inspector.InspectorValueType;
 import com.javelin.editor.inspector.NodeInspectorVo;
 import com.javelin.editor.swing.inspector.widget.InsFormat;
 import com.javelin.editor.window.MainFrame;
@@ -229,7 +230,11 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
                 SwingUtilities.invokeLater(() -> showTip(e.getMessage()));
             }
         });
-        if (pendingRefresh) {
+        // 资产行提交可能改变行结构（mesh 行换绑 → 材质列表按子网格数对齐），提交后
+        // 补拉重建行数；apply 与 collect 同走 submitTask FIFO，先应用后收集
+        if (InspectorValueType.GUID_ASSET.name().equals(valueType)
+                || InspectorValueType.GUID_ASSET_LIST.name().equals(valueType)
+                || pendingRefresh) {
             pendingRefresh = false;
             requestRefresh();
         }

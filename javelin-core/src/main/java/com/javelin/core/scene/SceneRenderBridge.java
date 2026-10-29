@@ -4,8 +4,9 @@ import com.javelin.core.render.RenderCamera;
 import com.javelin.core.render.RenderObject;
 import com.javelin.core.render.Renderable;
 import com.javelin.core.render.RenderingSystem;
-import com.javelin.core.render.material.DefaultShader;
+import com.javelin.core.render.material.DefaultMaterial;
 import com.javelin.core.render.material.Material;
+import com.javelin.core.render.mesh.Mesh;
 import com.javelin.core.math.Color;
 import com.javelin.core.math.Rect;
 import com.javelin.core.scene.component.Camera;
@@ -16,6 +17,8 @@ import com.javelin.rhi.Texture;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -36,10 +39,11 @@ import java.util.Set;
  * 未设置默认全屏（用户拍板 2026-09-26：无均分，多相机分屏必须手动设矩形）。
  * 组件 isActiveAndEnabled 过滤（节点层级激活 + 组件 enabled，Unity 口径）：禁用
  * 即注销，启用即重注（2026-10-17 组件头勾选实锤——仅过滤节点激活藏不住组件级禁用）。
- * MeshRenderer 的 mesh/material 为 null 时不渲染（missing 语义），
- * mesh/material 身份变化 = 注销重注（v0.1）；material 非 null 但 shader 无效
- * （null / SPIR-V 缺失——编译失败 stub 产物）→ DefaultShader 回退默认材质渲染
- * （拍板 2026-10-27，原「残材质显式报错」口径随 stub 产物路径作废）。
+ * MeshRenderer 的 mesh 为 null 时不渲染（missing-mesh 语义）；多材质（拍板
+ * 2026-10-29）：每 (renderer, 子网格) 一个 RenderObject，materials[i] 对应子网格 i，
+ * 缺失位/整列表空/shader 无效（null / SPIR-V 缺失——编译失败 stub 产物）→
+ * DefaultMaterial 默认材质兜底渲染（原「material null 不渲染」口径作废），默认
+ * shader 不可用 → 该子网格不渲染降级；mesh/材质身份变化 = 全注销重注。
  *
  * <p>时序：JavelinEngine 在 collectFrame 之前调用 {@link #sync}；
  * 场景切换经 {@link #clear} 全注销。多线程化后本类整体移到逻辑线程（RHI 27.2）。
@@ -53,7 +57,7 @@ public final class SceneRenderBridge {
     /** 首帧相机位姿一次性读数（独立 flag——syncLogged 在 sync 开头已置位，相机循环内不得复用） */
     private boolean poseLogged;
     private final Map<Camera, RenderCamera> cameras = new IdentityHashMap<>();
-    private final Map<MeshRenderer, RenderObject> renderers = new IdentityHashMap<>();
+    private final Map<MeshRenderer, List<RenderObject>> renderers = new IdentityHashMap<>();
     private final Set<String> usedNames = new HashSet<>();
 
     /**
@@ -70,7 +74,7 @@ public final class SceneRenderBridge {
             syncLogged = true;
             int meshRenderers = 0;
             for (Renderable renderable : sceneRenderables) {
-                if (renderable instanceof MeshRenderer mr && mr.getMesh() != null && mr.getMaterial() != null) {
+                if (renderable instanceof MeshRenderer mr && mr.getMesh() != null) {
                     meshRenderers++;
                 }
             }
@@ -89,11 +93,11 @@ public final class SceneRenderBridge {
                 camIt.remove();
             }
         }
-        Iterator<Map.Entry<MeshRenderer, RenderObject>> roIt = renderers.entrySet().iterator();
+        Iterator<Map.Entry<MeshRenderer, List<RenderObject>>> roIt = renderers.entrySet().iterator();
         while (roIt.hasNext()) {
-            Map.Entry<MeshRenderer, RenderObject> e = roIt.next();
+            Map.Entry<MeshRenderer, List<RenderObject>> e = roIt.next();
             if (!sceneRenderables.contains(e.getKey())) {
-                rs.removeRenderer(e.getValue());
+                removeRendererList(rs, e.getValue());
                 roIt.remove();
             }
         }
@@ -154,36 +158,73 @@ public final class SceneRenderBridge {
             // ——组件级禁用同口径，编辑器取消勾选 MeshRenderer 头实锤）。已注册的
             // 即时注销防残留：仅跳过注册会让旧 RenderObject 帧帧续命，禁用/激活
             // 翻转必须走到 removeRenderer
-            if (!mr.isActiveAndEnabled()) {
-                RenderObject stale = renderers.remove(mr);
-                if (stale != null) {
-                    rs.removeRenderer(stale);
-                }
+            if (!mr.isActiveAndEnabled() || mr.getMesh() == null) {
+                // mesh 置空即时注销（missing-mesh 语义；材质缺失不挡渲染——默认材质兜底，
+                // 拍板 2026-10-29）
+                removeRendererList(rs, renderers.remove(mr));
                 continue;
             }
-            RenderObject ro = renderers.get(mr);
-            // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V
-            // 缺失（编译失败 stub 产物）→ 默认材质单例（默认 shader 渲染）；null 原样
-            // （missing-material 语义不变）——单例 identity 稳定，比较不抖动
-            Material renderMaterial = DefaultShader.resolve(mr.getMaterial());
-            boolean identityChanged = ro != null
-                    && (ro.mesh() != mr.getMesh() || ro.material() != renderMaterial);
-            if (identityChanged) {
-                rs.removeRenderer(ro);
-                renderers.remove(mr);
-                ro = null;
-            }
-            if (ro == null) {
-                if (mr.getMesh() == null || renderMaterial == null) {
-                    continue;   // missing-mesh / missing-material：不渲染
+            Mesh mesh = mr.getMesh();
+            int submeshCount = mesh.getSubmeshCount();
+            List<RenderObject> ros = renderers.get(mr);
+            boolean identityChanged = ros == null || ros.size() != submeshCount;
+            if (!identityChanged) {
+                for (int i = 0; i < submeshCount; i++) {
+                    Material renderMaterial = submeshMaterial(mr, i);
+                    RenderObject ro = ros.get(i);
+                    // 占位 null（上帧默认 shader 不可用降级）与本次有/无材质不对称即换代
+                    if (ro == null ? renderMaterial != null
+                            : ro.mesh() != mesh || ro.material() != renderMaterial) {
+                        identityChanged = true;
+                        break;
+                    }
                 }
-                ro = new RenderObject(mr.getMesh(), renderMaterial, mr.isCastShadow(),
-                        mr.getNode().getLayer().getMask(), mr);
-                rs.addRenderer(ro);
-                renderers.put(mr, ro);
+            }
+            if (identityChanged) {
+                removeRendererList(rs, ros);
+                // 列表槽位 = 子网格槽位（占位 null = 默认 shader 不可用降级不渲染）
+                ros = new ArrayList<>(Collections.nCopies(submeshCount, (RenderObject) null));
+                for (int i = 0; i < submeshCount; i++) {
+                    Material renderMaterial = submeshMaterial(mr, i);
+                    if (renderMaterial == null) {
+                        continue;   // resolveOrDefault 契约：默认 shader 不可用 → 降级不渲染
+                    }
+                    RenderObject ro = new RenderObject(mesh, renderMaterial, mr.isCastShadow(),
+                            mr.getNode().getLayer().getMask(), mr, i);
+                    rs.addRenderer(ro);
+                    ros.set(i, ro);
+                }
+                renderers.put(mr, ros);
             }
             // 世界矩阵原地写（不换引用，帧描述存活期约束由单线程退化保证）
-            ro.world().set(mr.getNode().getTransform().getLocalToWorld());
+            for (RenderObject ro : ros) {
+                if (ro != null) {
+                    ro.world().set(mr.getNode().getTransform().getLocalToWorld());
+                }
+            }
+        }
+    }
+
+    /**
+     * 子网格 i 的渲染材质：缺失位（超出 materials 长度或 null）走 DefaultMaterial
+     * 默认材质兜底（拍板 2026-10-29）；返回 null 仅当默认 shader 不可用（降级，
+     * 该子网格不渲染）。
+     */
+    private static Material submeshMaterial(MeshRenderer mr, int submesh) {
+        List<Material> materials = mr.getMaterials();
+        return DefaultMaterial.resolveOrDefault(
+                submesh < materials.size() ? materials.get(submesh) : null);
+    }
+
+    /** 按列表逐个注销（元素可为占位 null） */
+    private void removeRendererList(RenderingSystem rs, List<RenderObject> ros) {
+        if (ros == null) {
+            return;
+        }
+        for (RenderObject ro : ros) {
+            if (ro != null) {
+                rs.removeRenderer(ro);
+            }
         }
     }
 
@@ -192,8 +233,8 @@ public final class SceneRenderBridge {
         for (RenderCamera rc : cameras.values()) {
             rs.removeCamera(rc);
         }
-        for (RenderObject ro : renderers.values()) {
-            rs.removeRenderer(ro);
+        for (List<RenderObject> ros : renderers.values()) {
+            removeRendererList(rs, ros);
         }
         cameras.clear();
         renderers.clear();

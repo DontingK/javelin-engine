@@ -37,4 +37,11 @@ public enum InspectorValueType {
      * v0.1 只读展示，赋值通道待项目面板拖拽资产落地。
      */
     GUID_ASSET,
+    /**
+     * 资产列表字段（List&lt;Asset 子类&gt;，MeshRenderer.materials 首例）：收集面展开为
+     * N 行（N = 列表长度，min 1——列表长度由 setMesh/setMaterials 按子网格数对齐），
+     * 每行一个元素、行控件与 GUID_ASSET 同款 AssetInput；fieldName 编码序号
+     * （materials[i]），回写经整列表 setter（InspectorReflector.applyAssetList）。
+     */
+    GUID_ASSET_LIST,
 }

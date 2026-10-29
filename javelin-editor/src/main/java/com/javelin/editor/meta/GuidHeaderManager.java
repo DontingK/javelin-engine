@@ -16,7 +16,8 @@ import java.util.UUID;
  * 文件头 GUID 管理器
  *
  * <p>负责文本资源文件头 GUID 的提取、注入和修复。</p>
- * <p>适用于 {@code .java}、{@code .shader} 等支持行注释的文本资源。</p>
+ * <p>仅服务 {@code src/} 下 {@code .java} 脚本（代码树无伴生 .meta，头是唯一真值）；
+ * 其余一切资产 guid 真值=伴生 {@code .meta}（2026-10-29 拍板）。</p>
  *
  * @author donting
  * @since 1.0

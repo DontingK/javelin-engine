@@ -1,4 +1,3 @@
-// @javelin-guid: c4ea2b512ff7d04cb67e4d71d43a4142
 Shader "Gizmo"
 {
     Properties

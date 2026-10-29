@@ -588,6 +588,8 @@ interface CommandBuffer {   // RHICmd（15 节 / 24.3）
 
     void drawIndexed(int indexCount, int instanceCount);
 
+    void drawIndexed(int indexCount, int instanceCount, int firstIndex);  // 三参重载（参数序对齐 vkCmdDrawIndexed）：firstIndex 指向已绑定索引缓冲起始索引，子网格范围绘制（MeshDraw 消费，2026-10-29）
+
     void dispatch(int x, int y, int z);
 
     void setViewport(RHIViewport vp);

@@ -339,8 +339,8 @@ public class AssetImportPipeline {
             // 脚本无 meta：产物存在即可（guid 头真值稳定，无 mtime 判定载体）
             return !isImportedInLibrary(file);
         }
-        // 统一 meta mtime 判定（2026-10-25）：.shader/.smesh 也落伴生 .meta——
-        // 源 mtime ≠ meta mtime 即重导（内置资产重释放/用户手改源均经此检出）
+        // 统一 meta mtime 判定：源 mtime ≠ meta mtime 即重导（内置资产重释放/
+        // 用户手改源均经此检出）
         AssetMeta meta = metaManager.getMeta(file);
         if (meta == null) {
             return true;
@@ -474,14 +474,15 @@ public class AssetImportPipeline {
 
     /**
      * 解析源文件对应的 Library 产物文件（guid + ".asset"）。
-     * 自包含文件按文件头 guid，其余按伴生 meta 的 guid；解析失败返回 null。
+     * .java 按文件头 guid（代码树无伴生 meta），其余一律按伴生 meta 的 guid
+     * （guid 真值单源=伴生 .meta，2026-10-29 拍板——guid 头只剩 src 下 .java 专属）。
      *
      * @param file 源文件
      * @return 产物文件（可能不存在），guid 不可得时 null
      */
     private File libraryFileFor(File file) {
         String guid;
-        if (isHeaderGuidFile(file)) {
+        if (isScriptFile(file)) {
             guid = guidHeaderManager.extractGuid(file);
         } else {
             AssetMeta meta = metaManager.getMeta(file);
@@ -508,21 +509,6 @@ public class AssetImportPipeline {
     private boolean isScriptFile(File file) {
         String name = file.getName().toLowerCase();
         return name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file);
-    }
-
-    /**
-     * 判断 guid 真值是否在文件头（.java / .shader / .smesh）
-     *
-     * <p>文件头 guid 保证重释放/重建缓存后 guid 不变；.shader/.smesh 也落伴生
-     * .meta，meta 内 guid 为文件头镜像。</p>
-     *
-     * @param file 文件
-     * @return 如果 guid 真值在文件头返回 true
-     */
-    private boolean isHeaderGuidFile(File file) {
-        return isScriptFile(file)
-                || file.getName().toLowerCase().endsWith(".shader")
-                || file.getName().toLowerCase().endsWith(".smesh");
     }
 
     /**

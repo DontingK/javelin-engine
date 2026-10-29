@@ -19,6 +19,9 @@ public class EditorSettings implements Serializable {
     /** 新建项目时默认打开的父目录路径。 */
     private String newProjectPath;
 
+    /** 界面语言（lang 文件名，如 "en_US"；null = 未设置，首启按系统语言解析）。 */
+    private String language;
+
     /**
      * 获取新建项目时默认打开的父目录路径。
      *
@@ -37,13 +40,33 @@ public class EditorSettings implements Serializable {
         this.newProjectPath = newProjectPath;
     }
 
+    /**
+     * 获取界面语言。
+     *
+     * @return lang 文件名，可能为 {@code null}（未设置，首启按系统语言解析）
+     */
+    public String getLanguage() {
+        return language;
+    }
+
+    /**
+     * 设置界面语言。
+     *
+     * @param language lang 文件名（I18n 语言标识，语言注册表键）
+     */
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("newProjectPath", newProjectPath);
+        output.write("language", language);
     }
 
     @Override
     public void read(InputCapsule input) {
         newProjectPath = input.readString("newProjectPath");
+        language = input.readString("language");
     }
 }

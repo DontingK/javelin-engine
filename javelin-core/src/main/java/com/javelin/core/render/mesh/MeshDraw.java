@@ -41,4 +41,15 @@ public final class MeshDraw {
         }
         cmd.drawIndexed(mesh.indexCount(), 1);
     }
+
+    /**
+     * 发起子网格范围绘制（Vulkan firstIndex 范围，子网格 i 的索引区间；
+     * 子网格序号越界抛 IllegalArgumentException）。
+     */
+    public static void drawIndexed(CommandBuffer cmd, Mesh mesh, int submesh) {
+        if (cmd == null || mesh == null) {
+            throw new IllegalArgumentException("cmd / mesh must not be null");
+        }
+        cmd.drawIndexed(mesh.getSubmeshIndexCount(submesh), 1, mesh.getSubmeshFirstIndex(submesh));
+    }
 }

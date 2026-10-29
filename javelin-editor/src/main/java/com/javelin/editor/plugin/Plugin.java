@@ -5,9 +5,9 @@ import com.javelin.editor.i18n.I18nKey;
 /**
  * 插件契约——编辑器宿主与全部功能模块（含本体 editor.core）的统一接入形态
  * （编辑器即插件，无特权分支）。发现 = ServiceLoader（META-INF/services
- * 声明，无参实例化）；语言包走约定路径（jar 根 {@code lang/zh_cn.properties}
- * 必备），宿主在 setup 前注册；editor.core 装载失败 = fail-fast，第三方
- * 失败 = warn 跳过。
+ * 声明，无参实例化）；语言包随 setup 注册（registerPack 显式域+语言+路径），
+ * 宿主只驱动装载；任何插件报错 = 弹错误框显示信息、确认后关闭编辑器（错误
+ * 显性化拍板 2026-10-29）。
  *
  * @author javelin
  * @create 2026/10/20

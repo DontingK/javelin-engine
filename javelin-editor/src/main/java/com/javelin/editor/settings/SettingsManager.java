@@ -77,7 +77,17 @@ public class SettingsManager {
         this.editorSettings = loadOrCreate(EditorSettings.class, EDITOR_SETTINGS_FILE, EDITOR_SETTINGS_DIR);
     }
 
-    private <T extends Serializable> T loadOrCreate(Class<T> type, String fileName, File root) {
+    /**
+     * 启动期独立读编辑器全局设置（项目未建时用——语言解析须早于插件语言包注册，
+     * I18n.setLanguage 冻结语义）。读取失败/文件缺失返回默认实例。
+     *
+     * @return 编辑器设置实例，恒非 null
+     */
+    public static EditorSettings loadStandaloneEditorSettings() {
+        return loadOrCreate(EditorSettings.class, EDITOR_SETTINGS_FILE, EDITOR_SETTINGS_DIR);
+    }
+
+    private static <T extends Serializable> T loadOrCreate(Class<T> type, String fileName, File root) {
         File file = new File(root, fileName);
         if (file.exists()) {
             try {

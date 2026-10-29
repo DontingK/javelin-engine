@@ -19,7 +19,7 @@ import java.util.Set;
  * <p>语法：{@code Shader "name" { Properties {...} Pass 名 { 状态命令 vs{} fs{} } }}。
  * 顶层识别大小写敏感（Shader/Properties/Pass/vs/fs），状态命令取值大小写不敏感
  * （Unity 惯用名与 Vulkan 枚举名都收，如 LEqual / Less / SRC_ALPHA）。
- * 首行 {@code // @javelin-guid:} 头对解析器透明（注释层跳过，BuiltinAssetReleaser 消费）。</p>
+ * 行注释与块注释对解析器透明（注释层跳过）。</p>
  *
  * <p>解析产出 core 数据模型：MaterialProperty 列表 + ParsedPass（名/PassState/vs/fs 原文），
  * SPIR-V 编译与声明注入由 {@link ShaderInjector} / 导入器衔接。</p>

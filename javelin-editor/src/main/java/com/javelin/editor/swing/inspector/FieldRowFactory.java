@@ -69,8 +69,11 @@ public final class FieldRowFactory {
             case LAYER_MASK:
                 return new LayerMaskField(vo.value, vo.options, commit);
             case GUID_ASSET:
+            case GUID_ASSET_LIST:
+                // 资产列表行（GUID_ASSET_LIST）= 收集面已展开为元素行，控件与
+                // GUID_ASSET 同款 AssetInput（vo.assetType = 元素资产类型）
                 if (vo.assetType == null) {
-                    throw new IllegalStateException("GUID_ASSET 字段缺声明资产类型: " + vo.fieldName);
+                    throw new IllegalStateException("资产字段缺声明资产类型: " + vo.fieldName);
                 }
                 AssetInput input = new AssetInput(vo.assetType, commit);
                 input.setValue(vo.value);

@@ -1,4 +1,3 @@
-// @javelin-guid: b3d5f7a9c1e024680a2c4e68d0f2a4c6
 Shader "EditorGrid"
 {
     Properties

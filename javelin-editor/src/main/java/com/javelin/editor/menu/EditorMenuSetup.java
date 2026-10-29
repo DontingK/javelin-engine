@@ -20,6 +20,7 @@ import com.javelin.editor.menu.top.CompileMenuCommand;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.menu.top.GridMenuCommand;
 import com.javelin.editor.menu.top.PackMenuCommand;
+import com.javelin.editor.menu.top.PreferencesMenuCommand;
 import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.plugin.PluginContext;
 
@@ -65,6 +66,7 @@ public final class EditorMenuSetup {
         context.registerCommand(new GridMenuCommand());
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
+        context.registerCommand(new PreferencesMenuCommand());
         context.registerCommand(new CreateEmptyMenuCommand());
         context.registerCommand(new CreatePlaneMenuCommand());
         context.registerCommand(new CreateBoxMenuCommand());
@@ -108,9 +110,12 @@ public final class EditorMenuSetup {
         context.registerCommand(new com.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.delete", "Delete"));
 
-        // 文件域首期仅「保存」（2026-10-01 拍板：另存为/打开/新建场景随下期落地）
+        // 文件域首期仅「保存」（2026-10-01 拍板：另存为/打开/新建场景随下期落地）；
+        // 「首选项」2026-10-29 落地（语言设置首批，编辑器首选项对话框）
         MenuRegistry.menu("file", EditorLang.key("file"))
-                .item("file.save");
+                .item("file.save")
+                .separator()
+                .item("file.preferences");
 
         MenuRegistry.menu("tools", EditorLang.key("tools"))
                 .item("tools.grid");

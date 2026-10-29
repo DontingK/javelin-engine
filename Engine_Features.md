@@ -70,6 +70,9 @@
 |------|---------|---------|
 | RenderingSystem / FrameLoop / UBO1 帧环形收编 | ✅ | ✅ 一期 Demo（清屏出画面起） |
 | RenderPass 有序列表 + AbstractForwardPass + 透明分桶 | ✅ | ✅ SceneRenderDemo 用户运行 |
+| Mesh 子网格（SubMesh 区间列表 + setSubmeshes/getSubmeshCount + 上传校验 + 旧产物单子网格兼容，资产档 §2.9） | ✅（2026-10-29） | ⏳ 待验收（MeshSerializationTest 往返/边界） |
+| RHI drawIndexed 三参扩展（firstIndex 范围绘制，参数序对齐 vkCmdDrawIndexed） | ✅（2026-10-29） | ⏳ 待验收（随多子网格渲染） |
+| MeshRenderer 多材质（materials 列表 i 位对应子网格 + 每 (renderer, 子网格) 一 RenderObject + 缺失位 DefaultMaterial 兜底（**语义变化：原 material null 不渲染作废**） + getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容，场景档 §5.1 v0.5） | ✅（2026-10-29） | ⏳ 待验收（SceneSerializationTest 往返/兼容 + 渲染实机） |
 | Material.surfaceType 面型裁决（分桶 + PSO 覆盖 Blend/ZWrite，方案 B，材质档 §4.1） | ✅ | ✅ 用户实测（2026-10-23） |
 | RenderList Pass 名分桶严格制（passes map + RenderPass.shaderPassName + pipelineFor passName 维；GizmoPass 去身份过滤/去双画，材质档 §4.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | SceneRenderBridge pull 翻译（场景→RenderObject） | ✅ | ✅ 同上 |
@@ -91,6 +94,7 @@
 | .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | 贴图像素资产 Image + Texture2D 引用层改造（三层模型：Image 磁盘一份/Texture2D 持设置——一图多设置免复制，贴图档 §1） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | .texture 纹理资产（Texture2D 文本序列化 + TextureImporter + 检查器面板 + null-image 渲染占位守卫，贴图档 §7） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| .smesh 子网格段（[SUBMESH_N] 连续递增 + 与 [INDEX] 互斥显性化，资产档 §2.9） | ✅（2026-10-29） | ⏳ 待验收（多子网格 .smesh 导入实机） |
 | 动态 Mesh / 动态纹理 | ⬜ 后置（材质档 §6 / 资产档 §2.8） | — |
 
 ### 2.6 输入（input）
@@ -160,6 +164,8 @@
 | project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅ 用户实测（2026-10-25） |
 | project.create.texture 创建纹理命令（v0.17，texture.texture=空 image+默认采样设置的 Texture2D 文本序列化；创建族第三项、guid 与 meta 同源四处一致） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
+| file.preferences 首选项命令（v0.18，文件域第二项——PreferencesDialog 语言设置首批，确定写回 EditorSettings.language 存盘 + 重启生效） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机） |
+| 语言设置全链（**语言包注册制**：I18n.registerLanguage 支持语言注册表 + registerPack「域+语言+路径」显式注册（PluginContext 收口，`lang/{lang}.properties` 固定路径规范废除——文件布局自定、一文件一域、集中式语言包可翻译其他插件域；editor.core 注册 en_US/zh_CN）+ EditorSettings.language 字段 + 启动链 main setLanguage——未设置按系统语言 tag 解析、**缺键逐键回退该域基线（该域第一个注册的语言包，英文不特殊）**） | ✅（2026-10-29） | ⏳ 待验收（首启系统语言/切换重启生效） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
 
@@ -192,6 +198,7 @@
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
 | v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + 编辑载体=文本私有实例拍板；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| v0.13 GUID_ASSET_LIST 资产列表通道（MeshRenderer.materials 多材质行：行数跟随子网格数、fieldName 编码序号 materials[i] + applyAssetList 整列表 setter 回写 + 列表 setter 查找放宽 + 资产行提交后补拉重建行数；行控件/回显/回写全复用 GUID_ASSET 面） | ✅（2026-10-29） | ⏳ 待验收（随多材质渲染实机） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -215,6 +222,7 @@
 | SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ✅ 用户实测（2026-10-23） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
 | meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| **guid 真值单源=伴生 .meta**（2026-10-29 拍板，推翻「文件头真值+meta 镜像」双源：guid 头只剩 src 下 .java 专属；9 内置资源剥头+伴生 .meta 随包释放（guid 沿用原头值零迁移）；BuiltinAssetReleaser 连 meta 一起释放；pipeline libraryFileFor 非脚本按 meta 解 guid——**焦点扫描无限导入循环根治**，Editor_Design §6.2 / AssetReload 档 §5.1 坑点） | ✅（2026-10-29） | ✅ 用户实测（2026-10-29，死循环根治——原场景改 .mat 颜色+切窗复测通过） |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 贴图导入 ImageImporter（.png/.jpg/.jpeg → Image 像素资产；ImageIO 同入口；alpha 通道保留修复；image 文件类型/图标，贴图档 §2） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
@@ -237,9 +245,11 @@
 | 第三方装载管线（PluginClassLoader parent-first / PluginInstance.load 全程不抛 + 失败关 cl 释放 jar 锁 / 一个 jar 一个插件） | ✅（2026-10-20） | — 静态骨架，第三方 jar 实测随后置装载批 |
 | PluginManager 宿主管线（classpath 恒先 fail-fast / jar 段 warn 跳过 + FAILED 账本 / namespace 冲突后来者跳过 / 语言包注册先于 setup） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 装载接入（ProjectLoadingFrame Engine Main 线程、GradleProject 后资产初始化前；Plugins/ 目录项目级） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
+| 插件装载错误显性化（任何插件报错——本体/第三方、发现/装载/冲突/setup——弹错误框显示 namespace+错误信息，确认后关闭编辑器 System.exit；原「第三方 warn 跳过/降级装载」口径作废，Editor_Plugin_Design §3.4） | ✅（2026-10-29） | ⏳ 待验收（坏 jar → 弹框+退出） |
 | i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ⏳ 待验收（随焦点扫描批次） |
+| 默认语言 en_US（`lang/en_US.properties` 全量 50 键英文翻译新建 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"——必备默认文件换位，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包，Editor_Plugin_Design §7.1 拍板） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机英文界面） |
 | 异常/弹窗消息 i18n（~116 条 TipException 等） | ⬜ 第二批 | — |
 | 面板/窗口标题 i18n、Inspector 注解 label key 化、源码机检、i18n 报告命令 | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
 
@@ -272,10 +282,12 @@
 ShaderParserTest 全绿——2D 死分支修复后 / SceneRenderDemo·MultiCameraDemo 引用层
 改造回归；编辑器全链已用户实测，跑测归用户）。
 
-②资产热重载批次①（2026-10-27 落地，Engine_AssetReload_Design v0.3——invalidate/reload
+②资产热重载批次①（2026-10-27 落地，Engine_AssetReload_Design v0.3/v0.4——invalidate/reload
 + 反射 Walker（含 Material 补默认值后处理）+ requestReconcile 孤儿回收 + AssetReloadService
-手动 reimport 链 + 材质面板 AssetReloadedEvent 最小钩子；验收清单见该档 §9：改 .shader/.mat
-→ 选中 reimport → 画面当帧变 / 同名参数用户值保留 / F3 存活计数不涨）。
+手动 reimport 链 + 材质面板 AssetReloadedEvent 最小钩子；**2026-10-29 拍板收窄只 shader**
+（.mat/.texture/.smesh/像素源摘出 reload 链「后面再加」，外部手改 .mat 不自动生效——
+材质编辑走检查器内存操作即时生效）；验收清单见该档 §9：改 .shader → 选中 reimport →
+画面当帧变 / 同名参数用户值保留 / F3 存活计数不涨）。
 
 ③坏 shader stub 产物 + 渲染回退默认 shader（2026-10-27 落地，Engine_Material_Design
 v0.3——Shader.isValid 判据 + ShaderImporter 编译失败落 stub + DefaultShader 门面渲染链
@@ -295,6 +307,28 @@ Ray.limit 方案短暂落地即回退）+ RaycastHit + Scene.getColliders 注册
 接线；随批相机链 Scene.getMainCamera（Unity Camera.main 口径）+ JavelinEngine.mouseRay
 （窗口尺寸+鼠标坐标组装）；验收 = 跑 PhysicsTest 14 用例 + GameSceneTest 主相机用例全绿
 （javelin-core）；mouseRay 归运行时装机验证）。
+
+⑥Mesh 子网格 + MeshRenderer 多材质（2026-10-29 落地，Engine_Assets_Design §2.9 /
+Engine_Scene_Design §5.1 v0.5 / Inspector_Design v0.13——SubMesh 区间列表 +
+setSubmeshes/getSubmeshCount + 上传校验 + RHI drawIndexed 三参 firstIndex + 每
+(renderer, 子网格) 一 RenderObject + 缺失位 DefaultMaterial 兜底（**语义变化：原
+material null 不渲染作废**——验收注意：无材质 MeshRenderer 现在以默认材质可见）
++ .smesh [SUBMESH_N] 段（与 [INDEX] 互斥）+ 检查器 GUID_ASSET_LIST 多材质行 +
+getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容；验收 = 跑
+MeshSerializationTest（子网格往返/边界）+ SceneSerializationTest（多材质往返）+
+实机：多子网格 .smesh + materials[2] 两子网格各按材质渲染、缺材质位默认材质可见）。
+
+⑦guid 真值单源=伴生 .meta（2026-10-29 落地，Editor_Design §6.2——用户拍板：只有
+src 下不需要 meta、guid 头只剩 src 下 .java、内置资源生成 meta 一起释放）：9 个内置
+源文件剥 guid 头 + 同目录随包伴生 .meta（guid=原头值——既有引用零迁移）；释放器连
+meta 一起释放（首次拷 meta+补默认导入设置，包缺 meta 抛错显性化）；管线
+libraryFileFor/ShaderImporter/SimpleMeshImporter/AssetInput/ShaderInspectorContent
+全部收敛 meta 单源；MetaManager createNewMeta 一律随机 guid + updateIndex 去头兜底
+分支。**起因=焦点扫描无限导入循环**（改 .mat 颜色触发：无头 .shader 恒判未导入 +
+模态进度框夺焦/还焦反馈环，AssetReload 档 §5.1 坑点存档）；验收 = 实机：首启释放
+内置 meta 无报错 / 焦点反复得失不再循环导入 / 场景里内置资产（default/gizmo/
+editor-grid）引用不断、画面正常 / ShaderParserTest 回归——**2026-10-29 用户实测
+销账（死循环根治，原触发场景复测通过）**。
 
 2026-10-25 用户实测销账 2 笔（状态已翻入各模块表）：①贴图导入管线 v0.1（§2.5/§3.6
 ——Image 像素资产 + Texture2D 三层改造 + ImageImporter + alpha 修复）；②纹理资产

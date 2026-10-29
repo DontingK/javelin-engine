@@ -90,8 +90,8 @@ public class MetaManager {
             logger.info("清理 {} 个孤儿 .meta 文件", orphanCount);
         }
 
-        // 为没有 .meta 的资源文件创建元数据（.shader/.smesh 也走 .meta：guid 从
-        // 文件头取真值，createNewMeta 内处理；仅 .java 保持纯文件头无 meta）
+        // 为没有 .meta 的资源文件创建元数据（一律 .meta：新建随机 guid；仅 .java
+        // 保持纯文件头无 meta，2026-10-29 拍板）
         int createdCount = 0;
         for (File file : resourceFiles) {
             if (isScriptFile(file)) {
@@ -412,18 +412,13 @@ public class MetaManager {
      * @return 新元数据
      */
     private AssetMeta createNewMeta(File file) {
-        // guid 真值在文件头（.java/.shader/.smesh）从文件头取——重释放 guid 稳定的
-        // 根基。缺头处理分层：.java 无 meta、头是唯一真值，注入路径种子 guid；
-        // .shader/.smesh 缺头=用户文件（guid 头是内置资源专属，不注入），走
-        // 随机 guid——meta 即真值，导入器头缺失回退 meta 的路径接住
+        // guid 真值=伴生 .meta（2026-10-29 拍板，唯一例外=src 下 .java 走文件头）。
+        // 新建 meta 一律随机 guid；.java 无 meta、头是唯一真值，注入路径种子 guid
         String guid;
         if (isScriptFile(file)) {
             guid = guidHeaderManager.extractOrInjectGuid(file, project.getRelativePath(file));
         } else {
-            String headerGuid = guidHeaderManager.extractGuid(file);
-            guid = (headerGuid == null || headerGuid.isEmpty())
-                    ? UUID.randomUUID().toString().replace("-", "")
-                    : headerGuid;
+            guid = UUID.randomUUID().toString().replace("-", "");
         }
         AssetMeta meta = new AssetMeta(guid, detectAssetType(file));
         meta.setLastModifiedTime(file.lastModified());
@@ -455,9 +450,8 @@ public class MetaManager {
      * 更新 Library 索引文件
      *
      * <p>扫描所有 {@code .meta} 文件与 {@code src/main/java} 下的 {@code .java}
-     * （.java 无伴生 .meta，guid 从文件头提取；.shader/.smesh 由 .meta 分支收录，
-     * 文件头分支保留为 meta 缺失时的兜底），生成
-     * {@code Library/index.asset}，存储 guid → Library 产物路径的映射。</p>
+     * （.java 无伴生 .meta，guid 从文件头提取；其余资产 guid 一律伴生 .meta），
+     * 生成 {@code Library/index.asset}，存储 guid → Library 产物路径的映射。</p>
      */
     public synchronized void updateIndex() {
         File indexFile = new File(project.getLibrary(), "index.asset");
@@ -512,13 +506,6 @@ public class MetaManager {
                         index.put(meta.getGuid(), sourcePath);
                     }
                 } else if (name.endsWith(".java") && FileUtil.isSubFile(project.getSrcMainJava(), file)) {
-                    String guid = guidHeaderManager.extractGuid(file);
-                    if (guid != null) {
-                        String sourcePath = getRelativePath(rootDir, file);
-                        index.put(guid, sourcePath);
-                    }
-                } else if (name.endsWith(".shader") || name.endsWith(".smesh")) {
-                    // 兜底：meta 缺失时 guid 仍从文件头可解（正常路径走上方 .meta 分支）
                     String guid = guidHeaderManager.extractGuid(file);
                     if (guid != null) {
                         String sourcePath = getRelativePath(rootDir, file);

@@ -6,7 +6,7 @@ import com.javelin.rhi.types.PrimitiveTopology;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
-import com.javelin.editor.meta.GuidHeaderManager;
+import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.project.Project;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +15,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -22,8 +23,9 @@ import java.util.List;
  * 简单网格导入器
  *
  * <p>解析自定义文本格式（.smesh），支持 [POSITION]、[UV]、[INDEX]、[NORMAL]、
- * [TOPOLOGY] 段，生成 {@link Mesh}（[TOPOLOGY] 值 = PrimitiveTopology 枚举名，
- * 如 TRIANGLE_LIST，缺省同默认）。</p>
+ * [TOPOLOGY]、[SUBMESH0]/[SUBMESH1]… 段，生成 {@link Mesh}（[TOPOLOGY] 值 =
+ * PrimitiveTopology 枚举名，如 TRIANGLE_LIST，缺省同默认；[SUBMESH_N] 每段一个
+ * 子网格索引列表，序号从 0 连续递增，与 [INDEX] 互斥，缺省 = 单一隐式全量）。</p>
  *
  * <p><b>格式示例：</b></p>
  * <pre>
@@ -54,9 +56,6 @@ public class SimpleMeshImporter implements AssetImporter {
 
     private static final List<String> SUPPORTED_EXTENSIONS = List.of(".smesh");
 
-    /** 源码文件头 GUID 读取（自包含真值源优先于 meta） */
-    private final GuidHeaderManager guidHeaderManager = new GuidHeaderManager();
-
     @Override
     public String getName() {
         return "SimpleMeshImporter";
@@ -82,6 +81,7 @@ public class SimpleMeshImporter implements AssetImporter {
             FloatArray normals = new FloatArray();
             FloatArray uvs = new FloatArray();
             IntArray indices = new IntArray();
+            List<IntArray> submeshes = new ArrayList<>();
 
             String currentSection = "NONE";
             String topologyName = null;
@@ -94,7 +94,27 @@ public class SimpleMeshImporter implements AssetImporter {
 
                 // 段切换：读到 [SECTION_NAME]
                 if (line.startsWith("[") && line.endsWith("]")) {
-                    currentSection = line.substring(1, line.length() - 1).toUpperCase();
+                    String section = line.substring(1, line.length() - 1).trim().toUpperCase();
+                    if (section.startsWith("SUBMESH")) {
+                        // 子网格段 [SUBMESH0]/[SUBMESH1]…：序号从 0 连续递增（显性化，红线 15）
+                        int index;
+                        try {
+                            index = Integer.parseInt(section.substring("SUBMESH".length()));
+                        } catch (NumberFormatException e) {
+                            task.setErrorMessage("子网格段名非法: " + line
+                                    + "（应为 [SUBMESH0]、[SUBMESH1] …）");
+                            return false;
+                        }
+                        if (index != submeshes.size()) {
+                            task.setErrorMessage("子网格段序号必须从 0 连续递增: " + line
+                                    + "（当前已有 " + submeshes.size() + " 段）");
+                            return false;
+                        }
+                        submeshes.add(new IntArray());
+                        currentSection = "SUBMESH";
+                        continue;
+                    }
+                    currentSection = section;
                     continue;
                 }
 
@@ -104,6 +124,7 @@ public class SimpleMeshImporter implements AssetImporter {
                     case "NORMAL" -> parseFloatLine(line, normals, 3);
                     case "UV" -> parseFloatLine(line, uvs, 2);
                     case "INDEX" -> parseIntLine(line, indices);
+                    case "SUBMESH" -> parseIntLine(line, submeshes.get(submeshes.size() - 1));
                     case "TOPOLOGY" -> topologyName = line.toUpperCase();
                     default -> {
                         // 未识别段，忽略
@@ -114,6 +135,12 @@ public class SimpleMeshImporter implements AssetImporter {
             // 校验必需段
             if (positions.size == 0) {
                 task.setErrorMessage("缺少 [POSITION] 数据或数据为空");
+                return false;
+            }
+
+            // [INDEX] 与 [SUBMESH_N] 互斥（显性化，红线 15）：两种索引来源不可同现
+            if (indices.size > 0 && !submeshes.isEmpty()) {
+                task.setErrorMessage("[INDEX] 与 [SUBMESH_N] 互斥，不可同时出现");
                 return false;
             }
 
@@ -141,7 +168,18 @@ public class SimpleMeshImporter implements AssetImporter {
             if (uvs.size > 0) {
                 mesh.setUVs(uvs.toArray());
             }
-            if (indices.size > 0) {
+            if (!submeshes.isEmpty()) {
+                // 子网格装配（2026-10-29 拍板）：逐段转数组，空段显性化
+                List<int[]> subArrays = new ArrayList<>(submeshes.size());
+                for (IntArray sub : submeshes) {
+                    if (sub.size == 0) {
+                        task.setErrorMessage("子网格 " + subArrays.size() + " 索引数据为空");
+                        return false;
+                    }
+                    subArrays.add(sub.toArray());
+                }
+                mesh.setSubmeshes(subArrays);
+            } else if (indices.size > 0) {
                 mesh.setIndices(indices.toArray());
             }
             if (topologyName != null) {
@@ -155,11 +193,13 @@ public class SimpleMeshImporter implements AssetImporter {
                 }
             }
 
-            // 落盘：guid 优先源文件头（.smesh 自包含），缺失才回退 meta；
-            // 产物路径与解析出的 guid 同源（文件名/内容/index 三者一致）
-            String guid = guidHeaderManager.extractGuid(sourceFile);
+            // 落盘：guid 真值=伴生 .meta（2026-10-29 拍板——guid 头只剩 src 下
+            // .java 专属）；产物路径与 meta guid 同源（文件名/内容/index 三者一致）
+            AssetMeta meta = task.getMeta();
+            String guid = meta != null ? meta.getGuid() : null;
             if (guid == null || guid.isEmpty()) {
-                guid = task.getMeta().getGuid();
+                task.setErrorMessage("伴生 .meta 缺 guid: " + sourceFile.getName());
+                return false;
             }
             // 产物自描述 guid（2026-10-04 拍板，与 ShaderImporter 同款）：Mesh.write
             // 调 super 内嵌——加载实例自带 guid，字段引用序列化走对象 guid 分流

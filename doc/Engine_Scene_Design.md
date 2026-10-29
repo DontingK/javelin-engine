@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.4（2026-10-28：GameScene 增 **colliders 注册表分流投影**（Scene 接口 `getColliders`）——L1 物理查询遍历源，Physics 门面消费，见 Engine_Collision_Design.md §10；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
+> 版本：v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -136,26 +136,37 @@ scene.remove / 摘出场景 → 即时 onDisable（按通知态）→ onDestroy 
 
 ## 5. 内置渲染组件
 
-### 5.1 MeshRenderer（合并设计，无 MeshFilter；字段已落地 2026-09-25）
+### 5.1 MeshRenderer（合并设计，无 MeshFilter；字段已落地 2026-09-25；多材质 2026-10-29）
 
 ```java
 class MeshRenderer extends Component {
     Mesh mesh;                    // 共享资产引用（一个 mesh 多 renderer 复用）
-    Material material;            // RHI 20 节材质实例（每 renderer 独立）
+    List<Material> materials;     // 多材质列表（i 位对应 Mesh 子网格 i；每 renderer 每子网格独立）
     boolean castShadow = true;
     boolean receiveShadow = true;
 }
 ```
 
 - **几何共享靠资产引用**（同一 Mesh 对象被多个 MeshRenderer 引用），**渲染差异靠材质实例**——不需要单独的 MeshFilter 组件；
-- `mesh`/`material` 为 null 时不渲染（missing 语义）；节点层级不激活或组件
+- **多材质（2026-10-29 拍板，Engine_Assets_Design §2.9）**：`materials` 列表 i 位对应
+  子网格 i，长度由 setMesh/setMaterials 按子网格数对齐（缺补 null、多余截断，Unity
+  sharedMaterials 口径）；`getMaterial()/setMaterial()` 为子网格 0 兼容门面（单子网格
+  场景零改动）；材质多于子网格数忽略多余；
+- **缺失兜底（2026-10-29 拍板，语义变化）**：materials[i] 缺失位/整列表空/shader 无效
+  （null / SPIR-V 缺失——编译失败 stub 产物）→ **DefaultMaterial 默认材质兜底渲染**
+  （Unity missing→error shader 口径；原「material null 不渲染」口径作废，单材质期
+  2026-10-27 的「null 原样」随多材质化作废）；默认 shader 不可用（未初始化/无产物）→
+  该子网格不渲染（降级不炸）；仅 `mesh` 为 null 不渲染（missing-mesh 语义不变）；
+- 节点层级不激活或组件
   enabled=false 同样不渲染（Unity 口径，2026-10-05 拍板：SceneRenderBridge 翻译时
   统一过滤——setActive/setEnabled 只影响生命周期状态机藏不住渲染，此处是唯一
   关卡；2026-10-17 扩为 `isActiveAndEnabled`——组件级禁用同口径，编辑器取消勾选
   MeshRenderer 头仍渲染实锤，Camera 同步补齐；激活/禁用翻转即时注销防旧
   RenderObject 残留）；SceneRenderBridge
-  每帧 pull 翻译（getRenderables → RenderObject），mesh/material 身份变化 =
-  注销重注（v0.1）；
+  每帧 pull 翻译（getRenderables → RenderObject），多材质化后 **每 (renderer,
+  子网格) 一个 RenderObject**（各自持 material + 子网格序号，透明分桶/排序/PSO/热重载
+  对账按 RenderObject 粒度天然成立，RenderingSystem 零改动），mesh/材质身份变化 =
+  全注销重注；
 - 未来 `SkinnedMeshRenderer` 对称扩展（自带 `SkinnedMesh` 字段），不依赖本设计。
 
 ### 5.2 Camera（对应 RHI 9 节 RenderView）
@@ -228,7 +239,7 @@ for (Camera cam : cameras)
 |---|---|---|
 | Camera 组件 | 9 节 RenderView | 引擎将 Camera 绑定为 RenderView（视图/投影/视口） |
 | 多相机 RenderList | 19 节多相机综合示例 | 每相机独立渲染列表 → 每 view 的 Pass 链 |
-| MeshRenderer.material | 20 节 Material 实例 | 材质实例直接挂在渲染组件上 |
+| MeshRenderer.material | 20 节 Material 实例 | 材质实例直接挂在渲染组件上（多材质化：materials[i] 对应子网格 i，每 (renderer, 子网格) 一 RenderObject，2026-10-29） |
 | 帧描述（6.3） | 27.2 帧交接 | 逻辑线程产出，渲染线程消费（领先 1 帧） |
 | RenderingSystem | 24 节帧执行 | 收集产物是 Pass 回调的输入（view.renderList） |
 
@@ -281,7 +292,7 @@ read 全量恢复，前两者移除——注册表 read 重建后幂等判据自
 | Transform | parent + children + local TRS | localMatrix/localToWorld/dirty（read 后 dirty=true 首帧重算） |
 | Node | name/active/components（含 Transform）/transform + scene（根 id 引用）+ layer/tags 投影 | ObjectId.id |
 | Camera | 全部用户字段（枚举走 name()；Color/Rect 直传） | — |
-| MeshRenderer | mesh/material（资产引用）+ castShadow/receiveShadow | — |
+| MeshRenderer | mesh + materials 列表（资产引用，i 位对应子网格 i；2026-10-29 多材质化，旧「material」单键 read 兼容包单元素）+ castShadow/receiveShadow | — |
 | GameScene | super（guid/lastModified 内嵌）+ name + rootNodes + components 主表 | cameras/renderables/colliders 分流投影（read 重建） |
 
 read 侧要点：Transform 直接回写 parent/children **不走 setParent**（不触发
@@ -338,13 +349,19 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
   「读回 null 不渲染」与框架行为不符）流入 RenderObject.forwardPass 即崩；
   RenderObject 构造器显式判空（**用户拍板：残材质 = 文件损坏口径，显式报错
   不静默跳过——曾补的 SceneRenderBridge `getShader()==null` missing 判定按同
-  拍板撤除，missing 语义仅覆盖 mesh/material 为 null**）；随即 **Material
+  拍板撤除，missing 语义仅覆盖 mesh/material 为 null**；2026-10-27 起 shader 无效
+  走 DefaultMaterial（时名 DefaultShader）stub 回退渲染、2026-10-29 多材质化后材质缺失位同走默认材质
+  兜底——两拍板覆盖本条「显式报错」旧口径，判空保留为最后防线）；随即 **Material
   write/read 落地**根治——shader 走框架 guid 分流（guid 非空经 AssetManager
   解回）、values/textures 重构为条目列表直通（Capsule 无 Map 通道，
   MaterialValueEntry/MaterialTextureEntry，同 Mesh 拍板存储形态 = 序列化形态）
   ——内嵌材质保存重载完整渲染（plane 闭环，用户驱动：「保存时是怎么样，读取
   出来应该都是一样的」）。剩 **.mat 资产格式**：材质 guid 化共享/实例化、
   Inspector 编辑载体；
+- **MeshRenderer 多材质（2026-10-29 落地，§5.1）**：materials 列表直传（i 位对应
+  子网格 i），旧「material」单键 read 兼容包单元素（旧 .scene 加载不破）；
+  setMesh/setMaterials 按子网格数对齐（pad null/截断）——场景加载后不强制对齐，
+  渲染侧按缺失兜底语义处理；
 - **子树剪贴板（copy/paste）**：序列化数据面已通（Node 图 round-trip 成立），
   剪贴板机制随命令落地——导出前须置根 transform.parent=null（避免父链整棵拖进
   图）并清子树 node.scene=null（旧场景非导出根走 GUID 查不到恢复 null，粘贴

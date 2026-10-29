@@ -20,6 +20,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -317,5 +318,38 @@ public class SceneSerializationTest {
         assertEquals(0.75f, loaded.getFloat("_Float"), 1e-6f);
         // 面型随材质数据面往返（透明性由材质裁决，拍板 2026-10-17 方案 B）
         assertEquals(SurfaceType.TRANSPARENT, loaded.getSurfaceType());
+    }
+
+    @Test
+    void multiMaterialSubmeshRoundTrip() throws Exception {
+        Mesh mesh = new Mesh();
+        mesh.setGuid("mesh-guid-submesh");
+        mesh.setPositions(new float[]{0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0});
+        mesh.setSubmeshes(List.of(new int[]{0, 1, 2}, new int[]{1, 3, 2}));
+        Material materialA = new Material();
+        materialA.setGuid("material-guid-a");
+        Material materialB = new Material();
+        materialB.setGuid("material-guid-b");
+
+        GameScene scene = new GameScene("Submesh Scene");
+        Node node = new Node();
+        node.setName("submesh-node");
+        MeshRenderer renderer = node.addComponent(MeshRenderer.class);
+        renderer.setMesh(mesh);
+        renderer.setMaterials(List.of(materialA, materialB));
+        scene.add(node);
+
+        File file = new File(tempDir, "submesh.bin");
+        new BinaryExporter(file).export(scene);
+        GameScene loaded = new BinaryImporter(file, new StubAssetManager(mesh, materialA, materialB))
+                .importData(GameScene.class);
+
+        MeshRenderer loadedRenderer = loaded.getRootNodes().get(0).getComponent(MeshRenderer.class);
+        // 多材质列表 guid 分流解回同实例（i 位对应子网格 i）；子网格区间随 mesh 引用保持
+        assertEquals(2, loadedRenderer.getMesh().getSubmeshCount());
+        assertEquals(2, loadedRenderer.getMaterials().size());
+        assertSame(materialA, loadedRenderer.getMaterial(0));
+        assertSame(materialB, loadedRenderer.getMaterial(1));
+        assertSame(materialA, loadedRenderer.getMaterial());
     }
 }

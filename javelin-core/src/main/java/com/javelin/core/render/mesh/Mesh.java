@@ -45,7 +45,8 @@ import java.util.TreeMap;
  * <p>v0.1 取舍：hostVisibleCoherent 内存（Buffer staging 上传未实现，RHI 遗留），
  * deviceLocal 化待 staging 路径落地；AABB/bounds 与视锥剔除属引擎优化点，后置
  * （用户拍板 2026-09-25）；~~recalculateNormals~~（2026-09-26 落地，索引绘制
- * TRIANGLE_LIST）/ submesh / .mesh 格式属 P2 未实现。</p>
+ * TRIANGLE_LIST）；submesh（2026-10-29 落地：单索引数组 + {@link SubMesh}
+ * 区间列表，Unity subMeshCount/SetTriangles 语义）；.mesh 格式属 P2 未实现。</p>
  */
 @Reflective
 public class Mesh extends AbsAsset {
@@ -54,6 +55,9 @@ public class Mesh extends AbsAsset {
     ArrayList<MeshAttributeData> attributes = new ArrayList<>();
     /** 索引数据（null = 无索引绘制）；序列化直通字段 */
     int[] indices;
+    /** 子网格区间列表（区间指向 indices；序列化直通字段；空 = 单一隐式全量子网格）；
+     *  package-private：MeshUpload 校验消费；draw 期消费（区间持久，上传清理顶点数据时保留） */
+    ArrayList<SubMesh> submeshes = new ArrayList<>();
     /** 图元拓扑（默认三角列表；PSO 图元类型来源，随产物序列化） */
     private PrimitiveTopology topology = PrimitiveTopology.TRIANGLE_LIST;
 
@@ -76,14 +80,16 @@ public class Mesh extends AbsAsset {
 
     /**
      * 产物格式（2026-10-04 拍板修正）：super（guid/lastModified）+ attributes/
-     * indices/topology/keepCpuCopy——与 Shader 同款，产物自描述 guid。旧格式
-     * 产物无 guid 键：super.read 优雅回 null（等价旧行为），删产物重导即迁移。
+     * indices/submeshes/topology/keepCpuCopy——与 Shader 同款，产物自描述 guid。
+     * 旧格式产物无 guid 键：super.read 优雅回 null（等价旧行为），删产物重导即迁移；
+     * 旧产物无 submeshes 键：read 空表 = 单一隐式全量子网格（向后兼容）。
      */
     @Override
     public void write(OutputCapsule output) {
         super.write(output);
         output.write("attributes", attributes);
         output.write("indices", indices);
+        output.write("submeshes", submeshes);
         output.write("topology", topology);
         output.write("keepCpuCopy", keepCpuCopy);
     }
@@ -94,6 +100,8 @@ public class Mesh extends AbsAsset {
         ArrayList<MeshAttributeData> nodes = input.readArrayList("attributes", MeshAttributeData.class);
         attributes = nodes != null ? nodes : new ArrayList<>();
         indices = input.readIntArray("indices");
+        ArrayList<SubMesh> subs = input.readArrayList("submeshes", SubMesh.class);
+        submeshes = subs != null ? subs : new ArrayList<>();
         PrimitiveTopology t = input.readEnum("topology", PrimitiveTopology.class);
         if (t != null) {
             topology = t;
@@ -179,6 +187,66 @@ public class Mesh extends AbsAsset {
             throw new IllegalArgumentException("topology must not be null");
         }
         this.topology = topology;
+    }
+
+    // ═══ 子网格（Unity subMeshCount / SetTriangles 语义，2026-10-29 拍板） ═══
+
+    /**
+     * 子网格三角形批量设置（Unity SetTriangles 批量形式）：每个 {@code int[]} 一个
+     * 子网格，内部按序拼接为 indices 并记录区间；调用后 indices 为拼接结果
+     * （等价 setIndices(拼接) + 区间，setIndices/setAttribute 仍可先行单独调用）。
+     *
+     * @throws IllegalArgumentException 列表为空或某子网格索引为空
+     */
+    public void setSubmeshes(List<int[]> submeshes) {
+        checkMutable();
+        if (submeshes == null || submeshes.isEmpty()) {
+            throw new IllegalArgumentException("submeshes must not be empty");
+        }
+        int total = 0;
+        for (int[] sub : submeshes) {
+            if (sub == null || sub.length == 0) {
+                throw new IllegalArgumentException("每个子网格索引必须非空");
+            }
+            total += sub.length;
+        }
+        int[] merged = new int[total];
+        this.submeshes.clear();
+        int offset = 0;
+        for (int[] sub : submeshes) {
+            System.arraycopy(sub, 0, merged, offset, sub.length);
+            this.submeshes.add(new SubMesh(offset, sub.length));
+            offset += sub.length;
+        }
+        this.indices = merged;
+        canonicalAttributes = null;
+    }
+
+    /** 子网格数（Unity subMeshCount 语义：无显式子网格 = 1 隐式全量） */
+    public int getSubmeshCount() {
+        return submeshes.isEmpty() ? 1 : submeshes.size();
+    }
+
+    /** 子网格 i 区间起点（上传前后均可用；越界抛 IllegalArgumentException） */
+    public int getSubmeshFirstIndex(int submesh) {
+        checkSubmeshIndex(submesh);
+        return submeshes.isEmpty() ? 0 : submeshes.get(submesh).getFirstIndex();
+    }
+
+    /** 子网格 i 索引数（隐式全量：uploaded ? indexCount : indices.length；越界抛） */
+    public int getSubmeshIndexCount(int submesh) {
+        checkSubmeshIndex(submesh);
+        if (submeshes.isEmpty()) {
+            return uploaded ? indexCount : (indices != null ? indices.length : 0);
+        }
+        return submeshes.get(submesh).getIndexCount();
+    }
+
+    private void checkSubmeshIndex(int submesh) {
+        int count = getSubmeshCount();
+        if (submesh < 0 || submesh >= count) {
+            throw new IllegalArgumentException("子网格序号越界: " + submesh + "（共 " + count + "）");
+        }
     }
 
     /**

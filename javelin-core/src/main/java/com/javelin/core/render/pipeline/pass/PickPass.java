@@ -162,7 +162,7 @@ public class PickPass implements RenderPass {
         pushData.limit(PICK_ID_OFFSET + Integer.BYTES);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
-        MeshDraw.drawIndexed(cmd, ro.mesh());
+        MeshDraw.drawIndexed(cmd, ro.mesh(), ro.submesh());
     }
 
     private GraphicsPipeline pipelineFor(RenderingSystem rs, RenderObject ro, boolean depthOn) {

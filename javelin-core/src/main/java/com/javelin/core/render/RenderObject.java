@@ -25,18 +25,25 @@ public class RenderObject {
     private final int layerMask;
     /** 属主组件（MeshRenderer；GPU 拾取 ID→对象映射的数据面，null = 直注册 Demo 对象） */
     private final Object owner;
+    /** 子网格序号（0 = 全量/隐式单子网格；每 (renderer, 子网格) 一实例，2026-10-29 多材质拆分） */
+    private final int submesh;
     /** 帧内拾取 ID（PickPass 录制期赋值，0 = 未分配；帧生命周期，无持久语义） */
     private int pickId;
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow) {
-        this(mesh, material, castShadow, ~0);
+        this(mesh, material, castShadow, ~0, null, 0);
     }
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask) {
-        this(mesh, material, castShadow, layerMask, null);
+        this(mesh, material, castShadow, layerMask, null, 0);
     }
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask, Object owner) {
+        this(mesh, material, castShadow, layerMask, owner, 0);
+    }
+
+    public RenderObject(Mesh mesh, Material material, boolean castShadow, int layerMask,
+                        Object owner, int submesh) {
         if (mesh == null || material == null || material.getShader() == null) {
             throw new IllegalArgumentException("mesh / material / material.shader must not be null");
         }
@@ -45,6 +52,7 @@ public class RenderObject {
         this.castShadow = castShadow;
         this.layerMask = layerMask;
         this.owner = owner;
+        this.submesh = submesh;
     }
 
     public Mesh mesh() {
@@ -74,6 +82,11 @@ public class RenderObject {
     /** 属主组件（GPU 拾取映射数据面；null = 直注册 Demo 对象） */
     public Object owner() {
         return owner;
+    }
+
+    /** 子网格序号（0 = 全量/隐式单子网格；绘制走 MeshDraw.drawIndexed(cmd, mesh, submesh)） */
+    public int submesh() {
+        return submesh;
     }
 
     public int pickId() {

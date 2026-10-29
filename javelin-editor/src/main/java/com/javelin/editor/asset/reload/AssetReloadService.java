@@ -2,11 +2,8 @@ package com.javelin.editor.asset.reload;
 
 import com.javelin.core.assets.Asset;
 import com.javelin.core.render.RenderingSystem;
-import com.javelin.core.render.material.DefaultShader;
-import com.javelin.core.render.material.Material;
+import com.javelin.core.render.material.DefaultMaterial;
 import com.javelin.core.render.material.Shader;
-import com.javelin.core.render.mesh.Mesh;
-import com.javelin.core.render.texture.Texture2D;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.asset.ProjectAssetLibManager;
 import com.javelin.editor.event.AssetReloadedEvent;
@@ -30,6 +27,11 @@ import javax.swing.SwingUtilities;
  * renderingSystem.requestReconcile() 孤儿回收 → 发 AssetReloadedEvent。
  * 触发口 = 手动 project.reimport + 焦点扫描（批次②：主窗口重获焦点扫 Assets/
  * 变更自动导入，有待导入弹模态进度框）。
+ *
+ * <p><b>热重载范围（拍板 2026-10-29 收窄）：仅 shader</b>——文件是真值源且渲染侧
+ * 按 shader 身份烤死（set2 布局/UBO 尺寸/PSO 缓存键），内存引用必须换代。.mat
+ * （编辑=内存直改即时生效，文件是镜像）、.texture/.smesh（GPU 侧上传烤死，外部改
+ * 须重上传）均摘出 reload 链待后续加回；像素源 .png 同归后续批次。</p>
  *
  * <p>线程契约：onImportComplete 在导入 worker 线程回调，换指针/对账经
  * {@code submitTask} 投引擎帧首执行（改引擎场景走引擎帧队列，EditorEventBus
@@ -56,6 +58,10 @@ public class AssetReloadService {
         pipeline.addListener(new AssetImportPipeline.ImportListener() {
             @Override
             public void onImportComplete(ImportTask task) {
+                onImported(task);
+            }
+            @Override
+            public void onImportFailed(ImportTask task) {
                 onImported(task);
             }
         });
@@ -135,7 +141,7 @@ public class AssetReloadService {
             int hits = AssetReloadWalker.walk(editorScene.getGameScene(), guid, fresh);
             hits += AssetReloadWalker.walk(editorScene.getEditorScene(), guid, fresh);
             // default.shader 本体被重导换代 → 默认材质单例下帧重建（identity 比对）
-            DefaultShader.onShaderReloaded(fresh);
+            DefaultMaterial.onShaderReloaded(fresh);
             renderingSystem.requestReconcile();
             EditorEventBus.publish(new AssetReloadedEvent(guid, source));
             log.info("资产热重载: {}（{}）换指针 {} 处", source.getName(), type.getSimpleName(), hits);
@@ -144,20 +150,12 @@ public class AssetReloadService {
         }
     }
 
-    /** 源文件后缀 → 热重载目标类型（null = 无对应，跳过）；.png 等像素源归批次③ */
+    /** 源文件后缀 → 热重载目标类型（null = 无对应，跳过）——拍板 2026-10-29 收窄仅 .shader，
+     *  .mat/.texture/.smesh/像素源摘出待后续加回（AssetReload_Design §5.2） */
     private static Class<? extends Asset> targetClass(File source) {
         String name = source.getName().toLowerCase();
-        if (name.endsWith(".mat")) {
-            return Material.class;
-        }
         if (name.endsWith(".shader")) {
             return Shader.class;
-        }
-        if (name.endsWith(".texture")) {
-            return Texture2D.class;
-        }
-        if (name.endsWith(".smesh")) {
-            return Mesh.class;
         }
         return null;
     }

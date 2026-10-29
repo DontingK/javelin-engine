@@ -21,18 +21,24 @@ import com.javelin.editor.swing.inspector.InspectorRegistry;
 public final class PluginContext {
 
     private final String namespace;
+    private final ClassLoader classLoader;
     private final I18nScope i18n;
 
     /**
      * 宿主构造（每插件一实例）。
      *
-     * @param namespace 插件命名空间
+     * @param namespace   插件命名空间
+     * @param classLoader 插件 classloader（语言包等插件资源来源）
      */
-    public PluginContext(String namespace) {
+    public PluginContext(String namespace, ClassLoader classLoader) {
         if (namespace == null || namespace.isBlank()) {
             throw new IllegalArgumentException("namespace 不能为空");
         }
+        if (classLoader == null) {
+            throw new IllegalArgumentException("classLoader 不能为空");
+        }
         this.namespace = namespace;
+        this.classLoader = classLoader;
         this.i18n = I18nScope.of(namespace);
     }
 
@@ -64,5 +70,23 @@ public final class PluginContext {
     /** 注册检查器 provider（转 {@link InspectorRegistry}，键重复 fail-fast） */
     public void registerInspector(InspectorProvider provider) {
         InspectorRegistry.register(provider);
+    }
+
+    /** 注册支持语言（转 {@link com.javelin.editor.i18n.I18n}，fileName 重复忽略先注册者优先——语言设置菜单选项源） */
+    public void registerLanguage(String fileName, String displayName) {
+        com.javelin.editor.i18n.I18n.registerLanguage(fileName, displayName);
+    }
+
+    /**
+     * 注册语言包（转 {@link com.javelin.editor.i18n.I18n#registerPack}——「域 + 语言 +
+     * 文件路径」显式声明，文件布局插件自定、一个文件对应一个域；集中式语言包指向
+     * 其他插件域即可翻译对方，同键后注册覆盖先注册）。
+     *
+     * @param namespace 目标域（自己文案传 {@link #namespace()}）
+     * @param language  语言文件名（语言注册表键）
+     * @param path      语言包文件路径（本插件 classloader 资源路径）
+     */
+    public void registerLanguagePack(String namespace, String language, String path) {
+        com.javelin.editor.i18n.I18n.registerPack(namespace, language, classLoader, path);
     }
 }

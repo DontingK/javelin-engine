@@ -5,7 +5,7 @@ import com.javelin.core.render.material.Material;
 import com.javelin.core.render.material.MaterialBlock;
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.MaterialPropertyType;
-import com.javelin.core.render.material.DefaultShader;
+import com.javelin.core.render.material.DefaultMaterial;
 import com.javelin.core.render.material.PassState;
 import com.javelin.core.render.material.Shader;
 import com.javelin.core.render.material.ShaderPass;
@@ -261,8 +261,8 @@ public final class RenderingSystem implements AutoCloseable {
                                         PrimitiveTopology topology, SampleCount samples,
                                         String passName) {
         checkOpen();
-        // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
-        material = DefaultShader.resolve(material);
+        // 坏 shader 回退解析（DefaultMaterial，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
+        material = DefaultMaterial.resolve(material);
         if (material == null) {
             throw new IllegalArgumentException("material must not be null");
         }
@@ -325,8 +325,8 @@ public final class RenderingSystem implements AutoCloseable {
      */
     public DescriptorSet materialSet(Material material) {
         checkOpen();
-        // 坏 shader 回退解析（DefaultShader，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
-        Material resolved = DefaultShader.resolve(material);
+        // 坏 shader 回退解析（DefaultMaterial，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
+        Material resolved = DefaultMaterial.resolve(material);
         if (resolved == null || resolved.getShader() == null) {
             throw new IllegalArgumentException("material / material.shader must not be null");
         }
@@ -688,7 +688,7 @@ public final class RenderingSystem implements AutoCloseable {
 
     /**
      * 对账：活集 = renderers 的 Material 实例 + 其 Shader + 默认材质单例（坏 shader
-     * 回退渲染体，DefaultShader.resolve 的资源键；materialSet/pipelineFor 消费方只有
+     * 回退渲染体，DefaultMaterial.resolve 的资源键；materialSet/pipelineFor 消费方只有
      * AbstractForwardPass，均出自 renderers；PickPass/DebugLinePass 自建
      * PSO 不经缓存）。孤儿/烤死状态退役走两帧队列（GPU in-flight 安全）：
      * <ul>
@@ -713,8 +713,8 @@ public final class RenderingSystem implements AutoCloseable {
                 liveShaders.add(m.getShader());
             }
         }
-        // 默认材质单例（坏 shader 回退渲染体，DefaultShader.resolve 资源键）显式入活集——防对账误退役
-        Material defaultMaterial = DefaultShader.current();
+        // 默认材质单例（坏 shader 回退渲染体，DefaultMaterial.resolve 资源键）显式入活集——防对账误退役
+        Material defaultMaterial = DefaultMaterial.current();
         if (defaultMaterial != null) {
             liveMaterials.add(defaultMaterial);
             if (defaultMaterial.getShader() != null) {

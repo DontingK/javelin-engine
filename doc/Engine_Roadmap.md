@@ -288,6 +288,42 @@ submitImport，纯 IO 不占 EDT；导入中不重扫防重复提交）→ 有�
 文案不再攒批进第二批，Editor_Plugin_Design §7.2-0）。批次②剩余 Scene 根豁免仍后置
 （外部改 .scene 重导 Library 但场景 warn 跳过）。
 
+进度（2026-10-29 落地，**待用户验收**）：**Mesh 子网格 + MeshRenderer 多材质
+（Engine_Assets_Design §2.9 / Engine_Scene_Design §5.1 v0.5）**——拍板：子网格 =
+单索引数组 + SubMesh 区间列表（Unity subMeshCount/SetTriangles 语义，RHI drawIndexed
+三参扩展 firstIndex 范围绘制）；材质列表 i 位对应子网格 i，每 (renderer, 子网格) 一
+RenderObject（透明分桶/排序/PSO/热重载对账按 RenderObject 粒度天然成立，RenderingSystem
+零改动）；**缺失兜底语义变化**：materials 缺失位/空列表/shader 无效 → DefaultMaterial
+（原 DefaultShader，2026-10-29 改名——共享默认材质单例懒建一次，语义不变）
+默认材质兜底渲染（原「material null 不渲染」口径作废，仅 mesh null 不渲染）；
+.smesh 增 [SUBMESH_N] 段（与 [INDEX] 互斥，缺省=单子网格向后兼容）；检查器
+GUID_ASSET_LIST 通道多材质行（行数跟随子网格数，Inspector_Design v0.13）；
+getMaterial()/setMaterial() 兼容门面（既有调用点零改动）。验收口：多子网格 .smesh
++ materials[2] → 两子网格各按材质渲染；缺材质位 → 默认材质可见。
+
+进度（2026-10-29 落地，**待用户验收**）：**热重载范围收窄只 shader + DefaultMaterial
+改名 + material() 双重检查锁**（Engine_AssetReload_Design v0.4 / Engine_Material_Design
+v0.4）——拍板判据 = **文件真值源 + 渲染侧按实例身份烤死**：Shader（文件源 + set2 布局/
+UBO 尺寸/PSO 缓存键按身份烤死）必须 reload；.mat（编辑=检查器内存直改即时生效——
+数值参数 UBO 每绑重打包/面型活读/贴图槽实例换代，文件是镜像非源）、.texture/.smesh/
+像素源（GPU 上传烤死须重上传）**摘出 reload 链「后面再加」**（基建不动——walker/
+reload/reconcile 全保留，targetClass 加回分支即恢复；外部手改 .mat 不自动生效）。
+DefaultShader → DefaultMaterial 改名（门面身份=共享默认材质单例，懒建一次全引擎复用，
+identity 稳定；API 面全保留）；material() 改双重检查锁（已建走无锁快路径，仅首次建
+进同步块）。验收口：改 .shader → reimport → 画面当帧变；改 .mat → 不 reload（检查器
+内存编辑仍即时生效）。
+
+进度（2026-10-29 落地，**待用户验收**）：**插件装载错误显性化 + 语言包注册制随批**
+（Editor_Plugin_Design §3.4/§4.3）——装载期任何插件报错（本体/第三方、发现/装载/
+namespace 冲突/setup 失败，含语言包路径缺失）一律弹错误框显示 namespace+错误信息
+（EDT invokeAndWait 阻塞至确认，显示 namespace+包路径+错误信息——包路径供排障
+定位，文案硬编码中文——装载期 i18n 未注册），确认后
+System.exit 关闭编辑器；**原「第三方 warn 跳过/降级装载」口径作废**（静默跳过坏
+插件 = 排障难题，红线 15 推到装载期）。语言包注册制：registerLanguage（支持语言
+菜单选项源）+ registerPack「域+语言+路径」显式注册（固定路径规范废除，一文件一
+域，集中式语言包可翻译其他插件域），editor.core setup 注册 en_US/zh_CN；缺键逐键
+回退该域基线（第一个注册的语言包，英文不特殊）。
+
 ---
 
 ## 3. 三期：光照
@@ -313,7 +349,7 @@ submitImport，纯 IO 不占 EDT；导入中不重扫防重复提交）→ 有�
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** + **Mesh 子网格 + MeshRenderer 多材质 + 检查器 GUID_ASSET_LIST 多材质行（2026-10-29 落地待验收，Engine_Assets_Design §2.9/Engine_Scene_Design §5.1 v0.5/Inspector_Design v0.13）** |
 | 三期 | 灯光 + ShadowPass（clustered Forward+ 拍板 2026-10-28——四批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass+Deferred 复用；Engine_Lighting_Design v0.1） | 🔄 设计拍板收口（2026-10-28），实装未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
@@ -323,6 +359,8 @@ submitImport，纯 IO 不占 EDT；导入中不重扫防重复提交）→ 有�
 - 场景：environment/sun（三期灯光一并定）、.scene 序列化（二期编辑器前置）；
 - 资产：动态 Mesh/动态纹理专项（设计要点已记录，材质档 §6 / 资产档 §2.8）；
 - 渲染优化：视锥剔除（Aabb/Mesh.bounds 已随碰撞片③回归 2026-10-05，剔除本身仍后置）、遮挡剔除/GPU Instancing/LOD（P2）；
+- 构建链：groupId/包名迁移拍板（2026-10-29）——**目标命名 `cn.donting.javelin`**（包根 `cn.donting.javelin.*` = 坐标 `cn.donting.javelin:javelin-*`，groupId 与包根完全对齐、artifactId 与目录名零改动）；**触发条件 = 开源/上 Maven Central**（`com.javelin` 域名非自有，mavenLocal 内部使用零成本不先动）；方案 = 一次性前缀替换 `com.javelin` → `cn.donting.javelin`（尾部全不动，源文件/资产 FQCN/硬编码串同一替换，无断代风险）；独立一批纯重构，验收 = 全测绿 + 三端实机行为与改前一致；
+- 开源前置（2026-10-29 拍板起步）：**License = MIT**（个人开发者作品，与 LWJGL BSD-3/JOML MIT 生态一致；Apache-2.0 的企业贡献者增益不适用）；**默认语言拍板 en_US（2026-10-29 落地，待验收）——`lang/en_US.properties` 新建（editor.core 全量 50 键英文翻译）+ `I18n.DEFAULT_LANGUAGE` 切 "en_US"，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包；**首选项菜单 + 语言设置全链落地待验收（2026-10-29）——file.preferences 首选项命令（Editor_Menu_Design v0.18，「首选项」非「设置」命名拍板）+ 语言包注册制（I18n.registerLanguage 支持语言 + registerPack「域+语言+路径」显式注册，`lang/{lang}.properties` 固定路径规范废除——文件布局自定/一文件一域/集中式语言包可翻译其他插件域，否决 Lang 枚举）+ EditorSettings.language 字段 + 启动链 main setLanguage（已存值优先/未设置按系统语言 tag/**缺键逐键回退该域基线=该域第一个注册的语言包，英文不特殊**），确定写盘 + 重启生效拍板**；开源批待做 = LICENSE + THIRD-PARTY 第三方声明（LWJGL=BSD-3 / shaderc=Apache-2.0 / logback=EPL-2.0+LGPL-2.1 双许可 / FlatLaf / Jackson / JOML 等）+ README + `javelin-engine5` 命名收尾 + 插件域待拍板余 3 项（组件显示名/命令 id 前缀化/FileType 冲突策略，Editor_Plugin_Design §7.1）+ groupId/包名迁移（上行挂账）；
 
 ---
 

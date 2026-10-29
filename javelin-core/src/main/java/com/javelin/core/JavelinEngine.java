@@ -15,7 +15,7 @@ import com.javelin.core.render.FrameDescription;
 import com.javelin.core.render.FrameLoop;
 import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
-import com.javelin.core.render.material.DefaultShader;
+import com.javelin.core.render.material.DefaultMaterial;
 import com.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import com.javelin.core.render.pipeline.PipelineContext;
 import com.javelin.core.render.pipeline.RenderPipeline;
@@ -140,7 +140,7 @@ public class JavelinEngine {
 
         assetManager = createAssetManager();
         // 默认 shader 门面注入（坏 shader 渲染回退判据，拍板 2026-10-27）
-        DefaultShader.init(assetManager);
+        DefaultMaterial.init(assetManager);
         subsystemManager = createSubsystemManager();
         registerSubsystem(subsystemManager);
 

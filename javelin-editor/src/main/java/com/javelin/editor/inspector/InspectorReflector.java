@@ -26,6 +26,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -121,12 +123,60 @@ public final class InspectorReflector {
             applyTag(host, value);
             return;
         }
+        if (declared == InspectorValueType.GUID_ASSET_LIST) {
+            applyAssetList(host, fieldName, value);
+            return;
+        }
         PropMeta prop = findProp(host, fieldName);
         if (prop.valueType != declared) {
             throw new TipException("值类型不匹配: " + host.getClass().getSimpleName() + "."
                     + fieldName + " 期望 " + prop.valueType + "，实收 " + valueType);
         }
         prop.set(host, parseValue(prop, value));
+    }
+
+    /**
+     * 资产列表回写（GUID_ASSET_LIST 通道）：fieldName 编码序号（materials[i]），
+     * guid → 元素实例（同 GUID_ASSET 三态：空串=内存创建不可回写、未索引拒绝防
+     * 静默置 null），替换列表 i 位（缺位补 null）→ 整列表 setter（读 getter 写
+     * setter 铁律，不裸写字段）。
+     */
+    private static void applyAssetList(ObjectId host, String fieldName, String value) {
+        int bracket = fieldName.lastIndexOf('[');
+        if (bracket < 0 || !fieldName.endsWith("]")) {
+            throw new TipException("资产列表字段名缺序号: " + fieldName);
+        }
+        int index = parseInt(fieldName.substring(bracket + 1, fieldName.length() - 1));
+        String base = fieldName.substring(0, bracket);
+        PropMeta prop = findProp(host, base);
+        if (prop.valueType != InspectorValueType.GUID_ASSET_LIST) {
+            throw new TipException("值类型不匹配: " + host.getClass().getSimpleName() + "."
+                    + base + " 期望 " + prop.valueType);
+        }
+        // guid 三态与 GUID_ASSET 分支同口径：null=None 清空合法（该位 null → 渲染侧
+        // DefaultMaterial 兜底）；空串=内存创建不可回写；未索引拒绝防静默置 null
+        Asset asset;
+        if (value == null) {
+            asset = null;
+        } else {
+            String guid = value.trim();
+            if (guid.isEmpty()) {
+                throw new TipException("内存创建资产不可回写: " + base);
+            }
+            JavelinEditor editor = JavelinEditor.getInstance();
+            asset = editor != null ? editor.getAssetManager().loadGuid(guid, prop.assetType) : null;
+            if (asset == null) {
+                throw new TipException("资产不存在（guid 未索引）: " + base);
+            }
+        }
+        // 整列表 setter 提交（防御性拷贝在 setter 内）；反射泛型擦除，raw 通道
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        List list = new ArrayList((List) prop.get(host));
+        while (list.size() <= index) {
+            list.add(null);
+        }
+        list.set(index, asset);
+        prop.set(host, list);
     }
 
     /**
@@ -166,9 +216,44 @@ public final class InspectorReflector {
             if ("enabled".equals(prop.fieldName)) {
                 continue;
             }
+            if (prop.valueType == InspectorValueType.GUID_ASSET_LIST) {
+                // 资产列表展开为 N 行（每行一个元素），行控件/回显/回写全复用 GUID_ASSET 面
+                vo.fields.addAll(assetListFieldVos(component, prop));
+                continue;
+            }
             vo.fields.add(fieldVo(component, prop));
         }
         return vo;
+    }
+
+    /**
+     * 资产列表字段展开：N = max(1, 列表长度) 行（列表长度由 setMesh/setMaterials 按
+     * 子网格数对齐——行数即子网格数，未赋 mesh 兜 1；场景加载后不强制对齐，渲染侧
+     * 按缺失兜底语义处理）。fieldName 编码序号（materials[i]）供回写定位；
+     * 行 value/assetName 走元素级 guid 三态。
+     */
+    private static List<InspectorFieldVo> assetListFieldVos(ObjectId host, PropMeta prop) {
+        List<?> current = (List<?>) prop.get(host);
+        int count = Math.max(1, current == null ? 0 : current.size());
+        List<InspectorFieldVo> vos = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            Object element = current != null && i < current.size() ? current.get(i) : null;
+            InspectorFieldVo vo = new InspectorFieldVo();
+            vo.fieldName = prop.fieldName + "[" + i + "]";
+            vo.name = prop.displayName + " " + i;
+            vo.valueType = prop.valueType.name();
+            vo.value = element == null ? null : guidWire(element);
+            vo.assetName = element == null ? null : guidAssetLabel(element);
+            vo.assetType = prop.assetType;
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    /** 资产 guid wire 三态（GUID_ASSET/GUID_ASSET_LIST 共用）：null→guid 原串，空串=内存创建 */
+    private static String guidWire(Object value) {
+        String guid = ((Asset) value).getGuid();
+        return guid != null && !guid.isBlank() ? guid : "";
     }
 
     private static InspectorFieldVo fieldVo(ObjectId host, PropMeta prop) {
@@ -229,8 +314,7 @@ public final class InspectorReflector {
             case GUID_ASSET:
                 // 三态：字段无资产→null（前端 "None"）；guid 空（内存创建）→空串
                 // （前端禁用态标记，不可回写）；有 guid→guid 原串（显示名另走 assetName）
-                String guid = ((Asset) value).getGuid();
-                return guid != null && !guid.isBlank() ? guid : "";
+                return guidWire(value);
             default:
                 // 暂缓类型不应出现在收集面（类型映射已挡）
                 return null;
@@ -373,17 +457,20 @@ public final class InspectorReflector {
             return null;
         }
         String owner = field.getDeclaringClass().getSimpleName() + "." + field.getName();
-        String cap = capitalize(field.getName());
-        Method getter = zeroParam.containsKey("get" + cap) ? zeroParam.get("get" + cap)
-                : zeroParam.get("is" + cap);
-        Method setter = findSetter(oneParam.get("set" + cap), field.getType());
-        if (getter == null || setter == null) {
-            throw new IllegalStateException("InsField 字段缺公开访问器（须 getX/isX + 参数类型匹配的 setX）: " + owner);
-        }
         InspectorValueType type = mapValueType(field);
         if (type == null) {
             throw new IllegalStateException("InsField 字段类型不可检查: " + owner
                     + "（类型 " + field.getType().getSimpleName() + "；Quaternionf 还须 @InsRotation）");
+        }
+        String cap = capitalize(field.getName());
+        Method getter = zeroParam.containsKey("get" + cap) ? zeroParam.get("get" + cap)
+                : zeroParam.get("is" + cap);
+        // 资产列表通道 setter 放宽：参数 List 可从字段类型赋值（setMaterials(List) ← ArrayList 字段）
+        Method setter = type == InspectorValueType.GUID_ASSET_LIST
+                ? findListSetter(oneParam.get("set" + cap), field.getType())
+                : findSetter(oneParam.get("set" + cap), field.getType());
+        if (getter == null || setter == null) {
+            throw new IllegalStateException("InsField 字段缺公开访问器（须 getX/isX + 参数类型匹配的 setX）: " + owner);
         }
         Class<?> enumType = null;
         List<InspectorFieldVo.Option> options = null;
@@ -411,12 +498,26 @@ public final class InspectorReflector {
                 }
             }
         }
-        // GUID_ASSET 声明类型随元数据携带（AssetInput 接受范围与回写 loadGuid 类型；
-        // asSubclass 安全：mapValueType 已验 Asset 可赋型）
+        // GUID_ASSET/GUID_ASSET_LIST 声明类型随元数据携带（AssetInput 接受范围与回写
+        // loadGuid 类型；asSubclass 安全：mapValueType 已验 Asset 可赋型）
         Class<? extends Asset> assetType = type == InspectorValueType.GUID_ASSET
-                ? field.getType().asSubclass(Asset.class) : null;
+                ? field.getType().asSubclass(Asset.class)
+                : type == InspectorValueType.GUID_ASSET_LIST ? assetListElementType(field) : null;
         return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),
                 enumType, options, assetType);
+    }
+
+    /** 资产列表通道 setter：参数类型须可从字段类型赋值（List.isAssignableFrom(ArrayList)） */
+    private static Method findListSetter(List<Method> candidates, Class<?> fieldType) {
+        if (candidates == null) {
+            return null;
+        }
+        for (Method method : candidates) {
+            if (method.getParameterTypes()[0].isAssignableFrom(fieldType)) {
+                return method;
+            }
+        }
+        return null;
     }
 
     /**
@@ -472,7 +573,8 @@ public final class InspectorReflector {
 
     /**
      * 字段类型 → 值类型；不可映射返回 null（即不展示）。
-     * Asset 引用型字段（Mesh/Material 等）→ GUID_ASSET（AssetInput 可编辑）。暂缓：Collider 组件。
+     * Asset 引用型字段（Mesh/Material 等）→ GUID_ASSET（AssetInput 可编辑）；资产列表
+     * 字段（List&lt;Asset 子类&gt;，泛型实参判据）→ GUID_ASSET_LIST。暂缓：Collider 组件。
      */
     private static InspectorValueType mapValueType(Field field) {
         Class<?> type = field.getType();
@@ -510,8 +612,24 @@ public final class InspectorReflector {
             // 节点 layer：wire 为索引 int 字符串，读写经 Layer.of/getValue 换算
             return InspectorValueType.INT;
         }
+        if (type == ArrayList.class || type == List.class) {
+            // 资产列表通道（2026-10-29）：泛型实参为 Asset 子类才可检查，其余列表不映射
+            return assetListElementType(field) != null ? InspectorValueType.GUID_ASSET_LIST : null;
+        }
         if (Asset.class.isAssignableFrom(type)) {
             return InspectorValueType.GUID_ASSET;
+        }
+        return null;
+    }
+
+    /** 列表字段元素类型（泛型实参为 Asset 子类即资产列表；非参数化/非 Asset 返回 null） */
+    private static Class<? extends Asset> assetListElementType(Field field) {
+        if (!(field.getGenericType() instanceof ParameterizedType parameterized)) {
+            return null;
+        }
+        Type argument = parameterized.getActualTypeArguments()[0];
+        if (argument instanceof Class<?> cls && Asset.class.isAssignableFrom(cls)) {
+            return cls.asSubclass(Asset.class);
         }
         return null;
     }

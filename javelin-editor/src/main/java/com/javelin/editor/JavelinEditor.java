@@ -22,11 +22,13 @@ import com.javelin.editor.asset.BuiltinAssetReleaser;
 import com.javelin.editor.asset.ProjectAssetLibManager;
 import com.javelin.editor.asset.reload.AssetReloadService;
 import com.javelin.editor.importer.AssetImportPipeline;
+import com.javelin.editor.i18n.I18n;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.MetaManager;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.serializable.TextImporter;
+import com.javelin.editor.settings.EditorSettings;
 import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.settings.SettingsManager;
 import com.javelin.editor.swing.EditorTheme;
@@ -40,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Properties;
 
 public class JavelinEditor extends JavelinEngine {
@@ -256,6 +259,16 @@ public class JavelinEditor extends JavelinEngine {
     public static void main(String[] args) {
         // FlatLaf——必须在任何 Swing 组件创建之前安装（Editor_Swing_Design §3）
         EditorTheme.setup();
+        // 界面语言（2026-10-29 拍板默认 en_US）：编辑器设置已存值优先；未设置（首启）
+        // 按系统语言（语言_国家）解析——不支持的语言由查表逐键回退默认 en_US
+        // 默认 en_US（须早于插件语言包注册，I18n.setLanguage 冻结语义）
+        EditorSettings startSettings = SettingsManager.loadStandaloneEditorSettings();
+        if (startSettings.getLanguage() != null) {
+            I18n.setLanguage(startSettings.getLanguage());
+        } else {
+            Locale locale = Locale.getDefault();
+            I18n.setLanguage(locale.getLanguage().toLowerCase() + "_" + locale.getCountry().toUpperCase());
+        }
         SwingUtilities.invokeLater(() -> {
             ProjectFrame projectWindow = new ProjectFrame();
             projectWindow.setSize(1280, 720);

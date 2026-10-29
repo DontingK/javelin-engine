@@ -1,4 +1,3 @@
-// @javelin-guid: 5e7b3f0c9a2d4e6b8f1c3d5a7e9b2f4d
 Shader "Default"
 {
     Properties

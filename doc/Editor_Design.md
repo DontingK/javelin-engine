@@ -136,12 +136,15 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
 ### 6.2 元数据（meta 包）
 
 - **伴生 `.meta`**：每个资源文件同级 `文件名.meta`（文本序列化），存 guid / 类型 / 导入设置 / 源文件 mtime。
-- **文件头 GUID 类资产（`.shader` / `.smesh`）也落伴生 `.meta`（2026-10-25 统一，
-  推翻 2026-09-26「自包含不建 meta」半边）**：GUID 真值仍为 `// @javelin-guid:`
-  文件头（`GuidHeaderManager` 提取/注入——删缓存重编译 guid 不变、内置重释放 guid
-  稳定的根基保留），meta 内 guid 为文件头**镜像**（createNewMeta 按头取）；meta
-  同时承载导入设置与源 mtime（needImport 判等依据）。旧项目零迁移（sync/releaser
-  自动补建 meta、guid 不变、引用不受影响）。
+- **guid 真值单源 = 伴生 `.meta`（2026-10-29 拍板，推翻「文件头真值 + meta 镜像」
+  双源形态）**：guid 头（`// @javelin-guid:`）**只剩 `src/main/java` 下 `.java` 专属**
+  （代码树不产 meta、头是唯一真值，GuidHeaderManager 仅服务脚本）；`.shader`/`.smesh`
+  及其余一切资产 guid 真值=伴生 `.meta`（createNewMeta 一律随机 guid），头不再是真值
+  载体。**内置资源 `.meta` 随包一起打包释放**：`builtin-asset-*` 资源同目录提交伴生
+  `.meta`（guid=原文件头值迁移——guid 全程不变，既有场景引用不断、旧项目零迁移）。
+  起因=焦点扫描死循环（Engine_AssetReload_Design §5.1 坑点）：v0.16「用户 .shader 不写
+  guid 头」与管线 `libraryFileFor`「按文件头解析产物 guid」组合——无头文件产物恒判
+  缺失，每轮焦点扫描重提交、模态框失焦/关框回焦点自持循环。
 - **唯一无 meta 例外：`src/main/java` 下 `.java`**（代码树不产 meta；脚本导入器
   未落地、meta 无消费方——头 GUID 脚手架保留，meta 形态待脚本功能真落地再拍，
   2026-10-25）。
@@ -152,8 +155,8 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
 ### 6.3 导入管线（importer 包）
 
 - `AssetImporter` SPI：扩展名注册表驱动（扫描实例化所有实现）。产物统一命名
-  `Library/{guid}.asset`。**产物 guid 优先取源码文件头**（`.shader` 自包含真值源），
-  **文件头缺失才回退 meta 的 guid**（拍板 2026-09-26）。当前实现：`SimpleMeshImporter`
+  `Library/{guid}.asset`。**产物 guid 一律取伴生 meta 的 guid**（2026-10-29 单源
+  拍板，推翻 2026-09-26「文件头优先、meta 兜底」双源——文件头只剩 .java 例外）。当前实现：`SimpleMeshImporter`
   （.smesh 文本格式 → Mesh Capsule 二进制产物，补齐落盘 2026-09-26）；
   **`ShaderImporter`（.shader → 解析 → #version 后注入 → shaderc 编译 → Capsule 二进制
   产物，2026-09-26 落地）**——管线中首个真正写出二进制产物的导入器，
@@ -171,10 +174,12 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
   `ImportTask` 记录状态/耗时/错误；导入成功回写 meta（导入设置 + mtime 对齐源文件，
   含 .shader/.smesh——其导入设置自此真持久化）。
 - `BuiltinAssetReleaser`：按构建期 `builtin-asset.index` 把 classpath 内置资源释放到
-  `.javelin/assets/{name}/`（资源自带 GUID 文件头校验）。**内容字节比对驱动重导
-  （2026-10-25）**：内容相同→跳过重拷 + meta 的 mtime 对齐当前文件（不触发重导）；
-  内容变化→重拷且**不动 meta**（旧 mtime 与新文件 mtime 不等被 refresh 检出重导）；
-  首次释放→建 meta（mtime=当前，首导入由产物缺失兜底）。修掉的坑：旧实现 dev 每次
+  `.javelin/assets/{name}/`，**伴生 `.meta` 随包同释放**（2026-10-29：`builtin-asset-*`
+  同目录 `.meta` 一并打进包里；首次释放拷包内 meta + 补默认导入设置，包缺 meta=
+  打包异常抛错显性化）。**内容字节比对驱动重导
+  （2026-10-25）**：内容相同→跳过重拷 + meta 的 mtime 对齐当前文件（不触发重导；
+  meta 缺失时从包内补释放）；内容变化→重拷且**不动 meta**（旧 mtime 与新文件 mtime 不等被 refresh 检出重导）；
+  首次释放→拷包内 meta（mtime 保持 0 与文件 mtime 不等，首导入由 refresh 检出）。修掉的坑：旧实现 dev 每次
   启动无条件重拷（mtime 恒新）+ refresh 只查产物存在性——内置源更新永不重导，Library
   旧产物静默劫持运行时行为（**2026-10-25 gizmo 被 box 遮挡案根因**：10-04 旧产物仍是
   `Pass Forward` 声明、箭头落 Opaque 桶按场景深度绘制——排查法=产物时间戳 vs 源

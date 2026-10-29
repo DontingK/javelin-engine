@@ -1,8 +1,10 @@
-# 检查器（Inspector）设计（v0.12）
+# 检查器（Inspector）设计（v0.13）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
 > 设计基准=完全参考 Unity（Editor_Design §1）。
+> v0.13（2026-10-29）：**GUID_ASSET_LIST 资产列表通道（§4）**——MeshRenderer.materials
+> 多材质行（行数跟随子网格数，fieldName 编码序号 materials[i]，整列表 setter 回写）。
 > （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
 > /inspector/* 桥已删、三 VO 迁 inspector 包；本文类型通道/序列化/回写规则继续有效，
 > v0.1~v0.3 落地与验收记录为 Web 期沿革。）
@@ -47,7 +49,7 @@
 > 0.1、range 字段=注解 step）；滚轮调值与无限拖（指针回绕）试做后按用户要求移除。
 > v0.7（2026-10-25，**用户实测验收通过**）：**.shader 资产只读诊断台（§11 注册器第三键，
 > ShaderInspectorProvider/Content）**——Unity 着色器检查器对照（无编辑字段、诊断
-> 台定位）：后台线程经文件头/meta 解 guid → AssetManager.loadGuid 读 Library 产物
+> 台定位）：后台线程经伴生 .meta 解 guid（2026-10-29 起单源；旧=文件头/meta 双源）→ AssetManager.loadGuid 读 Library 产物
 >（**读产物即编译后真值**，与材质面板读源互补）、EDT 组装三段——头（文件/Shader/
 > GUID）+ 属性声明表（名/类型/默认值或区间或贴图占位）+ Pass 状态表（Cull/ZWrite/
 > ZTest/Blend 底稿摘要）；产物缺失=显式诊断态（对应 Unity 编译错误区，导入失败/
@@ -60,8 +62,8 @@
 > wire 三态（null=None 清空合法/空串=内存创建/非空=guid，GUID_ASSET 同构）；三
 > 输入通道=选择窗（AssetPickerDialog：模态、后台 listAssetPaths 拉取、None 恒首、
 > 搜索过滤、双击/确定提交、取消不动值）+ 项目面板右区拖拽（JList 拖源
-> javaFileListFlavor 传 File；AssetInput 按扩展名过滤 + guid 双源解析——文件头
-> 优先伴生 .meta 兜底）+ setValue 外源刷新；提交走 Consumer<String>（机制归控件、
+> javaFileListFlavor 传 File；AssetInput 按扩展名过滤 + guid 解析——2026-10-29 起
+> 伴生 .meta 单源，旧=文件头优先伴生 .meta 兜底）+ setValue 外源刷新；提交走 Consumer<String>（机制归控件、
 > 策略归使用方先例）；FieldEditor 兼容（isEditing 恒 false——原子提交无逐键态）。
 > **core 新口 AssetManager.guidOfPath**（pathMap 反查、pathOfGuid 对偶——选择窗
 > 路径条目取 guid 提交；Stub 桩同步补）。**同日追加：材质检查器 Shader 行换装
@@ -219,6 +221,15 @@ int 串，前端勾选式多选按 Layer 名投影）/ **TAG（节点头专用�
 去后缀（`AssetManager.pathOfGuid`），反查失败兜底 guid；声明类型随 VO assetType
 下发（AssetInput 接受范围与回写 loadGuid 类型）；回写=guid 经 loadGuid 解实例、
 未索引拒绝；行控件=AssetInput，v0.3 只读形态已随 v0.10 退役）**。
+**GUID_ASSET_LIST（v0.13，2026-10-29：资产列表字段，List&lt;Asset 子类&gt; 泛型实参
+判据——MeshRenderer.materials 首例）**：收集面展开为 N 行（N = 列表长度 min 1——
+列表长度由 setMesh/setMaterials 按子网格数对齐，行数即子网格数，未赋 mesh 兜 1；
+场景加载后不强制对齐），每行一个元素、行控件/回显/回写全复用 GUID_ASSET 面
+（AssetInput + 元素级 guid 三态 + assetName/assetType=元素类型）；fieldName 编码
+序号（`materials[i]`）供回写定位，applyAssetList 解析序号 → guid 解实例（同
+GUID_ASSET 三态语义）→ 复制现列表、i 位替换（缺位补 null）→ 整列表 setter（读
+getter 写 setter 铁律）；列表通道 setter 查找放宽（参数 List 可从 ArrayList 字段
+赋值）；资产行提交后检查器补拉重建（mesh 行换绑 → 材质列表对齐行数变）。
 ENUM/COLOR/RECT/LAYER_MASK 编解码 v0.2 放开（Camera 接入驱动；前端 Ins 控件族与
 VO options 字段 v0.1 已预留，本片纯 Java 侧反射器补齐）。
 
@@ -416,10 +427,11 @@ Material 补 getValues()/getTextures() 只读视图（unmodifiable 展示面，�
 setFloat/setColor/setTexture——红线 10 只禁 write 侧包装，展示视图无碍）。
 
 **Shader 只读诊断台（ShaderInspectorContent，v0.7 2026-10-25）**：与材质「读源」
-互补走**读产物**——文件头 guid 优先、伴生 .meta 兜底（用户文件无头），经
+互补走**读产物**——伴生 .meta 单源解 guid（2026-10-29 guid 真值单源拍板；旧=
+文件头优先、meta 兜底），经
 AssetManager.loadGuid 取 Library 编译产物（shaderName/属性元数据/Pass + PassState
 即导入后真值）；EDT 组装三段（头 + 属性声明表 + Pass 状态表，浮点 InsFormat 同
-口径）；产物缺失/guid 双源皆缺=显式诊断态（导入失败或未导入，对应 Unity 着色器
+口径）；产物缺失/meta 缺 guid=显式诊断态（导入失败或未导入，对应 Unity 着色器
 检查器的编译错误区——诊断信息归导入日志，面板只判存在性）；代际守卫同材质面板。
 着色器源码编辑归外部编辑器体系（Unity 同口径，双击外开待 file.open 打开器批次）。
 

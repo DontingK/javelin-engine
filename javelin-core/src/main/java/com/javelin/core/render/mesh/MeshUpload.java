@@ -53,6 +53,16 @@ public final class MeshUpload {
         if (mesh.indices == null || mesh.indices.length == 0) {
             throw new IllegalStateException("upload 需要 setIndices（必选项）");
         }
+        // 子网格区间校验（显性化，AGENTS.md 红线 15）：区间必须在索引数组范围内
+        for (int i = 0; i < mesh.submeshes.size(); i++) {
+            SubMesh sub = mesh.submeshes.get(i);
+            if (sub.getIndexCount() <= 0 || sub.getFirstIndex() < 0
+                    || sub.getFirstIndex() + sub.getIndexCount() > mesh.indices.length) {
+                throw new IllegalStateException("子网格 " + i + " 区间越界: firstIndex="
+                        + sub.getFirstIndex() + " indexCount=" + sub.getIndexCount()
+                        + "（索引总数 " + mesh.indices.length + "）");
+            }
+        }
 
         int vertexCount = positions.length / 3;
         List<MeshAttributeData> canonical = mesh.canonicalAttributes();
@@ -108,6 +118,7 @@ public final class MeshUpload {
         if (!mesh.keepCpuCopy) {
             mesh.attributes.clear();
             mesh.indices = null;
+            // submeshes 区间保留（非顶点数据，MeshDraw 子网格范围绘制期消费）
         }
     }
 

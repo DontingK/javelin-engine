@@ -417,8 +417,13 @@ final class VulkanCommandBuffer implements CommandBuffer {
 
     @Override
     public void drawIndexed(int indexCount, int instanceCount) {
+        drawIndexed(indexCount, instanceCount, 0);
+    }
+
+    @Override
+    public void drawIndexed(int indexCount, int instanceCount, int firstIndex) {
         checkInRenderPass();
-        vkCmdDrawIndexed(vkCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+        vkCmdDrawIndexed(vkCommandBuffer, indexCount, instanceCount, firstIndex, 0, 0);
         device.stats().onDrawn(indexCount / 3, instanceCount);
     }
 
