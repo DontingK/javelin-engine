@@ -6,6 +6,7 @@ import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.MetaManager;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.util.FileUtil;
 import org.slf4j.Logger;
@@ -134,7 +135,7 @@ public class BuiltinAssetReleaser {
         if (assetImporter != null) {
             return assetImporter.createDefaultSettings(new File(path));
         }
-        throw new IllegalArgumentException("未知的资源后缀: " + path);
+        throw new IllegalArgumentException(EditorLang.text("builtin.unknownSuffix", path));
     }
 
     /**
@@ -155,7 +156,7 @@ public class BuiltinAssetReleaser {
         ClassLoader classLoader = this.getClass().getClassLoader();
         URL resource = classLoader.getResource(classpathPath);
         if (resource == null) {
-            throw new RuntimeException("资源不存在：" + classpathPath);
+            throw new RuntimeException(EditorLang.text("builtin.resourceMissing", classpathPath));
         }
         byte[] source;
         try (InputStream inputStream = resource.openStream()) {
@@ -209,7 +210,7 @@ public class BuiltinAssetReleaser {
     private byte[] readResource(String classpathPath) throws IOException {
         URL url = this.getClass().getClassLoader().getResource(classpathPath);
         if (url == null) {
-            throw new RuntimeException("包内资源不存在: " + classpathPath);
+            throw new RuntimeException(EditorLang.text("builtin.jarResourceMissing", classpathPath));
         }
         try (InputStream is = url.openStream()) {
             return is.readAllBytes();

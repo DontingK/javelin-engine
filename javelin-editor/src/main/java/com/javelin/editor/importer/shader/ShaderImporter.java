@@ -8,6 +8,7 @@ import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.tool.shaderc.ShaderCompiler;
 import com.javelin.tool.shaderc.ShaderStage;
@@ -88,11 +89,11 @@ public class ShaderImporter implements AssetImporter {
 
         } catch (ShaderParseException e) {
             LOGGER.error("着色器解析失败: {}", sourceName, e);
-            task.setErrorMessage("着色器解析失败: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.shader.parseFailed", e.getMessage()));
             return exportStub(sourceFile, task, project, e.getMessage());
         } catch (Exception e) {
             LOGGER.error("着色器导入失败: {}", sourceName, e);
-            task.setErrorMessage("着色器导入失败: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.shader.importFailed", e.getMessage()));
             return exportStub(sourceFile, task, project, e.getMessage());
         }
     }

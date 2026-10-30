@@ -12,9 +12,9 @@ import com.javelin.core.inspector.InsEnumLabel;
  */
 public enum ProjectionType implements InsEnumLabel {
     /** 透视投影：fovY + aspect + near/far（3D 场景默认） */
-    PERSPECTIVE("透视"),
+    PERSPECTIVE("ins.enum.projection.perspective"),
     /** 正交投影：orthographicSize（半高） + aspect + near/far（2D/UI/编辑器辅助用） */
-    ORTHOGRAPHIC("正交");
+    ORTHOGRAPHIC("ins.enum.projection.orthographic");
 
     /** Inspector 下拉显示名（Unity 简中口径） */
     private final String label;

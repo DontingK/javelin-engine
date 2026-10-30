@@ -16,11 +16,11 @@ import com.javelin.core.inspector.InsEnumLabel;
  */
 public enum ClearFlags implements InsEnumLabel {
     /** 清颜色（相机背景色/管线默认色）+ 清深度——常规视口（默认） */
-    SOLID_COLOR("颜色+深度"),
+    SOLID_COLOR("ins.enum.clearFlags.solidColor"),
     /** 只清深度，颜色保留已有画面——叠加相机合成（全屏 UI/Gizmo 层，配合 depth 排序） */
-    DEPTH_ONLY("仅深度"),
+    DEPTH_ONLY("ins.enum.clearFlags.depthOnly"),
     /** 颜色与深度都保留（LOAD）——残影类特效；附件从未被清过时内容未定义，慎用 */
-    DONT_CLEAR("不清除");
+    DONT_CLEAR("ins.enum.clearFlags.dontClear");
 
     /** Inspector 下拉显示名（自述清屏行为，见类注释） */
     private final String label;

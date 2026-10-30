@@ -114,8 +114,8 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
         editor.getAssetImportPipeline().awaitImport(task, AWAIT_IMPORT_TIMEOUT_MS);
         if (task.getStatus() == ImportTask.Status.FAILED) {
             JOptionPane.showMessageDialog(MainFrame.getInstance(),
-                    "新建材质导入失败: " + task.getErrorMessage(),
-                    "创建材质", JOptionPane.ERROR_MESSAGE);
+                    EditorLang.text("create.material.importFailed", task.getErrorMessage()),
+                    EditorLang.text("create.material.dialogTitle"), JOptionPane.ERROR_MESSAGE);
         }
         EditorEventBus.publish(new ProjectChangedEvent());
         LOGGER.info("创建材质资产: {}", file);

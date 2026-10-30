@@ -4,6 +4,7 @@ package com.javelin.editor.serializable;
 import com.javelin.core.assets.Asset;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.Serializable;
+import com.javelin.editor.plugin.EditorLang;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -95,13 +96,13 @@ public class TextInputCapsule implements InputCapsule {
                 // 「未注册的类」崩（2026-10-04 场景首条文本 guid 引用实测暴露）
                 return (T) importer.getAssetManager().loadGuid(guid, (Class<Asset>) type);
             }
-            throw new IllegalStateException("无法解析 GUID 引用，未配置 AssetManager: " + guid);
+            throw new IllegalStateException(EditorLang.text("text.guidUnresolvable", guid));
         }
         if (v.startsWith("@ref:")) {
             int id = Integer.parseInt(v.substring(5));
             return (T) importer.getObject(id);
         }
-        throw new RuntimeException("无法解析 Serializable 值: " + v);
+        throw new RuntimeException(EditorLang.text("text.badSerializableValue", v));
     }
 
     @Override
@@ -193,7 +194,7 @@ public class TextInputCapsule implements InputCapsule {
             int id = Integer.parseInt(v.substring(5));
             return importer.getObject(id);
         }
-        throw new RuntimeException("无法解析数组引用: " + v);
+        throw new RuntimeException(EditorLang.text("text.badArrayRef", v));
     }
 
     @Override

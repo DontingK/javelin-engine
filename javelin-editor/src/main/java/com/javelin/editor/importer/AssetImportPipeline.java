@@ -6,6 +6,7 @@ import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.meta.MetaManager;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.util.ClassUtil;
 import com.javelin.editor.util.FileUtil;
@@ -170,7 +171,7 @@ public class AssetImportPipeline {
         try {
             AssetImporter importer = findImporter(task.getSourceFile());
             if (importer == null) {
-                task.setErrorMessage("找不到适合的导入器");
+                task.setErrorMessage(EditorLang.text("import.noImporter"));
                 logger.error("导入失败: 找不到导入器 for {}", task.getSourceFile());
                 return;
             }

@@ -1,5 +1,6 @@
 package com.javelin.editor.menu;
 
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.window.MainFrame;
 import com.javelin.editor.swing.SvgIcon;
 import org.slf4j.Logger;
@@ -194,7 +195,8 @@ public final class MenuPopupFactory {
                     case "shift" -> sb.append("shift ");
                     case "alt" -> sb.append("alt ");
                     case "meta" -> sb.append("meta ");
-                    default -> throw new IllegalArgumentException("未知修饰键: " + tokens[i]);
+                    default -> throw new IllegalArgumentException(
+                            EditorLang.text("menu.popup.unknownModifier", tokens[i]));
                 }
             }
             sb.append(keyName(tokens[tokens.length - 1].trim()));

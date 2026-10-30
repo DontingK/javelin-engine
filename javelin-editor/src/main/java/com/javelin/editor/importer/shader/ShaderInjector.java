@@ -2,6 +2,7 @@ package com.javelin.editor.importer.shader;
 
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.MaterialPropertyType;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,10 +53,10 @@ public final class ShaderInjector {
         int versionEnd = findVersionLineEnd(body, sourceName, stageName);
         StringBuilder injected = new StringBuilder(body.length() + 512);
         injected.append(body, 0, versionEnd);
-        injected.append("\n// ── 引擎注入声明（自动生成，勿手写）──\n");
+        injected.append("\n// ── engine injected declarations (auto-generated, do not write) ──\n");
         injected.append(ENGINE_BLOCKS).append('\n');
         appendMaterialDeclaration(injected, properties);
-        injected.append("// ── 注入结束 ──\n");
+        injected.append("// ── injection end ──\n");
         injected.append(body, versionEnd, body.length());
         return injected.toString();
     }
@@ -71,8 +72,8 @@ public final class ShaderInjector {
             i++;
         }
         if (!body.startsWith("#version", i)) {
-            throw new ShaderParseException(
-                    stageName + " 块缺少 #version 450（必填行，注入锚点）", sourceName, 0);
+            throw new ShaderParseException(EditorLang.key("shader.inject.missingVersion", stageName),
+                    sourceName, 0);
         }
         while (i < length && body.charAt(i) != '\n') {
             i++;
@@ -122,9 +123,7 @@ public final class ShaderInjector {
             }
         }
         if (!found.isEmpty()) {
-            throw new ShaderParseException(
-                    stageName + " 块出现注入保留字 " + found
-                            + "（cam/pc/material 声明由构建工具注入，不得手写）",
+            throw new ShaderParseException(EditorLang.key("shader.inject.reservedName", stageName, found),
                     sourceName, 0);
         }
     }

@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.inspector;
 
 import java.io.File;
+import com.javelin.editor.plugin.EditorLang;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -30,11 +31,11 @@ public final class InspectorRegistry {
         for (String key : provider.keys()) {
             if (!InspectorProvider.NODE_KEY.equals(key)
                     && (!key.startsWith(".") || !key.equals(key.toLowerCase(Locale.ROOT)))) {
-                throw new IllegalArgumentException("检查器键须为 node 键或含点号小写扩展名: " + key);
+                throw new IllegalArgumentException(EditorLang.text("inspector.registry.badKey", key));
             }
             InspectorProvider prev = PROVIDERS.putIfAbsent(key, provider);
             if (prev != null) {
-                throw new IllegalStateException("检查器键重复注册: " + key);
+                throw new IllegalStateException(EditorLang.text("inspector.registry.duplicateKey", key));
             }
         }
     }

@@ -8,6 +8,7 @@ import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.NodeTransformChangeEvent;
 import com.javelin.editor.event.SceneChangedEvent;
 import com.javelin.editor.event.Subscription;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.exception.TipException;
 import com.javelin.editor.inspector.ComponentInspectorVo;
 import com.javelin.editor.inspector.InspectorReflector;
@@ -56,7 +57,7 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
     private static final Logger LOGGER = LoggerFactory.getLogger(NodeInspectorContent.class);
 
     /** 内部空态文案（僵尸节点兜底；「无选中」常态归外壳） */
-    private static final String EMPTY_TEXT = "未选中任何对象";
+    private static final String EMPTY_TEXT = EditorLang.text("inspector.empty");
 
     private final JLabel emptyLabel = new JLabel(EMPTY_TEXT, SwingConstants.CENTER);
     private JScrollPane scrollPane;

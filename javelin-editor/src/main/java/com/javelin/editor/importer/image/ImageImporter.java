@@ -6,6 +6,7 @@ import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,7 +69,7 @@ public class ImageImporter implements AssetImporter {
 
         } catch (Exception e) {
             LOGGER.error("贴图导入失败: {}", sourceName, e);
-            task.setErrorMessage("贴图导入失败: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.image.importFailed", e.getMessage()));
             return false;
         }
     }

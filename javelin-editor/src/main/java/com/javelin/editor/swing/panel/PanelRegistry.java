@@ -1,5 +1,7 @@
 package com.javelin.editor.swing.panel;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import javax.swing.JComponent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,10 +35,10 @@ public final class PanelRegistry {
      */
     public static synchronized void register(PanelDescriptor descriptor) {
         if (descriptor == null) {
-            throw new IllegalArgumentException("descriptor 不能为 null");
+            throw new IllegalArgumentException(EditorLang.text("panel.nullDescriptor"));
         }
         if (PANELS.containsKey(descriptor.getId())) {
-            throw new IllegalStateException("重复面板 id: " + descriptor.getId());
+            throw new IllegalStateException(EditorLang.text("panel.duplicateId", descriptor.getId()));
         }
         PANELS.put(descriptor.getId(), descriptor);
     }
@@ -66,7 +68,7 @@ public final class PanelRegistry {
     public static JComponent create(String id) {
         PanelDescriptor descriptor = get(id);
         if (descriptor == null) {
-            throw new IllegalArgumentException("面板未注册: " + id);
+            throw new IllegalArgumentException(EditorLang.text("panel.unregistered", id));
         }
         return descriptor.createComponent();
     }

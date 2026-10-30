@@ -3,6 +3,7 @@ package com.javelin.editor.importer.shader;
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.MaterialPropertyType;
 import com.javelin.core.render.material.PassState;
+import com.javelin.editor.plugin.EditorLangTestBase;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.rhi.types.ColorComponentFlags;
 import com.javelin.rhi.types.CompareOp;
@@ -21,9 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>覆盖：v0.13 全语法（Properties 五类型 / Pass 状态命令 / vs/fs 捕获）、
  * GLSL 注释中大括号不破坏块捕获、错误报行号、
- * 注入声明顺序与保留字校验（RHI 21.5 / 21.6）。
+ * 注入声明顺序与保留字校验（RHI 21.5 / 21.6）。报错文案经 EditorLang
+ * 解析（i18n 全量化批次），继承 {@link EditorLangTestBase} 装 zh_CN 包。</p>
  */
-public class ShaderParserTest {
+public class ShaderParserTest extends EditorLangTestBase {
 
     private static final String FULL_SHADER = """
             Shader "TestFull"

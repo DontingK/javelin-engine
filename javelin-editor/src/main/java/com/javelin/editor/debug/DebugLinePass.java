@@ -3,6 +3,7 @@ package com.javelin.editor.debug;
 import com.javelin.core.render.RenderView;
 import com.javelin.core.render.RenderingSystem;
 import com.javelin.core.render.pipeline.PipelineContext;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.core.render.pipeline.pass.AbstractForwardPass;
 import com.javelin.rhi.Buffer;
 import com.javelin.rhi.Device;
@@ -181,13 +182,13 @@ public class DebugLinePass extends AbstractForwardPass {
     private static byte[] readSpv(String resource) {
         try (InputStream stream = DebugLinePass.class.getResourceAsStream(resource)) {
             if (stream == null) {
-                throw new IOException("SPIR-V 资源不存在: " + resource + "（先跑 gradlew :javelin-tool:generateDebugLineSpv 生成）");
+                throw new IOException(EditorLang.text("debugLine.spirvMissing", resource));
             }
             try (InputStream in = new BufferedInputStream(stream)) {
                 return in.readAllBytes();
             }
         } catch (IOException e) {
-            throw new IllegalStateException("DebugLine SPIR-V 加载失败: " + e.getMessage(), e);
+            throw new IllegalStateException(EditorLang.text("debugLine.spirvLoadFailed", e.getMessage()), e);
         }
     }
 }

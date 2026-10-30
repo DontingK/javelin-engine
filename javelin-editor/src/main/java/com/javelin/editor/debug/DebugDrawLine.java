@@ -2,6 +2,7 @@ package com.javelin.editor.debug;
 
 import com.javelin.core.math.Color;
 import com.javelin.core.physics.collision.Aabb;
+import com.javelin.editor.plugin.EditorLang;
 import org.joml.Vector3fc;
 
 /**
@@ -27,7 +28,7 @@ public final class DebugDrawLine {
     /** 绑定数据面（DebugLineAppState onAttach；重复绑定抛错防双挂） */
     static void bind(DebugLineBatch target) {
         if (batch != null) {
-            throw new IllegalStateException("DebugDrawLine 已绑定（重复装配？）");
+            throw new IllegalStateException(EditorLang.text("debugLine.alreadyBound"));
         }
         batch = target;
     }
@@ -65,7 +66,7 @@ public final class DebugDrawLine {
 
     private static DebugLineBatch bound() {
         if (batch == null) {
-            throw new IllegalStateException("DebugDrawLine 未初始化（DebugLineAppState 未装配）");
+            throw new IllegalStateException(EditorLang.text("debugLine.notInitialized"));
         }
         return batch;
     }

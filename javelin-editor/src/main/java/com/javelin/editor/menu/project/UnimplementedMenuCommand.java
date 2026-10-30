@@ -1,5 +1,6 @@
 package com.javelin.editor.menu.project;
 
+import com.javelin.editor.plugin.EditorLang;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +40,7 @@ public class UnimplementedMenuCommand extends ProjectMenuCommand {
      */
     public UnimplementedMenuCommand(String id, String shortcut, String icon) {
         if (id == null || id.isBlank()) {
-            throw new IllegalArgumentException("命令 id 不能为空");
+            throw new IllegalArgumentException(EditorLang.text("menu.commandIdRequired"));
         }
         this.id = id;
         this.shortcut = shortcut;

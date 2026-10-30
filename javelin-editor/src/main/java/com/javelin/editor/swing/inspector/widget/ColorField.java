@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.inspector.widget;
 
 import com.javelin.editor.swing.inspector.FieldEditor;
+import com.javelin.editor.plugin.EditorLang;
 
 import javax.swing.JColorChooser;
 import javax.swing.JComponent;
@@ -54,7 +55,7 @@ public class ColorField extends JButton implements FieldEditor {
     /** 拾色（模态对话框；取消不动；alpha 保留原值） */
     private void pickColor() {
         Color initial = new Color(clamp01(r), clamp01(g), clamp01(b));
-        Color picked = JColorChooser.showDialog(this, "选择颜色", initial);
+        Color picked = JColorChooser.showDialog(this, EditorLang.text("colorField.pickerTitle"), initial);
         if (picked == null) {
             return;
         }

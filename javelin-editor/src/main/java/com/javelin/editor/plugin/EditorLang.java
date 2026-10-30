@@ -18,7 +18,7 @@ public final class EditorLang {
         // 静态门面禁止实例化
     }
 
-    /** 注入 scope（EditorCorePlugin.setup 调，一次） */
+    /** 注入 scope（EditorCorePlugin.setup 调，一次；测试经同包 EditorLangTestBase） */
     static void init(I18nScope i18n) {
         scope = i18n;
     }

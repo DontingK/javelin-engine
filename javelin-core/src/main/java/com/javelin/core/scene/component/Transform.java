@@ -26,7 +26,7 @@ import java.util.Iterator;
  * @since 1.0.0
  */
 @Reflective
-@InsHeader(label = "变换", icon = "transform")
+@InsHeader(label = "ins.transform", icon = "transform")
 public class Transform extends Component implements Iterable<Transform> {
 
     private Transform parent;
@@ -34,12 +34,12 @@ public class Transform extends Component implements Iterable<Transform> {
     // 类型用 ArrayList 直通（红线 10：序列化集合字段不经包装，直传字段本体）
     private ArrayList<Transform> children = new ArrayList<>();
 
-    @InsField(label = "位置")
+    @InsField(label = "ins.transform.position")
     private Vector3f localPosition = new Vector3f();
     @InsRotation
-    @InsField(label = "旋转")
+    @InsField(label = "ins.transform.rotation")
     private Quaternionf localRotation = new Quaternionf();
-    @InsField(label = "缩放")
+    @InsField(label = "ins.transform.scale")
     private Vector3f localScale = new Vector3f(1.0f, 1.0f, 1.0f);
 
     private Matrix4f localMatrix = new Matrix4f();

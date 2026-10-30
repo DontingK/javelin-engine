@@ -1,5 +1,7 @@
 package com.javelin.editor.swing.dock;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import javax.swing.JComponent;
 import javax.swing.UIManager;
 import java.awt.Color;
@@ -46,7 +48,7 @@ public final class TabStrip extends JComponent {
 
         public TabItem(String title, boolean closable) {
             if (title == null || title.isBlank()) {
-                throw new IllegalArgumentException("标签标题不能为空");
+                throw new IllegalArgumentException(EditorLang.text("dock.tabTitleRequired"));
             }
             this.title = title;
             this.closable = closable;
@@ -79,7 +81,7 @@ public final class TabStrip extends JComponent {
 
     public TabStrip(List<TabItem> items, int activeIndex, Listener listener) {
         if (items == null || items.isEmpty()) {
-            throw new IllegalArgumentException("标签条至少一项");
+            throw new IllegalArgumentException(EditorLang.text("dock.tabItemsRequired"));
         }
         this.items = new ArrayList<>(items);
         this.listener = listener;

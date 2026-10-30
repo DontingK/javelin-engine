@@ -2,6 +2,7 @@ package com.javelin.editor.importer.shader;
 
 import com.javelin.core.render.material.MaterialProperty;
 import com.javelin.core.render.material.PassState;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.rhi.types.BlendFactor;
 import com.javelin.rhi.types.ColorComponentFlags;
 import com.javelin.rhi.types.CompareOp;
@@ -81,7 +82,7 @@ public final class ShaderParser {
         ShaderParser parser = new ShaderParser(source, sourceName);
         ParsedShader shader = parser.parseShader();
         if (shader.passes().isEmpty()) {
-            throw new ShaderParseException("Shader 至少需要一个 Pass 块", sourceName, parser.line);
+            throw new ShaderParseException(EditorLang.key("shader.parse.needPass"), sourceName, parser.line);
         }
         return shader;
     }
@@ -104,7 +105,7 @@ public final class ShaderParser {
                 break;
             }
             if (atEnd()) {
-                throw error("Shader 块未闭合");
+                throw error("shader.parse.shaderUnclosed");
             }
             String keyword = readIdentifier();
             switch (keyword) {
@@ -112,11 +113,11 @@ public final class ShaderParser {
                 case "Pass" -> {
                     ParsedPass pass = parsePassBody();
                     if (!passNames.add(pass.name())) {
-                        throw error("重复 Pass: " + pass.name());
+                        throw error("shader.parse.dupPass", pass.name());
                     }
                     passes.add(pass);
                 }
-                default -> throw error("未知顶层块: " + keyword + "（仅 Properties / Pass）");
+                default -> throw error("shader.parse.unknownTopBlock", keyword);
             }
         }
         return new ParsedShader(shaderName, properties, passes);
@@ -132,7 +133,7 @@ public final class ShaderParser {
                 break;
             }
             if (atEnd()) {
-                throw error("Properties 块未闭合");
+                throw error("shader.parse.propertiesUnclosed");
             }
             properties.add(parsePropertyLine());
         }
@@ -195,8 +196,7 @@ public final class ShaderParser {
                 }
                 yield MaterialProperty.texture2D(propName, displayName, placeholder);
             }
-            default -> throw error("未知属性类型: " + typeKeyword
-                    + "（Color / Vector / Float / Range / 2D）");
+            default -> throw error("shader.parse.unknownPropType", typeKeyword);
         };
         skipTrivia();
         if (peek() == ';') {
@@ -222,20 +222,20 @@ public final class ShaderParser {
                 break;
             }
             if (atEnd()) {
-                throw error("Pass 块未闭合");
+                throw error("shader.parse.passUnclosed");
             }
             String keyword = readIdentifier();
             switch (keyword) {
                 case "vs" -> {
                     if (vsBody != null) {
-                        throw error("Pass 内重复 vs 块");
+                        throw error("shader.parse.dupVs");
                     }
                     vsLine = line;
                     vsBody = captureGlslBlock();
                 }
                 case "fs" -> {
                     if (fsBody != null) {
-                        throw error("Pass 内重复 fs 块");
+                        throw error("shader.parse.dupFs");
                     }
                     fsLine = line;
                     fsBody = captureGlslBlock();
@@ -245,13 +245,13 @@ public final class ShaderParser {
                 case "ZTest" -> state.setDepthTest(readZTest());
                 case "Blend" -> readBlend(state);
                 case "ColorMask" -> state.setColorMask(readColorMask());
-                default -> throw error("未知 Pass 命令: " + keyword
-                        + "（Cull / ZWrite / ZTest / Blend / ColorMask / vs / fs）");
+                default -> throw error("shader.parse.unknownPassCmd", keyword);
             }
         }
 
         if (vsBody == null || fsBody == null) {
-            throw new ShaderParseException("Pass 缺少 " + (vsBody == null ? "vs" : "fs") + " 块",
+            throw new ShaderParseException(
+                    EditorLang.key("shader.parse.passMissingStage", vsBody == null ? "vs" : "fs"),
                     sourceName, line);
         }
         return new ParsedPass(passName, state, vsBody, fsBody, vsLine, fsLine);
@@ -265,7 +265,7 @@ public final class ShaderParser {
             case "back" -> CullMode.BACK;
             case "front" -> CullMode.FRONT;
             case "off" -> CullMode.NONE;
-            default -> throw error("Cull 取值非法: " + value + "（Back / Front / Off）");
+            default -> throw error("shader.parse.badCull", value);
         };
     }
 
@@ -274,7 +274,7 @@ public final class ShaderParser {
         return switch (value) {
             case "on" -> true;
             case "off" -> false;
-            default -> throw error(command + " 取值非法: " + value + "（On / Off）");
+            default -> throw error("shader.parse.badOnOff", command, value);
         };
     }
 
@@ -282,9 +282,7 @@ public final class ShaderParser {
         String value = readIdentifier().toLowerCase(Locale.ROOT);
         CompareOp op = ZTEST_NAMES.get(value);
         if (op == null) {
-            throw error("ZTest 取值非法: " + value
-                    + "（LEqual / Less / Equal / GEqual / Greater / NotEqual / Never；"
-                    + "CompareOp 无 ALWAYS，Unity 的 Always 不支持）");
+            throw error("shader.parse.badZTest", value);
         }
         return op;
     }
@@ -306,7 +304,7 @@ public final class ShaderParser {
         String key = rawName.toLowerCase(Locale.ROOT).replace("_", "");
         BlendFactor factor = BLEND_NAMES.get(key);
         if (factor == null) {
-            throw error("Blend 因子非法: " + rawName);
+            throw error("shader.parse.badBlend", rawName);
         }
         return factor;
     }
@@ -321,7 +319,7 @@ public final class ShaderParser {
                 case 'G' -> mask.add(ColorComponentFlags.G);
                 case 'B' -> mask.add(ColorComponentFlags.B);
                 case 'A' -> mask.add(ColorComponentFlags.A);
-                default -> throw error("ColorMask 取值非法: " + word + "（R / G / B / A 的组合）");
+                default -> throw error("shader.parse.badColorMask", word);
             }
         }
         return mask;
@@ -400,7 +398,7 @@ public final class ShaderParser {
             }
         }
         if (depth > 0) {
-            throw error("vs/fs 块未闭合");
+            throw error("shader.parse.glslUnclosed");
         }
         // 回退最后的配对 '}'，块内容 = [start, pos-1)
         return src.substring(start, pos - 1);
@@ -408,7 +406,7 @@ public final class ShaderParser {
 
     private char peek() {
         if (atEnd()) {
-            throw error("意外到达文件末尾");
+            throw error("shader.parse.unexpectedEof");
         }
         return src.charAt(pos);
     }
@@ -424,8 +422,8 @@ public final class ShaderParser {
     private void expect(char expected) {
         skipTrivia();
         if (atEnd() || peek() != expected) {
-            throw error("期望 '" + expected + "'，实际 '"
-                    + (atEnd() ? "<EOF>" : peek()) + "'");
+            throw error("shader.parse.expectChar", String.valueOf(expected),
+                    atEnd() ? "<EOF>" : String.valueOf(peek()));
         }
         next();
     }
@@ -434,14 +432,14 @@ public final class ShaderParser {
         skipTrivia();
         String ident = readIdentifier();
         if (!keyword.equals(ident)) {
-            throw error("期望关键字 " + keyword + "，实际 " + ident);
+            throw error("shader.parse.expectKeyword", keyword, ident);
         }
     }
 
     private String readIdentifier() {
         skipTrivia();
         if (atEnd() || !isIdentStart(peek())) {
-            throw error("期望标识符，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+            throw error("shader.parse.expectIdent", atEnd() ? "<EOF>" : String.valueOf(peek()));
         }
         int start = pos;
         while (pos < src.length() && isIdentPart(src.charAt(pos))) {
@@ -457,7 +455,7 @@ public final class ShaderParser {
     private String readTypeKeyword() {
         skipTrivia();
         if (atEnd() || !isIdentPart(peek())) {
-            throw error("期望类型关键字，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+            throw error("shader.parse.expectType", atEnd() ? "<EOF>" : String.valueOf(peek()));
         }
         int start = pos;
         while (pos < src.length() && isIdentPart(src.charAt(pos))) {
@@ -475,7 +473,7 @@ public final class ShaderParser {
             pos++;
         }
         if (atEnd()) {
-            throw error("字符串未闭合");
+            throw error("shader.parse.stringUnclosed");
         }
         next();
         return sb.toString();
@@ -492,12 +490,12 @@ public final class ShaderParser {
             pos++;
         }
         if (start == pos) {
-            throw error("期望数字，实际 '" + (atEnd() ? "<EOF>" : peek()) + "'");
+            throw error("shader.parse.expectNumber", atEnd() ? "<EOF>" : String.valueOf(peek()));
         }
         try {
             return Float.parseFloat(src.substring(start, pos));
         } catch (NumberFormatException e) {
-            throw error("数字格式错误: " + src.substring(start, pos));
+            throw error("shader.parse.badNumber", src.substring(start, pos));
         }
     }
 
@@ -509,8 +507,9 @@ public final class ShaderParser {
         return Character.isLetterOrDigit(c) || c == '_';
     }
 
-    private ShaderParseException error(String message) {
-        return new ShaderParseException(message, sourceName, line);
+    /** 解析错抛（收 I18nKey，异常自持键、显示点解析） */
+    private ShaderParseException error(String key, Object... args) {
+        return new ShaderParseException(EditorLang.key(key, args), sourceName, line);
     }
 
     // ═══ 解析产物 ═══

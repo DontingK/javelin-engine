@@ -5,6 +5,7 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.SceneChangedEvent;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.serializable.TextExporter;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
@@ -85,7 +86,8 @@ public class SaveSceneMenuCommand extends TopMenuCommand {
             // 帧内异常不走 CommandService.execute 的 catch——自带日志+弹窗隔离
             LOGGER.error("保存场景失败（file.save）: {}", file, ex);
             String message = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-            TinyFileDialogs.tinyfd_messageBox("错误", "保存场景失败: " + message, "ok", "error", 1);
+            TinyFileDialogs.tinyfd_messageBox(EditorLang.text("common.error"),
+                    EditorLang.text("file.saveFailed", message), "ok", "error", 1);
             return false;
         }
     }

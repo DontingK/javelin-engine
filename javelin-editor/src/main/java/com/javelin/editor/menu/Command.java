@@ -1,6 +1,7 @@
 package com.javelin.editor.menu;
 
 import com.javelin.editor.i18n.I18nKey;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.util.function.Supplier;
 
@@ -102,7 +103,7 @@ public final class Command {
 
         private Builder(String id, I18nKey label) {
             if (id == null || id.isBlank() || label == null) {
-                throw new IllegalArgumentException("命令 id 与 label 不能为空");
+                throw new IllegalArgumentException(EditorLang.text("menu.command.idLabelRequired"));
             }
             this.id = id;
             this.label = label;
@@ -135,7 +136,7 @@ public final class Command {
 
         public Command build() {
             if (action == null) {
-                throw new IllegalArgumentException("命令缺少 action: " + id);
+                throw new IllegalArgumentException(EditorLang.text("menu.command.actionRequired", id));
             }
             return new Command(this);
         }

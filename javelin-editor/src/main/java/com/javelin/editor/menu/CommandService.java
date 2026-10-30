@@ -1,5 +1,6 @@
 package com.javelin.editor.menu;
 
+import com.javelin.editor.plugin.EditorLang;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,10 +35,10 @@ public final class CommandService {
      */
     public static void register(Command command) {
         if (command == null) {
-            throw new IllegalArgumentException("command 不能为 null");
+            throw new IllegalArgumentException(EditorLang.text("menu.command.null"));
         }
         if (COMMANDS.putIfAbsent(command.getId(), command) != null) {
-            throw new IllegalStateException("重复命令 id: " + command.getId());
+            throw new IllegalStateException(EditorLang.text("menu.command.duplicateId", command.getId()));
         }
     }
 
@@ -52,7 +53,7 @@ public final class CommandService {
      */
     public static void register(MenuCommand menuCommand) {
         if (menuCommand == null) {
-            throw new IllegalArgumentException("menuCommand 不能为 null");
+            throw new IllegalArgumentException(EditorLang.text("menu.menuCommand.null"));
         }
         Command.Builder builder = Command.of(menuCommand.id(), menuCommand.label())
                 .action(menuCommand::execute);
@@ -110,7 +111,7 @@ public final class CommandService {
         } catch (Exception e) {
             LOGGER.error("命令执行出错 [{}]", id, e);
             String message = e.getMessage() != null ? e.getMessage() : e.toString();
-            TinyFileDialogs.tinyfd_messageBox("错误", message, "ok", "error", 1);
+            TinyFileDialogs.tinyfd_messageBox(EditorLang.text("common.error"), message, "ok", "error", 1);
             return false;
         }
     }

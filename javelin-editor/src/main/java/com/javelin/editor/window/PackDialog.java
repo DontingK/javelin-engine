@@ -8,6 +8,7 @@ import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.console.ConsoleOut;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.util.ThreadUtil;
 import org.slf4j.Logger;
@@ -47,8 +48,8 @@ public class PackDialog extends JDialog {
     private final JTextField titleField = new JTextField();
     private final JSpinner widthSpinner = new JSpinner(new SpinnerNumberModel(1280, 1, Integer.MAX_VALUE, 1));
     private final JSpinner heightSpinner = new JSpinner(new SpinnerNumberModel(720, 1, Integer.MAX_VALUE, 1));
-    private final JButton cancelButton = new JButton("取消");
-    private final JButton packButton = new JButton("开始打包");
+    private final JButton cancelButton = new JButton(EditorLang.text("common.cancel"));
+    private final JButton packButton = new JButton(EditorLang.text("pack.start"));
     private final JLabel statusLabel = new JLabel();
     private final JTextArea logArea = new JTextArea();
     /** 日志区（状态行 + 滚动日志）：构建触发前隐藏，出现即占余下空间（web 版同形态） */
@@ -62,7 +63,7 @@ public class PackDialog extends JDialog {
     public PackDialog() {
         super(MainFrame.getInstance(), ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setTitle("打包");
+        setTitle(EditorLang.text("pack.title"));
         // 日志区需要纵向空间（构建时占余下空间）
         setSize(560, 480);
         setLocationRelativeTo(getOwner());
@@ -88,23 +89,23 @@ public class PackDialog extends JDialog {
     private JComponent buildFormPane() {
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.PAGE_AXIS));
-        form.add(formRow("构建形态", buildFormCombo));
+        form.add(formRow(EditorLang.text("pack.buildForm"), buildFormCombo));
         form.add(Box.createVerticalStrut(2));
-        form.add(formRow("启动场景", sceneCombo));
+        form.add(formRow(EditorLang.text("pack.startupScene"), sceneCombo));
         form.add(Box.createVerticalStrut(2));
-        buildModeRow = formRow("构建模式", buildModeCombo);
+        buildModeRow = formRow(EditorLang.text("pack.buildMode"), buildModeCombo);
         buildModeRow.setVisible(false);
         form.add(buildModeRow);
         form.add(Box.createVerticalStrut(2));
-        JLabel sectionTitle = new JLabel("窗口元信息");
+        JLabel sectionTitle = new JLabel(EditorLang.text("pack.windowMeta"));
         sectionTitle.setFont(sectionTitle.getFont().deriveFont(Font.BOLD));
         form.add(sectionTitle);
         form.add(Box.createVerticalStrut(2));
-        form.add(formRow("窗口标题", titleField));
+        form.add(formRow(EditorLang.text("pack.windowTitle"), titleField));
         form.add(Box.createVerticalStrut(2));
-        form.add(formRow("宽度", widthSpinner));
+        form.add(formRow(EditorLang.text("pack.width"), widthSpinner));
         form.add(Box.createVerticalStrut(2));
-        form.add(formRow("高度", heightSpinner));
+        form.add(formRow(EditorLang.text("pack.height"), heightSpinner));
         buildFormCombo.addActionListener(e -> {
             boolean aot = "aot".equals(buildFormValue());
             buildModeRow.setVisible(aot);
@@ -181,13 +182,14 @@ public class PackDialog extends JDialog {
         }
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
-            JOptionPane.showMessageDialog(this, "编辑器未启动，无法打包", "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, EditorLang.text("pack.editorNotReady"),
+                    EditorLang.text("common.error"), JOptionPane.ERROR_MESSAGE);
             return;
         }
         packing = true;
         packButton.setEnabled(false);
         cancelButton.setEnabled(false);
-        statusLabel.setText("构建中（Gradle 构建链，可能需要数分钟）…");
+        statusLabel.setText(EditorLang.text("pack.building"));
         logArea.setText("");
         logPanel.setVisible(true);
         getContentPane().revalidate();
@@ -218,7 +220,7 @@ public class PackDialog extends JDialog {
         ThreadUtil.run("Pack Build", () -> {
             String errorMessage = null;
             try {
-                appendLog("开始打包......");
+                appendLog(EditorLang.text("pack.started"));
                 applyPackSettings(editor, windowTitle, windowWidth, windowHeight, startupScene);
                 if ("aot".equals(buildForm)) {
                     editor.getProject().aotBuild(consoleOut, buildMode);
@@ -235,10 +237,12 @@ public class PackDialog extends JDialog {
                 packing = false;
                 packButton.setEnabled(true);
                 cancelButton.setEnabled(true);
-                statusLabel.setText(failure == null ? "打包完成" : "打包失败（详情见日志）");
+                statusLabel.setText(failure == null ? EditorLang.text("pack.done")
+                        : EditorLang.text("pack.failedSeeLog"));
                 if (failure != null) {
-                    JOptionPane.showMessageDialog(PackDialog.this, "打包失败: " + failure,
-                            "错误", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(PackDialog.this,
+                            EditorLang.text("pack.failed", failure),
+                            EditorLang.text("common.error"), JOptionPane.ERROR_MESSAGE);
                 }
             });
         });
@@ -281,12 +285,12 @@ public class PackDialog extends JDialog {
             }
             if (changed) {
                 new BinaryExporter(settingFile).export(setting);
-                appendLog("窗口设置已写入 Game/" + SettingManager.JAVELIN_SETTINGS_FILE
-                        + "（标题=" + setting.getTitle() + " 宽=" + setting.getWidth()
-                        + " 高=" + setting.getHeight() + "）");
+                appendLog(EditorLang.text("pack.windowSettingsWritten",
+                        SettingManager.JAVELIN_SETTINGS_FILE, setting.getTitle(),
+                        setting.getWidth(), setting.getHeight()));
             }
         } catch (Exception e) {
-            appendLog("窗口设置写入失败: " + e.getMessage());
+            appendLog(EditorLang.text("pack.windowSettingsWriteFailed", e.getMessage()));
         }
         if (startupScene == null || startupScene.isBlank()) {
             return;
@@ -295,7 +299,7 @@ public class PackDialog extends JDialog {
             File sceneFile = new File(project.getAssetsDir(), startupScene);
             AssetMeta meta = editor.getMetaManager().getMeta(sceneFile);
             if (meta == null || meta.getGuid() == null) {
-                appendLog("启动场景无元数据（未导入？），跳过写入: " + startupScene);
+                appendLog(EditorLang.text("pack.startupSceneNoMeta", startupScene));
                 return;
             }
             File gameFile = new File(project.getGameDir(), SettingManager.GAME_SETTINGS_FILE);
@@ -304,10 +308,10 @@ public class PackDialog extends JDialog {
                     : new GameSettings();
             gameSettings.setDefaultSceneGuid(meta.getGuid());
             new BinaryExporter(gameFile).export(gameSettings);
-            appendLog("启动场景已写入 Game/" + SettingManager.GAME_SETTINGS_FILE
-                    + "（" + startupScene + " → guid=" + meta.getGuid() + "）");
+            appendLog(EditorLang.text("pack.startupSceneWritten",
+                    SettingManager.GAME_SETTINGS_FILE, startupScene, meta.getGuid()));
         } catch (Exception e) {
-            appendLog("启动场景写入失败: " + e.getMessage());
+            appendLog(EditorLang.text("pack.startupSceneWriteFailed", e.getMessage()));
         }
     }
 }

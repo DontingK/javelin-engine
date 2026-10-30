@@ -30,13 +30,13 @@ import java.util.List;
  * @since 1.0.0
  */
 @Reflective
-@InsHeader(label = "网格渲染器", icon = "mesh")
+@InsHeader(label = "ins.meshRenderer", icon = "mesh")
 public class MeshRenderer extends Component implements Renderable {
 
     // 非 final：序列化反序列化需回写（AGENTS.md 红线 9）；ArrayList 直通（红线 10）
-    @InsField(label = "网格")
+    @InsField(label = "ins.meshRenderer.mesh")
     private Mesh mesh;
-    @InsField(label = "材质")
+    @InsField(label = "ins.meshRenderer.materials")
     private ArrayList<Material> materials = new ArrayList<>();
     private boolean castShadow = true;
     private boolean receiveShadow = true;

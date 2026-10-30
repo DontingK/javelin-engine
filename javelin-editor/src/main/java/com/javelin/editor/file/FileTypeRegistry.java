@@ -1,5 +1,7 @@
 package com.javelin.editor.file;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import java.io.File;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -30,7 +32,7 @@ public final class FileTypeRegistry {
             String key = ext.toLowerCase(Locale.ROOT);
             FileType prev = TYPES.putIfAbsent(key, type);
             if (prev != null) {
-                throw new IllegalStateException("文件类型扩展名重复注册: " + key);
+                throw new IllegalStateException(EditorLang.text("fileType.duplicateExt", key));
             }
         }
     }

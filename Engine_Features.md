@@ -254,8 +254,9 @@
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ✅ 用户实测（2026-10-30，随④焦点扫描批次验收） |
 | 默认语言 en_US（`lang/en_US.properties` 全量 50 键英文翻译新建 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"——必备默认文件换位，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包，Editor_Plugin_Design §7.1 拍板） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机英文界面） |
-| 异常/弹窗消息 i18n（~116 条 TipException 等） | ⬜ 第二批 | — |
-| 面板/窗口标题 i18n、Inspector 注解 label key 化、源码机检、i18n 报告命令 | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
+| **i18n 全量化批次**（编辑模块 ~300 条非日志字面量全迁：异常/弹窗/面板与窗口标题/检查器标签与面板/打包日志行；双语言包 zh_CN·en_US 各 354 键对齐；异常面收 I18nKey——LangException 受检基类 + TipException/ShaderParseException 构造器收键；@InsField/@InsHeader/InsEnumLabel label 改语言包局部键；Editor_Plugin_Design §9） | ✅（2026-10-30） | ⏳ 待验收（zh_CN/en_US 全界面 + 弹框路径 + 机检测试） |
+| 源码机检（CjkStringLiteralCheckTest：CJK 字面量即红，log 行豁免 + 引导期/数据面白名单） | ✅（2026-10-30，Editor_Plugin_Design §4.5-3） | — 随单测任务（:javelin-editor:test 全绿面） |
+| i18n 报告导出命令（Tools 域 miss/used 分桶工单）+ 注解层启动校验（§4.5-2） | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
 
 ## 4. 构建与发布链（跨模块）
 

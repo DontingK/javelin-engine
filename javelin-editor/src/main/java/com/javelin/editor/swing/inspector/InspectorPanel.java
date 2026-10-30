@@ -5,6 +5,7 @@ import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.ProjectSelectEvent;
 import com.javelin.editor.event.SceneSelectEvent;
 import com.javelin.editor.selection.EditorSelection;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.panel.EditorPanel;
 
 import javax.swing.JComponent;
@@ -31,9 +32,9 @@ import java.io.File;
 public class InspectorPanel extends JComponent implements EditorPanel {
 
     /** 无选中占位文案（选中 null 是正常态——非层级面板的未就绪，无重试） */
-    private static final String EMPTY_TEXT = "未选中任何对象";
+    private static final String EMPTY_TEXT = EditorLang.text("inspector.empty");
     /** 有选中但无接管 provider（未支持文件/目录）灰提示——Unity 对不支持资产口径 */
-    private static final String UNSUPPORTED_TEXT = "无检查器";
+    private static final String UNSUPPORTED_TEXT = EditorLang.text("inspector.unsupported");
 
     private final JLabel emptyLabel = new JLabel(EMPTY_TEXT, SwingConstants.CENTER);
     /** 当前内容件（null=空态） */

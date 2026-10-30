@@ -1,10 +1,15 @@
-# 检查器（Inspector）设计（v0.13，2026-10-30 随多材质实机验收销账）
+# 检查器（Inspector）设计（v0.14，2026-10-30 随多材质实机验收销账 + i18n 全量化随批）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
 > 设计基准=完全参考 Unity（Editor_Design §1）。
 > v0.13（2026-10-29）：**GUID_ASSET_LIST 资产列表通道（§4）**——MeshRenderer.materials
 > 多材质行（行数跟随子网格数，fieldName 编码序号 materials[i]，整列表 setter 回写）。
+> v0.14（2026-10-30）：**标签 i18n 全量化**——`@InsField/@InsHeader/InsEnumLabel` 的
+> label 值改「editor.core 语言包局部键」（core 侧存中性键、InspectorReflector 三解析点
+> componentLabel/displayName/enumLabel 经 EditorLang 解析，core 零 i18n 依赖）；
+> 面板文案（材质/纹理/着色器/节点全件、字段行校验异常、「无检查器」空态等）随批迁
+> `EditorLang`（异常面收 I18nKey，见 Editor_Plugin_Design §9）。
 > （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
 > /inspector/* 桥已删、三 VO 迁 inspector 包；本文类型通道/序列化/回写规则继续有效，
 > v0.1~v0.3 落地与验收记录为 Web 期沿革。）
@@ -195,13 +200,15 @@ assetName（v0.3，GUID_ASSET 显示名，其他类型 null）——字段行 VO
   putIfAbsent 取首个即随机命中——Camera.cullingMask 的 `setCullingMask(int)` 与
   `setCullingMask(Layer...)` 双重载实锤后改为显式匹配；零参 getter 无重载免解析），
   缺一抛错；
-- 注解（`core.inspector` 包）：`@InsField`（label=字段显示名；TYPE 贴法已废弃——
+- 注解（`core.inspector` 包）：`@InsField`（label=**i18n 键**（editor.core 语言包
+  局部键，反射层经 EditorLang 解析；空串兜底字段原名，v0.14）；TYPE 贴法已废弃——
   组件头职责移交 `@InsHeader`，icon 属性随之失消费方待清理）、`@InsHeader`（TYPE
-  贴组件类：label=显示名（空串兜底类简单名）、icon=图标名（classpath
+  贴组件类：label=**i18n 键**（空串兜底类简单名）、icon=图标名（classpath
   /icon/{name}.svg 裸名，空串无图标；分组头 16px 经 SvgIcon 渲染、资源缺失不
   占空位——菜单域同口径））、`@InsRotation`（Quaternionf opt-in 按欧拉角展示）、`@InsIntRange`/`@InsFloatRange`
   （滑条元数据投影为 range）、`@InsLayerMask`（int 字段按层位掩码勾选多选，
-  v0.2）、`InsEnumLabel`（**接口**，枚举实现 getLabel() 提供下拉显示名，未实现兜底
+  v0.2）、`InsEnumLabel`（**接口**，枚举实现 getLabel() 返回 **i18n 键**（v0.14）供下拉
+  显示名解析，未实现兜底
   常量名；ProjectionType=透视/正交、ClearFlags=颜色+深度/仅深度/不清除 首批实现——
   显示名口径=自述行为，SOLID_COLOR 不用 Unity 直译「纯色」，用户拍板 2026-10-11）；
 - 组件头：enabled 提升分组头勾选不入行；`required` 标志（Transform 必需组件不渲染

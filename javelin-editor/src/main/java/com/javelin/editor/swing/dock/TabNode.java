@@ -1,5 +1,7 @@
 package com.javelin.editor.swing.dock;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,7 +22,7 @@ public final class TabNode extends DockNode {
 
     public TabNode(List<String> panelIds) {
         if (panelIds == null || panelIds.isEmpty()) {
-            throw new IllegalArgumentException("TabNode 至少一个面板 id");
+            throw new IllegalArgumentException(EditorLang.text("dock.tabNodePanelsRequired"));
         }
         this.panelIds = new ArrayList<>(panelIds);
         this.activeIndex = 0;

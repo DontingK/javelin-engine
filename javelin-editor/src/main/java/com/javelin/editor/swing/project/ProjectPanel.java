@@ -7,6 +7,7 @@ import com.javelin.editor.file.FileType;
 import com.javelin.editor.file.FileTypeRegistry;
 import com.javelin.editor.menu.MenuPopupFactory;
 import com.javelin.editor.project.Project;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.selection.EditorSelection;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.panel.EditorPanel;
@@ -133,7 +134,7 @@ public class ProjectPanel extends JComponent implements EditorPanel {
 
     public ProjectPanel() {
         setLayout(new BorderLayout(0, 0));
-        loadingLabel = new JLabel("项目文件树加载中…", JLabel.CENTER);
+        loadingLabel = new JLabel(EditorLang.text("project.panel.loading"), JLabel.CENTER);
         Color dim = UIManager.getColor("Label.disabledForeground");
         if (dim != null) {
             loadingLabel.setForeground(dim);
@@ -308,7 +309,7 @@ public class ProjectPanel extends JComponent implements EditorPanel {
 
         JScrollPane listScroll = new JScrollPane(entryList);
         listScroll.setBorder(BorderFactory.createEmptyBorder());
-        JLabel emptyLabel = new JLabel("空目录", JLabel.CENTER);
+        JLabel emptyLabel = new JLabel(EditorLang.text("project.panel.emptyDir"), JLabel.CENTER);
         if (dim != null) {
             emptyLabel.setForeground(dim);
         }

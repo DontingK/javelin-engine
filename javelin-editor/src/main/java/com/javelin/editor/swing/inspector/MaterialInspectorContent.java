@@ -14,6 +14,7 @@ import com.javelin.editor.event.AssetReloadedEvent;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.Subscription;
 import com.javelin.editor.inspector.InspectorFieldVo;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.serializable.TextImporter;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.swing.SvgIcon;
@@ -74,10 +75,10 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MaterialInspectorContent.class);
 
-    private static final String EMPTY_TEXT = "未选中材质";
-    private static final String LOADING_TEXT = "加载中…";
+    private static final String EMPTY_TEXT = EditorLang.text("material.inspector.empty");
+    private static final String LOADING_TEXT = EditorLang.text("material.inspector.loading");
     /** 未赋贴图槽显示（渲染侧按占位贴图约定解析） */
-    private static final String PLACEHOLDER_TEXT = "无（占位贴图）";
+    private static final String PLACEHOLDER_TEXT = EditorLang.text("material.inspector.placeholderTexture");
     /** 值编辑持久化防抖间隔（毫秒——键入即提交的写盘合并阀） */
     private static final int FLUSH_DELAY_MS = 500;
 
@@ -188,7 +189,7 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             LOGGER.warn("材质文件解析失败: {}", file.getName(), e);
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
-                    showStatus("材质解析失败: " + e.getMessage());
+                    showStatus(EditorLang.text("material.inspector.parseFailed", e.getMessage()));
                 }
             });
             return;
@@ -241,7 +242,7 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         content.add(infoSection(material, file));
         if (hasParamRows(material)) {
             content.add(Box.createVerticalStrut(2));
-            content.add(section("参数", null, rowsGrid(material)));
+            content.add(section(EditorLang.text("material.inspector.params"), null, rowsGrid(material)));
         }
         mount(content);
     }
@@ -258,13 +259,14 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     /** 材质信息分组（固定不可折叠——Unity 材质头信息口径）：文件（暗）/ Shader / 面型 / GUID（暗） */
     private JComponent infoSection(Material material, File file) {
         FieldGrid grid = new FieldGrid();
-        grid.addDim("文件", file.getName());
+        grid.addDim(EditorLang.text("material.inspector.file"), file.getName());
         grid.add("Shader", shaderInput());
-        grid.add("面型", surfaceControl(material));
+        grid.add(EditorLang.text("material.inspector.surface"), surfaceControl(material));
         if (material.getGuid() != null && !material.getGuid().isBlank()) {
             grid.addDim("GUID", material.getGuid());
         }
-        CollapsiblePanel section = new CollapsiblePanel("材质", null, titleIcon("material"), grid);
+        CollapsiblePanel section = new CollapsiblePanel(
+                EditorLang.text("material.inspector.section"), null, titleIcon("material"), grid);
         section.setCollapsible(false);
         return section;
     }
@@ -394,8 +396,8 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     /** 面型下拉（OPAQUE/TRANSPARENT——透明分桶裁决源） */
     private JComponent surfaceControl(Material material) {
         List<InspectorFieldVo.Option> options = new ArrayList<>(2);
-        options.add(enumOption("OPAQUE", "不透明"));
-        options.add(enumOption("TRANSPARENT", "透明"));
+        options.add(enumOption("OPAQUE", EditorLang.text("material.inspector.surface.opaque")));
+        options.add(enumOption("TRANSPARENT", EditorLang.text("material.inspector.surface.transparent")));
         return new JeSelect(options, String.valueOf(material.getSurfaceType()), this::applySurface);
     }
 
@@ -560,7 +562,7 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     private static String textureName(Texture2D texture) {
         String guid = texture.getGuid();
         if (guid == null || guid.isBlank()) {
-            return "（内存贴图）";
+            return EditorLang.text("material.inspector.inMemoryTexture");
         }
         JavelinEditor editor = JavelinEditor.getInstance();
         String path = editor != null ? editor.getAssetManager().pathOfGuid(guid) : null;

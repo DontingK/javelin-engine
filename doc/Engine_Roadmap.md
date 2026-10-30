@@ -194,6 +194,15 @@ Engine_Material_Design §3.2 / Editor_Menu_Design v0.13。
 （key=命令 id 约定，域基类默认 label，12 命令类覆写全删），`lang/zh_cn.properties`
 36 条（含 create.material 注册补漏 ac8a514）。待拍板挂账：命令 id 前缀化/FileType 冲突策略/默认语言。详见 Editor_Plugin_Design。
 
+进度（2026-10-30 落地，⏳ 待用户实测验收）：**i18n 全量化批次**（Editor_Plugin_Design
+v0.3 §9）——编辑模块 ~300 条非日志用户可见字面量全迁（异常/弹窗/面板与窗口标题/
+检查器全件/打包日志行），双语言包 zh_CN·en_US 各 354 键对齐；异常面收 I18nKey
+（LangException 受检新基类 + TipException/ShaderParseException 构造器收键）；
+@InsField/@InsHeader/InsEnumLabel 的 label 改语言包局部键（反射层三解析点经
+EditorLang，§7.1 组件显示名口径拍板落地）；源码机检 CjkStringLiteralCheckTest 落
+测试红线（§4.5-3，引导期/日志白名单档内注明）；测试侧 EditorLangTestBase 夹具
+（zh_CN 包 + 门面注入，幂等）。
+
 进度（2026-10-24 设计定档，**未实现**）：**资产热重载设计（Engine_AssetReload_Design
 v0.2）**——改 .shader/.mat/贴图编辑器实时刷新；当日两稿拍板反转：v0.1 令牌表流派
 （持有者钩子+依赖登记）被推翻，终态=**反射遍历流派**（持有引用形态不动，重载协调器

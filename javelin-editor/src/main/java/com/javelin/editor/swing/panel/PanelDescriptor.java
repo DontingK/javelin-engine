@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.panel;
 
 import javax.swing.JComponent;
+import com.javelin.editor.plugin.EditorLang;
 import java.awt.Dimension;
 import java.util.function.Supplier;
 
@@ -83,7 +84,7 @@ public final class PanelDescriptor {
 
         private Builder(String id, String title) {
             if (id == null || id.isBlank() || title == null || title.isBlank()) {
-                throw new IllegalArgumentException("面板 id 与 title 不能为空");
+                throw new IllegalArgumentException(EditorLang.text("panel.idTitleRequired"));
             }
             this.id = id;
             this.title = title;
@@ -112,7 +113,7 @@ public final class PanelDescriptor {
 
         public PanelDescriptor build() {
             if (factory == null) {
-                throw new IllegalArgumentException("面板缺少 factory: " + id);
+                throw new IllegalArgumentException(EditorLang.text("panel.factoryRequired", id));
             }
             return new PanelDescriptor(this);
         }

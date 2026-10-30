@@ -10,6 +10,7 @@ import com.javelin.core.scene.GameScene;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.file.FileType;
 import com.javelin.editor.file.FileTypeRegistry;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.inspector.FieldEditor;
@@ -67,14 +68,14 @@ public class AssetInput extends JPanel implements FieldEditor {
             Image.class, List.of(".png", ".jpg", ".jpeg"),
             Texture2D.class, List.of(".texture"));
 
-    /** 资产类型 → 选择窗标题（面板文案硬编码中文先例） */
+    /** 资产类型 → 选择窗标题 i18n 键（EditorLang 解析） */
     private static final Map<Class<? extends Asset>, String> TYPE_LABEL = Map.of(
-            Shader.class, "选择着色器",
-            Mesh.class, "选择网格",
-            Material.class, "选择材质",
-            GameScene.class, "选择场景",
-            Image.class, "选择贴图",
-            Texture2D.class, "选择纹理");
+            Shader.class, "asset.picker.shader",
+            Mesh.class, "asset.picker.mesh",
+            Material.class, "asset.picker.material",
+            GameScene.class, "asset.picker.scene",
+            Image.class, "asset.picker.image",
+            Texture2D.class, "asset.picker.texture");
 
     private final List<String> suffixes;
     private final String dialogTitle;
@@ -92,8 +93,8 @@ public class AssetInput extends JPanel implements FieldEditor {
         super(new BorderLayout(1, 0));
         List<String> resolvedSuffixes = TYPE_SUFFIX.get(assetType);
         if (resolvedSuffixes == null) {
-            throw new IllegalArgumentException("未登记的资产类型: " + assetType.getName()
-                    + "（TYPE_SUFFIX 补行后可用）");
+            throw new IllegalArgumentException(EditorLang.text("asset.input.unregisteredType",
+                    assetType.getName()));
         }
         this.suffixes = resolvedSuffixes;
         this.dialogTitle = TYPE_LABEL.get(assetType);
@@ -150,7 +151,7 @@ public class AssetInput extends JPanel implements FieldEditor {
     /** 弹选择窗提交（取消不动值） */
     private void openPicker() {
         AssetPickerDialog.Selection selection = AssetPickerDialog.pick(
-                SwingUtilities.getWindowAncestor(this), suffixes, dialogTitle);
+                SwingUtilities.getWindowAncestor(this), suffixes, EditorLang.text(dialogTitle));
         if (selection != null) {
             commit(selection.guid());
         }
@@ -175,8 +176,8 @@ public class AssetInput extends JPanel implements FieldEditor {
                 LOGGER.warn("拖入文件解析不到 guid（未导入？），不提交: {}", file.getName());
                 // EDT 拖放回调内直接弹（SceneFileType 脏场景确认同款 MainFrame 挂窗先例）
                 JOptionPane.showMessageDialog(MainFrame.getInstance(),
-                        "拖入文件解析不到 GUID（可能未导入进项目）: " + file.getName(),
-                        "资产引用", JOptionPane.ERROR_MESSAGE);
+                        EditorLang.text("asset.input.dragNoGuid", file.getName()),
+                        EditorLang.text("asset.input.reference"), JOptionPane.ERROR_MESSAGE);
                 return false;
             }
             commit(resolved);
@@ -234,7 +235,7 @@ public class AssetInput extends JPanel implements FieldEditor {
         }
         if (guid.isBlank()) {
             displayLabel.setIcon(null);
-            displayLabel.setText("（内存创建）");
+            displayLabel.setText(EditorLang.text("asset.input.inMemory"));
             applyDimForeground();
             return;
         }

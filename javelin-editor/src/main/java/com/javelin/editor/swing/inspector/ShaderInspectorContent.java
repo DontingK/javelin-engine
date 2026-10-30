@@ -116,12 +116,12 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
         InsScrollablePanel content = new InsScrollablePanel();
         content.setLayout(new BoxLayout(content, BoxLayout.PAGE_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-        content.add(row("文件", file.getName()));
+        content.add(row(EditorLang.text("shader.inspector.file"), file.getName()));
         content.add(row("Shader", String.valueOf(shader.getShaderName())));
         content.add(row("GUID", guid));
         if (!shader.getProperties().isEmpty()) {
             content.add(Box.createVerticalStrut(2));
-            content.add(sectionLabel("属性"));
+            content.add(sectionLabel(EditorLang.text("shader.inspector.properties")));
             for (MaterialProperty property : shader.getProperties()) {
                 content.add(row(property.getName(), describe(property)));
             }
@@ -139,21 +139,23 @@ public class ShaderInspectorContent extends JComponent implements InspectorConte
     /** 属性描述串：类型 + 默认值/区间/贴图占位（MaterialBlock 打包同源数据） */
     private static String describe(MaterialProperty property) {
         return switch (property.getType()) {
-            case TEXTURE_2D -> "Texture（占位 " + property.getTexturePlaceholder() + "）";
+            case TEXTURE_2D -> EditorLang.text("shader.inspector.textureProp",
+                    property.getTexturePlaceholder());
             case RANGE -> "Range [" + InsFormat.formatFloat(property.getMin())
                     + ", " + InsFormat.formatFloat(property.getMax())
                     + "] = " + InsFormat.formatFloat(property.getDefaultValues()[0]);
             case FLOAT -> "Float = " + InsFormat.formatFloat(property.getDefaultValues()[0]);
             default -> property.getType()
                     + (property.getDefaultValues() != null
-                    ? " (" + InsFormat.join(property.getDefaultValues()) + ")" : " (默认值缺失)");
+                    ? " (" + InsFormat.join(property.getDefaultValues()) + ")"
+                    : " (" + EditorLang.text("shader.inspector.defaultMissing") + ")");
         };
     }
 
     /** Pass 状态摘要（PassState 底稿；场景材质前向 PSO 会被 surfaceType 覆盖） */
     private static String passStateSummary(PassState state) {
         if (state == null) {
-            return "默认状态";
+            return EditorLang.text("shader.inspector.defaultState");
         }
         StringBuilder sb = new StringBuilder();
         sb.append("Cull ").append(state.getCull());

@@ -1,5 +1,7 @@
 package com.javelin.editor.swing.panel;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
@@ -18,7 +20,8 @@ public class PlaceholderPanel extends JComponent implements EditorPanel {
 
     public PlaceholderPanel(String title, String milestone) {
         setLayout(new BorderLayout());
-        JLabel label = new JLabel(title + "（" + milestone + " 实装）", SwingConstants.CENTER);
+        JLabel label = new JLabel(
+                EditorLang.text("panel.placeholderBody", title, milestone), SwingConstants.CENTER);
         java.awt.Color dim = UIManager.getColor("Label.disabledForeground");
         if (dim != null) {
             label.setForeground(dim);

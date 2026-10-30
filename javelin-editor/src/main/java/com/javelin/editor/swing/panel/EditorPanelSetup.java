@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.panel;
 
 import com.javelin.editor.plugin.PluginContext;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.hierarchy.HierarchyPanel;
 import com.javelin.editor.swing.inspector.InspectorPanel;
 import com.javelin.editor.swing.project.ProjectPanel;
@@ -42,23 +43,23 @@ public final class EditorPanelSetup {
             return;
         }
         setup = true;
-        context.registerPanel(PanelDescriptor.of("hierarchy", "层级")
+        context.registerPanel(PanelDescriptor.of("hierarchy", EditorLang.text("panel.hierarchy"))
                 .minimumSize(200, 120)
                 .factory(HierarchyPanel::new)
                 .build());
-        context.registerPanel(PanelDescriptor.of("project", "项目")
+        context.registerPanel(PanelDescriptor.of("project", EditorLang.text("panel.project"))
                 .minimumSize(160, 120)
                 .factory(ProjectPanel::new)
                 .build());
-        context.registerPanel(PanelDescriptor.of("console", "控制台")
+        context.registerPanel(PanelDescriptor.of("console", EditorLang.text("panel.console"))
                 .closable(true)
                 .minimumSize(160, 120)
-                .factory(() -> new PlaceholderPanel("控制台面板", "M2"))
+                .factory(() -> new PlaceholderPanel(EditorLang.text("panel.console.title"), "M2"))
                 .build());
-        context.registerPanel(PanelDescriptor.of(VIEWPORT_PANEL_ID, "视口")
+        context.registerPanel(PanelDescriptor.of(VIEWPORT_PANEL_ID, EditorLang.text("panel.viewport"))
                 .factory(() -> new ViewportTabs(MainFrame.getInstance().getCanvas()))
                 .build());
-        context.registerPanel(PanelDescriptor.of("inspector", "检查器")
+        context.registerPanel(PanelDescriptor.of("inspector", EditorLang.text("panel.inspector"))
                 .minimumSize(260, 120)
                 .factory(InspectorPanel::new)
                 .build());

@@ -19,6 +19,7 @@ import com.javelin.core.scene.component.Transform;
 import com.javelin.core.settings.SettingManager;
 import com.javelin.editor.exception.TipException;
 import com.javelin.editor.JavelinEditor;
+import com.javelin.editor.plugin.EditorLang;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -117,7 +118,7 @@ public final class InspectorReflector {
      * 解析失败/字段缺失/类型不匹配抛 TipException（面板层状态栏提示+控件回滚）。
      * 节点头 Tag 走 TAG 专用分支（单选替换式，"Untagged"=清空，不经 PropMeta）。
      */
-    public static void apply(ObjectId host, String fieldName, String valueType, String value) {
+    public static void apply(ObjectId host, String fieldName, String valueType, String value) throws TipException {
         InspectorValueType declared = parseType(valueType);
         if (declared == InspectorValueType.TAG) {
             applyTag(host, value);
@@ -129,8 +130,8 @@ public final class InspectorReflector {
         }
         PropMeta prop = findProp(host, fieldName);
         if (prop.valueType != declared) {
-            throw new TipException("值类型不匹配: " + host.getClass().getSimpleName() + "."
-                    + fieldName + " 期望 " + prop.valueType + "，实收 " + valueType);
+            throw new TipException(EditorLang.key("inspector.apply.typeMismatch",
+                    host.getClass().getSimpleName(), fieldName, prop.valueType, valueType));
         }
         prop.set(host, parseValue(prop, value));
     }
@@ -141,17 +142,17 @@ public final class InspectorReflector {
      * 静默置 null），替换列表 i 位（缺位补 null）→ 整列表 setter（读 getter 写
      * setter 铁律，不裸写字段）。
      */
-    private static void applyAssetList(ObjectId host, String fieldName, String value) {
+    private static void applyAssetList(ObjectId host, String fieldName, String value) throws TipException {
         int bracket = fieldName.lastIndexOf('[');
         if (bracket < 0 || !fieldName.endsWith("]")) {
-            throw new TipException("资产列表字段名缺序号: " + fieldName);
+            throw new TipException(EditorLang.key("inspector.apply.listNameMissingIndex", fieldName));
         }
         int index = parseInt(fieldName.substring(bracket + 1, fieldName.length() - 1));
         String base = fieldName.substring(0, bracket);
         PropMeta prop = findProp(host, base);
         if (prop.valueType != InspectorValueType.GUID_ASSET_LIST) {
-            throw new TipException("值类型不匹配: " + host.getClass().getSimpleName() + "."
-                    + base + " 期望 " + prop.valueType);
+            throw new TipException(EditorLang.key("inspector.apply.listTypeMismatch",
+                    host.getClass().getSimpleName(), base, prop.valueType));
         }
         // guid 三态与 GUID_ASSET 分支同口径：null=None 清空合法（该位 null → 渲染侧
         // DefaultMaterial 兜底）；空串=内存创建不可回写；未索引拒绝防静默置 null
@@ -161,12 +162,12 @@ public final class InspectorReflector {
         } else {
             String guid = value.trim();
             if (guid.isEmpty()) {
-                throw new TipException("内存创建资产不可回写: " + base);
+                throw new TipException(EditorLang.key("inspector.apply.inMemoryAsset", base));
             }
             JavelinEditor editor = JavelinEditor.getInstance();
             asset = editor != null ? editor.getAssetManager().loadGuid(guid, prop.assetType) : null;
             if (asset == null) {
-                throw new TipException("资产不存在（guid 未索引）: " + base);
+                throw new TipException(EditorLang.key("inspector.apply.assetNotFound", base));
             }
         }
         // 整列表 setter 提交（防御性拷贝在 setter 内）；反射泛型擦除，raw 通道
@@ -183,17 +184,18 @@ public final class InspectorReflector {
      * 节点头 Tag 单选回写：替换式语义（Unity 口径单 tag）——非 "Untagged" 时
      * tags 置为单元素 [Tag.of(value)]，"Untagged" 清空（空列表显示侧即 Untagged）。
      */
-    private static void applyTag(ObjectId host, String value) {
+    private static void applyTag(ObjectId host, String value) throws TipException {
         if (!(host instanceof Node)) {
-            throw new TipException("Tag 回写宿主须为 Node: " + host.getClass().getSimpleName());
+            throw new TipException(EditorLang.key("inspector.apply.tagHostNotNode",
+                    host.getClass().getSimpleName()));
         }
         if (value == null || value.isBlank()) {
-            throw new TipException("Tag 值不能为空");
+            throw new TipException(EditorLang.key("inspector.apply.tagEmpty"));
         }
         Node node = (Node) host;
         List<Tag> tags = node.getTags();
         if (tags == null) {
-            throw new TipException("节点 tags 未初始化: " + node.getName());
+            throw new TipException(EditorLang.key("inspector.apply.tagsUninitialized", node.getName()));
         }
         tags.clear();
         if (!UNTAGGED.equals(value)) {
@@ -400,11 +402,11 @@ public final class InspectorReflector {
         return TAG_OPTIONS;
     }
 
-    /** 组件头显示名（@InsHeader.label 贴 TYPE，空串兜底类简单名） */
+    /** 组件头显示名（@InsHeader.label 贴 TYPE，i18n 键经 EditorLang 解析；空串兜底类简单名） */
     private static String componentLabel(Class<?> type) {
         InsHeader header = type.getAnnotation(InsHeader.class);
         if (header != null && !header.label().isBlank()) {
-            return header.label();
+            return EditorLang.text(header.label());
         }
         return type.getSimpleName();
     }
@@ -459,8 +461,8 @@ public final class InspectorReflector {
         String owner = field.getDeclaringClass().getSimpleName() + "." + field.getName();
         InspectorValueType type = mapValueType(field);
         if (type == null) {
-            throw new IllegalStateException("InsField 字段类型不可检查: " + owner
-                    + "（类型 " + field.getType().getSimpleName() + "；Quaternionf 还须 @InsRotation）");
+            throw new IllegalStateException(EditorLang.text("inspector.build.unmappableType",
+                    owner, field.getType().getSimpleName()));
         }
         String cap = capitalize(field.getName());
         Method getter = zeroParam.containsKey("get" + cap) ? zeroParam.get("get" + cap)
@@ -470,7 +472,7 @@ public final class InspectorReflector {
                 ? findListSetter(oneParam.get("set" + cap), field.getType())
                 : findSetter(oneParam.get("set" + cap), field.getType());
         if (getter == null || setter == null) {
-            throw new IllegalStateException("InsField 字段缺公开访问器（须 getX/isX + 参数类型匹配的 setX）: " + owner);
+            throw new IllegalStateException(EditorLang.text("inspector.build.missingAccessors", owner));
         }
         Class<?> enumType = null;
         List<InspectorFieldVo.Option> options = null;
@@ -560,12 +562,12 @@ public final class InspectorReflector {
         return type;
     }
 
-    /** 枚举显示名：实现 {@link InsEnumLabel} 用 getLabel()，否则（含空/白返回）兜底常量名 */
+    /** 枚举显示名：实现 {@link InsEnumLabel} 的 getLabel() 返回 i18n 键经 EditorLang 解析，否则兜底常量名 */
     private static String enumLabel(Enum<?> constant) {
         if (constant instanceof InsEnumLabel labeled) {
             String label = labeled.getLabel();
             if (label != null && !label.isBlank()) {
-                return label;
+                return EditorLang.text(label);
             }
         }
         return constant.name();
@@ -637,7 +639,7 @@ public final class InspectorReflector {
     private static String displayName(Field field) {
         InsField label = field.getAnnotation(InsField.class);
         if (label != null && !label.label().isBlank()) {
-            return label.label();
+            return EditorLang.text(label.label());
         }
         return field.getName();
     }
@@ -669,30 +671,31 @@ public final class InspectorReflector {
 
     // ── 回写侧 ───────────────────────────────────────────────
 
-    private static PropMeta findProp(ObjectId host, String fieldName) {
+    private static PropMeta findProp(ObjectId host, String fieldName) throws TipException {
         for (PropMeta prop : propsOf(host.getClass())) {
             if (prop.fieldName.equals(fieldName)) {
                 return prop;
             }
         }
-        throw new TipException("无可检查字段: " + host.getClass().getSimpleName() + "." + fieldName);
+        throw new TipException(EditorLang.key("inspector.apply.propNotFound",
+                host.getClass().getSimpleName(), fieldName));
     }
 
-    private static InspectorValueType parseType(String valueType) {
+    private static InspectorValueType parseType(String valueType) throws TipException {
         try {
             return InspectorValueType.valueOf(valueType);
         } catch (IllegalArgumentException | NullPointerException e) {
-            throw new TipException("未知 Inspector 值类型: " + valueType);
+            throw new TipException(EditorLang.key("inspector.apply.unknownValueType", valueType));
         }
     }
 
     /** 值字符串 → 类型对象（按值类型分支；失败抛 TipException） */
-    private static Object parseValue(PropMeta prop, String value) {
+    private static Object parseValue(PropMeta prop, String value) throws TipException {
         if (value == null) {
             if (prop.valueType == InspectorValueType.GUID_ASSET) {
                 return null; // None=清空合法（Unity 口径：MeshRenderer 材质可空）
             }
-            throw new TipException("字段值不能为空: " + prop.fieldName);
+            throw new TipException(EditorLang.key("inspector.apply.valueEmpty", prop.fieldName));
         }
         switch (prop.valueType) {
             case STRING:
@@ -701,12 +704,12 @@ public final class InspectorReflector {
                 if ("true".equals(value) || "false".equals(value)) {
                     return Boolean.valueOf(value);
                 }
-                throw new TipException("布尔值须为 true/false: " + value);
+                throw new TipException(EditorLang.key("inspector.apply.badBoolean", value));
             case INT:
                 int i = parseInt(value);
                 if (prop.setter.getParameterTypes()[0] == Layer.class) {
                     if (i < 0 || i >= LAYER_COUNT) {
-                        throw new TipException("Layer 索引越界: " + i);
+                        throw new TipException(EditorLang.key("inspector.apply.layerIndexOutOfRange", i));
                     }
                     return Layer.of(i);
                 }
@@ -715,7 +718,7 @@ public final class InspectorReflector {
                 try {
                     return Float.parseFloat(value.trim());
                 } catch (NumberFormatException e) {
-                    throw new TipException("浮点值非法: " + value);
+                    throw new TipException(EditorLang.key("inspector.apply.badFloat", value));
                 }
             case VEC3_F:
                 float[] xyz = parseFloats(value, 3);
@@ -742,49 +745,50 @@ public final class InspectorReflector {
                 // 空串=内存创建不可回写；guid 未索引即资产不存在，拒绝防静默置 null
                 String guid = value.trim();
                 if (guid.isEmpty()) {
-                    throw new TipException("内存创建资产不可回写: " + prop.fieldName);
+                    throw new TipException(EditorLang.key("inspector.apply.inMemoryAsset", prop.fieldName));
                 }
                 JavelinEditor editor = JavelinEditor.getInstance();
                 Asset asset = editor != null
                         ? editor.getAssetManager().loadGuid(guid, prop.assetType) : null;
                 if (asset == null) {
-                    throw new TipException("资产不存在（guid 未索引）: " + prop.fieldName);
+                    throw new TipException(EditorLang.key("inspector.apply.assetNotFound", prop.fieldName));
                 }
                 return asset;
             default:
-                throw new TipException("暂不支持的回写类型: " + prop.valueType);
+                throw new TipException(EditorLang.key("inspector.apply.unsupportedType", prop.valueType));
         }
     }
 
-    private static int parseInt(String value) {
+    private static int parseInt(String value) throws TipException {
         try {
             return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
-            throw new TipException("整数值非法: " + value);
+            throw new TipException(EditorLang.key("inspector.apply.badInt", value));
         }
     }
 
     /** 枚举常量回解（valueOf 的 IllegalArgumentException 转口径；选项外值即此路径） */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Object enumConstant(PropMeta prop, String value) {
+    private static Object enumConstant(PropMeta prop, String value) throws TipException {
         try {
             return Enum.valueOf((Class) prop.enumType, value.trim());
         } catch (IllegalArgumentException e) {
-            throw new TipException("未知枚举值: " + prop.fieldName + " = " + value);
+            throw new TipException(EditorLang.key("inspector.apply.unknownEnumValue",
+                    prop.fieldName, value));
         }
     }
 
-    private static float[] parseFloats(String value, int count) {
+    private static float[] parseFloats(String value, int count) throws TipException {
         String[] parts = value.split(",");
         if (parts.length != count) {
-            throw new TipException("数值格式非法（须 " + count + " 个逗号分隔分量）: " + value);
+            throw new TipException(EditorLang.key("inspector.apply.badComponentCount", count, value));
         }
         float[] result = new float[count];
         for (int i = 0; i < count; i++) {
             try {
                 result[i] = Float.parseFloat(parts[i].trim());
             } catch (NumberFormatException e) {
-                throw new TipException("数值分量非法: " + value);
+                throw new TipException(EditorLang.key("inspector.apply.badComponent", value));
             }
         }
         return result;
@@ -826,7 +830,7 @@ public final class InspectorReflector {
             try {
                 return getter.invoke(host);
             } catch (IllegalAccessException | InvocationTargetException e) {
-                throw new IllegalStateException("Inspector 读取失败: " + fieldName, e);
+                throw new IllegalStateException(EditorLang.text("inspector.reflect.readFailed", fieldName), e);
             }
         }
 
@@ -834,7 +838,7 @@ public final class InspectorReflector {
             try {
                 setter.invoke(host, value);
             } catch (IllegalAccessException | InvocationTargetException e) {
-                throw new IllegalStateException("Inspector 回写失败: " + fieldName, e);
+                throw new IllegalStateException(EditorLang.text("inspector.reflect.writeFailed", fieldName), e);
             }
         }
     }

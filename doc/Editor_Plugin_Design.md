@@ -1,4 +1,4 @@
-# 编辑器插件体系与 i18n 设计（v0.2）
+# 编辑器插件体系与 i18n 设计（v0.3）
 
 > 状态：**首批落地，已验收**（2026-10-20 用户实测通过）——插件静态骨架（契约/装载/账本/
 > 隔离）+ editor.core 迁移（编辑器即插件通电）+ i18n 基建（注册中心/scope/门面）+
@@ -6,6 +6,13 @@
 > v0.2（2026-10-27）：**插值改自实现 `{}` 顺位替换（弃 MessageFormat，拍板 2026-10-27
 > ——{0} 编辑期不直观 + 单引号转义坑消解）**；新功能文案随批接 i18n（§7.2-0，不再攒批进
 > 第二批）。
+> v0.3（2026-10-30）：**i18n 全量化批次**——§7.2 后置批次 1~4 一次清账：编辑模块
+> ~300 条非日志字面量全迁（异常/弹窗/面板标题/检查器标签/打包日志行），双语言包
+> 354 键对齐；异常面收 `I18nKey`（`LangException` 新基类 + TipException/ShaderParseException
+> 构造器收键，§4.5-1 落地）；`@InsField/@InsHeader/InsEnumLabel` 的 label 改「语言包
+> 局部键」、反射层三解析点（componentLabel/displayName/enumLabel）经 EditorLang 解析
+> （§7.1 组件显示名口径拍板落地）；源码机检测试 `CjkStringLiteralCheckTest` 落红线
+> （§4.5-3）。引导期文案（插件装载链/启动器两窗/i18n 基建自举）按档内口径留中文白名单。
 > 本档为插件体系与 i18n 的**总纲**：契约语义、装载管线、错误分级、i18n 解析链、
 > 拍板依据与后置路线。javadoc 只留钩子（AGENTS 红线 14），论证全归本档。
 
@@ -280,15 +287,25 @@ namespace**（魔法推导与「namespace 显式声明」拍板冲突，挪包�
 | 语言包 | `lang/zh_cn.properties` 36 条（插件元数据 2 + 顶栏域 3 + 顶栏命令 4 + hierarchy 域 15 + project 域 12；2026-10-20 补 create.material 注册+条目，ac8a514） |
 
 刻意不做：**ctx 域标签不进语言包**（右键域不渲染标签，进了反而被死 key 报告标红）；
-**日志/异常消息不迁移**（诊断面，Unity 也不 i18n 日志——异常/弹窗消息属第二批）。
+**日志消息不迁移**（诊断面，Unity 也不 i18n 日志——异常/弹窗消息曾列第二批，
+2026-10-30 全量化批次已迁，见 §4.5）。
 
 ### 4.5 三层强制（全量目标形态）
 
-1. **出口签名**：弹窗/状态栏/TipException 构造器收 I18nKey（异常消息 ~116 条随第二批）；
+1. **出口签名**（✅ 2026-10-30 落地）：异常面收 I18nKey——`LangException` 新基类
+   （受检，消息构造期 `key.text()` 解析）+ `TipException`/`ShaderParseException` 构造器
+   收键（需要国际化的异常面以收键显式标出）；弹窗/状态栏/导入错误消息经
+   `EditorLang.text(...)` 于调用点解析（JDK 异常构造器收不了键，保留调点解析形态）；
 2. **注解层启动校验**：InsField/InsHeader 的 key 静态可枚举，装载期聚合 error log
-   （不抛，运行时照旧 `!key!` 兜底）；
-3. **源码机检**：properties 之外源码无中文字面量（白名单豁免 log）——测试/构建任务
-   扫 CJK 字符串字面量即 fail，漏国际化从人眼 CR 变 CI 红线。
+   （不抛，运行时照旧 `!key!` 兜底）——⏳ 后置（label 已 key 化，见 §7.1）；
+3. **源码机检**（✅ 2026-10-30 落地）：`CjkStringLiteralCheckTest` 扫
+   javelin-editor/src/main/java 全量——词法状态机剥离注释、跨行携带字符串/text block
+   态，字符串字面量含 CJK 即测试红。白名单（引导期 + 数据面，扫描器内注明）：
+   插件装载链四件（PluginManager/PluginInstance/PluginClassLoader/PluginContext——
+   setup 前可能被调，EditorLang 未注入）、启动器两窗（ProjectFrame/ProjectLoadingFrame
+   ——先于语言包注册显示）、i18n 基建四件（自举异常不可回查 i18n）、
+   EditorCorePlugin（`registerLanguage("zh_CN","中文")` 的语言自书显示名=语言数据）、
+   开发者面工具类三件（FileUtil/ClassUtil/StringUtil）。log 调用行豁免（诊断面拍板）。
 
 ### 4.6 第三方插件兼容矩阵（2026-10-20 拍，2026-10-29 随注册制修订）
 
@@ -384,8 +401,9 @@ final class RefreshCommand implements MenuCommand {
 打开时 `label().text()` 路由到 myplugin 表。
 
 语义细则：面板标题当前 setup 期 `text()` 求值（语言启动期锁定，注册期解析等价；面板
-标题 key 化随后续批次）；异常消息 `MyLang.key("error.loadFailed", path)` 通道随第二批
-（TipException 收 I18nKey）开通；切语言 = 补语言文件 + 启动期 `I18n.setLanguage`
+标题 key 化随后续批次）；异常消息 `MyLang.key("error.loadFailed", path)` 通道
+**已开通**（2026-10-30，LangException 基类 + TipException/ShaderParseException 收
+I18nKey，§4.5-1）；切语言 = 补语言文件 + 启动期 `I18n.setLanguage`
 （settings 接线随后续批次）重启生效；`!myplugin.xxx!` = 该插件语言包漏键（日志同名
 warn 指认 + 报告分桶）。
 
@@ -446,20 +464,20 @@ PluginManager.loadAll → EditorCorePlugin.setup → 三个 Setup 经 ctx。
 | 命令 id 前缀化 | 第三方命令 id 若撞核心域（如 hierarchy.cut）fail-fast 拒绝 | 第三方进公共域的规则 + 菜单结构注入位（Unity 固定注入位口径） |
 | FileType 扩展名冲突策略 | 现状 fail-fast（扩展名无法命名空间化） | 第三方接管 .scene 该拒（推荐维持 fail-fast）还是先注册者胜 |
 | 默认语言 | ✅ **已拍板（2026-10-29）：默认 en_US**——编辑器启动初始语言（`I18n.DEFAULT_LANGUAGE`）；**语言包注册制后缺键回退基线 = 各域第一个注册的语言包（域基线，英文不特殊）**——editor.core 域基线 = 先注册的 en_US 文件（新建 en_US.properties 全量 50 键英文翻译），第三方插件（如中文作者）先注册 zh_CN 即基线中文；「必备默认文件」概念作废 | 语言设置菜单批的设计前提（首启系统语言 → 不支持逐键回退各域基线兜底成立） |
-| 组件显示名口径 | @InsHeader 中文名（「变换/相机」） | Unity 口径即英文类名——若切英文，这批标签免搬运 |
+| 组件显示名口径 | ✅ **已拍板（2026-10-30 用户）：key 化进语言包**——`@InsHeader/@InsField/InsEnumLabel` 的 label 值改「editor.core 语言包局部键」（`ins.transform` / `ins.camera.fov` / `ins.enum.clearFlags.solidColor` 一族），InspectorReflector 三解析点（componentLabel/displayName/enumLabel）经 EditorLang 解析——zh_CN 中文名、en_US 英文名双语齐备 | 后续新增组件/字段：label 写键 + 双语言包补条目；空串兜底语义不变（兜底字段原名/类简单名） |
 
 ### 7.2 后置批次
 
-0. **新功能文案随批接 i18n**（2026-10-27 落地，待验收）：导入进度框（`asset.import.*`
-   3 条）/ 创建着色器弹框（`create.shader.*` 2 条）/ 着色器诊断台状态行
-   （`shader.inspector.*` 5 条）随功能批次接入 EditorLang，不再攒批——第二批
-   （下面第 1 条 ~116 条）范围随之后推；
-1. **异常/弹窗消息 i18n**（~116 条）：TipException/ValidationException 构造器收
-   I18nKey + tinyfd 弹窗文案 + 状态栏通道；
-2. **面板/窗口标题 i18n**：PanelDescriptor.title（「层级/项目/属性/控制台」）+ 窗口
-   标题，随控制台面板批次一并；
-3. **Inspector 注解 label key 化**：InsField/InsHeader 存 key，装载期启动校验（§4.5-2）；
-4. **源码机检**（§4.5-3）+ **i18n 报告导出命令**（Tools 域，miss/used 分桶工单）；
+0. ~~**新功能文案随批接 i18n**（2026-10-27 落地）~~——已随全量化批次收口；
+1. ~~**异常/弹窗消息 i18n**~~ **✅ 已落地（2026-10-30）**：异常面收 `I18nKey`
+   （LangException 基类 + TipException/ShaderParseException 收键）；tinyfd/JOptionPane
+   弹窗与状态栏文案全迁（调用点 `EditorLang.text(...)` 解析）；
+2. ~~**面板/窗口标题 i18n**~~ **✅ 已落地（2026-10-30）**：PanelDescriptor.title（层级/
+   项目/控制台/视口/检查器）+ PackDialog/PreferencesDialog 等窗口文案全迁；
+3. ~~**Inspector 注解 label key 化**~~ **✅ 已落地（2026-10-30，§7.1 拍板）**——
+   装载期启动校验（§4.5-2）仍后置；
+4. ~~**源码机检**~~ **✅ 已落地（2026-10-30，§4.5-3）**——**i18n 报告导出命令**
+   （Tools 域，miss/used 分桶工单）仍后置；
 5. **插件管理界面（v2）**：列表（name/description/version/author）、启用禁用
    （跳过 ServiceLoader 实例化即免 unload）、i18n 报告按插件分桶展示——
    PluginInstance 账本已为此备好数据源；
@@ -492,3 +510,34 @@ PluginClassLoader/PluginManager/EditorCorePlugin/EditorLang）、`editor.i18n` �
 改动：菜单包全链（MenuCommand/Command/MenuRegistry/MenuDef/MenuBuilder/MenuBarFactory/
 MenuPopupFactory/三域基类/全部命令类）、三 Setup、JavelinEditor/MainFrame/
 ProjectLoadingFrame。
+
+## 9. i18n 全量化批次（2026-10-30，待用户实测验收）
+
+**范围**：编辑模块全部非日志用户可见字面量——异常消息（导入器/解析器/检查器回写/
+序列化/工具类）、弹窗与状态栏（打包/场景打开/创建命令/资产拖放）、面板与窗口文案
+（Dock 标签/占位/视口/工具栏/层级/项目/状态栏）、检查器全件（材质/纹理/着色器/节点）、
+打包日志行（GradleProject out.*）、面板注册与 Dock 骨架校验异常。**日志调用（log.*/
+LOGGER.*）留中文**（诊断面，档内既有口径）。
+
+**语言包**：zh_CN / en_US 各 354 键、逐键对齐（域内约定：菜单键 = 命令 id 不变；
+新域 inspector.*/ins.*/import.*/shader.parse.*/material.*/texture.*/gradle.*/pack.*/
+common.* 等）。
+
+**代码形态**：
+- 抛点用 `EditorLang.key(...)`（异常面，键自持、构造期解析）或 `EditorLang.text(...)`
+  （JDK 异常/日志形接口/UI 文案，调用点解析）；`LangException` 为受检基类，
+  `InspectorReflector.apply` 链声明 `throws TipException`；
+- `@InsField/@InsHeader/InsEnumLabel` 的 label=语言包局部键（core 侧存中性键、
+  editor 侧解析——core 不依赖 i18n）；
+- `CreateShaderMenuCommand` 模板 text block 与注入 GLSL 注释改英文（生成物/language
+  neutral，不经语言包）。
+
+**测试**：`EditorLangTestBase`（装 zh_CN 包 + init 门面，幂等）——ShaderParserTest
+继承之（断言中文文案不变量）；`CjkStringLiteralCheckTest`（§4.5-3 机检）。
+
+**验收清单（用户实测建议）**：① 编辑器以 zh_CN 启动，菜单/层级/项目/检查器（Transform/
+Camera/MeshRenderer 组件头与字段名）/视口标签/工具栏 tooltip 全中文显示；② 以 en_US
+启动（首选项切语言重启）同面全英文；③ 触发弹框路径：打包（PackDialog 表单/状态/日志行）、
+保存场景失败、拖入未导入文件、导入坏 .shader（解析错误中文案）、检查器非法输入
+（状态栏 TipException 文案）；④ 控制台/日志面观察无 `!editor.core.*!` 兜底串；
+⑤ 单测面 `:javelin-editor:test` 全绿（含机检与 ShaderParserTest）。

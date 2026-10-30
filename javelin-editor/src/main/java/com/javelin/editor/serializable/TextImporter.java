@@ -6,6 +6,7 @@ import com.javelin.core.assets.AssetManager;
 import com.javelin.core.reflective.ReflectiveFactory;
 import com.javelin.core.serialize.Importer;
 import com.javelin.core.serialize.Serializable;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.io.*;
 import java.lang.reflect.Array;
@@ -97,7 +98,7 @@ public class TextImporter implements Importer {
                         // 同 TextInputCapsule.readSerializable 2026-10-04 坑）
                         if (assetManager == null || elementClass == null) {
                             throw new IllegalStateException(
-                                "无法解析列表 GUID 引用 " + guid + "：AssetManager 未配置或列表头缺少元素类型");
+                                EditorLang.text("text.listGuidUnresolvable", guid));
                         }
                         list.add(assetManager.loadGuid(guid, (Class<? extends Asset>) elementClass));
                     } else if (elementClass != null && elementClass.isEnum()) {
@@ -118,13 +119,13 @@ public class TextImporter implements Importer {
 
         Object value = objectCache.get(0);
         if (value == null) {
-            throw new IOException("文本序列化文件缺少根对象（id=0）");
+            throw new IOException(EditorLang.text("text.missingRoot"));
         }
         return (T) value;
     }
 
     public String getGuid() {
-        throw new UnsupportedOperationException("文本序列化不支持直接读取 GUID，请通过导入后获取");
+        throw new UnsupportedOperationException(EditorLang.text("text.guidDirectReadUnsupported"));
     }
 
     Object getObject(int id) {
@@ -154,7 +155,7 @@ public class TextImporter implements Importer {
         String line;
         line = reader.readLine();
         if (line == null || !line.equals(TextExporter.FILE_HEADER)) {
-            throw new IOException("文件头不匹配，不是有效的文本序列化文件");
+            throw new IOException(EditorLang.text("text.badHeader"));
         }
         line = reader.readLine();
 
@@ -175,7 +176,7 @@ public class TextImporter implements Importer {
                 int colon = line.indexOf(':');
                 int closeBracket = line.lastIndexOf(']');
                 if (colon == -1 || closeBracket == -1 || colon > closeBracket) {
-                    throw new IOException("对象头格式错误: " + line);
+                    throw new IOException(EditorLang.text("text.badObjectHeader", line));
                 }
                 int id = Integer.parseInt(line.substring(1, colon));
                 String className = line.substring(colon + 1, closeBracket);
@@ -203,7 +204,7 @@ public class TextImporter implements Importer {
                 if (isArray || isArrayList) {
                     String arrayLine = reader.readLine();
                     if (arrayLine == null || !arrayLine.startsWith("[") || !arrayLine.endsWith("]")) {
-                        throw new IOException("数组对象 " + id + " 的数据行格式错误");
+                        throw new IOException(EditorLang.text("text.badArrayRow", id));
                     }
                     arrayData.put(id, arrayLine.substring(1, arrayLine.length() - 1));
                 } else {
@@ -240,7 +241,7 @@ public class TextImporter implements Importer {
             if (assetManager != null && Asset.class.isAssignableFrom(elementClass)) {
                 Array.set(array, index, assetManager.loadGuid(guid, (Class<? extends Asset>) elementClass));
             } else {
-                throw new IllegalStateException("无法解析 GUID 数组元素，未配置 AssetManager 或类型不匹配: " + guid);
+                throw new IllegalStateException(EditorLang.text("text.badGuidArrayElement", guid));
             }
             return;
         }
@@ -269,7 +270,7 @@ public class TextImporter implements Importer {
         } else if (elementClass == char.class) {
             Array.setChar(array, index, unescape(elementStr).charAt(0));
         } else {
-            throw new IllegalArgumentException("不支持的数组元素类型: " + elementClass);
+            throw new IllegalArgumentException(EditorLang.text("text.badArrayElementType", elementClass));
         }
     }
 

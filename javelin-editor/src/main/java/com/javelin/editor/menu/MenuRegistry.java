@@ -1,6 +1,7 @@
 package com.javelin.editor.menu;
 
 import com.javelin.editor.i18n.I18nKey;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -36,10 +37,10 @@ public final class MenuRegistry {
      */
     public static synchronized MenuBuilder menu(String id, I18nKey label) {
         if (id == null || id.isBlank() || label == null) {
-            throw new IllegalArgumentException("菜单 id 与 label 不能为空");
+            throw new IllegalArgumentException(EditorLang.text("menu.registry.idLabelRequired"));
         }
         if (MENUS.containsKey(id)) {
-            throw new IllegalStateException("重复菜单 id: " + id);
+            throw new IllegalStateException(EditorLang.text("menu.registry.duplicateId", id));
         }
         MenuDef def = new MenuDef(id, label);
         MENUS.put(id, def);

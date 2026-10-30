@@ -4,6 +4,7 @@ import com.javelin.core.input.InputAction;
 import com.javelin.core.input.KeyCode;
 import com.javelin.core.input.MouseButton;
 import com.javelin.core.input.InputSink;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.util.ThreadUtil;
 import com.javelin.rhi.render.Platform;
 import com.javelin.rhi.render.RenderSurface;
@@ -88,7 +89,7 @@ public class CanvasSurface extends Canvas implements RenderSurface {
     @Override
     public long nativeHandle() {
         if (!notify || !isDisplayable()) {
-            throw new IllegalStateException("CanvasSurface 未准备就绪（尚未 displayable）");
+            throw new IllegalStateException(EditorLang.text("canvas.notReady"));
         }
         if (cachedHandle == 0) {
             while (!notify){
@@ -258,7 +259,7 @@ public class CanvasSurface extends Canvas implements RenderSurface {
      */
     long getNativeWindowHandle() {
         if (!isDisplayable()) {
-            throw new IllegalStateException("Canvas 尚未 displayable，无法获取 native handle");
+            throw new IllegalStateException(EditorLang.text("canvas.notDisplayable"));
         }
         JAWT awt = JAWT.calloc();
         try {

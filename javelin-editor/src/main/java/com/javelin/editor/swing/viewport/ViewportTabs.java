@@ -4,6 +4,7 @@ import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.scene.SceneModel;
 import com.javelin.editor.swing.dock.TabStrip;
 import com.javelin.editor.swing.panel.EditorPanel;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.window.cef.CanvasSurface;
 
 import javax.swing.JComponent;
@@ -40,8 +41,8 @@ public final class ViewportTabs extends JComponent implements EditorPanel {
         this.host = new ViewportHost(canvas);
         setLayout(new BorderLayout(0, 0));
         TabStrip strip = new TabStrip(List.of(
-                new TabStrip.TabItem("场景", false),
-                new TabStrip.TabItem("游戏", false)), activeView, index -> {
+                new TabStrip.TabItem(EditorLang.text("viewport.scene"), false),
+                new TabStrip.TabItem(EditorLang.text("viewport.game"), false)), activeView, index -> {
             if (index == activeView) {
                 return;
             }

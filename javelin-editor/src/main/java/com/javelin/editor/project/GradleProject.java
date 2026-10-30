@@ -6,6 +6,7 @@ import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.settings.*;
 import com.javelin.editor.EditorEnv;
 import com.javelin.editor.console.ConsoleOut;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.settings.ProjectSettings;
 import com.javelin.editor.util.FileUtil;
@@ -58,39 +59,39 @@ public class GradleProject extends Project {
     @Override
     public void jarBuild(ConsoleOut out) {
         long start = System.currentTimeMillis();
-        out.info("==== jar 打包开始（项目: " + rootDir.getAbsolutePath() + "）====");
-        out.info("---- 阶段 1/5: 清理 native 产物目录 ----");
+        out.info(EditorLang.text("gradle.jarBuild.start", rootDir.getAbsolutePath()));
+        out.info(EditorLang.text("gradle.stage", 1, 5, EditorLang.text("gradle.stage.cleanNativeOut")));
         File file = nativeBuildOutDir();
         FileUtil.delete(file);
-        out.info("已清理: " + file.getAbsolutePath());
-        out.info("---- 阶段 2/5: dumpRuntimeJars（导出运行时依赖清单）----");
+        out.info(EditorLang.text("gradle.cleaned", file.getAbsolutePath()));
+        out.info(EditorLang.text("gradle.stage", 2, 5, EditorLang.text("gradle.stage.dumpRuntimeJars")));
         runTask("dumpRuntimeJars", out);
-        out.info("---- 阶段 3/5: build（compileJava 编译 + jar 打包）----");
+        out.info(EditorLang.text("gradle.stage", 3, 5, EditorLang.text("gradle.stage.build")));
         runTask("build", out);
-        out.info("---- 阶段 4/5: jlink 裁剪游戏运行时 ----");
+        out.info(EditorLang.text("gradle.stage", 4, 5, EditorLang.text("gradle.stage.jlink")));
         dumpRuntimeByJlink(out);
-        out.info("---- 阶段 5/5: 组装产物（Builds/jar）----");
+        out.info(EditorLang.text("gradle.stage", 5, 5, EditorLang.text("gradle.stage.assembleJar")));
         try {
             createOutputJarApp(out);
-            out.info("==== jar 打包完成，总耗时 " + (System.currentTimeMillis() - start) + "ms ====");
+            out.info(EditorLang.text("gradle.jarBuild.done", System.currentTimeMillis() - start));
         } catch (IOException e) {
-            out.error("产物组装失败: " + e.getMessage());
+            out.error(EditorLang.text("gradle.assembleFailed", e.getMessage()));
         }
     }
 
     @Override
     public void aotBuild(ConsoleOut out, String buildMode) {
         long start = System.currentTimeMillis();
-        out.info("==== AOT 打包开始（项目: " + rootDir.getAbsolutePath() + "）====");
+        out.info(EditorLang.text("gradle.aotBuild.start", rootDir.getAbsolutePath()));
         String mode = (buildMode == null || buildMode.isBlank()) ? "release" : buildMode;
-        out.info("---- 阶段 1/2: nativeCompile（GraalVM native-image，buildMode=" + mode + "）----");
+        out.info(EditorLang.text("gradle.aotBuild.nativeCompile", mode));
         nativeBuild(out, buildMode);
-        out.info("---- 阶段 2/2: 组装产物（Builds/aot）----");
+        out.info(EditorLang.text("gradle.aotBuild.assemble"));
         try {
             createOutputAotApp(out);
-            out.info("==== AOT 打包完成，总耗时 " + (System.currentTimeMillis() - start) + "ms ====");
+            out.info(EditorLang.text("gradle.aotBuild.done", System.currentTimeMillis() - start));
         } catch (IOException e) {
-            out.error("产物组装失败: " + e.getMessage());
+            out.error(EditorLang.text("gradle.assembleFailed", e.getMessage()));
         }
     }
 
@@ -109,7 +110,7 @@ public class GradleProject extends Project {
     public void runTask(String task, ConsoleOut out, String... gradleArgs) {
         long start = System.currentTimeMillis();
         if (out != null) {
-            out.info(">> Gradle 任务: " + task + "（开始）");
+            out.info(EditorLang.text("gradle.task.start", task));
         }
         List<String> args = new ArrayList<>();
         if (gradleArgs != null) {
@@ -134,12 +135,12 @@ public class GradleProject extends Project {
         } catch (Exception e) {
             LOGGER.error("执行任务失败: {}", task, e);
             if (out != null) {
-                out.error("<< Gradle 任务失败: " + task + " —— " + e.getMessage());
+                out.error(EditorLang.text("gradle.task.failed", task, e.getMessage()));
             }
             throw new RuntimeException(e);
         }
         if (out != null) {
-            out.info("<< Gradle 任务: " + task + " 完成，耗时 " + (System.currentTimeMillis() - start) + "ms");
+            out.info(EditorLang.text("gradle.task.done", task, System.currentTimeMillis() - start));
         }
     }
 
@@ -152,56 +153,61 @@ public class GradleProject extends Project {
         FileUtil.delete(file);
         file.mkdirs();
         lib.mkdirs();
-        out.info("产物目录: " + file.getAbsolutePath());
+        out.info(EditorLang.text("gradle.productDir", file.getAbsolutePath()));
 
         if (!gameJar.exists()) {
-            out.error("缺少主 jar: " + gameJar.getAbsolutePath() + "（build 任务未产出？）");
+            out.error(EditorLang.text("gradle.jar.missing", gameJar.getAbsolutePath()));
         } else {
             File mainTarget = new File(file, gameJar.getName());
             FileUtil.copy(gameJar, mainTarget);
-            out.info("复制主 jar: " + gameJar.getAbsolutePath() + " -> " + mainTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.jar.copied", gameJar.getAbsolutePath(),
+                    mainTarget.getAbsolutePath()));
         }
 
         if (!dependencies.exists()) {
-            out.warn("依赖清单缺失: " + dependencies.getAbsolutePath() + "（dumpRuntimeJars 未产出？）");
+            out.warn(EditorLang.text("gradle.deps.missing", dependencies.getAbsolutePath()));
         } else {
             List<String> strings = Files.readAllLines(dependencies.toPath());
-            out.info("依赖清单: " + dependencies.getAbsolutePath() + "（" + strings.size() + " 行）");
+            out.info(EditorLang.text("gradle.deps.listed", dependencies.getAbsolutePath(),
+                    strings.size()));
             for (String string : strings) {
                 if (StringUtil.isNotBlank(string)) {
                     File libJar = new File(string);
                     File libTarget = new File(lib, libJar.getName());
                     FileUtil.copy(libJar, libTarget);
-                    out.info("复制依赖: " + string + " -> " + libTarget.getAbsolutePath());
+                    out.info(EditorLang.text("gradle.deps.copied", string, libTarget.getAbsolutePath()));
                 }
             }
         }
         // 运行时 = 阶段 4 的 jlink 裁剪产物（build/runtime 工作区），并入产物目录
         File runtimeStaging = new File(rootDir, "build/runtime");
         if (!runtimeStaging.exists()) {
-            out.warn("运行时缺失（jlink 未产出？）: " + runtimeStaging.getAbsolutePath());
+            out.warn(EditorLang.text("gradle.runtime.missing", runtimeStaging.getAbsolutePath()));
         } else {
             FileUtil.copy(runtimeStaging, runtimeDir);
-            out.info("复制运行时: " + runtimeStaging.getAbsolutePath() + " -> " + runtimeDir.getAbsolutePath());
+            out.info(EditorLang.text("gradle.runtime.copied", runtimeStaging.getAbsolutePath(),
+                    runtimeDir.getAbsolutePath()));
         }
 
         // Game/ 与 Library/ 原封不动并入产物（表单参数已先写入 Game → 复制即新值；
         // Library 含场景二进制产物，运行时按 guid 加载）
         File gameDir = new File(rootDir, "Game");
         if (!gameDir.exists()) {
-            out.warn("Game 目录缺失: " + gameDir.getAbsolutePath());
+            out.warn(EditorLang.text("gradle.gameDir.missing", gameDir.getAbsolutePath()));
         } else {
             File gameTarget = new File(file, "Game");
             FileUtil.copy(gameDir, gameTarget);
-            out.info("复制 Game: " + gameDir.getAbsolutePath() + " -> " + gameTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.gameDir.copied", gameDir.getAbsolutePath(),
+                    gameTarget.getAbsolutePath()));
         }
         File libraryDir = new File(rootDir, "Library");
         if (!libraryDir.exists()) {
-            out.warn("Library 目录缺失: " + libraryDir.getAbsolutePath());
+            out.warn(EditorLang.text("gradle.libraryDir.missing", libraryDir.getAbsolutePath()));
         } else {
             File libraryTarget = new File(file, "Library");
             FileUtil.copy(libraryDir, libraryTarget);
-            out.info("复制 Library: " + libraryDir.getAbsolutePath() + " -> " + libraryTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.libraryDir.copied", libraryDir.getAbsolutePath(),
+                    libraryTarget.getAbsolutePath()));
         }
 
         createLaunchScript(out, file);
@@ -230,7 +236,7 @@ public class GradleProject extends Project {
                 + "\"%~dp0runtime\\bin\\java.exe\" -cp \"%~dp0game.jar;%~dp0lib\\*\" com.javelin.core.GameMain\r\n"
                 + "if errorlevel 1 pause\r\n";
         Files.write(script.toPath(), content.getBytes(StandardCharsets.US_ASCII));
-        out.info("启动脚本: " + script.getAbsolutePath());
+        out.info(EditorLang.text("gradle.launchScript", script.getAbsolutePath()));
     }
 
     /**
@@ -248,44 +254,48 @@ public class GradleProject extends Project {
         File file = new File(rootDir, "Builds/aot");
         FileUtil.delete(file);
         file.mkdirs();
-        out.info("产物目录: " + file.getAbsolutePath());
+        out.info(EditorLang.text("gradle.productDir", file.getAbsolutePath()));
 
         File nativeDir = nativeBuildOutDir();
         File exe = findNativeExe(nativeDir);
         if (exe == null) {
-            out.error("缺少原生可执行文件: " + nativeDir.getAbsolutePath() + "（nativeCompile 未产出？）");
+            out.error(EditorLang.text("gradle.exe.missing", nativeDir.getAbsolutePath()));
         } else {
             File exeTarget = new File(file, exe.getName());
             FileUtil.copy(exe, exeTarget);
-            out.info("复制 exe: " + exe.getAbsolutePath() + " -> " + exeTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.exe.copied", exe.getAbsolutePath(),
+                    exeTarget.getAbsolutePath()));
         }
 
         // LWJGL DLL 外置（模板 extractLwjglNatives 任务产出）；AotGameMain 按 ./lib 加载
         File nativesDir = new File(nativeDir, "lib");
         if (!nativesDir.isDirectory()) {
-            out.warn("DLL 目录缺失: " + nativesDir.getAbsolutePath() + "（extractLwjglNatives 未产出？）");
+            out.warn(EditorLang.text("gradle.dllDir.missing", nativesDir.getAbsolutePath()));
         } else {
             FileUtil.copy(nativesDir, new File(file, "lib"));
-            out.info("复制 DLL: " + nativesDir.getAbsolutePath() + " -> " + new File(file, "lib").getAbsolutePath());
+            out.info(EditorLang.text("gradle.dllDir.copied", nativesDir.getAbsolutePath(),
+                    new File(file, "lib").getAbsolutePath()));
         }
 
         // Game/ 与 Library/ 原封并入产物（同 jar 形态——表单参数已先写入 Game → 复制即新值；
         // Library 含场景二进制产物，运行时按 guid 加载）
         File gameDir = new File(rootDir, "Game");
         if (!gameDir.exists()) {
-            out.warn("Game 目录缺失: " + gameDir.getAbsolutePath());
+            out.warn(EditorLang.text("gradle.gameDir.missing", gameDir.getAbsolutePath()));
         } else {
             File gameTarget = new File(file, "Game");
             FileUtil.copy(gameDir, gameTarget);
-            out.info("复制 Game: " + gameDir.getAbsolutePath() + " -> " + gameTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.gameDir.copied", gameDir.getAbsolutePath(),
+                    gameTarget.getAbsolutePath()));
         }
         File libraryDir = new File(rootDir, "Library");
         if (!libraryDir.exists()) {
-            out.warn("Library 目录缺失: " + libraryDir.getAbsolutePath());
+            out.warn(EditorLang.text("gradle.libraryDir.missing", libraryDir.getAbsolutePath()));
         } else {
             File libraryTarget = new File(file, "Library");
             FileUtil.copy(libraryDir, libraryTarget);
-            out.info("复制 Library: " + libraryDir.getAbsolutePath() + " -> " + libraryTarget.getAbsolutePath());
+            out.info(EditorLang.text("gradle.libraryDir.copied", libraryDir.getAbsolutePath(),
+                    libraryTarget.getAbsolutePath()));
         }
 
         createAotLaunchScript(out, file, exe);
@@ -315,7 +325,7 @@ public class GradleProject extends Project {
      */
     private void createAotLaunchScript(ConsoleOut out, File productDir, File exe) throws IOException {
         if (exe == null) {
-            out.warn("exe 缺失，跳过启动脚本生成");
+            out.warn(EditorLang.text("gradle.exe.missingSkipScript"));
             return;
         }
         File script = new File(productDir, rootDir.getName() + ".bat");
@@ -326,7 +336,7 @@ public class GradleProject extends Project {
                 + "\"%~dp0" + exe.getName() + "\"\r\n"
                 + "if errorlevel 1 pause\r\n";
         Files.write(script.toPath(), content.getBytes(StandardCharsets.US_ASCII));
-        out.info("启动脚本: " + script.getAbsolutePath());
+        out.info(EditorLang.text("gradle.launchScript", script.getAbsolutePath()));
     }
 
     /**
@@ -345,7 +355,8 @@ public class GradleProject extends Project {
 
         File gameJar = new File(rootDir, "build/libs/game.jar");
         if (!gameJar.exists()) {
-            throw new IllegalStateException("缺少主 jar，无法分析运行时模块: " + gameJar.getAbsolutePath());
+            throw new IllegalStateException(EditorLang.text("gradle.jlink.jarMissing",
+                    gameJar.getAbsolutePath()));
         }
         // jdeps 输入 = game.jar + 依赖清单全量（交叉引用可解析）
         List<File> jars = new ArrayList<>();
@@ -359,7 +370,8 @@ public class GradleProject extends Project {
                     }
                 }
             } catch (IOException e) {
-                throw new RuntimeException("读取依赖清单失败: " + dependencies.getAbsolutePath(), e);
+                throw new RuntimeException(EditorLang.text("gradle.jlink.depsReadFailed",
+                        dependencies.getAbsolutePath()), e);
             }
         }
         List<String> jarPaths = jars.stream().map(File::getAbsolutePath).toList();
@@ -378,14 +390,14 @@ public class GradleProject extends Project {
         }
         String modules = runJdkTool(out, "jdeps", jdepsArgs);
         if (modules == null || modules.isBlank()) {
-            throw new IllegalStateException("jdeps 未得出模块清单（分析输出为空）");
+            throw new IllegalStateException(EditorLang.text("gradle.jlink.modulesEmpty"));
         }
-        out.info("jdeps 模块清单: " + modules);
+        out.info(EditorLang.text("gradle.jlink.modules", modules));
 
         runJdkTool(out, "jlink", "--add-modules", modules,
                 "--output", runtimeStaging.getAbsolutePath(),
                 "--strip-debug", "--no-man-pages", "--no-header-files", "--compress", "zip-6");
-        out.info("运行时已裁剪: " + runtimeStaging.getAbsolutePath() + "（模块: " + modules + "）");
+        out.info(EditorLang.text("gradle.jlink.runtimeTrimmed", runtimeStaging.getAbsolutePath(), modules));
     }
 
     /**
@@ -401,12 +413,12 @@ public class GradleProject extends Project {
         boolean windows = System.getProperty("os.name", "").toLowerCase().contains("windows");
         File exe = new File(new File(javaHome, "bin"), tool + (windows ? ".exe" : ""));
         if (!exe.exists()) {
-            throw new IllegalStateException("JDK 工具不存在: " + exe.getAbsolutePath() + "（编辑器须运行于完整 JDK）");
+            throw new IllegalStateException(EditorLang.text("gradle.tool.missing", exe.getAbsolutePath()));
         }
         List<String> command = new ArrayList<>();
         command.add(exe.getAbsolutePath());
         command.addAll(List.of(args));
-        out.info(">> 运行 " + tool + " " + String.join(" ", args));
+        out.info(EditorLang.text("gradle.tool.run", tool, String.join(" ", args)));
         try {
             Process process = new ProcessBuilder(command).start();
             StringBuilder stdout = new StringBuilder();
@@ -416,7 +428,7 @@ public class GradleProject extends Project {
                         new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        out.info("[" + tool + "] " + line);
+                        out.info(EditorLang.text("gradle.tool.line", tool, line));
                     }
                 } catch (IOException ignored) {
                     // 进程退出导致的流截断，非错误
@@ -434,14 +446,15 @@ public class GradleProject extends Project {
             int code = process.waitFor();
             errThread.join(2000);
             if (code != 0) {
-                throw new IllegalStateException(tool + " 退出码 " + code + "（详见日志行）");
+                throw new IllegalStateException(EditorLang.text("gradle.tool.exitCode", tool, code));
             }
             return stdout.toString().trim();
         } catch (IOException e) {
-            throw new RuntimeException("运行 " + tool + " 失败: " + exe.getAbsolutePath(), e);
+            throw new RuntimeException(EditorLang.text("gradle.tool.runFailed", tool,
+                    exe.getAbsolutePath()), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("运行 " + tool + " 被中断", e);
+            throw new RuntimeException(EditorLang.text("gradle.tool.interrupted", tool), e);
         }
     }
 
@@ -502,12 +515,12 @@ public class GradleProject extends Project {
                                                  String groupId, String artifactId) throws IOException {
         File projectDirFile = new File(projectDir, projectName);
         if (projectDirFile.exists()) {
-            throw new RuntimeException("项目已存在");
+            throw new RuntimeException(EditorLang.text("gradle.project.exists"));
         }
         projectDirFile.mkdirs();
         if (EditorEnv.isRelease()) {
             //从resources 读取
-            throw new RuntimeException("请使用release版本");
+            throw new RuntimeException(EditorLang.text("gradle.project.releaseOnly"));
         } else {
             //project-template复制
             FileUtil.copyContent(new File(EditorEnv.getEditorRuntimeDir(), "project-template"), projectDirFile);

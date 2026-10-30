@@ -5,6 +5,7 @@ import com.javelin.editor.inspector.NodeInspectorVo;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.inspector.widget.JeSelect;
 import com.javelin.editor.swing.inspector.widget.JeTextInput;
+import com.javelin.editor.plugin.EditorLang;
 
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
@@ -103,7 +104,7 @@ public class NodeHeaderPanel extends JComponent {
         gbc.gridx = 0;
         gbc.weightx = 0;
         gbc.insets = new Insets(0, 0, 0, 4);
-        row.add(new JLabel("图层"), gbc);
+        row.add(new JLabel(EditorLang.text("inspector.node.layer")), gbc);
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1;
@@ -113,7 +114,7 @@ public class NodeHeaderPanel extends JComponent {
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         gbc.insets = new Insets(0, 0, 0, 4);
-        row.add(new JLabel("标签"), gbc);
+        row.add(new JLabel(EditorLang.text("inspector.node.tag")), gbc);
         gbc.gridx = 3;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1;

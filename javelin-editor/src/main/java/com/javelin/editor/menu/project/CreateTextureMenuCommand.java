@@ -94,8 +94,8 @@ public class CreateTextureMenuCommand extends ProjectMenuCommand {
         editor.getAssetImportPipeline().awaitImport(task, AWAIT_IMPORT_TIMEOUT_MS);
         if (task.getStatus() == ImportTask.Status.FAILED) {
             JOptionPane.showMessageDialog(MainFrame.getInstance(),
-                    "新建纹理导入失败: " + task.getErrorMessage(),
-                    "创建纹理", JOptionPane.ERROR_MESSAGE);
+                    EditorLang.text("create.texture.importFailed", task.getErrorMessage()),
+                    EditorLang.text("create.texture.dialogTitle"), JOptionPane.ERROR_MESSAGE);
         }
         EditorEventBus.publish(new ProjectChangedEvent());
         LOGGER.info("创建纹理资产: {}", file);

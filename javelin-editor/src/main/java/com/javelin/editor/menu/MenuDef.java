@@ -1,6 +1,7 @@
 package com.javelin.editor.menu;
 
 import com.javelin.editor.i18n.I18nKey;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,7 +76,7 @@ public final class MenuDef {
          */
         public static MenuEntry submenu(I18nKey label) {
             if (label == null) {
-                throw new IllegalArgumentException("子菜单 label 不能为空");
+                throw new IllegalArgumentException(EditorLang.text("menu.submenu.labelRequired"));
             }
             return new MenuEntry(null, label, new ArrayList<>());
         }

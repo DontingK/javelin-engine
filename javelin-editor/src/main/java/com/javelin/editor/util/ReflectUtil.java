@@ -1,5 +1,6 @@
 package com.javelin.editor.util;
 
+import com.javelin.editor.plugin.EditorLang;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,12 +35,12 @@ public class ReflectUtil {
         try {
             Field field = getField(target.getClass(), fieldName);
             if (field == null) {
-                throw new RuntimeException("字段不存在: " + fieldName);
+                throw new RuntimeException(EditorLang.text("reflect.fieldMissing", fieldName));
             }
             field.setAccessible(true);
             return field.get(target);
         } catch (IllegalAccessException e) {
-            throw new RuntimeException("获取字段失败: " + fieldName, e);
+            throw new RuntimeException(EditorLang.text("reflect.getFieldFailed", fieldName), e);
         }
     }
 
@@ -54,12 +55,12 @@ public class ReflectUtil {
         try {
             Field field = getField(target.getClass(), fieldName);
             if (field == null) {
-                throw new RuntimeException("字段不存在: " + fieldName);
+                throw new RuntimeException(EditorLang.text("reflect.fieldMissing", fieldName));
             }
             field.setAccessible(true);
             field.set(target, value);
         } catch (IllegalAccessException e) {
-            throw new RuntimeException("设置字段失败: " + fieldName, e);
+            throw new RuntimeException(EditorLang.text("reflect.setFieldFailed", fieldName), e);
         }
     }
 

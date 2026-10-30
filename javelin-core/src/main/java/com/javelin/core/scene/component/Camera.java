@@ -29,30 +29,30 @@ import org.joml.Vector3f;
  * @since 1.0.0
  */
 @Reflective
-@InsHeader(label = "相机", icon = "camera")
+@InsHeader(label = "ins.camera", icon = "camera")
 public class Camera extends Component {
 
-    @InsField(label = "投影类型")
+    @InsField(label = "ins.camera.projection")
     private ProjectionType projectionType = ProjectionType.PERSPECTIVE;
     /** 垂直视场角（度；仅透视投影。渲染侧换算弧度） */
-    @InsField(label = "视野角")
+    @InsField(label = "ins.camera.fov")
     private float fov = 60.0f;
     /** 正交半高（世界单位；仅正交投影） */
-    @InsField(label = "正交尺寸")
+    @InsField(label = "ins.camera.orthoSize")
     private float orthographicSize = 5.0f;
-    @InsField(label = "近裁剪面")
+    @InsField(label = "ins.camera.nearClip")
     private float near = 0.1f;
-    @InsField(label = "远裁剪面")
+    @InsField(label = "ins.camera.farClip")
     private float far = 1000.0f;
     /** 裁剪掩码：按位对应 Layer，默认全可见（LayerMask.everything） */
     @InsLayerMask
-    @InsField(label = "裁剪掩码")
+    @InsField(label = "ins.camera.cullingMask")
     private int cullingMask = LayerMask.everything();
     /** 相机背景色（null = 跟随引擎全局背景色 JavelinSetting.backgroundColor；Inspector 编辑即物化显式值） */
-    @InsField(label = "背景色")
+    @InsField(label = "ins.camera.backgroundColor")
     private Color backgroundColor;
     /** 清屏标志（SOLID_COLOR 才消费 backgroundColor；DEPTH_ONLY 供叠加相机） */
-    @InsField(label = "清屏标志")
+    @InsField(label = "ins.camera.clearFlags")
     private ClearFlags clearFlags = ClearFlags.SOLID_COLOR;
     /**
      * 视口归一化矩形。[0, 1] 归一化，原点左下、y 向上（Unity normalizedViewPortRect
@@ -60,12 +60,12 @@ public class Camera extends Component {
      * 显式值（用户拍板 2026-10-11：新建相机视口矩形即 0,0,1,1——Unity 口径无 null
      * 形态）；null 仅旧档反序列化出现，渲染侧视同全屏。
      */
-    @InsField(label = "视口矩形")
+    @InsField(label = "ins.camera.viewportRect")
     private Rect viewportRect = new Rect(0.0f, 0.0f, 1.0f, 1.0f);
     // main 不入 Inspector：引擎侧 main 消费未落地，不摆无生效语义的死开关
     private boolean main;
     /** 渲染深度（值越大越晚渲染，可覆盖在小值相机画面之上——小地图/画中画用） */
-    @InsField(label = "渲染深度")
+    @InsField(label = "ins.camera.depth")
     private float depth;
 
     // screenToRay 复用缓冲（运行态不落盘、单线程每查复用）

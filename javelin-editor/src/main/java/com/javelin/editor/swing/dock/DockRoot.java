@@ -2,6 +2,7 @@ package com.javelin.editor.swing.dock;
 
 import com.javelin.editor.swing.panel.PanelDescriptor;
 import com.javelin.editor.swing.panel.PanelRegistry;
+import com.javelin.editor.plugin.EditorLang;
 
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -103,7 +104,7 @@ public final class DockRoot extends JComponent {
 
     /** 空态兜底（树为 null / 空组——关闭路径已不触发，构造期防御） */
     private JComponent emptyHint() {
-        JLabel hint = new JLabel("无面板", SwingConstants.CENTER);
+        JLabel hint = new JLabel(EditorLang.text("dock.noPanel"), SwingConstants.CENTER);
         Color dim = UIManager.getColor("Label.disabledForeground");
         if (dim != null) {
             hint.setForeground(dim);

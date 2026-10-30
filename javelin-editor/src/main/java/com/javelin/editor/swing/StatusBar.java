@@ -1,5 +1,7 @@
 package com.javelin.editor.swing;
 
+import com.javelin.editor.plugin.EditorLang;
+
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -16,7 +18,7 @@ import java.awt.BorderLayout;
  */
 public class StatusBar extends JComponent {
 
-    private final JLabel label = new JLabel("就绪");
+    private final JLabel label = new JLabel(EditorLang.text("status.ready"));
 
     public StatusBar() {
         setLayout(new BorderLayout(0, 0));
@@ -30,6 +32,6 @@ public class StatusBar extends JComponent {
      * @param text 文本（null 回退「就绪」）
      */
     public void setText(String text) {
-        label.setText(text == null || text.isBlank() ? "就绪" : text);
+        label.setText(text == null || text.isBlank() ? EditorLang.text("status.ready") : text);
     }
 }

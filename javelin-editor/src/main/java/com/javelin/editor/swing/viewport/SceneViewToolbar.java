@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.viewport;
 
 import com.javelin.editor.appstate.gizmo.TransformGizmoAppState;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.SvgIcon;
 
 import javax.swing.BorderFactory;
@@ -37,9 +38,9 @@ public final class SceneViewToolbar extends JComponent {
         setLayout(new FlowLayout(FlowLayout.LEFT, 2, 0));
         setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor()));
 
-        JToggleButton move = toolButton("move", "移动工具", true);
-        JToggleButton rotate = toolButton("rotate", "旋转工具（未实现）", false);
-        JToggleButton scale = toolButton("scale", "缩放工具（未实现）", false);
+        JToggleButton move = toolButton("move", EditorLang.text("toolbar.moveTool"), true);
+        JToggleButton rotate = toolButton("rotate", EditorLang.text("toolbar.rotateTool"), false);
+        JToggleButton scale = toolButton("scale", EditorLang.text("toolbar.scaleTool"), false);
         ButtonGroup tools = new ButtonGroup();
         tools.add(move);
         tools.add(rotate);
@@ -54,8 +55,10 @@ public final class SceneViewToolbar extends JComponent {
         separator.setPreferredSize(new Dimension(1, 14));
         add(separator);
 
-        JToggleButton local = toggle("局部", "局部坐标（Gizmo 跟随目标局部轴）");
-        JToggleButton world = toggle("世界", "世界坐标（Gizmo 恒世界轴）");
+        JToggleButton local = toggle(EditorLang.text("toolbar.local"),
+                EditorLang.text("toolbar.localTip"));
+        JToggleButton world = toggle(EditorLang.text("toolbar.world"),
+                EditorLang.text("toolbar.worldTip"));
         ButtonGroup space = new ButtonGroup();
         space.add(local);
         space.add(world);

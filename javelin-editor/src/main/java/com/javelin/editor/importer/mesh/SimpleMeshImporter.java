@@ -7,6 +7,7 @@ import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,13 +102,12 @@ public class SimpleMeshImporter implements AssetImporter {
                         try {
                             index = Integer.parseInt(section.substring("SUBMESH".length()));
                         } catch (NumberFormatException e) {
-                            task.setErrorMessage("子网格段名非法: " + line
-                                    + "（应为 [SUBMESH0]、[SUBMESH1] …）");
+                            task.setErrorMessage(EditorLang.text("import.mesh.badSubmeshName", line));
                             return false;
                         }
                         if (index != submeshes.size()) {
-                            task.setErrorMessage("子网格段序号必须从 0 连续递增: " + line
-                                    + "（当前已有 " + submeshes.size() + " 段）");
+                            task.setErrorMessage(EditorLang.text("import.mesh.submeshNotSequential",
+                                    line, submeshes.size()));
                             return false;
                         }
                         submeshes.add(new IntArray());
@@ -134,13 +134,13 @@ public class SimpleMeshImporter implements AssetImporter {
 
             // 校验必需段
             if (positions.size == 0) {
-                task.setErrorMessage("缺少 [POSITION] 数据或数据为空");
+                task.setErrorMessage(EditorLang.text("import.mesh.missingPosition"));
                 return false;
             }
 
             // [INDEX] 与 [SUBMESH_N] 互斥（显性化，红线 15）：两种索引来源不可同现
             if (indices.size > 0 && !submeshes.isEmpty()) {
-                task.setErrorMessage("[INDEX] 与 [SUBMESH_N] 互斥，不可同时出现");
+                task.setErrorMessage(EditorLang.text("import.mesh.indexSubmeshExclusive"));
                 return false;
             }
 
@@ -148,13 +148,13 @@ public class SimpleMeshImporter implements AssetImporter {
 
             // 校验数量一致性
             if (normals.size > 0 && normals.size / 3 != vertexCount) {
-                task.setErrorMessage(
-                        "法线数量与顶点数量不匹配：顶点=" + vertexCount + "，法线=" + (normals.size / 3));
+                task.setErrorMessage(EditorLang.text("import.mesh.normalCountMismatch",
+                        vertexCount, normals.size / 3));
                 return false;
             }
             if (uvs.size > 0 && uvs.size / 2 != vertexCount) {
-                task.setErrorMessage(
-                        "UV 数量与顶点数量不匹配：顶点=" + vertexCount + "，UV=" + (uvs.size / 2));
+                task.setErrorMessage(EditorLang.text("import.mesh.uvCountMismatch",
+                        vertexCount, uvs.size / 2));
                 return false;
             }
 
@@ -173,7 +173,8 @@ public class SimpleMeshImporter implements AssetImporter {
                 List<int[]> subArrays = new ArrayList<>(submeshes.size());
                 for (IntArray sub : submeshes) {
                     if (sub.size == 0) {
-                        task.setErrorMessage("子网格 " + subArrays.size() + " 索引数据为空");
+                        task.setErrorMessage(EditorLang.text("import.mesh.submeshIndexEmpty",
+                                subArrays.size()));
                         return false;
                     }
                     subArrays.add(sub.toArray());
@@ -187,8 +188,7 @@ public class SimpleMeshImporter implements AssetImporter {
                 try {
                     mesh.setTopology(PrimitiveTopology.valueOf(topologyName));
                 } catch (IllegalArgumentException e) {
-                    task.setErrorMessage("TOPOLOGY 取值非法: " + topologyName
-                            + "（应为 PrimitiveTopology 枚举名，如 TRIANGLE_LIST）");
+                    task.setErrorMessage(EditorLang.text("import.mesh.badTopology", topologyName));
                     return false;
                 }
             }
@@ -198,7 +198,8 @@ public class SimpleMeshImporter implements AssetImporter {
             AssetMeta meta = task.getMeta();
             String guid = meta != null ? meta.getGuid() : null;
             if (guid == null || guid.isEmpty()) {
-                task.setErrorMessage("伴生 .meta 缺 guid: " + sourceFile.getName());
+                task.setErrorMessage(EditorLang.text("import.mesh.metaGuidMissing",
+                        sourceFile.getName()));
                 return false;
             }
             // 产物自描述 guid（2026-10-04 拍板，与 ShaderImporter 同款）：Mesh.write
@@ -217,11 +218,11 @@ public class SimpleMeshImporter implements AssetImporter {
 
         } catch (IOException e) {
             LOGGER.error("读取简单网格文件失败: {}", sourceFile.getName(), e);
-            task.setErrorMessage("读取文件失败: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.mesh.readFailed", e.getMessage()));
             return false;
         } catch (NumberFormatException e) {
             LOGGER.error("解析简单网格数据失败: {}", sourceFile.getName(), e);
-            task.setErrorMessage("数据格式错误: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.mesh.badFormat", e.getMessage()));
             return false;
         }
     }
@@ -248,7 +249,7 @@ public class SimpleMeshImporter implements AssetImporter {
         }
         if (count != expectedCount) {
             throw new NumberFormatException(
-                    "行数据格式错误，期望 " + expectedCount + " 个值，实际 " + count + " 个：" + line);
+                    EditorLang.text("import.mesh.rowFormatWrong", expectedCount, count, line));
         }
     }
 

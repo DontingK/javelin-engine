@@ -1,5 +1,6 @@
 package com.javelin.editor.event;
 
+import com.javelin.editor.plugin.EditorLang;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,7 +64,7 @@ public final class EditorEventBus {
      */
     public static void publish(EditorEvent event) {
         if (event == null) {
-            throw new IllegalArgumentException("event 不能为 null");
+            throw new IllegalArgumentException(EditorLang.text("eventBus.nullEvent"));
         }
         if (shutdown) {
             LOGGER.warn("总线已关停，丢弃事件: {}", event.getClass().getSimpleName());
@@ -85,7 +86,7 @@ public final class EditorEventBus {
      */
     public static <E extends EditorEvent> Subscription subscribe(Class<E> type, Consumer<E> listener) {
         if (type == null || listener == null) {
-            throw new IllegalArgumentException("type 与 listener 不能为 null");
+            throw new IllegalArgumentException(EditorLang.text("eventBus.nullTypeListener"));
         }
         @SuppressWarnings("unchecked")
         Consumer<EditorEvent> cast = (Consumer<EditorEvent>) listener;

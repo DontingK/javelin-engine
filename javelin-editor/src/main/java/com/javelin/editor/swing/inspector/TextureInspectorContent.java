@@ -5,6 +5,7 @@ import com.javelin.core.render.texture.Image;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.inspector.InspectorFieldVo;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.serializable.TextImporter;
 import com.javelin.editor.swing.SvgIcon;
@@ -57,8 +58,8 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
 
     private static final Logger LOGGER = LoggerFactory.getLogger(TextureInspectorContent.class);
 
-    private static final String EMPTY_TEXT = "未选中纹理";
-    private static final String LOADING_TEXT = "加载中…";
+    private static final String EMPTY_TEXT = EditorLang.text("texture.inspector.empty");
+    private static final String LOADING_TEXT = EditorLang.text("texture.inspector.loading");
     /** 采样编辑持久化防抖间隔（毫秒——下拉提交的写盘合并阀） */
     private static final int FLUSH_DELAY_MS = 500;
 
@@ -129,7 +130,7 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
             LOGGER.warn("纹理文件解析失败: {}", file.getName(), e);
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
-                    showStatus("纹理解析失败: " + e.getMessage());
+                    showStatus(EditorLang.text("texture.inspector.parseFailed", e.getMessage()));
                 }
             });
             return;
@@ -155,14 +156,15 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
     /** 纹理分组（固定不可折叠——Unity 纹理头信息口径）：文件（暗）/ 图 / GUID（暗）/ 采样两下拉 */
     private JComponent infoSection(Texture2D texture, File file) {
         FieldGrid grid = new FieldGrid();
-        grid.addDim("文件", file.getName());
-        grid.add("图", imageInput());
+        grid.addDim(EditorLang.text("texture.inspector.file"), file.getName());
+        grid.add(EditorLang.text("texture.inspector.image"), imageInput());
         if (texture.getGuid() != null && !texture.getGuid().isBlank()) {
             grid.addDim("GUID", texture.getGuid());
         }
-        grid.add("过滤模式", filterSelect(texture));
-        grid.add("环绕模式", wrapSelect(texture));
-        CollapsiblePanel section = new CollapsiblePanel("纹理", null, titleIcon("texture"), grid);
+        grid.add(EditorLang.text("texture.inspector.filterMode"), filterSelect(texture));
+        grid.add(EditorLang.text("texture.inspector.wrapMode"), wrapSelect(texture));
+        CollapsiblePanel section = new CollapsiblePanel(
+                EditorLang.text("texture.inspector.section"), null, titleIcon("texture"), grid);
         section.setCollapsible(false);
         return section;
     }
@@ -170,17 +172,22 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
     /** 过滤模式下拉（渲染侧建 Sampler 消费，Engine_Material_Design §4.2） */
     private JComponent filterSelect(Texture2D texture) {
         List<InspectorFieldVo.Option> filters = new ArrayList<>(3);
-        filters.add(enumOption(Texture2D.FilterMode.POINT.name(), "点采样"));
-        filters.add(enumOption(Texture2D.FilterMode.BILINEAR.name(), "双线性"));
-        filters.add(enumOption(Texture2D.FilterMode.TRILINEAR.name(), "三线性"));
+        filters.add(enumOption(Texture2D.FilterMode.POINT.name(),
+                EditorLang.text("texture.inspector.filter.point")));
+        filters.add(enumOption(Texture2D.FilterMode.BILINEAR.name(),
+                EditorLang.text("texture.inspector.filter.bilinear")));
+        filters.add(enumOption(Texture2D.FilterMode.TRILINEAR.name(),
+                EditorLang.text("texture.inspector.filter.trilinear")));
         return new JeSelect(filters, texture.getFilterMode().name(), this::applyFilter);
     }
 
     /** 环绕模式下拉 */
     private JComponent wrapSelect(Texture2D texture) {
         List<InspectorFieldVo.Option> wraps = new ArrayList<>(2);
-        wraps.add(enumOption(Texture2D.WrapMode.REPEAT.name(), "重复"));
-        wraps.add(enumOption(Texture2D.WrapMode.CLAMP.name(), "钳定"));
+        wraps.add(enumOption(Texture2D.WrapMode.REPEAT.name(),
+                EditorLang.text("texture.inspector.wrap.repeat")));
+        wraps.add(enumOption(Texture2D.WrapMode.CLAMP.name(),
+                EditorLang.text("texture.inspector.wrap.clamp")));
         return new JeSelect(wraps, texture.getWrapMode().name(), this::applyWrap);
     }
 

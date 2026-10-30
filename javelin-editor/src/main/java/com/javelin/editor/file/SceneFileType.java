@@ -6,6 +6,7 @@ import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.SceneChangedEvent;
 import com.javelin.editor.menu.top.SaveSceneMenuCommand;
 import com.javelin.editor.meta.AssetMeta;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.selection.EditorSelection;
 import com.javelin.editor.serializable.TextImporter;
@@ -88,13 +89,14 @@ public class SceneFileType implements FileType {
         }
         String name = editorScene.getGameScene().getName();
         int choice = JOptionPane.showOptionDialog(MainFrame.getInstance(),
-                "场景 [" + name + "] 有未保存的修改，是否保存？",
-                "打开场景",
+                EditorLang.text("scene.open.dirtyConfirm", name),
+                EditorLang.text("scene.open.title"),
                 JOptionPane.DEFAULT_OPTION,
                 JOptionPane.QUESTION_MESSAGE,
                 null,
-                new Object[]{"保存并打开", "不保存", "取消"},
-                "保存并打开");
+                new Object[]{EditorLang.text("scene.open.saveAndOpen"),
+                        EditorLang.text("common.no"), EditorLang.text("common.cancel")},
+                EditorLang.text("scene.open.saveAndOpen"));
         return choice < 0 ? CHOICE_CANCEL : choice;
     }
 
@@ -125,7 +127,8 @@ public class SceneFileType implements FileType {
         } catch (Exception ex) {
             LOGGER.error("打开场景失败: {}", file, ex);
             String message = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-            TinyFileDialogs.tinyfd_messageBox("错误", "打开场景失败: " + message, "ok", "error", 1);
+            TinyFileDialogs.tinyfd_messageBox(EditorLang.text("common.error"),
+                    EditorLang.text("scene.open.failed", message), "ok", "error", 1);
         }
     }
 }

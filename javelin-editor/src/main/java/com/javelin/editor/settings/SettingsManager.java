@@ -4,6 +4,7 @@ import com.javelin.core.serialize.Serializable;
 import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.core.serialize.binary.BinaryImporter;
 import com.javelin.core.settings.GameSettings;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.serializable.TextImporter;
@@ -17,8 +18,9 @@ import java.io.IOException;
  * 设置管理器。
  *
  * <p>负责项目设置（{@link ProjectSettings}）和游戏设置（{@link GameSettings}）的加载与保存。
- * 编辑器全局设置（{@link EditorSettings}）由本类提供加载入口，但由 {@link com.javelin.editor.ProjectManagerJFrame}
- * 负责写入，以避免项目运行期间覆盖新建项目目录等全局偏好。</p>
+ * 编辑器全局设置（{@link EditorSettings}）由本类提供加载入口，但由
+ * {@link com.javelin.editor.window.PreferencesDialog} 负责写入，以避免项目运行期间
+ * 覆盖新建项目目录等全局偏好。</p>
  *
  * @author javelin
  * @since 1.0
@@ -103,7 +105,7 @@ public class SettingsManager {
         try {
             return type.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
-            throw new RuntimeException("无法创建设置实例: " + type, e);
+            throw new RuntimeException(EditorLang.text("settings.createInstanceFailed", type), e);
         }
     }
 

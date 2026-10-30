@@ -4,6 +4,7 @@ package com.javelin.editor.serializable;
 import com.javelin.core.assets.Asset;
 import com.javelin.core.serialize.Exporter;
 import com.javelin.core.serialize.Serializable;
+import com.javelin.editor.plugin.EditorLang;
 
 import java.io.*;
 import java.lang.reflect.Array;
@@ -69,7 +70,7 @@ public class TextExporter implements Exporter {
                     }
                     capsule.writeTo(writer, id);
                 } else {
-                    throw new RuntimeException("不支持的序列化类型: " + obj.getClass());
+                    throw new RuntimeException(EditorLang.text("text.unsupportedType", obj.getClass()));
                 }
             }
             // 强制把缓冲区数据刷到文件系统并同步到磁盘，
@@ -101,7 +102,7 @@ public class TextExporter implements Exporter {
             capsuleMap.put(object, capsule);
             capsule.write();
         } else {
-            throw new RuntimeException("不支持的序列化类型: " + object.getClass());
+            throw new RuntimeException(EditorLang.text("text.unsupportedType", object.getClass()));
         }
 
         return id;

@@ -1,5 +1,7 @@
 package com.javelin.editor.swing.dock;
 
+import com.javelin.editor.plugin.EditorLang;
+
 /**
  * Dock 二分分割节点：左右两子 + 分割比重（Editor_Swing_Design §5.1）。
  *
@@ -28,7 +30,7 @@ public final class SplitNode extends DockNode {
 
     public SplitNode(Direction direction, DockNode left, DockNode right, double weight) {
         if (left == null || right == null) {
-            throw new IllegalArgumentException("SplitNode 两子不可为空");
+            throw new IllegalArgumentException(EditorLang.text("dock.splitChildrenRequired"));
         }
         this.direction = direction;
         this.left = left;
@@ -56,7 +58,7 @@ public final class SplitNode extends DockNode {
 
     public void setLeft(DockNode left) {
         if (left == null) {
-            throw new IllegalArgumentException("SplitNode 子节点不可为空");
+            throw new IllegalArgumentException(EditorLang.text("dock.splitChildRequired"));
         }
         this.left = left;
     }
@@ -67,7 +69,7 @@ public final class SplitNode extends DockNode {
 
     public void setRight(DockNode right) {
         if (right == null) {
-            throw new IllegalArgumentException("SplitNode 子节点不可为空");
+            throw new IllegalArgumentException(EditorLang.text("dock.splitChildRequired"));
         }
         this.right = right;
     }

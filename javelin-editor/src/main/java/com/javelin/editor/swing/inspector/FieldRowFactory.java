@@ -1,6 +1,7 @@
 package com.javelin.editor.swing.inspector;
 
 import com.javelin.editor.inspector.InspectorFieldVo;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.inspector.InspectorValueType;
 import com.javelin.editor.swing.inspector.widget.AssetInput;
 import com.javelin.editor.swing.inspector.widget.ColorField;
@@ -73,13 +74,14 @@ public final class FieldRowFactory {
                 // 资产列表行（GUID_ASSET_LIST）= 收集面已展开为元素行，控件与
                 // GUID_ASSET 同款 AssetInput（vo.assetType = 元素资产类型）
                 if (vo.assetType == null) {
-                    throw new IllegalStateException("资产字段缺声明资产类型: " + vo.fieldName);
+                    throw new IllegalStateException(EditorLang.text("inspector.row.assetTypeMissing",
+                            vo.fieldName));
                 }
                 AssetInput input = new AssetInput(vo.assetType, commit);
                 input.setValue(vo.value);
                 return input;
             default:
-                throw new IllegalStateException("字段行不支持的值类型: " + type);
+                throw new IllegalStateException(EditorLang.text("inspector.row.unsupportedType", type));
         }
     }
 

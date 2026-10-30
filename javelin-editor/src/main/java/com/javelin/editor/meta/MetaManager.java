@@ -1,5 +1,6 @@
 package com.javelin.editor.meta;
 
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.serializable.TextExporter;
 import com.javelin.editor.serializable.TextImporter;
@@ -436,7 +437,8 @@ public class MetaManager {
             if (guidToPathCache.containsKey(meta.getGuid())) {
                 if (!guidToPathCache.get(meta.getGuid()).equals(relativePath)) {
                     logger.error("GUID 重复: {}->{}", meta.getGuid(), relativePath);
-                    throw new RuntimeException("GUID 重复: " + meta.getGuid() + " -> " + relativePath);
+                    throw new RuntimeException(EditorLang.text("meta.duplicateGuid",
+                            meta.getGuid(), relativePath));
                 }
             }
             logger.info("缓存元数据: {} -> {}", meta.getGuid(), relativePath);

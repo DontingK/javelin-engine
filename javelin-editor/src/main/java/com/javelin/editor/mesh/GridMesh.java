@@ -2,6 +2,7 @@ package com.javelin.editor.mesh;
 
 import com.javelin.core.render.mesh.Mesh;
 import com.javelin.rhi.types.PrimitiveTopology;
+import com.javelin.editor.plugin.EditorLang;
 
 /**
  * 编辑器网格辅助线生成器（engine2 GridMesh 移植，2026-09-26）。
@@ -30,10 +31,10 @@ public final class GridMesh {
      */
     public static Mesh build(float size, int divisions) {
         if (size <= 0) {
-            throw new IllegalArgumentException("网格尺寸必须大于 0: " + size);
+            throw new IllegalArgumentException(EditorLang.text("gridMesh.sizePositive", size));
         }
         if (divisions < 1) {
-            throw new IllegalArgumentException("分割数必须至少为 1: " + divisions);
+            throw new IllegalArgumentException(EditorLang.text("gridMesh.divisionsAtLeastOne", divisions));
         }
 
         float halfSize = size / 2.0f;

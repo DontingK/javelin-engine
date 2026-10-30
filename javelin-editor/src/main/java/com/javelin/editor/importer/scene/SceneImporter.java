@@ -5,6 +5,7 @@ import com.javelin.core.serialize.binary.BinaryExporter;
 import com.javelin.editor.importer.AssetImporter;
 import com.javelin.editor.importer.ImportSettings;
 import com.javelin.editor.importer.ImportTask;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.project.Project;
 import com.javelin.editor.serializable.TextImporter;
 import org.slf4j.Logger;
@@ -60,7 +61,7 @@ public class SceneImporter implements AssetImporter {
         // guid 真值源 = 伴生 .meta（loadScene 同口径）；缺失视为 meta 失常，拒绝导入
         String guid = task.getMeta().getGuid();
         if (guid == null || guid.isEmpty()) {
-            task.setErrorMessage("伴生 .meta 缺失 guid，无法定位 Library 产物");
+            task.setErrorMessage(EditorLang.text("import.metaMissingGuid"));
             return false;
         }
 
@@ -70,7 +71,7 @@ public class SceneImporter implements AssetImporter {
             gameScene = new TextImporter(sourceFile, task.getAssetManager()).importData(GameScene.class);
         } catch (Exception e) {
             LOGGER.error("解析场景文件失败: {}", sourceFile.getName(), e);
-            task.setErrorMessage("解析场景失败: " + e.getMessage());
+            task.setErrorMessage(EditorLang.text("import.scene.parseFailed", e.getMessage()));
             return false;
         }
 

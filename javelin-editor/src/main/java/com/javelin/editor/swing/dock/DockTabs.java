@@ -2,6 +2,7 @@ package com.javelin.editor.swing.dock;
 
 import com.javelin.editor.swing.panel.EditorPanel;
 import com.javelin.editor.swing.panel.EditorPanelSetup;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.swing.panel.PanelDescriptor;
 import com.javelin.editor.swing.panel.PanelRegistry;
 
@@ -162,7 +163,7 @@ final class DockTabs extends JComponent {
 
     /** 空组占位（全部面板已关闭；M5「窗口」域恢复落地前兜底） */
     private static JComponent emptyHint() {
-        JLabel hint = new JLabel("面板已关闭", SwingConstants.CENTER);
+        JLabel hint = new JLabel(EditorLang.text("dock.panelClosed"), SwingConstants.CENTER);
         Color dim = UIManager.getColor("Label.disabledForeground");
         if (dim != null) {
             hint.setForeground(dim);

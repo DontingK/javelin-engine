@@ -10,6 +10,7 @@ import com.javelin.editor.event.SceneChangedEvent;
 import com.javelin.editor.event.SceneDirtyEvent;
 import com.javelin.editor.event.SceneSelectEvent;
 import com.javelin.editor.menu.MenuPopupFactory;
+import com.javelin.editor.plugin.EditorLang;
 import com.javelin.editor.selection.EditorSelection;
 import com.javelin.editor.swing.SvgIcon;
 import com.javelin.editor.swing.panel.EditorPanel;
@@ -121,7 +122,7 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
 
     public HierarchyPanel() {
         setLayout(new BorderLayout(0, 0));
-        loadingLabel = new JLabel("场景加载中…", SwingConstants.CENTER);
+        loadingLabel = new JLabel(EditorLang.text("hierarchy.panel.loading"), SwingConstants.CENTER);
         Color dim = UIManager.getColor("Label.disabledForeground");
         if (dim != null) {
             loadingLabel.setForeground(dim);
@@ -256,7 +257,7 @@ public class HierarchyPanel extends JComponent implements EditorPanel {
                 if (retryCount >= MAX_RETRY) {
                     stopRetry();
                     LOGGER.warn("场景树拉取未就绪，重试达上限（{} 次）放弃", MAX_RETRY);
-                    loadingLabel.setText("场景未就绪");
+                    loadingLabel.setText(EditorLang.text("hierarchy.panel.notReady"));
                     return;
                 }
                 retryCount++;
