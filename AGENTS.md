@@ -109,3 +109,9 @@
 | `Engine_Features.md`（根目录） | 功能清单（v0.1）：按模块（RHI/核心/编辑器/构建链/支撑）分级盘点每项功能的完成状态+验收状态（方式+日期）——**验收状态/日期全项目单点**；§6 待验收挂账、§7 已知问题一览 |
 | `RHI_Implementation_Progress.md` | RHI 实现进度记录：各阶段完成状态、文件清单、已知问题、API 签名确认记录 |
 | `Vulkan_Pitfalls.md` | Vulkan / LWJGL / GLFW / Java NIO 陷阱记录（症状→根因→修法→出处）+ GPU 排障方法论 |
+
+### 参考资料（doc/）
+
+| 文档 | 内容 |
+|------|------|
+| `Bgfx_Examples_Reference.md` | bgfx 官方示例集速查索引（v0.1）：`00-helloworld`~`51-gpufont` 共 52 个示例逐个列「官方描述 / 演示技术点 / 本引擎参考点」+ `common`/`assets`/`runtime` 支撑目录；来源=外部检出 `D:\Workspaces\java\bgfx\examples`（不随本库版本管理）——实现渲染技术前先查有无现成参考 |
