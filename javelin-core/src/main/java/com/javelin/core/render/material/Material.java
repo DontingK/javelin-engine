@@ -75,6 +75,9 @@ public class Material extends AbsAsset {
             textures.clear();
             return;
         }
+        if (!shader.isValid()) {
+            return;
+        }
         // 只保留新 shader 里同名同类型的条目：名字没了、或名字还在但类型变了（值↔贴图）都丢弃
         values.removeIf(entry -> {
             MaterialProperty p = shader.findProperty(entry.getName());

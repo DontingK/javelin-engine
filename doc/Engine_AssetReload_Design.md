@@ -1,6 +1,6 @@
 # 引擎资产热重载设计（Engine_AssetReload_Design）
 
-> 版本：v0.5（2026-10-30 **Walker 改对象注册表全量扫描 + 导入事件总线化**）
+> 版本：v0.5（2026-10-30 **Walker 改对象注册表全量扫描 + 导入事件总线化**——同日用户验收销账：改 .shader reimport 当帧变 + F3 计数不涨、运行期换图/采样即时生效、resize/热刷无显存增长、logs/ 生成）
 > 拍板（2026-10-24，用户）：**反射遍历流派（UE ReloadPackages 口径本地化）**——持有引用形态不动（Material.shader / MeshRenderer.material 继续死攥对象），重导后由重载协调器**反射遍历场景对象图**找到持有旧实例的 Asset 字段、换新实例指针。v0.1 令牌表方案（持有者钩子 + 依赖登记表）作废。
 > 拍板（2026-10-29，用户）：**热重载范围收窄只 shader**——判据 = 文件是真值源 + 渲染侧按实例身份烤死。Shader（文件源 + set2 布局/UBO 尺寸/PSO 缓存键按身份烤死）必须 reload；.mat（编辑=内存直改即时生效——数值参数 UBO 每绑重打包/面型活读，文件是镜像）、.texture/.smesh/像素源（GPU 侧上传烤死须重上传，材质/网格实例换代后 reconcile 重建的基建已在）**摘出 reload 链，后面再加**。walker 基建全保留（shader 换代的 Material.shader 换指针 + 补默认值联动照旧）。
 > 关联档：Engine_Material_Design.md §3/§4（材质桥与序列化）、Engine_Rendering_Design.md（RenderingSystem 职责）、Editor_Design.md §1（设计基准=完全参考 Unity）、Editor_Menu_Design.md（project.reimport）。
@@ -229,7 +229,7 @@ targetClass 仅 `.shader` 命中**——.mat/.texture/.smesh/像素源经「无�
 
 - v0.1（2026-10-24）：初稿，令牌表流派（持有者钩子 `AssetReloadAware` + 依赖登记表 + 按实例自描述 guid 匹配）。**同日被用户推翻**——持有引用形态不动，改反射遍历。
 - v0.2（2026-10-24）：反射遍历流派（UE ReloadPackages 口径本地化）：core 缩到 invalidate/reload 一件；持有者钩子/依赖登记全废，换指针知识由反射 Walker 现场遍历获得；Material 补默认值后处理（pack 缺 entry NPE 实锤新增）；其余（SceneRenderBridge 身份重注、孤儿两帧退役、Scene 根豁免、失败安全、批次划分）继承 v0.1 核实成果。**同日补录**：§4.4 增 GPU 释放责任边界 + 纯贴图热重载缺口（MaterialResources 须记贴图槽实例表，否则活 set 强持旧贴图永不释放、画面不更新——对账判据扩为 shader 变或贴图槽实例变）。
-- v0.3（2026-10-27）：**批次①落地（待用户验收）**——
+- v0.3（2026-10-27）：**批次①落地（2026-10-30 用户实测验收通过——批次①热重载链、批次②焦点扫描/进度模态框、坏 shader stub 回退链一并验收，§9 清单 #1/#2/#5/#6/#7/#8 全过）**——
   - **reload 归属拍板（2026-10-27，用户）**：core `AssetLibManager` 的 `cache/guidAssetRefMap/trackedRefs/refQueue` 本就 protected，唯一 core 资产侧改动 = `loadCache` 放 protected；**invalidate/reload 实现落编辑器 `ProjectAssetLibManager`**（自持弱缓存结构的子类即编辑器重实现的管理器），core 接口不加 API。
   - **Walker 落 `editor/asset/reload`**：遍历规则照 §4.2/§4.3；判据实现细节：`MaterialResources.SlotBinding` 记首绑 assigned 实例 + usedPlaceholder 状态——**纹理壳后补图（setImage）是「实例同、image 状态变」，占位状态比对覆盖之**；占位贴图（WHITE/BLACK/NORMAL）是静态单例，实例身份比对可靠；贴图槽壳/占位不区分统一走 stale 判据。
   - **reconcile 活集口径核实**：`materialSet/pipelineFor` 消费方只有 AbstractForwardPass（均出自 renderers），PickPass/DebugLinePass 自建 PSO 不经缓存——活集 = renderers 的 Material+Shader 安全，无误杀路径。

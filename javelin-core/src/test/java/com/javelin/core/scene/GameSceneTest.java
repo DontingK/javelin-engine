@@ -108,8 +108,10 @@ public class GameSceneTest {
         assertTrue(scene.getRootNodes().contains(root));
 
         scene.update(0.016f);
-        // 三遍序（Unity 阶段序）：全部 awake → 全部 enable → start
-        assertEquals(List.of("awake:root", "awake:child", "enable:root", "enable:child"), EVENTS);
+        // 三遍序（Unity 阶段序）：全部 awake → 全部 enable → 全部 start（首帧即驱动，
+        // 设计档 §4——start/update 不推迟到次帧）
+        assertEquals(List.of("awake:root", "awake:child", "enable:root", "enable:child",
+                "start:root", "start:child"), EVENTS);
         assertEquals(1, probeOf(root).awakeCount);
         assertEquals(1, probeOf(root).enableCount);
     }
@@ -317,8 +319,9 @@ public class GameSceneTest {
         assertEquals(1, probeOf(grandChild).destroyCount);
 
         scene.update(0.016f);
-        assertEquals(0, probeOf(leaf).updateCount);
-        assertEquals(1, probeOf(root).updateCount);
+        // leaf 首帧已驱动一次 update（挂入帧即 start+update）；摘除后不再累计
+        assertEquals(1, probeOf(leaf).updateCount);
+        assertEquals(2, probeOf(root).updateCount);
     }
 
     @Test

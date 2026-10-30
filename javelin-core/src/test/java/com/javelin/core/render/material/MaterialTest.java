@@ -40,13 +40,30 @@ public class MaterialTest {
     }
 
     @Test
-    void setShaderResetsValuesToDefaults() {
+    void setShaderPreservesSameNameSameTypeValues() {
         Material material = new Material(sampleShader());
         material.setFloat("_Metallic", 0.9f);
+        material.setColor("_BaseColor", 0.1f, 0.2f, 0.3f, 0.4f);
 
-        material.setShader(sampleShader());
+        // 换绑另一实例：同名同类型保留原值、新属性取新默认、旧有新无丢弃
+        //（Unity 保参口径，2026-10-30 拍板——同 guid 换代（热重载）与换绑一视同仁）
+        Shader next = Shader.builder("PBR_Next")
+                .property(MaterialProperty.range("_Metallic", "Metallic", 0, 1, 0.1f))
+                .property(MaterialProperty.color("_BaseColor", "Base Color", 0, 0, 0, 1))
+                .property(MaterialProperty.floatProp("_Roughness", "Roughness", 0.2f))
+                .pass(new ShaderPass("Forward", new byte[]{1}, new byte[]{2}, new PassState()))
+                .build();
+        material.setShader(next);
 
-        assertEquals(0.5f, material.getFloat("_Metallic"));
+        assertEquals(0.9f, material.getFloat("_Metallic"));
+        assertArrayEquals(new float[]{0.1f, 0.2f, 0.3f, 0.4f}, material.getColor("_BaseColor"));
+        assertEquals(0.2f, material.getFloat("_Roughness"));
+        // 旧有新无（_UseNormalMap）丢弃：按新 shader 未声明属性报错
+        assertThrows(IllegalArgumentException.class, () -> material.getFloat("_UseNormalMap"));
+
+        // 同实例再绑 = no-op（不重置、不扰动）
+        material.setShader(next);
+        assertEquals(0.9f, material.getFloat("_Metallic"));
     }
 
     @Test

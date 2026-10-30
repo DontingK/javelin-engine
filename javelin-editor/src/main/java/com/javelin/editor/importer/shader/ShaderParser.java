@@ -179,6 +179,7 @@ public final class ShaderParser {
                 expect(',');
                 float max = readNumber();
                 expect(')');
+                expect(')');   // 外层声明括号——Range 类型自带 (min, max) 参数括号，须另吞
                 expect('=');
                 yield MaterialProperty.range(propName, displayName, min, max, readNumber());
             }

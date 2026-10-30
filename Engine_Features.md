@@ -23,7 +23,7 @@
 | 呈现模式（FIFO / MAILBOX=vsync 语义） | ✅ | ✅ 用户实测（2026-10-06/07 帧节奏排查关账） |
 | MSAA resolve attachment（能力查询 / 深度不 resolve） | ✅ | ✅ 用户实测（2026-10-06） |
 | resize 重建 + 显存手动 dispose 优先（Cleaner 仅兜底） | ✅ | ✅ 用户实测（2026-10-09 OOM 修复验收） |
-| Cleaner 统一延迟销毁（Registration 合一：手动 dispose 与 Cleaner 兜底共用两帧队列、废除句柄登记；device.dispose 前 flush；compute 内部 layout 补注册，Vulkan_Pitfalls #26） | ✅（2026-10-30） | ⏳ 待验收（实机 resize/热刷回归 + F3 存活计数） |
+| Cleaner 统一延迟销毁（Registration 合一：手动 dispose 与 Cleaner 兜底共用两帧队列、废除句柄登记；device.dispose 前 flush；compute 内部 layout 补注册，Vulkan_Pitfalls #26） | ✅（2026-10-30） | ✅ 用户实测（2026-10-30，resize/热刷回归 + F3 存活计数） |
 | Buffer staging（deviceLocal 上传） | ⬜ 后置 | — |
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
@@ -50,7 +50,7 @@
 | .scene 文本序列化 + 保存/重载（含内嵌材质） | ✅ | ✅ 用户实测（2026-10-04 建树→保存→重启还原） |
 | 渲染激活过滤 isActiveInHierarchy（Unity 口径，翻转即时注销） | ✅ | ✅ 随 Gizmo 显隐 / 编辑器日常 |
 | Node.userData 运行态挂载（不入序列化） | ✅ | — 随 Gizmo 轴判别 |
-| 场景级 raycast（Collider 注册表查询，L1——Physics 静态门面 + RaycastHit + Scene.getColliders 投影） | ✅（2026-10-28） | ⏳ 待验收（PhysicsTest 14 用例；Engine_Collision_Design §10） |
+| 场景级 raycast（Collider 注册表查询，L1——Physics 静态门面 + RaycastHit + Scene.getColliders 投影） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，PhysicsTest 14 用例；Engine_Collision_Design §10） |
 | environment / sun | ⬜ 三期（随光照） | — |
 
 ### 2.3 相机（render.Camera）
@@ -63,7 +63,7 @@
 | Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
 | 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ⏳ 待验收（运行时） |
 | ClearFlags Skybox 项 | ⬜ 待天空盒 | — |
-| main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ⏳ 待验收（GameSceneTest） |
+| main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，GameSceneTest） |
 
 ### 2.4 渲染系统与管线（render）
 
@@ -71,9 +71,9 @@
 |------|---------|---------|
 | RenderingSystem / FrameLoop / UBO1 帧环形收编 | ✅ | ✅ 一期 Demo（清屏出画面起） |
 | RenderPass 有序列表 + AbstractForwardPass + 透明分桶 | ✅ | ✅ SceneRenderDemo 用户运行 |
-| Mesh 子网格（SubMesh 区间列表 + setSubmeshes/getSubmeshCount + 上传校验 + 旧产物单子网格兼容，资产档 §2.9） | ✅（2026-10-29） | ⏳ 待验收（MeshSerializationTest 往返/边界） |
-| RHI drawIndexed 三参扩展（firstIndex 范围绘制，参数序对齐 vkCmdDrawIndexed） | ✅（2026-10-29） | ⏳ 待验收（随多子网格渲染） |
-| MeshRenderer 多材质（materials 列表 i 位对应子网格 + 每 (renderer, 子网格) 一 RenderObject + 缺失位 DefaultMaterial 兜底（**语义变化：原 material null 不渲染作废**） + getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容，场景档 §5.1 v0.5） | ✅（2026-10-29） | ⏳ 待验收（SceneSerializationTest 往返/兼容 + 渲染实机） |
+| Mesh 子网格（SubMesh 区间列表 + setSubmeshes/getSubmeshCount + 上传校验 + 旧产物单子网格兼容，资产档 §2.9） | ✅（2026-10-29） | ✅ 单测全绿（2026-10-30，MeshSerializationTest 往返/边界） |
+| RHI drawIndexed 三参扩展（firstIndex 范围绘制，参数序对齐 vkCmdDrawIndexed） | ✅（2026-10-29） | ✅ 用户实测（2026-10-30，随多子网格渲染实机） |
+| MeshRenderer 多材质（materials 列表 i 位对应子网格 + 每 (renderer, 子网格) 一 RenderObject + 缺失位 DefaultMaterial 兜底（**语义变化：原 material null 不渲染作废**） + getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容，场景档 §5.1 v0.5） | ✅（2026-10-29） | ✅ 单测+用户实测（2026-10-30，SceneSerializationTest 往返/兼容 + 多材质渲染实机——**随验收修复文本列表 guid 硬编码 Asset.class 崩 + default.scene 手迁 5 处文本头**） |
 | Material.surfaceType 面型裁决（分桶 + PSO 覆盖 Blend/ZWrite，方案 B，材质档 §4.1） | ✅ | ✅ 用户实测（2026-10-23） |
 | RenderList Pass 名分桶严格制（passes map + RenderPass.shaderPassName + pipelineFor passName 维；GizmoPass 去身份过滤/去双画，材质档 §4.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | SceneRenderBridge pull 翻译（场景→RenderObject） | ✅ | ✅ 同上 |
@@ -95,9 +95,9 @@
 | .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | 贴图像素资产 Image + Texture2D 引用层改造（三层模型：Image 磁盘一份/Texture2D 持设置——一图多设置免复制，贴图档 §1） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | .texture 纹理资产（Texture2D 文本序列化 + TextureImporter + 检查器面板 + null-image 渲染占位守卫，贴图档 §7） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
-| Texture2D 运行期可变 + revision（上传冻结废除——setImage 换图作废旧 GPU 句柄重传/采样设置直接生效；revision 驱动描述符集重建，贴图档 §8 v0.3） | ✅（2026-10-30） | ⏳ 待验收（Texture2DTest 改断言 + 运行期换图/采样实机） |
-| Material.setShader Unity 保参口径 + textureRevision（同名同类型保留值/新属性取默认/旧属性丢弃；贴图槽版本比对自动重建，材质档 §3.3 v0.5） | ✅（2026-10-30） | ⏳ 待验收（换 shader 保参实机 + MaterialTest 回归） |
-| .smesh 子网格段（[SUBMESH_N] 连续递增 + 与 [INDEX] 互斥显性化，资产档 §2.9） | ✅（2026-10-29） | ⏳ 待验收（多子网格 .smesh 导入实机） |
+| Texture2D 运行期可变 + revision（上传冻结废除——setImage 换图作废旧 GPU 句柄重传/采样设置直接生效；revision 驱动描述符集重建，贴图档 §8 v0.3） | ✅（2026-10-30） | ✅ 单测+用户实测（2026-10-30，Texture2DTest 改断言 + 运行期换图/采样实机） |
+| Material.setShader Unity 保参口径 + textureRevision（同名同类型保留值/新属性取默认/旧属性丢弃；贴图槽版本比对自动重建，材质档 §3.3 v0.5） | ✅（2026-10-30） | ✅ 单测+用户实测（2026-10-30，MaterialTest 重写保参三分支用例 + 换 shader 实机） |
+| .smesh 子网格段（[SUBMESH_N] 连续递增 + 与 [INDEX] 互斥显性化，资产档 §2.9） | ✅（2026-10-29） | ✅ 用户实测（2026-10-30，多子网格 .smesh 导入实机） |
 | 动态 Mesh / 动态纹理 | ⬜ 后置（材质档 §6 / 资产档 §2.8） | — |
 
 ### 2.6 输入（input）
@@ -116,7 +116,7 @@
 | L0 纯数学层（Ray / 球 / 盒 / 圆柱相交例程，解析解对照） | ✅ | ✅ 单测全绿（2026-10-06） |
 | Collider 组件族 + fitFromMesh（Box 精确 / Sphere 保守 / Cylinder 半径取 max） | ✅ | ✅ 单测（2026-10-06） |
 | 世界 Aabb（行和公式=精确值，8 角点仅对照基准） | ✅ | ✅ 单测（2026-10-06） |
-| L1 场景查询 API 面（Physics 静态门面：raycast 最近命中 + raycastAll 全命中；maxDistance/layerMask 参数——Unity 口径；Engine_Collision_Design §10） | ✅（2026-10-28） | ⏳ 待验收（PhysicsTest 单测） |
+| L1 场景查询 API 面（Physics 静态门面：raycast 最近命中 + raycastAll 全命中；maxDistance/layerMask 参数——Unity 口径；Engine_Collision_Design §10） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，PhysicsTest 单测） |
 | L2 物理（刚体 / MeshCollider / 物理库选型） | ⬜ 待拍板（窄相 vs 物理库） | — |
 
 ### 2.8 子系统 / 调试 / 窗口（subsystem / appstate / debug / window）
@@ -201,7 +201,7 @@
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
 | v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + 编辑载体=文本私有实例拍板；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
-| v0.13 GUID_ASSET_LIST 资产列表通道（MeshRenderer.materials 多材质行：行数跟随子网格数、fieldName 编码序号 materials[i] + applyAssetList 整列表 setter 回写 + 列表 setter 查找放宽 + 资产行提交后补拉重建行数；行控件/回显/回写全复用 GUID_ASSET 面） | ✅（2026-10-29） | ⏳ 待验收（随多材质渲染实机） |
+| v0.13 GUID_ASSET_LIST 资产列表通道（MeshRenderer.materials 多材质行：行数跟随子网格数、fieldName 编码序号 materials[i] + applyAssetList 整列表 setter 回写 + 列表 setter 查找放宽 + 资产行提交后补拉重建行数；行控件/回显/回写全复用 GUID_ASSET 面） | ✅（2026-10-29） | ✅ 用户实测（2026-10-30，随多材质渲染实机） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -228,7 +228,7 @@
 | **guid 真值单源=伴生 .meta**（2026-10-29 拍板，推翻「文件头真值+meta 镜像」双源：guid 头只剩 src 下 .java 专属；9 内置资源剥头+伴生 .meta 随包释放（guid 沿用原头值零迁移）；BuiltinAssetReleaser 连 meta 一起释放；pipeline libraryFileFor 非脚本按 meta 解 guid——**焦点扫描无限导入循环根治**，Editor_Design §6.2 / AssetReload 档 §5.1 坑点） | ✅（2026-10-29） | ✅ 用户实测（2026-10-29，死循环根治——原场景改 .mat 颜色+切窗复测通过） |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 贴图导入 ImageImporter（.png/.jpg/.jpeg → Image 像素资产；ImageIO 同入口；alpha 通道保留修复；image 文件类型/图标，贴图档 §2） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
-| 资产热重载基建（**编辑器对象注册表 Walker**——ObjectId 构造回调 registrar + EditorObjectRegistry 弱引用全量扫描 + setter 优先换指针 + 导入事件总线化（AssetImportPipeline 发 AssetImportEvent，AssetReload 档 v0.5）） | ✅（2026-10-30） | ⏳ 待验收（改 .shader → reimport → 画面当帧变 + F3 计数不涨） |
+| 资产热重载基建（**编辑器对象注册表 Walker**——ObjectId 构造回调 registrar + EditorObjectRegistry 弱引用全量扫描 + setter 优先换指针 + 导入事件总线化（AssetImportPipeline 发 AssetImportEvent，AssetReload 档 v0.5）） | ✅（2026-10-30） | ✅ 用户实测（2026-10-30，改 .shader → reimport → 画面当帧变 + F3 计数不涨） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）
@@ -252,7 +252,7 @@
 | 插件装载错误显性化（任何插件报错——本体/第三方、发现/装载/冲突/setup——弹错误框显示 namespace+错误信息，确认后关闭编辑器 System.exit；原「第三方 warn 跳过/降级装载」口径作废，Editor_Plugin_Design §3.4） | ✅（2026-10-29） | ⏳ 待验收（坏 jar → 弹框+退出） |
 | i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
-| 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ⏳ 待验收（随焦点扫描批次） |
+| 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ✅ 用户实测（2026-10-30，随④焦点扫描批次验收） |
 | 默认语言 en_US（`lang/en_US.properties` 全量 50 键英文翻译新建 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"——必备默认文件换位，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包，Editor_Plugin_Design §7.1 拍板） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机英文界面） |
 | 异常/弹窗消息 i18n（~116 条 TipException 等） | ⬜ 第二批 | — |
 | 面板/窗口标题 i18n、Inspector 注解 label key 化、源码机检、i18n 报告命令 | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
@@ -275,53 +275,60 @@
 |------|---------|---------|
 | javelin-tool（DebugText 字库光栅化 / shaderc 编译调用） | ✅ | ✅ 字库生成链（2026-09-27） |
 | javelin-log（日志实现） | ✅ | — 支撑设施，随全链使用 |
-| logback 文件输出启用（info/error 双 rolling appender：单文件 20MB 切分 + info 保留 10 天/512MB、error 仅 ERROR 保留 30 天/256MB + gzip；运行时 logs/ 入 .gitignore） | ✅（2026-10-30） | ⏳ 待验收（实机生成 logs/info、logs/error） |
+| logback 文件输出启用（info/error 双 rolling appender：单文件 20MB 切分 + info 保留 10 天/512MB、error 仅 ERROR 保留 30 天/256MB + gzip；运行时 logs/ 入 .gitignore） | ✅（2026-10-30） | ✅ 用户实测（2026-10-30，logs/info、logs/error 生成） |
 
 ## 6. ⏳ 待验收挂账一览
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 7 项**（⑦已销账，保留记录）：
+**当前挂账 0 项——二期待验收全部清零（2026-10-30）**（①~⑧全销账，保留记录）：
 
-①贴图批次单测与 Demo 回归（Texture2DTest 往返两例 /
-ShaderParserTest 全绿——2D 死分支修复后 / SceneRenderDemo·MultiCameraDemo 引用层
-改造回归；编辑器全链已用户实测，跑测归用户）。
+~~①两个 Demo 回归（SceneRenderDemo·MultiCameraDemo——Texture2D 引用层改造回归；单测面已全销：
+ShaderParserTest / Texture2DTest 2026-10-30 跑绿，随绿修复三笔——ShaderParser Range
+外层括号漏吞（实现）、float[] 断言须 assertArrayEquals、Blend alpha 通道期望写反；另
+GameSceneTest 两用例期望错、MaterialTest setShader 旧口径断言，均为「实现/拍板已改、测试
+没跟上」的「写下即未跑绿」——**教训：批次收口必须整套 test task 跑绿，不挑用例跑**）。~~
+**2026-10-30 用户实测销账：两 Demo 画面与改造前一致（分屏/旋转/透明混合/贴图正确）——
+程序化直构造贴图路径（`new Texture2D(Image)`）引用层回归闭环。**
 
-②资产热重载批次①（2026-10-27 落地，Engine_AssetReload_Design v0.3/v0.4——invalidate/reload
+~~②资产热重载批次①（2026-10-27 落地，Engine_AssetReload_Design v0.3/v0.4——invalidate/reload
 + 反射 Walker（含 Material 补默认值后处理）+ requestReconcile 孤儿回收 + AssetReloadService
 手动 reimport 链 + 材质面板 AssetReloadedEvent 最小钩子；**2026-10-29 拍板收窄只 shader**
 （.mat/.texture/.smesh/像素源摘出 reload 链「后面再加」，外部手改 .mat 不自动生效——
 材质编辑走检查器内存操作即时生效）；验收清单见该档 §9：改 .shader → 选中 reimport →
-画面当帧变 / 同名参数用户值保留 / F3 存活计数不涨）。
+画面当帧变 / 同名参数用户值保留 / F3 存活计数不涨）~~ **2026-10-30 用户实测验收销账。**
 
-③坏 shader stub 产物 + 渲染回退默认 shader（2026-10-27 落地，Engine_Material_Design
+~~③坏 shader stub 产物 + 渲染回退默认 shader（2026-10-27 落地，Engine_Material_Design
 v0.3——Shader.isValid 判据 + ShaderImporter 编译失败落 stub + DefaultShader 门面渲染链
 回退（bridge.sync/materialSet/pipelineFor）+ 修复后热重载 walker 换代恢复；验收：改坏
 .shader → reimport → 画面回退默认紫色 + 诊断台坏态 + 创建命令弹框；修复 → reimport →
-画面恢复）。
+画面恢复）~~ **2026-10-30 用户实测验收销账。**
 
-④焦点扫描资产刷新 + 导入进度模态框（2026-10-27 落地，Engine_AssetReload_Design §5.1——
+~~④焦点扫描资产刷新 + 导入进度模态框（2026-10-27 落地，Engine_AssetReload_Design §5.1——
 主窗口重获焦点 → EditorFocusGainedEvent → AssetReloadService 后台 refresh() 扫描自动导入
 （Unity Auto Refresh 口径）→ 有待导入弹 ImportProgressDialog 模态小框（Timer 轮询在途数
 自动关）；验收：外部改 .mat/.shader/贴图 → 切回编辑器 → 自动生效（模态进度框闪现），
-自身保存不误触发）。
+自身保存不误触发）~~ **2026-10-30 用户实测验收销账。**
 
-⑤L1 场景级 raycast（2026-10-28 落地，Engine_Collision_Design v0.2 §10——Physics 静态门面
+~~⑤L1 场景级 raycast（2026-10-28 落地，Engine_Collision_Design v0.2 §10——Physics 静态门面
 （raycast 最近命中 + raycastAll 全命中；maxDistance/layerMask 参数，Unity 口径——同日
 Ray.limit 方案短暂落地即回退）+ RaycastHit + Scene.getColliders 注册表投影 + 引擎 setScene
 接线；随批相机链 Scene.getMainCamera（Unity Camera.main 口径）+ JavelinEngine.mouseRay
-（窗口尺寸+鼠标坐标组装）；验收 = 跑 PhysicsTest 14 用例 + GameSceneTest 主相机用例全绿
-（javelin-core）；mouseRay 归运行时装机验证）。
+（窗口尺寸+鼠标坐标组装））~~ **2026-10-30 销账：PhysicsTest 14 用例 + GameSceneTest
+主相机用例全绿（含随批两处期望值修正——首帧即驱动 start/update，设计档 §4 口径）；
+mouseRay 归运行时装机验证（后置）。**
 
-⑥Mesh 子网格 + MeshRenderer 多材质（2026-10-29 落地，Engine_Assets_Design §2.9 /
+~~⑥Mesh 子网格 + MeshRenderer 多材质（2026-10-29 落地，Engine_Assets_Design §2.9 /
 Engine_Scene_Design §5.1 v0.5 / Inspector_Design v0.13——SubMesh 区间列表 +
 setSubmeshes/getSubmeshCount + 上传校验 + RHI drawIndexed 三参 firstIndex + 每
 (renderer, 子网格) 一 RenderObject + 缺失位 DefaultMaterial 兜底（**语义变化：原
-material null 不渲染作废**——验收注意：无材质 MeshRenderer 现在以默认材质可见）
-+ .smesh [SUBMESH_N] 段（与 [INDEX] 互斥）+ 检查器 GUID_ASSET_LIST 多材质行 +
-getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容；验收 = 跑
-MeshSerializationTest（子网格往返/边界）+ SceneSerializationTest（多材质往返）+
-实机：多子网格 .smesh + materials[2] 两子网格各按材质渲染、缺材质位默认材质可见）。
+material null 不渲染作废**）+ .smesh [SUBMESH_N] 段（与 [INDEX] 互斥）+ 检查器
+GUID_ASSET_LIST 多材质行 + getMaterial/setMaterial 兼容门面 + 旧 .scene material 单键兼容）~~
+**2026-10-30 销账：MeshSerializationTest + SceneSerializationTest 单测绿 + 编辑器实机
+（两子网格各按材质渲染、缺材质位默认材质可见）——验收揪出并修复文本列表 guid 引用
+硬编码 Asset.class 崩（TextImporter 走对象头泛型类、TextExporter 写具体类名，同
+readSerializable 2026-10-04 坑复发）+ default.scene 5 处文本头手迁 Asset→Material
+（用户拍板方案 B：不做代码兼容旧头）。**
 
 ⑦guid 真值单源=伴生 .meta（2026-10-29 落地，Editor_Design §6.2——用户拍板：只有
 src 下不需要 meta、guid 头只剩 src 下 .java、内置资源生成 meta 一起释放）：9 个内置
@@ -335,16 +342,17 @@ libraryFileFor/ShaderImporter/SimpleMeshImporter/AssetInput/ShaderInspectorConte
 editor-grid）引用不断、画面正常 / ShaderParserTest 回归——**2026-10-29 用户实测
 销账（死循环根治，原触发场景复测通过）**。
 
-⑧资产热重载注册表流派 + 运行期可变 + Cleaner 重构（2026-10-30 落地：
+~~⑧资产热重载注册表流派 + 运行期可变 + Cleaner 重构（2026-10-30 落地：
 **① Walker 改对象注册表全量扫描**（ObjectId 构造回调 registrar + EditorObjectRegistry
 弱引用收拢 + setter 优先换指针 + Material 保参退回 setShader，AssetReload 档 v0.5）；
 **② 导入回调总线化**（AssetImportPipeline 删 ImportListener，改发 AssetImportEvent）；
 **③ Texture2D 冻结废除 + revision**（贴图档 v0.3 §8）；**④ Material.setShader Unity 保参
 + textureRevision**（材质档 v0.5 §3.3）；**⑤ Cleaner Registration 合一**（手动/Cleaner 共用
 两帧队列 + device.dispose flush + compute layout 补注册，Vulkan_Pitfalls #26 + RHI 进度档）；
-**⑥ logback 文件输出启用**；验收 = 改 .shader → reimport → 画面当帧变 + F3 存活计数不涨 /
-运行期 setImage/setFilterMode 即时生效 / Texture2DTest·MaterialTest 回归 / 实机 resize 与
-热刷无显存增长 + logs/ 生成）。
+**⑥ logback 文件输出启用**）~~ **2026-10-30 销账：改 .shader → reimport → 画面当帧变 +
+F3 存活计数不涨 / 运行期 setImage/setFilterMode 即时生效 / Texture2DTest·MaterialTest
+回归绿（MaterialTest 旧「重置默认」用例随保参拍板重写为三分支用例）/ 实机 resize 与热刷
+无显存增长 + logs/ 生成——单测+实机全过。**
 
 2026-10-25 用户实测销账 2 笔（状态已翻入各模块表）：①贴图导入管线 v0.1（§2.5/§3.6
 ——Image 像素资产 + Texture2D 三层改造 + ImageImporter + alpha 修复）；②纹理资产

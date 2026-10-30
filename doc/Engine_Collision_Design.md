@@ -1,6 +1,6 @@
 # 引擎碰撞设计（Engine Collision Design）
 
-> 版本：v0.2（2026-10-28：**L1 场景级 raycast 落地待验收**——静态门面 Physics + RaycastHit + Scene.getColliders 注册表投影，§10；片①②③④于 2026-10-06 全片单测验收）
+> 版本：v0.2（2026-10-28：**L1 场景级 raycast 落地，2026-10-30 PhysicsTest 14 用例验收销账**——静态门面 Physics + RaycastHit + Scene.getColliders 注册表投影，§10；片①②③④于 2026-10-06 全片单测验收）
 > 范围：二期②「碰撞检查」的**纯数学层（L0）**——Ray、碰撞形状、相交例程、包围盒；**L1 运行时物理查询（本节起随 §10 在档）**——游戏射线检测与后期物理系统共用的几何地基，编辑器拾取已全线改道 GPU ID-buffer 不经本档射线（2026-10-23 落地，Engine_Picking_Design v0.1）。
 > 定位：本文设计 L0 并承载 L1 场景查询设计（§10，2026-10-28 落地）；物理系统（L2）选型后立项，归其档，本文不展开其内部。
 > 配套：`doc/Engine_Roadmap.md` §2.2/§2.3；物理步进挂点见 `Engine_Design.md` §2.2/§3。

@@ -1,6 +1,6 @@
 # 引擎贴图资产设计（Engine Texture Design）
 
-> 版本：v0.3（2026-10-30 **Texture2D 运行期可变 + revision 版本号**）
+> 版本：v0.3（2026-10-30 **Texture2D 运行期可变 + revision 版本号**——同日 Texture2DTest 改断言 + 运行期换图/采样实机验收销账）
 > 范围：图片导入管线（.png/.jpg/.jpeg → Image 像素资产 → Library 产物）+ 三层资产模型拍板 + Texture2D 引用层改造 + **v0.2 增量：纹理资产（.texture 用户文件 + 创建命令 + 导入器 + 检查器面板）** + **v0.3 增量：上传冻结废除、运行期可变（setImage/setFilterMode/setWrapMode 即时生效）+ revision 驱动渲染侧描述符集重建**。
 > 消费链（Material 贴图槽 → RenderingSystem → TextureUpload 懒上传 → RHI Texture/Sampler）为既有已落地件，消费兼容性本批一并补齐（null-image 占位守卫）。
 

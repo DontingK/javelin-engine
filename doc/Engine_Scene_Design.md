@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
+> 版本：v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；**2026-10-30 验收销账（SceneSerializationTest + 实机，随验收修复文本列表 guid 硬编码 Asset.class 崩——TextImporter 走对象头泛型类、TextExporter 写具体类名，§9 坑点存档）**；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -344,6 +344,14 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
 
 ### 9.4 已知限制与开放项
 
+- **坑点存档：文本列表 guid 引用硬编码 Asset.class（2026-10-30 验收⑥揪出修复）**——
+  `TextImporter` 列表 `@guid:` 元素曾硬编码 `loadGuid(guid, Asset.class)`，冷加载经
+  `ReflectiveFactory.newInstance(Asset.class)`「未注册的类」崩（**readSerializable
+  单字段路径 2026-10-04 同款坑的列表版复发**——当时只修了单字段）；修法两端对齐
+  二进制侧：`TextExporter` 列表头写具体元素类名（原特判写死父类 `Asset`）、
+  `TextImporter` 走对象头泛型类。触发面=多材质 materials 列表（文本格式首个
+  Asset 列表消费者）。旧文本头手迁 Asset→Material（用户拍板不做代码兼容）；教训：
+  **新序列化通道的每个元素形态分支都要有首个消费者或单测钉住**。
 - **Material 内嵌数据面已通（2026-10-04 同日两步）、剩 .mat 资产格式**：上午
   NPE 暴露旧缺口——Material 无 write 时期重载读回 shader-null 残实例（原表述
   「读回 null 不渲染」与框架行为不符）流入 RenderObject.forwardPass 即崩；

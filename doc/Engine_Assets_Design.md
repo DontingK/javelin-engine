@@ -4,7 +4,7 @@
 > 说明：引擎侧资产格式与类设计（Mesh / 纹理 / .mat 材质），与 RHI 文档（`RHI_Design.md` 系列）和引擎场景设计（`Engine_Scene_Design.md`）配套。
 > 关联：RHI 第 20/21 节（Material / .shader 语法）、第 25 节（数据上传）、第 26 节（Buffer）；`Engine_Scene_Design.md` 5.1（MeshRenderer）。
 > v0.2：第 2 节 Mesh 修订——per-attribute 数据（Unity 式）+ 数据驱动属性推断 + VertexLayout 规范化排序与缓存 + 首次上传冻结。
-> v0.3（2026-10-29）：§2.9 Mesh 子网格——单索引数组 + SubMesh 区间列表（Unity subMeshCount/SetTriangles 语义）+ .smesh [SUBMESH_N] 段；消费侧多材质见 Engine_Scene_Design §5.1。
+> v0.3（2026-10-29）：§2.9 Mesh 子网格——单索引数组 + SubMesh 区间列表（Unity subMeshCount/SetTriangles 语义）+ .smesh [SUBMESH_N] 段；消费侧多材质见 Engine_Scene_Design §5.1。**2026-10-30 验收销账（MeshSerializationTest + 多材质实机）。**
 
 ## 1. 总则
 

@@ -63,7 +63,7 @@
 - **产出**：Ray/RaycastHit 数据类型 + Camera 屏幕射线生成 + 场景级 raycast 查询（**Ray 已随碰撞 L0 落地**（2026-10-05 片①）；**Camera.screenToRay 已进核心并单测验收**——2026-10-05 随 Gizmo 轴拾取落地、CameraTest 2026-10-06 验收，Unity ScreenPointToRay 口径）；
 - **验收**：~~点击拾取场景物体正确（为编辑器拾取闭环）~~——编辑器拾取已改道 GPU ID-buffer 并于 2026-10-23 实测验收（§2.4 拾取闭环收官）；Ray 线定位收窄为**运行时物理查询**，验收 = PhysicsTest 单测（用户运行）。
 
-进度（2026-10-28 落地，**待用户验收**）：**L1 场景级 raycast（运行时物理查询线）**——拍板：
+进度（2026-10-28 落地，**2026-10-30 销账——PhysicsTest 14 用例 + GameSceneTest 主相机用例全绿**；mouseRay 归运行时装机验证后置）：**L1 场景级 raycast（运行时物理查询线）**——拍板：
 API 落点 = 静态门面 `Physics`（Unity 口径）、首批查询面 = 单命中 `raycast` + 全命中
 `raycastAll`（2×3 重载：默认/限距/layerMask；射程口径三拍定稿=**maxDistance 查询参数**
 （Unity 口径）——同日 jME 式 `Ray.limit` 方案曾短暂落地即回退，沿革见 Collision 档 §10）。
@@ -253,7 +253,7 @@ Inspector 贴图槽编辑挂账另批。
  参数/贴图槽行 label 误用绑定名改 displayName（Unity 口径）。遗留：材质贴图槽行换装
  Texture2D（下批）、编辑即时联动归热重载批次。
 
-进度（2026-10-27 落地，**待用户验收**）：**资产热重载批次①（Engine_AssetReload_Design v0.3）**——
+进度（2026-10-27 落地，**2026-10-30 用户实测验收通过**）：**资产热重载批次①（Engine_AssetReload_Design v0.3）**——
 反射遍历流派最小闭环：core 仅 `loadCache` 放 protected（拍板 2026-10-27：reload 归编辑器
 `ProjectAssetLibManager`，core 接口不加 API）；`invalidate/reload`（丢弱缓存条目 + 重读盘上
 产物，失败保持旧引用残档口径）+ 反射 Walker（`editor/asset/reload`，材质补默认值后处理，
@@ -264,7 +264,7 @@ AssetReloadedEvent）+ 材质面板最小钩子（AssetReloadedEvent 重拉编�
 联动不退化）。验收口：改 .shader/.mat → 手动 reimport → 画面当帧变 + F3 存活计数不涨；
 .png 像素源/焦点扫描/.scene 豁免归批次②③。
 
-进度（2026-10-27 落地，**待用户验收**）：**坏 shader stub 产物 + 渲染回退默认 shader
+进度（2026-10-27 落地，**2026-10-30 用户实测验收通过**）：**坏 shader stub 产物 + 渲染回退默认 shader
 （Engine_Material_Design v0.3）**——判据 = `Shader.isValid()`（至少一个 Pass 且 vs/fs
 SPIR-V byte[] 均非 null，拍板：无有效二进制 = 坏 shader）；ShaderImporter 编译失败落
 **stub 产物**（空字段 Shader + guid，任务 SUCCESS 带 errorMessage——原「保持旧版本
@@ -276,7 +276,7 @@ reconcile 活集显式加默认材质防误退役；修复后 reimport 真产物
 errorMessage 也弹框（红线 15）。附带收益：坏 shader 不再炸帧循环（mainLoop 对
 renderFrame 无异常隔离，原 RenderObject ctor 抛错直通 shutdown）。
 
-进度（2026-10-27 落地，**待用户验收**）：**焦点扫描资产刷新 + 导入进度模态框（热重载
+进度（2026-10-27 落地，**2026-10-30 用户实测验收通过**）：**焦点扫描资产刷新 + 导入进度模态框（热重载
 批次②焦点扫描部分，Engine_AssetReload_Design §5.1）**——MainFrame windowGainedFocus →
 EditorFocusGainedEvent（总线解耦窗口与扫描）→ AssetReloadService 后台线程跑
 `AssetImportPipeline.refresh()`（现成扫描逻辑复用：walkAssetDir → needImport/未导入 →
@@ -288,7 +288,7 @@ submitImport，纯 IO 不占 EDT；导入中不重扫防重复提交）→ 有�
 文案不再攒批进第二批，Editor_Plugin_Design §7.2-0）。批次②剩余 Scene 根豁免仍后置
 （外部改 .scene 重导 Library 但场景 warn 跳过）。
 
-进度（2026-10-29 落地，**待用户验收**）：**Mesh 子网格 + MeshRenderer 多材质
+进度（2026-10-29 落地，**2026-10-30 用户验收销账——单测两套绿 + 编辑器实机多材质渲染，随验收修复文本列表 guid 硬编码 Asset.class 崩 + default.scene 文本头手迁**）：**Mesh 子网格 + MeshRenderer 多材质
 （Engine_Assets_Design §2.9 / Engine_Scene_Design §5.1 v0.5）**——拍板：子网格 =
 单索引数组 + SubMesh 区间列表（Unity subMeshCount/SetTriangles 语义，RHI drawIndexed
 三参扩展 firstIndex 范围绘制）；材质列表 i 位对应子网格 i，每 (renderer, 子网格) 一
@@ -324,7 +324,7 @@ System.exit 关闭编辑器；**原「第三方 warn 跳过/降级装载」口�
 域，集中式语言包可翻译其他插件域），editor.core setup 注册 en_US/zh_CN；缺键逐键
 回退该域基线（第一个注册的语言包，英文不特殊）。
 
-进度（2026-10-30 落地，**待用户验收**）：**资产热重载注册表流派 + 运行期可变 + Cleaner 重构随批**
+进度（2026-10-30 落地，**同日用户验收销账——单测+实机全过**）：**资产热重载注册表流派 + 运行期可变 + Cleaner 重构随批**
 （Engine_AssetReload_Design v0.5 / Engine_Texture_Design v0.3 / Engine_Material_Design v0.5 /
 Vulkan_Pitfalls #26）——
 - **Walker 改对象注册表全量扫描**：`ObjectId` 增构造回调 registrar（引擎运行时零开销）+ 新增
@@ -372,8 +372,8 @@ Vulkan_Pitfalls #26）——
 
 > **2026-10-30 批映射注**：资产热重载注册表流派（Walker 全量扫描 + 导入事件总线）、Texture2D 运行期可变 +
 > revision、Material.setShader 保参 + textureRevision、logback 文件输出 → 挂靠**二期「编辑器基本 + 资产管线」**；
-> Cleaner Registration 合一 → 挂靠**一期 RHI 底座（既有关账能力上的防御性重构）**。状态 = 已落地**待用户验收**
-> （见 §2.4 本批进度段与各设计档版本沿革）。
+> Cleaner Registration 合一 → 挂靠**一期 RHI 底座（既有关账能力上的防御性重构）**。状态 = **2026-10-30
+> 用户验收销账（单测+实机全过，见 §2.4 本批进度段与各设计档版本沿革）**。
 
 ## 5. 跨期遗留（不阻塞当期推进）
 

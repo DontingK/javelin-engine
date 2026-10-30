@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -90,15 +91,15 @@ public class ShaderParserTest {
         assertEquals("_Color", color.getName());
         assertEquals("Tint", color.getDisplayName());
         assertEquals(MaterialPropertyType.COLOR, color.getType());
-        assertEquals(new float[]{1f, 0.5f, 0.25f, 1f}, color.getDefaultValues());
+        assertArrayEquals(new float[]{1f, 0.5f, 0.25f, 1f}, color.getDefaultValues());
         assertEquals(MaterialPropertyType.VECTOR, shader.properties().get(1).getType());
         MaterialProperty metallic = shader.properties().get(2);
         assertEquals(MaterialPropertyType.RANGE, metallic.getType());
         assertEquals(0f, metallic.getMin());
         assertEquals(1f, metallic.getMax());
-        assertEquals(new float[]{0.25f}, metallic.getDefaultValues());
+        assertArrayEquals(new float[]{0.25f}, metallic.getDefaultValues());
         assertEquals(MaterialPropertyType.FLOAT, shader.properties().get(3).getType());
-        assertEquals(new float[]{1.5f}, shader.properties().get(3).getDefaultValues());
+        assertArrayEquals(new float[]{1.5f}, shader.properties().get(3).getDefaultValues());
         assertEquals("white", shader.properties().get(4).getTexturePlaceholder());
         assertEquals("bump", shader.properties().get(5).getTexturePlaceholder());
 
@@ -127,8 +128,9 @@ public class ShaderParserTest {
         assertTrue(ts.isBlendEnabled());
         assertEquals(BlendFactor.SRC_ALPHA, ts.getSrcColor());
         assertEquals(BlendFactor.ONE_MINUS_SRC_ALPHA, ts.getDstColor());
-        assertEquals(BlendFactor.ONE_MINUS_SRC_ALPHA, ts.getSrcAlpha());
-        assertEquals(BlendFactor.SRC_ALPHA, ts.getDstColor());
+        // 颜色/alpha 同因子（PassState.setBlend 契约）
+        assertEquals(BlendFactor.SRC_ALPHA, ts.getSrcAlpha());
+        assertEquals(BlendFactor.ONE_MINUS_SRC_ALPHA, ts.getDstAlpha());
         assertEquals(Set.of(ColorComponentFlags.R, ColorComponentFlags.G), ts.getColorMask());
     }
 

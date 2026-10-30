@@ -179,18 +179,9 @@ public class TextExporter implements Exporter {
             if (element == null) {
                 continue;
             }
-            if (element instanceof Enum<?> e) {
-                return e.getClass().getName();
-            }
-            if (element instanceof Asset) {
-                return Asset.class.getName();
-            }
-            if (element instanceof Serializable s) {
-                return s.getClass().getName();
-            }
-            if (element instanceof String) {
-                return String.class.getName();
-            }
+            // Asset 写具体类名（首个非 null 元素的运行时类，与 BinaryArrayListOutput 同口径）：
+            // 读侧 @guid 分支经此类型实例化，写父类 Asset 会「未注册的类」崩
+            return element.getClass().getName();
         }
         return null;
     }

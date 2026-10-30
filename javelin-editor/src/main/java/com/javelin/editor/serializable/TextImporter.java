@@ -92,7 +92,14 @@ public class TextImporter implements Importer {
                         list.add(objectCache.get(refId));
                     } else if (part.startsWith("@guid:")) {
                         String guid = part.substring(6);
-                        list.add(assetManager != null ? assetManager.loadGuid(guid, Asset.class) : null);
+                        // 经对象头泛型类实例化（写侧落具体类名）——硬编码 Asset.class 会
+                        // 「未注册的类」崩（Asset 基类不在 ReflectiveFactory 注册表，
+                        // 同 TextInputCapsule.readSerializable 2026-10-04 坑）
+                        if (assetManager == null || elementClass == null) {
+                            throw new IllegalStateException(
+                                "无法解析列表 GUID 引用 " + guid + "：AssetManager 未配置或列表头缺少元素类型");
+                        }
+                        list.add(assetManager.loadGuid(guid, (Class<? extends Asset>) elementClass));
                     } else if (elementClass != null && elementClass.isEnum()) {
                         list.add(Enum.valueOf((Class<? extends Enum>) elementClass, part));
                     } else {

@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.13）
+# 检查器（Inspector）设计（v0.13，2026-10-30 随多材质实机验收销账）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。

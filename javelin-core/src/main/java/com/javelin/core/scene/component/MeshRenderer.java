@@ -50,23 +50,31 @@ public class MeshRenderer extends Component implements Renderable {
         alignMaterials();
     }
 
-    /** 多材质列表（i 位对应子网格 i；活列表引用，勿外部修改，改走 setMaterials） */
+    /**
+     * 多材质列表（i 位对应子网格 i；活列表引用，勿外部修改，改走 setMaterials）
+     */
     public List<Material> getMaterials() {
         return materials;
     }
 
-    /** 多材质设置（防御性拷贝 + 按当前 mesh 子网格数对齐：缺补 null、多余截断） */
+    /**
+     * 多材质设置（防御性拷贝 + 按当前 mesh 子网格数对齐：缺补 null、多余截断）
+     */
     public void setMaterials(List<Material> materials) {
         this.materials = new ArrayList<>(materials == null ? new ArrayList<>() : materials);
         alignMaterials();
     }
 
-    /** 子网格 0 的材质（兼容门面；多子网格用 getMaterials / getMaterial(int)） */
+    /**
+     * 子网格 0 的材质（兼容门面；多子网格用 getMaterials / getMaterial(int)）
+     */
     public Material getMaterial() {
         return materials.isEmpty() ? null : materials.get(0);
     }
 
-    /** 子网格 0 材质替换（兼容门面）；空列表且非 null 时首位插入 */
+    /**
+     * 子网格 0 材质替换（兼容门面）；空列表且非 null 时首位插入
+     */
     public void setMaterial(Material material) {
         if (materials.isEmpty()) {
             if (material != null) {
@@ -77,12 +85,16 @@ public class MeshRenderer extends Component implements Renderable {
         }
     }
 
-    /** 子网格 i 的材质（越界/未赋位 = null，渲染侧 DefaultMaterial 缺失兜底） */
+    /**
+     * 子网格 i 的材质（越界/未赋位 = null，渲染侧 DefaultMaterial 缺失兜底）
+     */
     public Material getMaterial(int submesh) {
         return submesh >= 0 && submesh < materials.size() ? materials.get(submesh) : null;
     }
 
-    /** 材质列表长度对齐当前 mesh 子网格数（缺补 null、多余截断；mesh null 按 1 兜底） */
+    /**
+     * 材质列表长度对齐当前 mesh 子网格数（缺补 null、多余截断；mesh null 按 1 兜底）
+     */
     private void alignMaterials() {
         int count = mesh != null ? mesh.getSubmeshCount() : 1;
         while (materials.size() < count) {
@@ -133,17 +145,7 @@ public class MeshRenderer extends Component implements Renderable {
     public void read(InputCapsule input) {
         super.read(input);
         mesh = input.readSerializable("mesh", Mesh.class);
-        ArrayList<Material> list = input.readArrayList("materials", Material.class);
-        if (list != null) {
-            materials = list;
-        } else {
-            // 旧 .scene 单 material 键兼容（多材质化前产物）
-            materials = new ArrayList<>();
-            Material legacy = input.readSerializable("material", Material.class);
-            if (legacy != null) {
-                materials.add(legacy);
-            }
-        }
+        materials = input.readArrayList("materials", Material.class);
         castShadow = input.readBoolean("castShadow");
         receiveShadow = input.readBoolean("receiveShadow");
     }
