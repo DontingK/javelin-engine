@@ -47,6 +47,8 @@ bin/
 ### Mac OS ###
 .DS_Store
 *.log
+# 运行时日志输出目录（logback.xml 的 log.base）
+logs/
 /Library
 /test-project
 /test

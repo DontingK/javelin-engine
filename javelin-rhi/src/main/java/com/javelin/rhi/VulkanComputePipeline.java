@@ -18,6 +18,9 @@ final class VulkanComputePipeline implements ComputePipeline {
     private final VulkanDevice device;
     private final long pipelineHandle;
     private final long pipelineLayoutHandle;
+    /** Cleaner 注册句柄：pipeline + 内部 pipelineLayout */
+    private CleanerRegistry.Registration registration;
+    private CleanerRegistry.Registration layoutRegistration;
     private volatile boolean disposed;
 
     VulkanComputePipeline(VulkanDevice device, ComputePipelineDesc desc, long pipelineCache) {
@@ -57,7 +60,9 @@ final class VulkanComputePipeline implements ComputePipeline {
         // 必须在 vkCreateComputePipelines 成功之后 dispose，销毁早于创建会解引用悬空句柄直接崩溃
         module.dispose();
 
-        CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        registration = CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        // 内部布局同样注册（与 Graphics 版对齐；此前未注册，只能靠显式 dispose 销毁）
+        layoutRegistration = CleanerRegistry.register(this, device, pipelineLayoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
         device.stats().onComputePipelineCreated();
     }
 
@@ -75,11 +80,9 @@ final class VulkanComputePipeline implements ComputePipeline {
         if (disposed) return;
         disposed = true;
         device.stats().onComputePipelineDisposed();
-        CleanerRegistry.markDisposed(pipelineHandle);
-        // 内部布局显式销毁（与 Graphics 版成对；此前仅靠 Cleaner 兜底）
-        CleanerRegistry.markDisposed(pipelineLayoutHandle);
-        vkDestroyPipelineLayout(device.vkDevice(), pipelineLayoutHandle, null);
-        vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
+        // 内部布局显式销毁（与 Graphics 版成对）
+        layoutRegistration.dispose();
+        registration.dispose();
     }
 
     private long createPipelineLayout(ComputePipelineDesc desc) {

@@ -298,6 +298,8 @@ final class VulkanSwapChain implements SwapChain {
         private final int height;
         private final long imageHandle;
         private volatile long imageViewHandle = VK_NULL_HANDLE;
+        /** Cleaner 注册句柄（imageView 懒创建，未创建前为 null） */
+        private CleanerRegistry.Registration viewRegistration;
         private volatile boolean disposed;
 
         SwapChainTexture(VulkanDevice device, Format format, int width, int height, long imageHandle) {
@@ -354,7 +356,7 @@ final class VulkanSwapChain implements SwapChain {
                             }
                             imageViewHandle = viewBuf.get(0);
                         }
-                        CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
+                        viewRegistration = CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
                     }
                 }
             }
@@ -365,9 +367,8 @@ final class VulkanSwapChain implements SwapChain {
         public void dispose() {
             if (disposed) return;
             disposed = true;
-            if (imageViewHandle != VK_NULL_HANDLE) {
-                CleanerRegistry.markDisposed(imageViewHandle);
-                vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
+            if (viewRegistration != null) {
+                viewRegistration.dispose();
             }
         }
     }

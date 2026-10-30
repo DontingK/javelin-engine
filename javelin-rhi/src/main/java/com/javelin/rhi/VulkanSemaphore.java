@@ -18,6 +18,8 @@ final class VulkanSemaphore implements Semaphore {
 
     private final VulkanDevice device;
     private final long semaphoreHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanSemaphore(VulkanDevice device) {
@@ -35,7 +37,7 @@ final class VulkanSemaphore implements Semaphore {
             this.semaphoreHandle = semBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, semaphoreHandle, CleanerRegistry.ResourceType.SEMAPHORE);
+        registration = CleanerRegistry.register(this, device, semaphoreHandle, CleanerRegistry.ResourceType.SEMAPHORE);
         device.stats().onSemaphoreCreated();
     }
 
@@ -49,7 +51,6 @@ final class VulkanSemaphore implements Semaphore {
         if (disposed) return;
         disposed = true;
         device.stats().onSemaphoreDisposed();
-        CleanerRegistry.markDisposed(semaphoreHandle);
-        vkDestroySemaphore(device.vkDevice(), semaphoreHandle, null);
+        registration.dispose();
     }
 }

@@ -18,6 +18,8 @@ final class VulkanPipelineLayout implements PipelineLayout {
 
     private final VulkanDevice device;
     private final long layoutHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanPipelineLayout(VulkanDevice device, PipelineLayoutDesc desc) {
@@ -62,7 +64,7 @@ final class VulkanPipelineLayout implements PipelineLayout {
             this.layoutHandle = layoutBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
+        registration = CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
         device.stats().onPipelineLayoutCreated();
     }
 
@@ -76,7 +78,6 @@ final class VulkanPipelineLayout implements PipelineLayout {
         if (disposed) return;
         disposed = true;
         device.stats().onPipelineLayoutDisposed();
-        CleanerRegistry.markDisposed(layoutHandle);
-        vkDestroyPipelineLayout(device.vkDevice(), layoutHandle, null);
+        registration.dispose();
     }
 }

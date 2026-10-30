@@ -1,6 +1,8 @@
 package com.javelin.editor.importer;
 
 import com.javelin.core.assets.AssetManager;
+import com.javelin.editor.event.AssetImportEvent;
+import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.meta.AssetMeta;
 import com.javelin.editor.meta.GuidHeaderManager;
 import com.javelin.editor.meta.MetaManager;
@@ -21,7 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * 资源导入管线管理器
  *
- * <p>管理资源导入任务队列，调度导入器执行导入操作</p>
+ * <p>管理资源导入任务队列，调度导入器执行导入操作。导入开始/完成/失败经
+ * {@link EditorEventBus} 发布 {@link AssetImportEvent}（消费方统一订总线）。</p>
  *
  * @author: javelin
  * @create: 2026/4/8
@@ -36,7 +39,6 @@ public class AssetImportPipeline {
     private final Map<String, AssetImporter> importers = new ConcurrentHashMap<>();
     private final BlockingQueue<ImportTask> taskQueue = new LinkedBlockingQueue<>();
     private final ExecutorService executorService;
-    private final List<ImportListener> listeners = new CopyOnWriteArrayList<>();
     private final GuidHeaderManager guidHeaderManager;
     private final AssetManager assetManager;
 
@@ -54,35 +56,6 @@ public class AssetImportPipeline {
         logger.info("所有导入任务已完成");
     }
 
-
-    /**
-     * 导入监听器接口
-     */
-    public interface ImportListener {
-        /**
-         * 导入开始
-         *
-         * @param task 导入任务
-         */
-        default void onImportStart(ImportTask task) {
-        }
-
-        /**
-         * 导入完成
-         *
-         * @param task 导入任务
-         */
-        default void onImportComplete(ImportTask task) {
-        }
-
-        /**
-         * 导入失败
-         *
-         * @param task 导入任务
-         */
-        default void onImportFailed(ImportTask task) {
-        }
-    }
 
     /**
      * 创建导入管线
@@ -192,7 +165,7 @@ public class AssetImportPipeline {
      */
     private void executeImport(ImportTask task) {
         task.markStart();
-        notifyListeners(l -> l.onImportStart(task));
+        publishImportEvent(AssetImportEvent.Phase.START, task);
 
         try {
             AssetImporter importer = findImporter(task.getSourceFile());
@@ -221,16 +194,16 @@ public class AssetImportPipeline {
                 metaManager.updateIndex();
 
                 logger.info("导入成功: {} 耗时 {}ms", task.getSourceFile().getName(), task.getDuration());
-                notifyListeners(l -> l.onImportComplete(task));
+                publishImportEvent(AssetImportEvent.Phase.COMPLETE, task);
             } else {
                 logger.error("导入失败: {} - {}", task.getSourceFile().getName(), task.getErrorMessage());
-                notifyListeners(l -> l.onImportFailed(task));
+                publishImportEvent(AssetImportEvent.Phase.FAILED, task);
             }
         } catch (Exception e) {
             task.setErrorMessage(e.getMessage());
             task.markEnd(false);
             logger.error("导入异常: {}", task.getSourceFile().getName(), e);
-            notifyListeners(l -> l.onImportFailed(task));
+            publishImportEvent(AssetImportEvent.Phase.FAILED, task);
         }finally {
             importCount.decrementAndGet();
         }
@@ -349,36 +322,12 @@ public class AssetImportPipeline {
     }
 
     /**
-     * 添加导入监听器
-     *
-     * @param listener 监听器
+     * 发布导入时机事件（快照 sourceFile + guid，不携带可变 ImportTask——总线不可变契约）。
      */
-    public void addListener(ImportListener listener) {
-        listeners.add(listener);
-    }
-
-    /**
-     * 移除导入监听器
-     *
-     * @param listener 监听器
-     */
-    public void removeListener(ImportListener listener) {
-        listeners.remove(listener);
-    }
-
-    /**
-     * 通知所有监听器
-     *
-     * @param action 通知动作
-     */
-    private void notifyListeners(java.util.function.Consumer<ImportListener> action) {
-        for (ImportListener listener : listeners) {
-            try {
-                action.accept(listener);
-            } catch (Exception e) {
-                logger.error("导入监听器执行失败", e);
-            }
-        }
+    private static void publishImportEvent(AssetImportEvent.Phase phase, ImportTask task) {
+        AssetMeta meta = task.getMeta();
+        String guid = meta != null ? meta.getGuid() : null;
+        EditorEventBus.publish(new AssetImportEvent(phase, task.getSourceFile(), guid));
     }
 
     /**

@@ -6,13 +6,11 @@ import com.javelin.core.render.material.DefaultMaterial;
 import com.javelin.core.render.material.Shader;
 import com.javelin.editor.JavelinEditor;
 import com.javelin.editor.asset.ProjectAssetLibManager;
+import com.javelin.editor.event.AssetImportEvent;
 import com.javelin.editor.event.AssetReloadedEvent;
 import com.javelin.editor.event.EditorEventBus;
 import com.javelin.editor.event.EditorFocusGainedEvent;
 import com.javelin.editor.importer.AssetImportPipeline;
-import com.javelin.editor.importer.ImportTask;
-import com.javelin.editor.meta.AssetMeta;
-import com.javelin.editor.scene.EditorScene;
 import com.javelin.editor.window.ImportProgressDialog;
 import com.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
@@ -22,19 +20,19 @@ import java.io.File;
 import javax.swing.SwingUtilities;
 
 /**
- * 资产热重载协调器（Engine_AssetReload_Design.md §5.2）：订阅导入管线完成回调 →
- * reload 得盘上新实例 → 反射 Walker 遍历场景对象图换 Asset 字段指针 →
- * renderingSystem.requestReconcile() 孤儿回收 → 发 AssetReloadedEvent。
- * 触发口 = 手动 project.reimport + 焦点扫描（批次②：主窗口重获焦点扫 Assets/
- * 变更自动导入，有待导入弹模态进度框）。
+ * 资产热重载协调器（Engine_AssetReload_Design.md §5.2）：订阅导入总线事件
+ * （AssetImportEvent，AssetImportPipeline 直接发布）→ reload 得盘上新实例 →
+ * 反射 Walker 扫对象注册表全量换 Asset 字段指针 → renderingSystem.requestReconcile() 孤儿回收 →
+ * 发 AssetReloadedEvent。触发口 = 手动 project.reimport + 焦点扫描（批次②：主窗口重获焦点扫
+ * Assets/ 变更自动导入，有待导入弹模态进度框）。
  *
  * <p><b>热重载范围（拍板 2026-10-29 收窄）：仅 shader</b>——文件是真值源且渲染侧
  * 按 shader 身份烤死（set2 布局/UBO 尺寸/PSO 缓存键），内存引用必须换代。.mat
  * （编辑=内存直改即时生效，文件是镜像）、.texture/.smesh（GPU 侧上传烤死，外部改
  * 须重上传）均摘出 reload 链待后续加回；像素源 .png 同归后续批次。</p>
  *
- * <p>线程契约：onImportComplete 在导入 worker 线程回调，换指针/对账经
- * {@code submitTask} 投引擎帧首执行（改引擎场景走引擎帧队列，EditorEventBus
+ * <p>线程契约：AssetImportEvent 在总线泵线程回调（导入方在 worker 线程 publish），
+ * 换指针/对账经 {@code submitTask} 投引擎帧首执行（改引擎场景走引擎帧队列，EditorEventBus
  * 同口径）。全程不抛——重载失败保持旧引用 + warn（残档口径，设计 §6）。</p>
  */
 public class AssetReloadService {
@@ -55,16 +53,8 @@ public class AssetReloadService {
         this.pipeline = pipeline;
         this.assetManager = assetManager;
         this.renderingSystem = renderingSystem;
-        pipeline.addListener(new AssetImportPipeline.ImportListener() {
-            @Override
-            public void onImportComplete(ImportTask task) {
-                onImported(task);
-            }
-            @Override
-            public void onImportFailed(ImportTask task) {
-                onImported(task);
-            }
-        });
+        // 导入完成/失败经总线到达（导入管线直接发布），消费侧口径统一
+        EditorEventBus.subscribe(AssetImportEvent.class, this::onImportEvent);
         // 焦点扫描触发（Unity Auto Refresh 口径，批次②）：主窗口重获焦点 → 扫描
         // Assets/ 变更自动导入（事件解耦窗口与扫描逻辑；扫描 IO 走后台线程）
         EditorEventBus.subscribe(EditorFocusGainedEvent.class, e -> onFocusGained());
@@ -98,9 +88,17 @@ public class AssetReloadService {
         });
     }
 
-    /** 导入完成回调（worker 线程）：过滤无 guid / .scene / 像素源，其余投引擎帧首 */
-    private void onImported(ImportTask task) {
-        File source = task.getSourceFile();
+    /** 导入事件（总线泵线程）：START 无消费，完成/失败转既有重映射路径（原直连监听器口径）。 */
+    private void onImportEvent(AssetImportEvent event) {
+        if (event.getPhase() == AssetImportEvent.Phase.START) {
+            return;
+        }
+        onImported(event);
+    }
+
+    /** 导入完成/失败（总线泵线程）：过滤无 guid / .scene / 像素源，其余投引擎帧首 */
+    private void onImported(AssetImportEvent event) {
+        File source = event.getSourceFile();
         if (source == null) {
             return;
         }
@@ -115,8 +113,7 @@ public class AssetReloadService {
             log.info("无热重载目标类型，跳过: {}", source.getName());
             return;
         }
-        AssetMeta meta = task.getMeta();
-        String guid = meta != null ? meta.getGuid() : null;
+        String guid = event.getGuid();
         if (guid == null || guid.isBlank()) {
             log.warn("导入任务无 guid，跳过热重载: {}", source.getName());
             return;
@@ -125,11 +122,11 @@ public class AssetReloadService {
         if (editor == null) {
             return;
         }
-        editor.submitTask(() -> reloadAndRemap(editor, guid, source, type));
+        editor.submitTask(() -> reloadAndRemap(guid, source, type));
     }
 
     /** 引擎帧首执行（§5.2）：reload 新实例 → Walker 换指针 → 对账 → 发事件 */
-    private void reloadAndRemap(JavelinEditor editor, String guid, File source, Class<? extends Asset> type) {
+    private void reloadAndRemap(String guid, File source, Class<? extends Asset> type) {
         try {
             ProjectAssetLibManager.ReloadResult<?> result = assetManager.reload(guid, type);
             if (result.getNew() == null) {
@@ -137,9 +134,7 @@ public class AssetReloadService {
                 return;
             }
             Asset fresh = result.getNew();
-            EditorScene editorScene = editor.getEditorScene();
-            int hits = AssetReloadWalker.walk(editorScene.getGameScene(), guid, fresh);
-            hits += AssetReloadWalker.walk(editorScene.getEditorScene(), guid, fresh);
+            int hits = AssetReloadWalker.walk(EditorObjectRegistry.snapshot(), guid, fresh);
             // default.shader 本体被重导换代 → 默认材质单例下帧重建（identity 比对）
             DefaultMaterial.onShaderReloaded(fresh);
             renderingSystem.requestReconcile();

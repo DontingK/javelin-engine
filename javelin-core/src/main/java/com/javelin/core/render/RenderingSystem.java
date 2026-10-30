@@ -320,8 +320,9 @@ public final class RenderingSystem implements AutoCloseable {
      * Pass 回调内取材质 set 2 描述符集（首渲染懒创建 + 按材质缓存）。
      *
      * <p>数值参数（MaterialBlock，std140）每次调用重打包写入 UBO——运行期
-     * setFloat/setColor 即时生效；贴图槽仅在首绑解析（占位约定 white/bump/black，
-     * RHI 21.4），运行期换贴图 = 换材质实例（v0.1 语义）。
+     * setFloat/setColor 即时生效；贴图槽按材质的 {@code textureRevision} 比对，变了即两帧
+     * 安全退役旧资源重建——运行期 setTexture/setShader 自动生效（占位约定 white/bump/black，
+     * RHI 21.4）。</p>
      */
     public DescriptorSet materialSet(Material material) {
         checkOpen();
@@ -331,7 +332,23 @@ public final class RenderingSystem implements AutoCloseable {
             throw new IllegalArgumentException("material / material.shader must not be null");
         }
         material = resolved;
-        MaterialResources resources = materialResources.computeIfAbsent(material, this::createMaterialResources);
+        // 贴图槽运行时变更（setTexture/setShader）：材质自记版本，不一致即两帧安全退役旧
+        // 资源并重建——免去调用方记得触发对账（运行期脚本/检查器改贴图自动生效）
+        MaterialResources resources = materialResources.get(material);
+        if (resources != null && (resources.textureRevision != material.getTextureRevision()
+                || resources.stale(material))) {
+            MaterialResources retired = resources;
+            retireResource(() -> {
+                retired.set.dispose();
+                retired.ubo.dispose();
+            });
+            materialResources.remove(material);
+            resources = null;
+        }
+        if (resources == null) {
+            resources = createMaterialResources(material);
+            materialResources.put(material, resources);
+        }
         resources.ubo.writeAligned(0, FloatBuffer.wrap(MaterialBlock.pack(material)));
         return resources.set;
     }
@@ -543,7 +560,8 @@ public final class RenderingSystem implements AutoCloseable {
             if (texture == null || texture.getImage() == null) {
                 texture = placeholderTexture(property.getTexturePlaceholder());
             }
-            slotBindings.add(new SlotBinding(property.getName(), assigned, texture != assigned));
+            slotBindings.add(new SlotBinding(property.getName(), assigned,
+                    assigned == null ? -1 : assigned.getRevision()));
             textureSlots.add(property.getName() + "="
                     + (assigned != null && assigned.getImage() != null ? assigned.getGuid() : "占位"));
             Texture gpu = TextureUpload.upload(device, texture);
@@ -552,7 +570,7 @@ public final class RenderingSystem implements AutoCloseable {
         }
         log.info("material set created: shader={} uboBytes={} textureSlots={}",
                 shader.getShaderName(), uboSize, textureSlots);
-        return new MaterialResources(set, ubo, shader, slotBindings);
+        return new MaterialResources(set, ubo, shader, slotBindings, material.getTextureRevision());
     }
 
     /** 未赋值贴图槽的占位解析（RHI 21.4：white / bump / black） */
@@ -805,24 +823,29 @@ public final class RenderingSystem implements AutoCloseable {
         final Shader builtFromShader;
         /** 首绑贴图槽实例表（对账判据：任一槽实例/占位状态变 → 退役重建） */
         final List<SlotBinding> slotBindings;
+        /** 建造时的材质贴图槽版本（materialSet 每帧比对：换了贴图即退役重建） */
+        final int textureRevision;
 
         MaterialResources(DescriptorSet set, Buffer ubo, Shader builtFromShader,
-                          List<SlotBinding> slotBindings) {
+                          List<SlotBinding> slotBindings, int textureRevision) {
             this.set = set;
             this.ubo = ubo;
             this.builtFromShader = builtFromShader;
             this.slotBindings = slotBindings;
+            this.textureRevision = textureRevision;
         }
 
-        /** 对账判据：shader 被换 或 任一贴图槽实例变/占位状态变（纹理壳后补图，Engine_AssetReload_Design §4.4） */
+        /** 对账判据：shader 被换 或 任一贴图槽实例变、或该纹理内容/采样版本变（Texture2D.revision） */
         boolean stale(Material material) {
             if (builtFromShader != material.getShader()) {
                 return true;
             }
             for (SlotBinding b : slotBindings) {
                 Texture2D assigned = material.getTexture(b.slot);
-                boolean placeholderNow = assigned == null || assigned.getImage() == null;
-                if (assigned != b.assigned || placeholderNow != b.usedPlaceholder) {
+                if (assigned != b.assigned) {
+                    return true;
+                }
+                if (assigned != null && assigned.getRevision() != b.textureRevision) {
                     return true;
                 }
             }
@@ -830,16 +853,16 @@ public final class RenderingSystem implements AutoCloseable {
         }
     }
 
-    /** 首绑贴图槽凭据（assigned 可 null = 占位；usedPlaceholder = 首绑走的是占位单例） */
+    /** 首绑贴图槽凭据（assigned 可 null = 占位；textureRevision = 首绑时该纹理的内容/采样版本） */
     private static final class SlotBinding {
         final String slot;
         final Texture2D assigned;
-        final boolean usedPlaceholder;
+        final int textureRevision;
 
-        SlotBinding(String slot, Texture2D assigned, boolean usedPlaceholder) {
+        SlotBinding(String slot, Texture2D assigned, int textureRevision) {
             this.slot = slot;
             this.assigned = assigned;
-            this.usedPlaceholder = usedPlaceholder;
+            this.textureRevision = textureRevision;
         }
     }
 

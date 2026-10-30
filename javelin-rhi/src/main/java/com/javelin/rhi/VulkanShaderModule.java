@@ -17,6 +17,8 @@ final class VulkanShaderModule implements ShaderModule {
 
     private final VulkanDevice device;
     private final long moduleHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanShaderModule(VulkanDevice device, byte[] spirv) {
@@ -45,7 +47,7 @@ final class VulkanShaderModule implements ShaderModule {
             this.moduleHandle = moduleBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, moduleHandle, CleanerRegistry.ResourceType.SHADER_MODULE);
+        registration = CleanerRegistry.register(this, device, moduleHandle, CleanerRegistry.ResourceType.SHADER_MODULE);
         device.stats().onShaderModuleCreated();
     }
 
@@ -59,7 +61,6 @@ final class VulkanShaderModule implements ShaderModule {
         if (disposed) return;
         disposed = true;
         device.stats().onShaderModuleDisposed();
-        CleanerRegistry.markDisposed(moduleHandle);
-        vkDestroyShaderModule(device.vkDevice(), moduleHandle, null);
+        registration.dispose();
     }
 }

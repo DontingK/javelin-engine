@@ -17,6 +17,8 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
 
     private final VulkanDevice device;
     private final long layoutHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanDescriptorSetLayout(VulkanDevice device, DescriptorSetLayoutDesc desc) {
@@ -48,7 +50,7 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
             this.layoutHandle = layoutBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.DESCRIPTOR_SET_LAYOUT);
+        registration = CleanerRegistry.register(this, device, layoutHandle, CleanerRegistry.ResourceType.DESCRIPTOR_SET_LAYOUT);
         device.stats().onDescriptorSetLayoutCreated();
     }
 
@@ -62,8 +64,7 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
         if (disposed) return;
         disposed = true;
         device.stats().onDescriptorSetLayoutDisposed();
-        CleanerRegistry.markDisposed(layoutHandle);
-        vkDestroyDescriptorSetLayout(device.vkDevice(), layoutHandle, null);
+        registration.dispose();
     }
 
     static int toVkDescriptorType(com.javelin.rhi.types.DescriptorType type) {

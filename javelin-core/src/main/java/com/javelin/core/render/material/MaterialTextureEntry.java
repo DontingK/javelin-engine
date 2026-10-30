@@ -1,6 +1,7 @@
 package com.javelin.core.render.material;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.obj.ObjectId;
 import com.javelin.core.render.texture.Texture2D;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
@@ -14,13 +15,14 @@ import com.javelin.core.serialize.Serializable;
  * 存储形态 = 序列化形态。texture 为 Asset 引用走框架 guid 分流（guid 非空 →
  * GUID 引用、空 → 图内嵌）；null = 未赋值，渲染侧按占位贴图约定
  * （white / bump / black）解析。贴图资产化（guid 通道）前引擎侧未赋贴图，
- * 条目承载槽位结构。字段非 final（红线 9，反序列化回写）。</p>
+ * 条目承载槽位结构。字段非 final（红线 9，反序列化回写）。
+ * 继承 {@link ObjectId}：纳入编辑器对象注册表，供资产热重载全量扫描（§4）。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
 @Reflective
-public final class MaterialTextureEntry implements Serializable {
+public final class MaterialTextureEntry extends ObjectId implements Serializable {
 
     /** 槽位名（= Shader Properties 声明名） */
     private String name;

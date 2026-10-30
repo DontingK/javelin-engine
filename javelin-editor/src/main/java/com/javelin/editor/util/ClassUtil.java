@@ -12,6 +12,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.jar.JarEntry;
@@ -93,7 +94,7 @@ public final class ClassUtil {
      * @return 过滤后的类列表
      */
     public static List<Class<?>> scanClasses(String packageName, Class<?> baseClass,
-                                              Class<? extends Annotation> annotation) {
+                                             Class<? extends Annotation> annotation) {
         if (packageName == null || packageName.isEmpty()) {
             return scanClassesRecursive(packageName, baseClass, annotation);
         }
@@ -132,7 +133,7 @@ public final class ClassUtil {
      * @return 过滤后的类列表
      */
     public static List<Class<?>> scanClassesRecursive(String packageName, Class<?> baseClass,
-                                                       Class<? extends Annotation> annotation) {
+                                                      Class<? extends Annotation> annotation) {
         List<Class<?>> classes = new ArrayList<>();
         try {
             ClassLoader cl = ClassUtil.class.getClassLoader();
@@ -170,7 +171,7 @@ public final class ClassUtil {
      */
     @SuppressWarnings("unchecked")
     public static <T> List<T> scanInstances(String packageName, Class<T> baseClass,
-                                             Class<? extends Annotation> annotation) {
+                                            Class<? extends Annotation> annotation) {
         List<T> instances = new ArrayList<>();
         for (Class<?> clazz : scanClassesRecursive(packageName, baseClass, annotation)) {
             try {
@@ -191,7 +192,7 @@ public final class ClassUtil {
      * @return 过滤后的类列表
      */
     private static List<Class<?>> filterClasses(List<Class<?>> classes, Class<?> baseClass,
-                                                 Class<? extends Annotation> annotation) {
+                                                Class<? extends Annotation> annotation) {
         List<Class<?>> result = new ArrayList<>();
         for (Class<?> clazz : classes) {
             if (baseClass != null && !baseClass.isAssignableFrom(clazz)) {
@@ -222,7 +223,7 @@ public final class ClassUtil {
      * 扫描文件系统目录下的类文件。
      */
     private static void scanFile(URL resource, String packageName, String path,
-                                  List<Class<?>> classes) {
+                                 List<Class<?>> classes) {
         File dir = decodeFile(resource);
         if (!dir.exists()) {
             LOGGER.warn("scanFile 目录不存在: {}", dir);
@@ -290,7 +291,7 @@ public final class ClassUtil {
      * 扫描 JAR 包内的类文件。
      */
     private static void scanJar(URL resource, String packageName, String path,
-                                 List<Class<?>> classes) {
+                                List<Class<?>> classes) {
         LOGGER.info("扫描 JAR 包: resource={}", resource);
         try {
             JarURLConnection jarConn = (JarURLConnection) resource.openConnection();
@@ -356,24 +357,21 @@ public final class ClassUtil {
             LOGGER.error("递归扫描 JAR 资源 [{}] 失败", resource, e);
         }
     }
+
     /**
      * 获取当前类 + 所有父类 全部私有字段
      * @param clazz 目标类
      * @return 私有字段集合
      */
-    public static List<Field> getAllPrivateFields(Class<?> clazz) {
+    public static List<Field> getAllFields(Class<?> clazz) {
         List<Field> privateFields = new ArrayList<>();
         Class<?> current = clazz;
 
         // 递归向上遍历所有父类，直到 Object
         while (current != Object.class) {
             Field[] declaredFields = current.getDeclaredFields();
-            for (Field field : declaredFields) {
-                // 判断是否私有
-                if (Modifier.isPrivate(field.getModifiers())) {
-                    privateFields.add(field);
-                }
-            }
+            // 判断是否私有
+            privateFields.addAll(Arrays.asList(declaredFields));
             // 切换为父类
             current = current.getSuperclass();
         }

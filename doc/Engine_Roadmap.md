@@ -324,6 +324,23 @@ System.exit 关闭编辑器；**原「第三方 warn 跳过/降级装载」口�
 域，集中式语言包可翻译其他插件域），editor.core setup 注册 en_US/zh_CN；缺键逐键
 回退该域基线（第一个注册的语言包，英文不特殊）。
 
+进度（2026-10-30 落地，**待用户验收**）：**资产热重载注册表流派 + 运行期可变 + Cleaner 重构随批**
+（Engine_AssetReload_Design v0.5 / Engine_Texture_Design v0.3 / Engine_Material_Design v0.5 /
+Vulkan_Pitfalls #26）——
+- **Walker 改对象注册表全量扫描**：`ObjectId` 增构造回调 registrar（引擎运行时零开销）+ 新增
+  `EditorObjectRegistry`（弱引用收拢存活 ObjectId，snapshot 入口清理）——覆盖范围不再依赖
+  GameScene 可达性；Walker 只扫单对象字段不递归，换指针 **setter 优先**，Material 保参退回
+  `setShader` 单点；导入回调总线化（`AssetImportEvent` 替 `ImportListener`）。
+- **Texture2D 冻结废除**：运行期可变（setImage 换图作废旧 GPU 句柄重传、采样设置直接生效）+
+  `revision` 驱动 `RenderingSystem.materialSet` 两帧退役重建；**Material.setShader 改 Unity 保参**
+  （同名同类型保留值）+ `textureRevision`。语义作废两条：Texture2D 上传冻结、Material「换 shader
+  清空全填默认」。
+- **Cleaner Registration 合一**：手动 dispose 与 Cleaner 兜底共用两帧延迟队列、废除句柄登记集合；
+  `VulkanDevice.dispose` 前 flush；compute 内部 layout 补注册。
+- **logback 文件输出启用**（info/error 双 rolling，20MB 切分，logs/ 入 .gitignore）。
+- 验收口：改 .shader → reimport → 画面当帧变 + F3 存活计数不涨；运行期换图/改采样即时生效；
+  resize/热刷无显存增长；logs/ 生成。
+
 ---
 
 ## 3. 三期：光照
@@ -352,6 +369,11 @@ System.exit 关闭编辑器；**原「第三方 warn 跳过/降级装载」口�
 | 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** + **Mesh 子网格 + MeshRenderer 多材质 + 检查器 GUID_ASSET_LIST 多材质行（2026-10-29 落地待验收，Engine_Assets_Design §2.9/Engine_Scene_Design §5.1 v0.5/Inspector_Design v0.13）** |
 | 三期 | 灯光 + ShadowPass（clustered Forward+ 拍板 2026-10-28——四批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass+Deferred 复用；Engine_Lighting_Design v0.1） | 🔄 设计拍板收口（2026-10-28），实装未开始 |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
+
+> **2026-10-30 批映射注**：资产热重载注册表流派（Walker 全量扫描 + 导入事件总线）、Texture2D 运行期可变 +
+> revision、Material.setShader 保参 + textureRevision、logback 文件输出 → 挂靠**二期「编辑器基本 + 资产管线」**；
+> Cleaner Registration 合一 → 挂靠**一期 RHI 底座（既有关账能力上的防御性重构）**。状态 = 已落地**待用户验收**
+> （见 §2.4 本批进度段与各设计档版本沿革）。
 
 ## 5. 跨期遗留（不阻塞当期推进）
 

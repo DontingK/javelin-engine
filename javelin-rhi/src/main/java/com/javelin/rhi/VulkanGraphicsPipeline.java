@@ -24,6 +24,9 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
     private final VulkanDevice device;
     private final long pipelineHandle;
     private final long pipelineLayoutHandle;
+    /** Cleaner 注册句柄：pipeline + 内部 pipelineLayout */
+    private CleanerRegistry.Registration registration;
+    private CleanerRegistry.Registration layoutRegistration;
     /** 管线布局引用的描述符集布局（按 desc.descriptorSetLayouts 创建，随管线销毁） */
     private final List<VulkanDescriptorSetLayout> ownedSetLayouts = new ArrayList<>();
     private volatile boolean disposed;
@@ -212,8 +215,8 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
         vsModule.dispose();
         fsModule.dispose();
 
-        CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
-        CleanerRegistry.register(this, device, pipelineLayoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
+        registration = CleanerRegistry.register(this, device, pipelineHandle, CleanerRegistry.ResourceType.PIPELINE);
+        layoutRegistration = CleanerRegistry.register(this, device, pipelineLayoutHandle, CleanerRegistry.ResourceType.PIPELINE_LAYOUT);
         device.stats().onGraphicsPipelineCreated();
     }
 
@@ -231,10 +234,8 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
         if (disposed) return;
         disposed = true;
         device.stats().onGraphicsPipelineDisposed();
-        CleanerRegistry.markDisposed(pipelineHandle);
-        CleanerRegistry.markDisposed(pipelineLayoutHandle);
-        vkDestroyPipeline(device.vkDevice(), pipelineHandle, null);
-        vkDestroyPipelineLayout(device.vkDevice(), pipelineLayoutHandle, null);
+        registration.dispose();
+        layoutRegistration.dispose();
         for (VulkanDescriptorSetLayout setLayout : ownedSetLayouts) {
             setLayout.dispose();
         }

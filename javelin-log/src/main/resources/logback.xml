@@ -6,9 +6,16 @@
 <configuration scan="true" scanPeriod="10 seconds" debug="false">
 
 
-    <!-- 日志文件大小 -->
-    <property name="log.max.size" value="500MB"/>
+    <!-- 日志文件大小上限（info/error 共用）：单文件超限即切下一份 %i -->
+    <property name="log.max.size" value="20MB"/>
+    <!-- 日志根目录：相对进程工作目录，即编辑器运行目录下的 logs/ -->
     <property name="log.base" value="logs"/>
+    <!-- info 保留天数与总容量上限 -->
+    <property name="log.info.max.history" value="10"/>
+    <property name="log.info.total.size.cap" value="512MB"/>
+    <!-- error 保留天数与总容量上限 -->
+    <property name="log.error.max.history" value="30"/>
+    <property name="log.error.total.size.cap" value="256MB"/>
     <!-- 定义日志输出格式-->
     <property name="log.pattern"
               value="%date{ISO8601} %-1level [%thread] %logger{56}.%method:%L -%msg%n"/>
@@ -34,60 +41,51 @@
         </encoder>
     </appender>
 
-<!--    &lt;!&ndash; 日志文件输出 &ndash;&gt;-->
-<!--    <appender name="infoFile" class="ch.qos.logback.core.rolling.RollingFileAppender">-->
-<!--        &lt;!&ndash; 设置日志不超过${log.max.size}时的保存路径，注意如果 是web项目会保存到Tomcat的bin目录 下 &ndash;&gt;-->
-<!--        <file>${log.base}/info/info.log</file>-->
-<!--        &lt;!&ndash; 日志输出的文件的格式  &ndash;&gt;-->
-<!--        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">-->
-<!--            <pattern>${FILE_LOG_PATTERN}</pattern>-->
-<!--            <charset>${FILE_LOG_CHARSET}</charset>-->
-<!--        </encoder>-->
-<!--        &lt;!&ndash; 滚动记录文件，先将日志记录到指定文件，当符合某个条件时，将日志记录到其他文件。&ndash;&gt;-->
-<!--        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">-->
-<!--            &lt;!&ndash;按天回滚&ndash;&gt;-->
-<!--            <fileNamePattern>${log.base}/info/info_%d{yyyy-MM-dd}.%i.log.zip</fileNamePattern>-->
-<!--            &lt;!&ndash;日志最大存储天数&ndash;&gt;-->
-<!--            <maxHistory>60</maxHistory>-->
-<!--            &lt;!&ndash; 当天的日志大小 超过${log.max.size}时,压缩日志并保存 &ndash;&gt;-->
-<!--            <maxFileSize>${log.max.size}</maxFileSize>-->
-<!--        </rollingPolicy>-->
-<!--&lt;!&ndash;        <filter class="ch.qos.logback.classic.filter.LevelFilter">&ndash;&gt;-->
-<!--&lt;!&ndash;            <level>INFO</level>&ndash;&gt;-->
-<!--&lt;!&ndash;            <onMatch>ACCEPT</onMatch>&ndash;&gt;-->
-<!--&lt;!&ndash;            <onMismatch>DENY</onMismatch>&ndash;&gt;-->
-<!--&lt;!&ndash;        </filter>&ndash;&gt;-->
-<!--    </appender>-->
+    <!-- 全量日志文件输出：按天滚动 + 单文件大小封顶，内容=root 允许的全部级别（含 debug） -->
+    <appender name="infoFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!-- 当前活动日志文件（相对进程工作目录）。多进程同写此文件时滚动不互斥，本工程按单进程使用 -->
+        <file>${log.base}/info/info.log</file>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>${FILE_LOG_CHARSET}</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天 + 按序回滚，历史文件 gzip 压缩 -->
+            <fileNamePattern>${log.base}/info/info_%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <!-- 日志最大存储天数 -->
+            <maxHistory>${log.info.max.history}</maxHistory>
+            <!-- 历史日志总容量上限，超出从最老旧文件开始删 -->
+            <totalSizeCap>${log.info.total.size.cap}</totalSizeCap>
+            <!-- 当天单文件超过 ${log.max.size} 时切分并压缩归档 -->
+            <maxFileSize>${log.max.size}</maxFileSize>
+        </rollingPolicy>
+    </appender>
 
+    <!-- 错误日志文件输出：只收 ERROR，便于排障速查 -->
+    <appender name="errorFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.base}/error/error.log</file>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>${FILE_LOG_CHARSET}</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.base}/error/error_%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxHistory>${log.error.max.history}</maxHistory>
+            <totalSizeCap>${log.error.total.size.cap}</totalSizeCap>
+            <maxFileSize>${log.max.size}</maxFileSize>
+        </rollingPolicy>
+        <!-- 只保留 ERROR：非 ERROR 的日志事件到此为止 -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
 
-<!--    &lt;!&ndash; 日志文件输出 &ndash;&gt;-->
-<!--    <appender name="errorFile" class="ch.qos.logback.core.rolling.RollingFileAppender">-->
-<!--        &lt;!&ndash; 设置日志不超过${log.max.size}时的保存路径，注意如果 是web项目会保存到Tomcat的bin目录 下 &ndash;&gt;-->
-<!--        <file>${log.base}/error/error.log</file>-->
-<!--        &lt;!&ndash; 日志输出的文件的格式  &ndash;&gt;-->
-<!--        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">-->
-<!--            <pattern>%date{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread]%logger{56}.%method:%L -%msg%n</pattern>-->
-<!--        </encoder>-->
-<!--        &lt;!&ndash; 滚动记录文件，先将日志记录到指定文件，当符合某个条件时，将日志记录到其他文件。&ndash;&gt;-->
-<!--        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">-->
-<!--            <fileNamePattern>${log.base}/error/error_%d{yyyy-MM-dd}.%i.log.zip-->
-<!--            </fileNamePattern>-->
-<!--            &lt;!&ndash;日志最大存储天数&ndash;&gt;-->
-<!--            <maxHistory>60</maxHistory>-->
-<!--            &lt;!&ndash; 当天的日志大小 超过${log.max.size}时,压缩日志并保存 &ndash;&gt;-->
-<!--            <maxFileSize>${log.max.size}</maxFileSize>-->
-<!--        </rollingPolicy>-->
-<!--        <filter class="ch.qos.logback.classic.filter.LevelFilter">-->
-<!--            <level>ERROR</level>-->
-<!--            <onMatch>ACCEPT</onMatch>-->
-<!--            <onMismatch>DENY</onMismatch>-->
-<!--        </filter>-->
-<!--    </appender>-->
     <root level="debug">
         <appender-ref ref="stdout"/> <!-- 标识这个appender将会添加到这个logger -->
-<!--        <appender-ref ref="infoFile"/>-->
-<!--        <appender-ref ref="errorFile"/>-->
+        <appender-ref ref="infoFile"/>
+        <appender-ref ref="errorFile"/>
     </root>
     <logger name="ch.qos.logback" level="WARN" />
-<!--    <logger name="mc" level="info" ref="stdout"></logger>-->
 </configuration>

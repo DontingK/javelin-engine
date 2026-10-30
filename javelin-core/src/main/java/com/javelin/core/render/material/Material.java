@@ -45,6 +45,8 @@ public class Material extends AbsAsset {
     private ArrayList<MaterialValueEntry> values = new ArrayList<>();
     /** 贴图槽条目（引擎纹理资产；texture null 表示用占位贴图） */
     private ArrayList<MaterialTextureEntry> textures = new ArrayList<>();
+    /** 贴图槽版本号（setTexture/setShader 自增；渲染侧比对自动重建描述符集，不入序列化） */
+    private int textureRevision;
 
     public Material() {
     }
@@ -58,20 +60,39 @@ public class Material extends AbsAsset {
     }
 
     /**
-     * 绑定模板并重置参数为默认值（材质实例与 Shader 一对一）。
+     * 绑定模板（Unity 口径）：任何换 shader 都按<b>同名同类型</b>保留原值、新属性取新 shader
+     * 默认值、旧有而新无（含同名但类型变了）的属性丢弃——同 guid 换代（热重载）与换绑一视同仁。
+     * 首次绑定无值可留，等于全填默认。
      */
     public void setShader(Shader shader) {
+        if (shader == this.shader) {
+            return;
+        }
         this.shader = shader;
-        values.clear();
-        textures.clear();
-        if (shader != null) {
-            for (MaterialProperty property : shader.getProperties()) {
-                if (property.getDefaultValues() != null) {
-                    values.add(new MaterialValueEntry(property.getName(),
-                            property.getDefaultValues().clone()));
-                } else {
-                    textures.add(new MaterialTextureEntry(property.getName(), null));
+        textureRevision++;   // 贴图槽随新 shader 重排（删/补），渲染侧需重建描述符集
+        if (shader == null) {
+            values.clear();
+            textures.clear();
+            return;
+        }
+        // 只保留新 shader 里同名同类型的条目：名字没了、或名字还在但类型变了（值↔贴图）都丢弃
+        values.removeIf(entry -> {
+            MaterialProperty p = shader.findProperty(entry.getName());
+            return p == null || p.getDefaultValues() == null;   // 无此名，或同名是贴图属性
+        });
+        textures.removeIf(entry -> {
+            MaterialProperty p = shader.findProperty(entry.getName());
+            return p == null || p.getDefaultValues() != null;   // 无此名，或同名是数值属性
+        });
+        // 补新属性默认值（首次绑定列表本就为空，等于全填）
+        for (MaterialProperty property : shader.getProperties()) {
+            String name = property.getName();
+            if (property.getDefaultValues() != null) {
+                if (findValue(name) == null) {
+                    values.add(new MaterialValueEntry(name, property.getDefaultValues().clone()));
                 }
+            } else if (findTexture(name) == null) {
+                textures.add(new MaterialTextureEntry(name, null));
             }
         }
     }
@@ -107,6 +128,13 @@ public class Material extends AbsAsset {
      */
     public List<MaterialTextureEntry> getTextures() {
         return Collections.unmodifiableList(textures);
+    }
+
+    /**
+     * 贴图槽版本号（渲染侧每帧比对；setTexture/setShader 时自增，不一致即重建描述符集）。
+     */
+    public int getTextureRevision() {
+        return textureRevision;
     }
 
     /**
@@ -223,6 +251,7 @@ public class Material extends AbsAsset {
         } else {
             textures.add(node);
         }
+        textureRevision++;
     }
 
     private MaterialValueEntry findValue(String name) {

@@ -18,6 +18,8 @@ final class VulkanFence implements Fence {
 
     private final VulkanDevice device;
     private final long fenceHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanFence(VulkanDevice device) {
@@ -42,7 +44,7 @@ final class VulkanFence implements Fence {
             this.fenceHandle = fenceBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, fenceHandle, CleanerRegistry.ResourceType.FENCE);
+        registration = CleanerRegistry.register(this, device, fenceHandle, CleanerRegistry.ResourceType.FENCE);
         device.stats().onFenceCreated();
     }
 
@@ -77,7 +79,6 @@ final class VulkanFence implements Fence {
         if (disposed) return;
         disposed = true;
         device.stats().onFenceDisposed();
-        CleanerRegistry.markDisposed(fenceHandle);
-        vkDestroyFence(device.vkDevice(), fenceHandle, null);
+        registration.dispose();
     }
 }

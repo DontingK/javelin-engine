@@ -1,6 +1,7 @@
 package com.javelin.core.render.material;
 
 import com.javelin.ast.annotation.Reflective;
+import com.javelin.core.obj.ObjectId;
 import com.javelin.core.serialize.InputCapsule;
 import com.javelin.core.serialize.OutputCapsule;
 import com.javelin.core.serialize.Serializable;
@@ -12,13 +13,15 @@ import com.javelin.core.serialize.Serializable;
  * <p>Capsule 无 Map 通道——keyed 参数表用 name 唯一的条目列表（存储形态 =
  * 序列化形态，同 Mesh/MeshAttributeData 拍板：字段直通零转换、set 同名替换
  * 新名追加、查找线性扫——属性数为个位数）。COLOR/VECTOR 存 4 元、
- * FLOAT/RANGE 存 1 元。字段非 final（红线 9，反序列化回写）。</p>
+ * FLOAT/RANGE 存 1 元。字段非 final（红线 9，反序列化回写）。
+ * 继承 {@link ObjectId}：与 {@link MaterialTextureEntry} 同口径纳入注册表（本身不持
+ * Asset 引用，仅为「持有者 ⊆ ObjectId」不变量统一）。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
 @Reflective
-public final class MaterialValueEntry implements Serializable {
+public final class MaterialValueEntry extends ObjectId implements Serializable {
 
     /** 参数名（= Shader Properties 声明名） */
     private String name;

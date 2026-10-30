@@ -431,9 +431,10 @@ final class VulkanDevice implements Device {
     @Override
     public void dispose() {
         if (disposed) return;
+        // 冲刷延迟销毁队列（帧循环已停、无在飞资源）：排队的叶子资源在 vkDestroyDevice 之前显式释放，
+        // 否则随设备销毁被隐式回收、显式销毁落空
+        CleanerRegistry.flush();
         disposed = true;
-        CleanerRegistry.markDisposed(commandPoolHandle);
-        CleanerRegistry.markDisposed(descriptorPoolHandle);
         vkDestroyCommandPool(device, commandPoolHandle, null);
         vkDestroyDescriptorPool(device, descriptorPoolHandle, null);
         vkDestroyDevice(device, null);

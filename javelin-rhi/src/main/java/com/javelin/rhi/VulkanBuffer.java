@@ -23,6 +23,8 @@ final class VulkanBuffer implements Buffer {
     private final long bufferHandle;
     private final long memoryHandle;
     private final long size;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁；见 CleanerRegistry.Registration） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanBuffer(VulkanDevice device, BufferDesc desc) {
@@ -67,7 +69,7 @@ final class VulkanBuffer implements Buffer {
         }
 
         // 注册 Cleaner（带配套显存：兜底销毁时 buffer 与 memory 一并释放）
-        CleanerRegistry.register(this, device, bufferHandle, memoryHandle, CleanerRegistry.ResourceType.BUFFER);
+        registration = CleanerRegistry.register(this, device, bufferHandle, memoryHandle, CleanerRegistry.ResourceType.BUFFER);
         device.stats().onBufferCreated();
     }
 
@@ -144,9 +146,7 @@ final class VulkanBuffer implements Buffer {
         if (disposed) return;
         disposed = true;
         device.stats().onBufferDisposed();
-        CleanerRegistry.markDisposed(bufferHandle);
-        vkDestroyBuffer(device.vkDevice(), bufferHandle, null);
-        VulkanMemory.free(device.vkDevice(), memoryHandle);
+        registration.dispose();
     }
 
     private static int toVkBufferUsage(java.util.Set<BufferUsage> usages) {

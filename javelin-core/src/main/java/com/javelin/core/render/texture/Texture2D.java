@@ -48,7 +48,9 @@ public class Texture2D extends AbsAsset {
     private int mipLevels = 1;
     private FilterMode filterMode = FilterMode.BILINEAR;
     private WrapMode wrapMode = WrapMode.REPEAT;
-    /** GPU 句柄（渲染侧上传后回填；序列化不落地，随资产 GC 走 Cleaner） */
+    /** 内容/采样设置版本（setImage/setFilterMode/setWrapMode 自增；渲染侧比对重建描述符集，不入序列化） */
+    private int revision;
+    /** GPU 句柄（渲染侧上传后回填；换图置空触发重传；序列化不落地，随资产 GC 走 Cleaner） */
     private Texture gpu;
 
     /**
@@ -72,11 +74,16 @@ public class Texture2D extends AbsAsset {
     }
 
     /**
-     * 换绑像素资产（上传冻结后禁止；换绑后 GPU 句柄按新资产重新上传）。
+     * 换绑像素资产：作废旧 GPU 句柄（置空），下次绑定时按新像素重新上传——旧句柄随旧描述符集
+     * 释放后由 RHI Cleaner 兜底销毁。同一 Image 引用重复设置不触发重建。
      */
     public void setImage(Image image) {
-        checkMutable();
+        if (this.image == image) {
+            return;
+        }
         this.image = image;
+        gpu = null;
+        revision++;
     }
 
     public int getWidth() {
@@ -106,18 +113,31 @@ public class Texture2D extends AbsAsset {
         return filterMode;
     }
 
+    /**
+     * 采样过滤设置（只影响 sampler，不涉像素，故不设上传冻结守卫——改动由渲染侧按 revision 重建描述符集生效）。
+     */
     public void setFilterMode(FilterMode filterMode) {
-        checkMutable();
         this.filterMode = filterMode;
+        revision++;
     }
 
     public WrapMode getWrapMode() {
         return wrapMode;
     }
 
+    /**
+     * 寻址环绕设置（同 {@link #setFilterMode}，不设冻结守卫）。
+     */
     public void setWrapMode(WrapMode wrapMode) {
-        checkMutable();
         this.wrapMode = wrapMode;
+        revision++;
+    }
+
+    /**
+     * 内容/采样设置版本（渲染侧每帧比对；setImage/setFilterMode/setWrapMode 时自增）。
+     */
+    public int getRevision() {
+        return revision;
     }
 
     /**
@@ -202,16 +222,5 @@ public class Texture2D extends AbsAsset {
             throw new IllegalStateException("纹理未引用像素资源（setImage 先）");
         }
         return image;
-    }
-
-    /**
-     * 冻结语义（拍板 2026-09-25，同 Mesh）：上传后资产不可变，要改就新建。
-     * 动态顶点/像素更新（骨骼、粒子、物理形变）将来走专门的动态缓冲路径，
-     * 不经此处重传。
-     */
-    private void checkMutable() {
-        if (gpu != null) {
-            throw new IllegalStateException("Texture2D 已上传冻结，不可再修改（要改请新建资产）");
-        }
     }
 }

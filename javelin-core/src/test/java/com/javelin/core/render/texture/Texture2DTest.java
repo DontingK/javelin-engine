@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Texture2D 引用层单测：冻结语义（上传后不可变，与 Mesh 口径一致）+
+ * Texture2D 引用层单测：运行期可变（换图作废旧 GPU 句柄待重传、采样设置直接生效）+
  * Image 像素资产 / Texture2D 引用层序列化往返（三层拍板 2026-10-25）。
  */
 public class Texture2DTest {
@@ -60,14 +60,33 @@ public class Texture2DTest {
     }
 
     @Test
-    void modificationAfterUploadThrows() {
+    void modificationAfterUploadIsAllowed() {
         Texture2D texture = new Texture2D(new Image(2, 2, Format.R8G8B8A8_UNORM, new byte[16]));
         texture.setGpu(dummyGpu());
+        int revision = texture.getRevision();
 
-        assertThrows(IllegalStateException.class,
-                () -> texture.setImage(new Image(1, 1, Format.R8G8B8A8_UNORM, new byte[4])));
-        assertThrows(IllegalStateException.class, () -> texture.setFilterMode(Texture2D.FilterMode.POINT));
-        assertThrows(IllegalStateException.class, () -> texture.setWrapMode(Texture2D.WrapMode.CLAMP));
+        // 采样设置只影响 sampler：直接改，revision 自增驱动渲染侧重建描述符集
+        texture.setFilterMode(Texture2D.FilterMode.POINT);
+        texture.setWrapMode(Texture2D.WrapMode.CLAMP);
+        assertEquals(Texture2D.FilterMode.POINT, texture.getFilterMode());
+        assertEquals(Texture2D.WrapMode.CLAMP, texture.getWrapMode());
+        assertTrue(texture.getRevision() > revision);
+
+        // 换图：旧 GPU 句柄作废（置空），下次绑定时重传
+        texture.setImage(new Image(1, 1, Format.R8G8B8A8_UNORM, new byte[4]));
+        assertNull(texture.getGpu());
+        assertEquals(1, texture.getWidth());
+    }
+
+    @Test
+    void sameImageReferenceKeepsGpuHandle() {
+        Image pixels = new Image(2, 2, Format.R8G8B8A8_UNORM, new byte[16]);
+        Texture2D texture = new Texture2D(pixels);
+        Texture gpu = dummyGpu();
+        texture.setGpu(gpu);
+
+        texture.setImage(pixels);   // 同一引用：不触发重建，句柄保持
+        assertSame(gpu, texture.getGpu());
     }
 
     @Test

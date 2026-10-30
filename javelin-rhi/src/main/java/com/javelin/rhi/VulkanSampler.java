@@ -19,6 +19,8 @@ final class VulkanSampler implements Sampler {
     private final VulkanDevice device;
     private final SamplerDesc desc;
     private final long samplerHandle;
+    /** Cleaner 注册句柄（dispose 触发延迟销毁） */
+    private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanSampler(VulkanDevice device, SamplerDesc desc) {
@@ -46,7 +48,7 @@ final class VulkanSampler implements Sampler {
             this.samplerHandle = samplerBuf.get(0);
         }
 
-        CleanerRegistry.register(this, device, samplerHandle, CleanerRegistry.ResourceType.SAMPLER);
+        registration = CleanerRegistry.register(this, device, samplerHandle, CleanerRegistry.ResourceType.SAMPLER);
         device.stats().onSamplerCreated();
     }
 
@@ -65,8 +67,7 @@ final class VulkanSampler implements Sampler {
         if (disposed) return;
         disposed = true;
         device.stats().onSamplerDisposed();
-        CleanerRegistry.markDisposed(samplerHandle);
-        vkDestroySampler(device.vkDevice(), samplerHandle, null);
+        registration.dispose();
     }
 
     private static int toVkFilter(com.javelin.rhi.types.Filter filter) {

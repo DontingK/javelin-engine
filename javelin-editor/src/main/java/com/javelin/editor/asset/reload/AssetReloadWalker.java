@@ -1,234 +1,152 @@
 package com.javelin.editor.asset.reload;
 
 import com.javelin.core.assets.Asset;
-import com.javelin.core.render.material.Material;
-import com.javelin.core.render.material.MaterialProperty;
-import com.javelin.core.render.material.MaterialTextureEntry;
-import com.javelin.core.render.material.MaterialValueEntry;
-import com.javelin.core.render.material.Shader;
+import com.javelin.core.obj.ObjectId;
+import com.javelin.editor.util.ClassUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 资产热重载反射 Walker（Engine_AssetReload_Design.md §4.2/§4.3）：遍历场景对象图，
- * 找到持有目标 guid 旧实例的 Asset 字段反射换新实例指针——持有引用形态不动，图是全知的，
- * 遍历即协议。单一通用算法不认识任何具体类，唯二类知识 = Material 后处理（§4.3 拍板）
- * 与 setter 旁路口径（反射直写字段，不调 setter——当前 setter 均纯赋值等价）。
+ * 资产热重载实例替换器：遍历编辑器对象注册表的全量存活对象，把 guid 命中的 Asset 引用换新
+ * 实例——可达性由注册表承担，不沿对象图递归。单对象只扫自己的字段：值是 Asset 且命中 →
+ * 换指针（优先同类型 setter，无则反射直写）；值是 List/数组 → 替换其中命中的 Asset 元素。
  *
- * <p>遍历规则：visited 防环（Node/Transform 往返引用实锤）；字段沿父类链，
- * static/transient/null/基本类型/包装类型/枚举跳过；字段类型是 Asset 子类 → guid 命中
- * 换指针，命中与否都进实例内部仅一跳（Material.shader 两跳可达所需，§4.3）；
- * List / 对象数组 → 元素同规则；其余 Serializable → 递归。深度终止于 Asset 实例内部
- * 不再进 Asset 字段（Mesh/Shader 内部无第二用例）。</p>
- *
- * <p>编辑器模块专用，不进 AOT 镜像（反射无 reflect-config 代价）。</p>
+ * <p>只换 Java 指针不碰 GPU：PSO/描述符集/UBO 由 RenderingSystem 对账回收（§4.4）。编辑器模块专用。</p>
  */
 public final class AssetReloadWalker {
 
     private static final Logger log = LoggerFactory.getLogger(AssetReloadWalker.class);
 
+    /** setter 查找缓存（含"无 setter"缺席结果）：reload 批量触发时避免重复扫方法表 */
+    private static final Map<Field, Optional<Method>> SETTER_CACHE = new ConcurrentHashMap<>();
+
     private AssetReloadWalker() {
     }
 
     /**
-     * 以 root 为根遍历对象图，把 guid 命中的 Asset 字段换成 newAsset。
+     * 扫描存活对象快照，把 guid 命中的 Asset 引用换成 newAsset。
      *
      * @return 换指针命中数（含 List/数组元素）
      */
-    public static int walk(Object root, String guid, Asset newAsset) {
-        if (root == null || guid == null || newAsset == null) {
-            return 0;
-        }
-        return walkFields(root, guid, newAsset, false, new IdentityHashMap<>());
-    }
-
-    private static int walkFields(Object obj, String guid, Asset newAsset, boolean insideAsset,
-                                  IdentityHashMap<Object, Boolean> visited) {
-        if (obj == null || visited.put(obj, Boolean.TRUE) != null) {
+    public static int walk(List<ObjectId> objects, String guid, Asset newAsset) {
+        if (objects == null || guid == null || newAsset == null) {
             return 0;
         }
         int hits = 0;
-        for (Class<?> c = obj.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
-            for (Field f : c.getDeclaredFields()) {
-                int mod = f.getModifiers();
-                if (Modifier.isStatic(mod) || Modifier.isTransient(mod)) {
-                    continue;
-                }
-                Class<?> type = f.getType();
-                if (type.isPrimitive() || type == String.class
-                        || Enum.class.isAssignableFrom(type)
-                        || Number.class.isAssignableFrom(type)
-                        || type == Boolean.class || type == Character.class) {
-                    continue;
-                }
-                f.setAccessible(true);
-                Object v;
-                try {
-                    v = f.get(obj);
-                } catch (IllegalAccessException e) {
-                    log.warn("Walker 字段读取失败: {}.{}", c.getName(), f.getName(), e);
-                    continue;
-                }
-                if (v == null) {
-                    continue;
-                }
-                if (Asset.class.isAssignableFrom(type)) {
-                    hits += visitAssetValue(obj, f, v, guid, newAsset, insideAsset, visited);
-                } else if (type.isArray() && !type.getComponentType().isPrimitive()) {
-                    hits += visitCollectionValue(v, guid, newAsset, insideAsset, visited);
-                } else if (List.class.isAssignableFrom(type)
-                        || Serializable.class.isAssignableFrom(type)) {
-                    if (v instanceof List<?>) {
-                        hits += visitCollectionValue(v, guid, newAsset, insideAsset, visited);
-                    } else {
-                        hits += walkFields(v, guid, newAsset, insideAsset, visited);
-                    }
-                }
+        for (ObjectId object : objects) {
+            if (object != null) {
+                hits += scan(object, guid, newAsset);
             }
         }
         return hits;
     }
 
-    /**
-     * Asset 字段值：guid 命中 → 反射换指针（不调 setter，§7 旁路口径）+ Material 后处理；
-     * 无论命中与否，进实例内部仅一跳（insideAsset 闸门，§4.3 Material.shader 可达所需）。
-     */
-    private static int visitAssetValue(Object owner, Field f, Object v, String guid, Asset newAsset,
-                                       boolean insideAsset, IdentityHashMap<Object, Boolean> visited) {
+    /** 单对象字段扫描（含父类链；static/transient 跳过）。 */
+    private static int scan(Object obj, String guid, Asset newAsset) {
         int hits = 0;
-        if (guid.equals(((Asset) v).getGuid())) {
+        for (Field field : ClassUtil.getAllFields(obj.getClass())) {
+            int mod = field.getModifiers();
+            if (Modifier.isStatic(mod) || Modifier.isTransient(mod)) {
+                continue;
+            }
+            field.setAccessible(true);
+            Object o;
             try {
-                f.set(owner, newAsset);
+                o = field.get(obj);
             } catch (IllegalAccessException e) {
-                log.warn("Walker 换指针失败: {}.{}", owner.getClass().getName(), f.getName(), e);
+                log.warn("Walker 字段读取失败: {}.{}", obj.getClass().getName(), field.getName(), e);
+                continue;
+            }
+            if (o == null) {
+                continue;
+            }
+            if (o instanceof List list) {
+                hits += replaceList(list, guid, newAsset);
+            } else if (o.getClass().isArray()) {
+                hits += replaceArray(o, guid, newAsset);
+            } else if (o instanceof Asset asset) {
+                hits += replaceField(field, obj, asset, newAsset);
+            }
+        }
+        return hits;
+    }
+
+    /** 对象数组元素换指针（基本类型数组的元素读出来是装箱值，不匹配 Asset，自然跳过）。 */
+    private static int replaceArray(Object array, String guid, Asset newAsset) {
+        int hit = 0;
+        int length = Array.getLength(array);
+        for (int i = 0; i < length; i++) {
+            Object o = Array.get(array, i);
+            if (o instanceof Asset asset && Objects.equals(guid, asset.getGuid())) {
+                Array.set(array, i, newAsset);
+                hit++;
+            }
+        }
+        return hit;
+    }
+
+    /**
+     * Asset 字段命中 → 换指针：优先走同类型单参 setter（"set + 字段名"，如 setShader/setMesh/
+     * setImage——保留 setter 的语义与副作用），无 setter 才反射直写字段。setter 抛异常不回退
+     * 反射（守卫语义如 Texture2D.setImage 的冻结校验不该被绕过）。
+     */
+    private static int replaceField(Field field, Object obj, Asset oldAsset, Asset newAsset) {
+        if (!Objects.equals(oldAsset.getGuid(), newAsset.getGuid())) {
+            return 0;
+        }
+        Method setter = setterFor(field);
+        if (setter != null) {
+            try {
+                setter.invoke(obj, newAsset);
+                return 1;
+            } catch (ReflectiveOperationException e) {
+                log.warn("Walker 调 setter 失败: {}.{}", obj.getClass().getName(), setter.getName(), e);
                 return 0;
             }
-            hits++;
-            if (owner instanceof Material material && newAsset instanceof Shader shader) {
-                patchMaterialDefaults(material, shader);
-            }
-            v = newAsset;
         }
-        if (!insideAsset) {
-            hits += walkFields(v, guid, newAsset, true, visited);
-        }
-        return hits;
-    }
-
-    /** List / 对象数组元素：Asset 元素可换 + 一跳，Serializable 元素递归（材质条目等全靠此到达） */
-    private static int visitCollectionValue(Object collection, String guid, Asset newAsset,
-                                            boolean insideAsset, IdentityHashMap<Object, Boolean> visited) {
-        int hits = 0;
-        if (collection instanceof List<?> list) {
-            // 元素换指针走 ListIterator.set（List 只读视图不出现——字段均为 ArrayList 直通，红线 10）
-            @SuppressWarnings("unchecked")
-            List<Object> mutable = (List<Object>) list;
-            for (int i = 0; i < mutable.size(); i++) {
-                Object element = mutable.get(i);
-                if (element == null) {
-                    continue;
-                }
-                if (element instanceof Asset asset) {
-                    if (guid.equals(asset.getGuid())) {
-                        mutable.set(i, newAsset);
-                        hits++;
-                        element = newAsset;
-                    }
-                    if (!insideAsset) {
-                        hits += walkFields(element, guid, newAsset, true, visited);
-                    }
-                } else if (element instanceof Serializable) {
-                    hits += walkFields(element, guid, newAsset, insideAsset, visited);
-                }
-            }
-        } else if (collection.getClass().isArray()) {
-            int len = Array.getLength(collection);
-            for (int i = 0; i < len; i++) {
-                Object element = Array.get(collection, i);
-                if (element == null) {
-                    continue;
-                }
-                if (element instanceof Asset asset) {
-                    if (guid.equals(asset.getGuid())) {
-                        Array.set(collection, i, newAsset);
-                        hits++;
-                        element = newAsset;
-                    }
-                    if (!insideAsset) {
-                        hits += walkFields(element, guid, newAsset, true, visited);
-                    }
-                } else if (element instanceof Serializable) {
-                    hits += walkFields(element, guid, newAsset, insideAsset, visited);
-                }
-            }
-        }
-        return hits;
-    }
-
-    /**
-     * Material 后处理（§4.3，换 shader 后同遍历内）：反射直写 shader 字段已由通用规则完成，
-     * 这里按新 shader properties 为缺失名字补默认值/贴图槽条目——同名用户值保留、已删属性
-     * 旧条目残留无害（pack 按 shader 属性序取值，不遍历 values；缺失即 NPE 实锤）。
-     * 预填循环逻辑复用 {@code Material.setShader}，经私有 values/textures 字段直写（红线 9 非 final）。
-     */
-    private static void patchMaterialDefaults(Material material, Shader shader) {
         try {
-            ArrayList<MaterialValueEntry> values = entryList(material, "values");
-            ArrayList<MaterialTextureEntry> textures = entryList(material, "textures");
-            for (MaterialProperty property : shader.getProperties()) {
-                String name = property.getName();
-                if (property.getDefaultValues() != null) {
-                    if (findValue(values, name) == null) {
-                        values.add(new MaterialValueEntry(name, property.getDefaultValues().clone()));
-                    }
-                } else {
-                    if (findTexture(textures, name) == null) {
-                        textures.add(new MaterialTextureEntry(name, null));
-                    }
+            field.set(obj, newAsset);
+        } catch (IllegalAccessException e) {
+            log.warn("Walker 换指针失败: {}.{}", obj.getClass().getName(), field.getName(), e);
+            return 0;
+        }
+        return 1;
+    }
+
+    /** 找参数类型等于字段类型的公开单参 setter（"set + 字段名"）；结果含缺席缓存。 */
+    private static Method setterFor(Field field) {
+        return SETTER_CACHE.computeIfAbsent(field, f -> {
+            String name = "set" + Character.toUpperCase(f.getName().charAt(0)) + f.getName().substring(1);
+            for (Method m : f.getDeclaringClass().getMethods()) {
+                if (m.getName().equals(name) && m.getParameterCount() == 1
+                        && m.getParameterTypes()[0] == f.getType()) {
+                    return Optional.of(m);
                 }
             }
-        } catch (Exception e) {
-            // 后处理失败不炸主循环：缺条目会在渲染侧 pack 显式 NPE 暴露，此处日志给排障口
-            log.warn("Material 补默认值失败: shader={}", shader.getShaderName(), e);
-        }
+            return Optional.empty();
+        }).orElse(null);
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> ArrayList<T> entryList(Material material, String fieldName)
-            throws NoSuchFieldException, IllegalAccessException {
-        Field field = Material.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        ArrayList<?> list = (ArrayList<?>) field.get(material);
-        if (list == null) {
-            list = new ArrayList<>();
-            field.set(material, list);
-        }
-        return (ArrayList<T>) list;
-    }
-
-    private static MaterialValueEntry findValue(ArrayList<MaterialValueEntry> values, String name) {
-        for (MaterialValueEntry entry : values) {
-            if (entry.getName().equals(name)) {
-                return entry;
+    private static int replaceList(List list, String guid, Asset newAsset) {
+        int hit = 0;
+        for (int i = 0; i < list.size(); i++) {
+            Object o = list.get(i);
+            if (o instanceof Asset asset && Objects.equals(guid, asset.getGuid())) {
+                list.set(i, newAsset);
+                hit++;
             }
         }
-        return null;
+        return hit;
     }
 
-    private static MaterialTextureEntry findTexture(ArrayList<MaterialTextureEntry> textures, String name) {
-        for (MaterialTextureEntry entry : textures) {
-            if (entry.getName().equals(name)) {
-                return entry;
-            }
-        }
-        return null;
-    }
 }

@@ -23,6 +23,7 @@
 | 呈现模式（FIFO / MAILBOX=vsync 语义） | ✅ | ✅ 用户实测（2026-10-06/07 帧节奏排查关账） |
 | MSAA resolve attachment（能力查询 / 深度不 resolve） | ✅ | ✅ 用户实测（2026-10-06） |
 | resize 重建 + 显存手动 dispose 优先（Cleaner 仅兜底） | ✅ | ✅ 用户实测（2026-10-09 OOM 修复验收） |
+| Cleaner 统一延迟销毁（Registration 合一：手动 dispose 与 Cleaner 兜底共用两帧队列、废除句柄登记；device.dispose 前 flush；compute 内部 layout 补注册，Vulkan_Pitfalls #26） | ✅（2026-10-30） | ⏳ 待验收（实机 resize/热刷回归 + F3 存活计数） |
 | Buffer staging（deviceLocal 上传） | ⬜ 后置 | — |
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
@@ -94,6 +95,8 @@
 | .mat 资产格式 + AssetManager 读写（MaterialImporter + project.create.material + .mat 文件类型，材质档 §3.2） | ✅ | ✅ 用户实测（2026-10-23） |
 | 贴图像素资产 Image + Texture2D 引用层改造（三层模型：Image 磁盘一份/Texture2D 持设置——一图多设置免复制，贴图档 §1） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | .texture 纹理资产（Texture2D 文本序列化 + TextureImporter + 检查器面板 + null-image 渲染占位守卫，贴图档 §7） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| Texture2D 运行期可变 + revision（上传冻结废除——setImage 换图作废旧 GPU 句柄重传/采样设置直接生效；revision 驱动描述符集重建，贴图档 §8 v0.3） | ✅（2026-10-30） | ⏳ 待验收（Texture2DTest 改断言 + 运行期换图/采样实机） |
+| Material.setShader Unity 保参口径 + textureRevision（同名同类型保留值/新属性取默认/旧属性丢弃；贴图槽版本比对自动重建，材质档 §3.3 v0.5） | ✅（2026-10-30） | ⏳ 待验收（换 shader 保参实机 + MaterialTest 回归） |
 | .smesh 子网格段（[SUBMESH_N] 连续递增 + 与 [INDEX] 互斥显性化，资产档 §2.9） | ✅（2026-10-29） | ⏳ 待验收（多子网格 .smesh 导入实机） |
 | 动态 Mesh / 动态纹理 | ⬜ 后置（材质档 §6 / 资产档 §2.8） | — |
 
@@ -225,6 +228,7 @@
 | **guid 真值单源=伴生 .meta**（2026-10-29 拍板，推翻「文件头真值+meta 镜像」双源：guid 头只剩 src 下 .java 专属；9 内置资源剥头+伴生 .meta 随包释放（guid 沿用原头值零迁移）；BuiltinAssetReleaser 连 meta 一起释放；pipeline libraryFileFor 非脚本按 meta 解 guid——**焦点扫描无限导入循环根治**，Editor_Design §6.2 / AssetReload 档 §5.1 坑点） | ✅（2026-10-29） | ✅ 用户实测（2026-10-29，死循环根治——原场景改 .mat 颜色+切窗复测通过） |
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 贴图导入 ImageImporter（.png/.jpg/.jpeg → Image 像素资产；ImageIO 同入口；alpha 通道保留修复；image 文件类型/图标，贴图档 §2） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| 资产热重载基建（**编辑器对象注册表 Walker**——ObjectId 构造回调 registrar + EditorObjectRegistry 弱引用全量扫描 + setter 优先换指针 + 导入事件总线化（AssetImportPipeline 发 AssetImportEvent，AssetReload 档 v0.5）） | ✅（2026-10-30） | ⏳ 待验收（改 .shader → reimport → 画面当帧变 + F3 计数不涨） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）
@@ -271,12 +275,13 @@
 |------|---------|---------|
 | javelin-tool（DebugText 字库光栅化 / shaderc 编译调用） | ✅ | ✅ 字库生成链（2026-09-27） |
 | javelin-log（日志实现） | ✅ | — 支撑设施，随全链使用 |
+| logback 文件输出启用（info/error 双 rolling appender：单文件 20MB 切分 + info 保留 10 天/512MB、error 仅 ERROR 保留 30 天/256MB + gzip；运行时 logs/ 入 .gitignore） | ✅（2026-10-30） | ⏳ 待验收（实机生成 logs/info、logs/error） |
 
 ## 6. ⏳ 待验收挂账一览
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 5 项**：
+**当前挂账 7 项**（⑦已销账，保留记录）：
 
 ①贴图批次单测与 Demo 回归（Texture2DTest 往返两例 /
 ShaderParserTest 全绿——2D 死分支修复后 / SceneRenderDemo·MultiCameraDemo 引用层
@@ -329,6 +334,17 @@ libraryFileFor/ShaderImporter/SimpleMeshImporter/AssetInput/ShaderInspectorConte
 内置 meta 无报错 / 焦点反复得失不再循环导入 / 场景里内置资产（default/gizmo/
 editor-grid）引用不断、画面正常 / ShaderParserTest 回归——**2026-10-29 用户实测
 销账（死循环根治，原触发场景复测通过）**。
+
+⑧资产热重载注册表流派 + 运行期可变 + Cleaner 重构（2026-10-30 落地：
+**① Walker 改对象注册表全量扫描**（ObjectId 构造回调 registrar + EditorObjectRegistry
+弱引用收拢 + setter 优先换指针 + Material 保参退回 setShader，AssetReload 档 v0.5）；
+**② 导入回调总线化**（AssetImportPipeline 删 ImportListener，改发 AssetImportEvent）；
+**③ Texture2D 冻结废除 + revision**（贴图档 v0.3 §8）；**④ Material.setShader Unity 保参
++ textureRevision**（材质档 v0.5 §3.3）；**⑤ Cleaner Registration 合一**（手动/Cleaner 共用
+两帧队列 + device.dispose flush + compute layout 补注册，Vulkan_Pitfalls #26 + RHI 进度档）；
+**⑥ logback 文件输出启用**；验收 = 改 .shader → reimport → 画面当帧变 + F3 存活计数不涨 /
+运行期 setImage/setFilterMode 即时生效 / Texture2DTest·MaterialTest 回归 / 实机 resize 与
+热刷无显存增长 + logs/ 生成）。
 
 2026-10-25 用户实测销账 2 笔（状态已翻入各模块表）：①贴图导入管线 v0.1（§2.5/§3.6
 ——Image 像素资产 + Texture2D 三层改造 + ImageImporter + alpha 修复）；②纹理资产

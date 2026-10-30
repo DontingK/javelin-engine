@@ -23,6 +23,9 @@ final class VulkanTexture implements Texture {
     private final long imageHandle;
     private final long memoryHandle;
     private volatile long imageViewHandle = VK_NULL_HANDLE;
+    /** Cleaner 注册句柄：image（含 memory）；imageView 懒创建，未创建前为 null */
+    private CleanerRegistry.Registration registration;
+    private CleanerRegistry.Registration viewRegistration;
     private volatile boolean disposed;
 
     VulkanTexture(VulkanDevice device, TextureDesc desc) {
@@ -76,7 +79,7 @@ final class VulkanTexture implements Texture {
         }
 
         // 注册 Cleaner（带配套显存：兜底销毁时 image 与 memory 一并释放）
-        CleanerRegistry.register(this, device, imageHandle, memoryHandle, CleanerRegistry.ResourceType.TEXTURE);
+        registration = CleanerRegistry.register(this, device, imageHandle, memoryHandle, CleanerRegistry.ResourceType.TEXTURE);
         device.stats().onTextureCreated();
     }
 
@@ -115,7 +118,7 @@ final class VulkanTexture implements Texture {
             synchronized (this) {
                 if (imageViewHandle == VK_NULL_HANDLE) {
                     imageViewHandle = createDefaultView();
-                    CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
+                    viewRegistration = CleanerRegistry.register(this, device, imageViewHandle, CleanerRegistry.ResourceType.IMAGE_VIEW);
                 }
             }
         }
@@ -165,13 +168,10 @@ final class VulkanTexture implements Texture {
         if (disposed) return;
         disposed = true;
         device.stats().onTextureDisposed();
-        if (imageViewHandle != VK_NULL_HANDLE) {
-            CleanerRegistry.markDisposed(imageViewHandle);
-            vkDestroyImageView(device.vkDevice(), imageViewHandle, null);
+        if (viewRegistration != null) {
+            viewRegistration.dispose();
         }
-        CleanerRegistry.markDisposed(imageHandle);
-        vkDestroyImage(device.vkDevice(), imageHandle, null);
-        VulkanMemory.free(device.vkDevice(), memoryHandle);
+        registration.dispose();
     }
 
     static int toVkFormat(com.javelin.rhi.types.Format format) {

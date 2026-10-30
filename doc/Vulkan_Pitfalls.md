@@ -1,7 +1,7 @@
 # Vulkan / LWJGL 陷阱记录
 
-> 版本：v1.2
-> 日期：2026-10-23
+> 版本：v1.3
+> 日期：2026-10-30
 > 范围：Javelin Engine 5 RHI 实现过程中实踩的 Vulkan 规范、LWJGL 绑定、GLFW 窗口、Java NIO 陷阱，
 > 以及沉淀下来的 GPU 排障方法论。每条含：症状 → 根因 → 修法 → 出处。
 > 实现进度与排障过程详见 `RHI_Implementation_Progress.md`。
@@ -324,6 +324,28 @@
   **待做**；当前因 arena 整体空转而无实害（现状全貌见
   `RHI_Implementation_Progress.md`「FrameArena 现状存档（2026-10-23）」）。
 - **出处**：2026-10-23 帧对象池评估的代码审查发现（未实踩，防御性记档）。
+
+### 26. Cleaner 全局「已销毁句柄」登记 + 显式 dispose 立即销毁：句柄复用抑制兜底 + 在飞资源被提前销毁 ★生命周期级
+
+- **症状/隐患**：① 原 `DISPOSED_HANDLES` 全局集合登记显式销毁的句柄、Cleaner 触发时跳过——
+  **句柄被驱动复用**后新资源的 Cleaner 撞上陈旧登记项被抑制（泄漏；代码自身注释也承认
+  「最坏影响是抑制复用者的兜底」）；集合只在 destroy 后 remove、异常路径残留只增不减。
+  ② 各资源 `dispose()` 是**立即** `vkDestroy*`——GPU 异步，本帧提交的命令可能 N+1/N+2 帧
+  才执行完，立即销毁在飞资源是经典崩溃/花屏面（两帧延迟队列只服务 Cleaner 路径，手动
+  dispose 绕过队列）。
+- **根因**：显式 dispose 与 Cleaner 兜底是两条独立路径，靠「句柄登记」去重（脆、且会因
+  句柄复用误判）；手动 dispose 绕过两帧延迟队列直接销毁。
+- **修法（2026-10-30）**：`CleanerRegistry` 重构为 **Registration 合一**——注册返回
+  `Registration`（持 `Cleanable` + `DestroyTask`），资源实例持有它；`dispose()` =
+  置 `task.manual` + `cleanable.clean()`（**执行入队动作的同时注销 Cleaner，同一句柄
+  只可能销毁一次**，删除 `DISPOSED_HANDLES`/`markDisposed`）；两帧延迟队列**同时服务
+  手动与兜底**（手动 dispose 也入队延迟销毁，不再立即 vkDestroy）；新增 `flush()`
+  （设备销毁前冲刷剩余条目，`VulkanDevice.dispose` 在 `vkDestroyDevice` 前调用——原排队
+  条目随设备销毁被隐式回收、显式销毁落空）；补 `VulkanComputePipeline` 内部 layout 注册
+  （此前未注册、只能显式销毁）；每项释放加 info 日志（来源 手动/Cleaner + type/handle/
+  memory/frame），跳过释放降 debug。
+- **出处**：2026-10-30 Cleaner 生命周期重构（无实踩，防御性根治——#24 修后遗留的两条次生
+  隐患；`RHI_Implementation_Progress.md` 同步）。
 
 ---
 

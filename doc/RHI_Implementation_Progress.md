@@ -462,6 +462,29 @@ core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow
 
 ---
 
+## Cleaner 延迟销毁重构（2026-10-30，无实踩，防御性根治）
+
+**背景**：阶段⑥引入的 `markDisposed(handle)` + `DISPOSED_HANDLES` 全局集合（见上「显式 dispose 与
+Cleaner 兜底会对同一句柄二次 vkDestroy」）有两条次生隐患（详见 `Vulkan_Pitfalls.md` #26）：
+① 句柄被驱动复用后撞上陈旧登记项，抑制新资源的 Cleaner 兜底（泄漏，集合只增不减）；
+② 手动 dispose 走立即 `vkDestroy*`、绕过两帧延迟队列（在飞资源可能被提前销毁）。
+
+**改动**：
+- `CleanerRegistry.Registration` 合一——`register` 返回 `Registration`（持 `Cleanable` + `DestroyTask`），
+  资源实例持有它；`dispose()` = 置 `task.manual` + `cleanable.clean()`（入队销毁动作 + 注销 Cleaner
+  一次完成，同一句柄只可能销毁一次）；删除 `DISPOSED_HANDLES` / `markDisposed` / `markDisposed` 登记逻辑；
+- **手动 dispose 也入两帧延迟队列**（不再立即销毁）；新增 `flush()`，`VulkanDevice.dispose` 在
+  `vkDestroyDevice` 前调用冲刷剩余条目（原排队条目随设备销毁被隐式回收、显式销毁落空）；
+- 全部资源类改持 `Registration`、`dispose()` 调 `registration.dispose()`；`VulkanComputePipeline`
+  补内部 layout 注册（此前未注册、只能显式销毁）；
+- 释放日志化（info：来源 手动/Cleaner + type/handle/memory/frame；跳过释放降 debug）。
+
+**涉及文件**：`CleanerRegistry` / `VulkanBuffer` / `VulkanTexture` / `VulkanSwapChain`（SwapChainTexture）/
+`VulkanFence` / `VulkanSemaphore` / `VulkanSampler` / `VulkanShaderModule` / `VulkanDescriptorSetLayout` /
+`VulkanPipelineLayout` / `VulkanGraphicsPipeline` / `VulkanComputePipeline` / `VulkanDevice`。
+
+---
+
 ## FrameArena 现状存档（2026-10-23 调查，无代码变更）
 
 > 背景：帧对象池评估时顺带查清 FrameArena 真实状态。结论先行：**FrameArena 自
