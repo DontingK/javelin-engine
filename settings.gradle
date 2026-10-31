@@ -1,4 +1,4 @@
-rootProject.name = 'javelin-engine5'
+rootProject.name = 'javelin-engine'
 include 'javelin-ast'
 include 'javelin-log'
 include 'javelin-tool'
