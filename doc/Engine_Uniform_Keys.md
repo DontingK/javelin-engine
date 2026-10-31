@@ -9,7 +9,7 @@
 | 通道 | 位置 | 块名 | 实例名（key） | 更新节奏 | 绑定方 |
 |---|---|---|---|---|---|
 | 相机 | set 0 / binding 0 | CameraBlock | `cam` | 每视口（动态偏移选相机） | Pass 回调 |
-| 灯光 | set 1（多 binding，未实装） | ——（LightingParamsBlock + 三个 SSBO，2026-10-28 拍板） | 每视口每帧（剔除后） | RenderingSystem / ClusterBuildPass |
+| 灯光 | set 1（binding0 UBO + 1 SSBO **批次②已实装**；2/3 SSBO 随批次③；4 sampler 批次④） | LightingParamsBlock + LightList | `lighting` / `lightList` | 每视口每帧（剔除后） | RenderingSystem / ClusterBuildPass |
 | 材质数值 | set 2 / binding 0 | MaterialBlock | `material` | 每次绑定时重打包 | drawObject |
 | 材质贴图 | set 2 / binding 1..n | ——（独立 sampler） | TEXTURE_2D 属性名原样 | 首绑解析后固定 | drawObject |
 | 每物件 | push constants | PushBlock | `pc` | 每物件 | drawObject |
@@ -35,18 +35,30 @@
 - 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
 - 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj 64B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
 
-## 4. set 1 灯光（三期契约已拍板，未实装）
+## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③；4 批次④）
 
 2026-10-28 拍板（Engine_Lighting_Design v0.1）：**跳过 UBO 数组中间档，直接 clustered + SSBO（Forward+ 形态）**——原「LightBlock UBO 落此」预留口径作废。set1 = 光照域多 binding（FRAGMENT）：
 
 | binding | 类型 | key（实例名） | 内容 |
 |---|---|---|---|
-| 0 | UBO | `lighting` | LightingParamsBlock：方向光数组（≤8，槽 0=主光）+ 灯数计数 + cluster grid 元数据 + 环境项（主光阴影段批次④占位） |
-| 1 | SSBO | `lightList` | 点/聚光列表（视空间 64B/灯统一结构，容量 4096，强度预排序） |
+| 0 | UBO（**DYNAMIC**，每视口动态偏移；批次②实装） | `lighting` | LightingParamsBlock：方向光数组（≤8，槽 0=主光）+ 灯数计数 + cluster grid 元数据 + 环境项（主光阴影段批次④扩块） |
+| 1 | SSBO（批次②实装，引擎常驻） | `lightList` | 点/聚光列表（视空间 64B/灯统一结构，容量 4096，强度预排序；批次②首视口打包，多视口归批次③） |
 | 2 | SSBO | `clusterGrid` | 每 cluster {offset, count}（8B/cell） |
 | 3 | SSBO | `clusterIndices` | 变长光索引池（每 cluster 上限 64，截尾=去最弱） |
 
-- 字段/偏移详表与设计论证（切分几何、构建三步、截断语义）归 `Engine_Lighting_Design.md`，实装随三期批次②③落位、本表届时补字段行；
+### 4-1. LightingParamsBlock 字段表（批次②版；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
+
+| 字段 | GLSL 声明 | 偏移 | 类型 | 语义 |
+|---|---|---|---|---|
+| `lighting.directional` | `vec4[16]` | 0 | 256B | 8 盏 × 2 vec4：`[2i]`=（视空间方向 xyz + castShadow 标志 w）、`[2i+1]`=（rgb + intensity）；空位零填 |
+| `lighting.lightCounts` | `ivec4` | 256 | 16B | x=dirCount、y=pointCount（lightList 有效长度），zw 预留 |
+| `lighting.gridDim` | `ivec4` | 272 | 16B | cluster grid 维度（批次③ ClusterBuildPass 落位时填，批次②写 0） |
+| `lighting.zParams` | `vec4` | 288 | 16B | x=相机 near、y=far（cluster Z 切分重建用） |
+| `lighting.ambient` | `vec4` | 304 | 16B | 环境项（v0.x 常量色，0.15 中性；天空盒环境项归 GI 期） |
+
+- 块实需 320B，**描述符 range/动态偏移步长 = 512B**（256 对齐进取）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶；主光阴影段（sunViewProj + 采样参数）批次④追加扩块、届时随批重导；
+- lightList（binding1）：`vec4 lights[]`（std430，无实例名块式声明）——16 float/灯布局语义归 `Engine_Lighting_Design.md` §3.1；
+- **多视口边界（批次②挂账）**：binding0 UBO 已按视口动态偏移各自正确打包；binding1 lightList 为帧级单缓冲、内容=**首视口**的剔除/打包结果——多视口各自列表随批次③ ClusterBuildPass（binding2/3 视口级 SSBO）一并落位；
 - ClusterBuildPass 构建侧为 compute 布局，另行声明（不与着色布局混用）。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
@@ -65,7 +77,8 @@
 
 | 类别 | 保留字 | 拦截时机 |
 |---|---|---|
-| 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` / `LightingParamsBlock`（三期，随实装生效） | 构建期（注释里出现也拦） |
-| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList` / `clusterGrid` / `clusterIndices`（三期，随实装生效） | GLSL 编译期（与注入声明重复定义） |
+| 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` / `LightingParamsBlock`（**批次②已生效**） | 构建期（注释里出现也拦） |
+| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList`（**批次②已生效**）；`clusterGrid` / `clusterIndices`（随批次③生效） | GLSL 编译期（与注入声明重复定义） |
 
-> 注入声明由 ShaderInjector 在每个 vs/fs 块 `#version` 行后固定生成（v0.13：无标记、位置固定），声明内容 = 本表 §2/§3/§5。
+> 注入声明由 ShaderInjector 在每个 vs/fs 块 `#version` 行后固定生成（v0.13：无标记、位置固定），声明内容 = 本表 §2/§3/§4（fs 专属）/§5。
+> 旧 .shader 产物不重导不含 set1 声明——引擎布局超集合法照常跑（批次②兼容口径）。

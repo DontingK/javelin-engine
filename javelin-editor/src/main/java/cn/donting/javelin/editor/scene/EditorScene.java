@@ -5,6 +5,7 @@ import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
+import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.editor.event.EditorEventBus;
@@ -125,6 +126,29 @@ public class EditorScene implements Scene {
     @Override
     public List<Collider> getColliders() {
         return gameScene.getColliders();
+    }
+
+    /**
+     * 灯光：GAME 模式 = 用户场景；SCENE 模式合并编辑器辅助场景（照 getRenderables
+     * 口径——SCENE 视口光照预览用；当前编辑器辅助无灯对象，合并结果即用户场景灯）。
+     */
+    @Override
+    public List<Light> getLights() {
+        if (sceneModel == SceneModel.GAME) {
+            return gameScene.getLights();
+        }
+        ArrayList<Light> merged = new ArrayList<>(gameScene.getLights());
+        merged.addAll(editorScene.getLights());
+        return merged;
+    }
+
+    /**
+     * 主光 = 用户场景口径（与 getMainCamera 同：运行时语义只打用户场景，
+     * 编辑器辅助对象不产生主光）。
+     */
+    @Override
+    public Light getSun() {
+        return gameScene.getSun();
     }
 
     /**

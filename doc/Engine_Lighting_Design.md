@@ -1,8 +1,11 @@
 # 引擎光照设计（Engine Lighting Design）
 
-> 版本：v0.3
-> 日期：2026-10-28（v0.2 2026-10-31；v0.3 2026-10-31）
-> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成；批次① RHI 底座已落地并验收关账（2026-10-31 当日用户实测）**，实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> 版本：v0.6
+> 日期：2026-10-28（v0.2 2026-10-31；v0.3 2026-10-31；v0.4 2026-10-31；v0.5 2026-10-31；v0.6 2026-10-31）
+> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成；批次① RHI 底座已落地并验收关账（2026-10-31 当日用户实测）；批次② 光数据模型已落地并验收关账（2026-10-31 当日用户实测）**，实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> v0.6 变更（2026-10-31）：**灯组件子类化拍板**（用户提案+拍板：「每种 light 一个类」——每型参数集不相交，单类+type 枚举会摆无生效语义的死字段（点光显锥角/方向光显 range），Collider 族同构）：`Light` 抽象基类（color/intensity/castShadow + getType() 抽象 + 序列化 super 链）+ `DirectionalLight`（零附加字段）/`PointLight`（+range）/`SpotLight`（+range+锥角）；**不支持切换类型**（换型 = 删组件重加，不做 Inspector 条件显隐）；type 不落盘（子类身份即类型）；引擎侧 `RenderLight` 改自持 `RenderLight.Type` 枚举（render 包不再依赖 scene 组件类层次）；菜单三项全解锁（spot 收集侧已支持，着色批次③）；Inspector 面板每型只显自己的字段。
+> v0.5 变更（2026-10-31）：**主光裁决拍板改向——推翻 v0.1 显式 isMain 标志，对齐 Unity 自动裁决**（用户拍板「引擎自己处理」）：主光 = 最强激活方向光（tie 取挂入序首个保确定性），`Light.isMain` 字段/访问器全删、`Scene.getSun` 改裁决实现、LightCollector 槽 0 改强度排定、菜单创建命令去 isMain 预设——原「确定性优先/编辑器可视化清晰」论证作废（Unity 对照后用户裁决：标志位是多余的用户负担）。ShadowPass 消费口径不变（仍只服务主光）；**相机 main 标志不动**（本拍板只涉灯光域）。
+> v0.4 变更（2026-10-31）：**批次②落地**（Light 组件 + lights 注册表/getSun + SceneRenderBridge pull 翻译 + LightCollector 收集（剔除/预排序/视空间打包）+ set1 binding0/1（LightingParamsBlock UBO 动态偏移 + lightList SSBO）+ ShaderInjector fs 声明注入/保留字生效 + F3 行 8 在册灯数 + 单测——LightCollectorTest/GameSceneTest 灯注册表与主光解析）；**实装拍板**：binding0 UBO 用 DYNAMIC 每视口动态偏移（set0 相机块同构）；视锥剔除自写视空间球测试（viewProj 含 Y 翻转是反射矩阵，FrustumIntersection 平面朝向不可信）；**多视口挂账**：lightList 帧级单缓冲=首视口口径，各视口列表随批次③ ClusterBuildPass 落位（§3.1）。
 > v0.3 变更（2026-10-31）：**批次①落地**（§9 批次①行——RHI 五缺口补齐 + `.compute` 资产面 + set1 帧级 storage 通道 + 编辑器验收件）；**compute 着色器资产路线拍板**（§7——`.compute` 独立资产类型，内嵌 spv 路线推翻，DebugText/pick/DebugLine 迁源码独立批待派）。
 > v0.2 变更（2026-10-31）：**补 ShadowPass 明细（§4.2——单张硬影拍板，级联/软化后置）**；§7 着色注入补红线（**default.shader = DefaultMaterial 兜底专用，禁止改造成注入样例**——用户拍板）；批次④产出补阴影消费路径；天空盒视觉化（cubemap）转专档 `Engine_Skybox_Design.md`（批次⑤）。
 > 职责边界：
@@ -21,7 +24,8 @@
   - 选定档 C：clustered + SSBO（HDRP / UE / Godot 4 Forward+ 同构）——正透明同读一份 cluster，**无每物体截断**，这就是管线档 4.5 挂的「两路光照一致性」取舍的消解方案。
 - **clustered（3D grid）而非 tiled（2D）**：tiled 在相机贴近物体时单 tile 深度跨度过大、光列表爆容；clustered 以 Z 切分贴合 1/z 深度密度，三家（HDRP/UE/Godot 4）共同选择。
 - **默认参数**：X/Y = 视口 16×16 像素一片；Z = 32 片指数切分；**每 cluster 光索引上限 64**（超容按强度截尾，§6）。
-- **主光（sun）特槽**：方向光全体不进 cluster（数量少、无位置语义），全局读；主光 = 显式标记的首个激活方向光（`Light.isMain`，与 Camera.isMain 口径对称；Unity「自动选最强」不取——确定性优先，编辑器可视化清晰）。ShadowPass 只服务主光（管线档 4.1 既定）。
+- **主光（sun）自动裁决**：方向光全体不进 cluster（数量少、无位置语义），全局读；主光 = **最强激活方向光**（`Scene.getSun` 每调用现算，同强度取挂入序首个保确定性——**2026-10-31 用户拍板对齐 Unity**，推翻原「显式 isMain 标志/确定性优先」方案：组件无 main 标志位，调 intensity 即时换主）。ShadowPass 只服务主光（管线档 4.1 既定）。
+- **灯组件子类化（2026-10-31 拍板，v0.6）**：每型一类（`Light` 抽象基类 + Directional/Point/Spot 子类）——参数集不相交不摆死字段、Collider 族同构；**不支持切换类型**（不做 Inspector 条件显隐，换型删组件重加）；相机单类+ProjectionType 枚举先例不适用（Light 是纯数据组件、无共行分支）。
 - **SPOT**：数据结构留槽（64B 统一结构含 spot 参数），首批着色分支只做 DIRECTIONAL + POINT，SPOT 着色归批次③后半。
 - **点光衰减**：物理 inverse-square，到 range 平滑归零（Unity/UE 口径）。
 
@@ -57,7 +61,8 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 | `spotParams` | vec4 | x=cos(inner), y=cos(outer)，zw 预留 |
 
 - 容量 **4096**（常量起步；超限 = 剔除后取强度前 4096 + WARN 显性化，F3 overlay 显示在册灯数）；
-- **按强度预排序**（CPU 侧每帧，强度 = intensity / 屏幕投影面积² 量级的简化评分；O(n log n) 几百盏无压力）——超容截尾即「去最弱」（§6 截断承诺的兑现方式，免 GPU 排序）。
+- **按强度预排序**（CPU 侧每帧，强度 = intensity / 屏幕投影面积² 量级的简化评分——实装口径 = `intensity / distSq`（相机距离平方的逆），同强度近者排前；O(n log n) 几百盏无压力，实装为插入排序）——超容截尾即「去最弱」（§6 截断承诺的兑现方式，免 GPU 排序）；
+- **批次②实装口径**：视空间打包按 `-z` 前向（JOML RH lookAt，可见物 z<0）；lightList 为帧级单缓冲、内容 = **首视口**剔除/打包结果（多视口各自列表归批次③ ClusterBuildPass 一并落位——binding2/3 本就是视口级 SSBO）。
 
 ### 3.2 cluster 索引三件套
 
@@ -81,6 +86,8 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 | 环境项 | `ambient`（vec4：RGB + 强度） | v0.x 环境光=常量色（Scene.environment 空间光/天空盒环境项后置——天空盒视觉化归 Engine_Skybox_Design，环境光照升级归 GI 探针期，Roadmap 遗留项） |
 | 主光阴影段 | `sunViewProj`（mat4）+ shadowMap 采样参数 | **批次④占位**；挂点已拍板（2026-10-28）= set1 扩展 binding4 combined depth-sampler（管线档 §7 同步收口），随 ShadowPass 落位 |
 
+- **批次②实装口径**：块为 std140 全 vec4 数组式排布（directional[16] vec4 / lightCounts ivec4 / gridDim ivec4 / zParams vec4 / ambient vec4），实需 320B、**DYNAMIC 动态偏移步长 512B**（每视口一块，字段详表单点归 `Engine_Uniform_Keys.md` §4-1）；gridDim/zParams 批次②写 0/相机裁剪面真值、cluster 消费归批次③；主光阴影段批次④追加扩块；环境项 v0.x = 0.15 中性常量。
+
 ### 3.4 set1 契约（binding 划分）
 
 | binding | 类型 | key（实例名） | 内容 |
@@ -98,21 +105,21 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 ## 4. Light 组件与场景收集
 
 ```java
-class Light extends Component {
-    enum Type { DIRECTIONAL, POINT, SPOT }
-    Type type;
-    Vector3 color;          // 线性 HDR
+abstract class Light extends Component {      // 公共面 + getType() 抽象
+    Color color;          // 线性 HDR
     float intensity;
-    boolean isMain;         // 仅 DIRECTIONAL 有意义：首个激活者即主光
-    boolean castShadow;     // v0.x 仅主光消费（ShadowPass）
-    float range;            // POINT/SPOT 衰减半径
-    float innerAngle, outerAngle;  // SPOT（度）
+    boolean castShadow;   // v0.x 仅主光消费（ShadowPass）
 }
+class DirectionalLight extends Light {}        // 零附加字段（方向=节点朝向）
+class PointLight extends Light { float range; }
+class SpotLight extends Light { float range; float innerAngle, outerAngle; }  // 度
 ```
 
-- Scene 5.3 草稿（DIRECTIONAL/POINT/SPOT + castShadow）扩展如上，字段级单点归本文；
-- **注册表**：`scene.add` 按类型登记 `lights`（与 renderers/cameras/colliders 同构分流，Scene_Design §5.2 口径）；`Scene.getLights` 投影（编辑器调试线/统计消费）；
-- 主光解析：`Scene.getSun()` = 首个激活且 enabled 的 isMain 方向光，无则 null（与 getMainCamera 完全对称；`Scene.sun` 字段引用案弃用——引用与组件生命周期易脱钩）；
+- **子类化拍板（2026-10-31，v0.6）**：每型参数集不相交——单类+type 枚举会摆无生效语义的死字段（点光显锥角/方向光显 range），Collider 族同构拆子类；**不支持切换类型**（换型 = 删组件重加，不做 Inspector 条件显隐）；type 不落盘（子类身份即类型，序列化按子类走）；
+- Scene 5.3 草稿（DIRECTIONAL/POINT/SPOT + castShadow）扩展如上，字段级单点归本文（**isMain 已删**——主光自动裁决，v0.5 拍板见 §1）；
+- **注册表**：`scene.add` 按类型登记 `lights`（基类 Light 分流，与 renderers/cameras/colliders 同构，Scene_Design §5.2 口径）；`Scene.getLights` 投影（编辑器调试线/统计消费）；
+- 主光解析：`Scene.getSun()` = **最强激活方向光**（对齐 Unity 自动裁决，v0.5；同强度取挂入序首个——无则 null）；
+- 引擎侧翻译：`RenderLight` 自持 `Type` 枚举（DIRECTIONAL/POINT/SPOT——render 包不依赖组件类层次），SceneRenderBridge instanceof 分流填充；
 - **收集**（RenderingSystem 帧收集扩展）：非激活过滤 → 点/聚光按世界包围球做相机视锥剔除 → 视空间打包 → 预排序；方向光全量进 UBO（无剔除）；
 - .scene 序列化：Light 为普通 Component，随组件通则序列化，无特例。
 
@@ -177,7 +184,7 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 | 批 | 内容 | 产出/验收 |
 |----|------|----------|
 | ① RHI 底座 | ~~SSBO 实装 / ComputePipeline + dispatch / RenderGraph compute Pass 节点与 Buffer 读写声明同步~~ **✅ 已落地并验收关账（2026-10-31 当日用户实测）**——实勘校正：SSBO 描述符链/dispatch/双 bindPoint/compute 进图骨架一期已有（RHI 实装期产物），真缺口=①compute 管线布局装配（原空壳，setLayouts+pushConstantRange 补齐，stage=COMPUTE）②pushConstants stageFlags 按 bindPoint 分流（原写死 ALL_GRAPHICS）③Buffer 进图同步（PassDef addBufferRead/Write + 依赖推导（句柄取反命名空间防纹理撞键）+ structureHash + VkBufferMemoryBarrier 屏障计划（源/目标域按两端 Pass 类型现推））④storageBuffer range=0 VUID 坑修正（VK_WHOLE_SIZE）+offset/range 重载⑤删 VulkanPipelineLayout/createPipelineLayout 死代码（管线布局统一由 Pipeline 内建） | **验收形态终拍板（2026-10-31）：纯测试，编辑器不掺和**（同日早先"编辑器实机验收"路线被推翻——编辑器不演示流程验证件）：`.compute` 资产面（ComputeShader 资产类+ComputeShaderImporter+FileType/图标）+ set1 帧级 storage 通道（RenderingSystem registerFrameStorage binding1/2 对齐本档 §3.4 终态槽位，Opaque/Transparent 补绑+addBufferRead 声明）+ 测试件——core `ComputeSsboTest`（**批次①验收口**：双段 compute 链 A 写→B 读改写（compute→compute RAW 同步）+ 图形 Pass fs 读 SSBO（跨 Pass 同步）+ 帧 60 Buffer.read 读回 65536 元素逐元素 CPU 比对）+ editor `ComputeShaderImporterTest`（.compute→tool 编译链）——**两测试 2026-10-31 用户实测全过**（排障实录：动态 viewport 空集 AV 崩溃 + sin 区间归约精度差，Vulkan_Pitfalls #27/#28）；**通用性红线守住**：Buffer 声明/屏障为通用资源面，GI/RT 第一复用方地位不变 |
-| ② 光数据模型 | Light 组件 + Scene lights 注册表 + 收集/剔除/预排序/视空间打包 + set1 布局与注入 | 单测（组件/注册表/主光解析）+ F3 在册灯数显示 |
+| ② 光数据模型 | Light 组件 + Scene lights 注册表 + 收集/剔除/预排序/视空间打包 + set1 布局与注入 | **✅ 已落地并验收关账（2026-10-31 当日用户实测：菜单挂灯三型+检查器编辑+getSun 换位+F3 灯数，单测全绿；随验收三笔拍板改向——isMain 推翻/getSun 自动裁决、灯族子类化、@InsHeader 子类显式贴法 + 图标彩色规则）**——`Light` 组件（Type/color/intensity/castShadow/range/锥角——**isMain 已删，主光自动裁决 v0.5 拍板**；.scene 通则序列化 + 检查器字段 + 双语包键/图标）+ `Scene.getLights/getSun`（getSun=最强激活方向光自动裁决；GameScene lights 注册表分流、read 重建；EditorScene 用户场景口径透传）+ SceneRenderBridge pull 翻译（Light→RenderLight 身份对应、isActiveAndEnabled 过滤、位姿/参数每帧同步）+ `LightCollector` 纯逻辑收集（方向光两遍收主光槽 0=强度排定 / 点聚光预排序（intensity/distSq）/ 视空间球剔除（自写，FrustumIntersection 对含 Y 翻转的反射矩阵不可信））+ RenderingSystem 帧收集打包（binding0 UBO 每视口动态偏移 + binding1 lightList SSBO 首视口口径 + 超容 WARN）+ ShaderInjector **fs 声明注入**（LightingParamsBlock + lightList，保留字生效）+ F3 overlay 行 8 在册灯数 + 菜单解锁（hierarchy.create.light 双型命令，Editor_Menu_Design v0.19）；单测 = `LightCollectorTest`（视空间打包/剔除/预排序/主光槽=强度排定/容量截尾）+ `GameSceneTest` 灯注册表/getSun 裁决用例；验收 = 单测全绿 + 用户挂灯实机 F3 灯数显示（着色消费归批次③——本批无画面验收项） |
 | ③ cluster 构建 + Forward 消费（= Forward+ 成形） | ClusterBuildPass 三步 + 着色器光照段注入 + Lambert+环境项 + SPOT（后半） | 点光/方向光明暗正确（用户运行）；几十盏场景帧率稳；F3 帧时间不劣化超阈值 |
 | ④ ShadowPass + Deferred 复用 | ShadowPass（管线档 4.1 兑现，**v0.x 单张硬影**——§4.5：无 PCF/无 CSM，rasterization 侧保守 bias；sunViewProj 段+binding4 落位）+ 注入段阴影采样分支 + GBuffer/LightingPass 上线（同一 cluster 直喂）+ 混合/纯 Forward 可配置切换 | 主光投影正确（单张硬影口径）；两路光照一致（同场景切换对比）；管线档 §8 步骤二验收口径 |
 - 批次③收尾即拥有全质量光照（几十~几百盏无截断），Deferred 是第四批的另一个消费者，非光照质量前提；

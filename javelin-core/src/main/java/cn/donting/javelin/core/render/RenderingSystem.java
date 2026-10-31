@@ -14,6 +14,7 @@ import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
+
 import cn.donting.javelin.rhi.Buffer;
 import cn.donting.javelin.rhi.DescriptorSet;
 import cn.donting.javelin.rhi.DescriptorSetLayout;
@@ -51,6 +52,8 @@ import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -71,8 +74,8 @@ import java.util.Set;
  * <p>材质桥（Engine_Material_Design.md §4，2026-09-25 落地）：
  * <ul>
  *   <li>set 2 布局按 Shader 缓存（binding0 = MaterialBlock UBO，binding1..n = 贴图槽
- *   按声明序；RHI 20.3 硬约束：所有 Pass 共用同一布局）；set 1 为 ObjectBlock 占位
- *   （引擎 per-object 走 push constants，v0.1 空布局）；</li>
+ *   按声明序；RHI 20.3 硬约束：所有 Pass 共用同一布局）；set 1 = 帧级光照通道
+ *   （批次②，Engine_Lighting_Design §3.4：binding0 灯参数 UBO + binding1 lightList）；</li>
  *   <li>materialSet(Material)：材质首渲染懒创建 UBO + 描述符集，贴图槽经
  *   {@link TextureUpload} 懒上传 + 占位贴图解析（white/bump/black，RHI 21.4）；
  *   数值参数（MaterialBlock std140）每次调用重打包写入，运行期 setFloat/setColor 即时生效；
@@ -104,6 +107,14 @@ public final class RenderingSystem implements AutoCloseable {
     private static final int TIME_OFFSET = MAX_CAMERAS * CAMERA_STRIDE;
     private static final int SLOT_SIZE = TIME_OFFSET + 256;
 
+    // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
+    /** LightingParamsBlock 帧槽步长（std140 实需 320B，256 对齐进取；动态偏移单位） */
+    static final int LIGHTING_STRIDE = 512;
+    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/ambient 各 16） */
+    static final int LIGHTING_BLOCK_BYTES = 320;
+    /** 环境项 v0.x 常量色（rgb + 强度；Scene.environment/天空盒环境项归 GI 期，§3.3） */
+    private static final float[] AMBIENT_COLOR = {0.15f, 0.15f, 0.15f, 1.0f};
+
     private final Device device;
     private final FrameLoop frameLoop;
     private final int frameSlots;
@@ -119,13 +130,32 @@ public final class RenderingSystem implements AutoCloseable {
     private final Buffer uboBuffer;
     private final DescriptorSetLayout frameSetLayout;
     private final DescriptorSet frameSet;
-    // set 1 帧级 storage（SSBO）通道（三期批次①，2026-10-31）：binding 对齐灯光档终态槽位
-    // （binding1=lightList、binding2=clusterGrid 位，Engine_Lighting_Design §3.4）——批次②③
-    // 扩成全套契约（binding0 UBO + 1~3 SSBO + 4 shadowMap）时按档落位，本批先开通两条 SSBO 槽
+    // set 1 帧级光照 + storage（SSBO）通道（三期批次①开通用通道、批次②落光照数据面）：
+    // binding0 = LightingParamsBlock UBO（DYNAMIC，每视口偏移）、binding1 = lightList SSBO
+    // （引擎常驻，§3.4 终态槽位）；binding2/3 = registerFrameStorage 通用通道
+    // （批次③ clusterGrid/clusterIndices 用 2~3 位）
     private final DescriptorSetLayout frameStorageSetLayout;
     private final Map<Integer, Buffer> frameStorages = new java.util.TreeMap<>();
     private DescriptorSet frameStorageSet;
     private boolean frameStorageDirty;
+
+    // 灯注册表 + 收集打包（批次②；SceneRenderBridge pull 翻译 Light → RenderLight）
+    private final List<RenderLight> lights = new ArrayList<>();
+    private final LightCollector lightCollector = new LightCollector();
+    private final Buffer lightingBuffer;
+    private final Buffer lightListBuffer;
+    /** 每帧复用的打包暂存（小端直写 hostVisible） */
+    private final ByteBuffer lightingPack = ByteBuffer.allocateDirect(LIGHTING_BLOCK_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    private final ByteBuffer lightListPack = ByteBuffer.allocateDirect(
+            LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    /** 末帧首视口灯数快照（F3 在册灯数） */
+    private int lastPointLightCount;
+    private int lastDirectionalCount;
+    /** 超容 WARN 状态位（条件解除复位，周期性超限不重复刷屏） */
+    private boolean pointOverflowActive;
+    private boolean directionalOverflowActive;
 
     // 材质桥：set 2 布局按 Shader 缓存；材质资源按 Material 实例缓存；采样器按参数缓存
     private final Map<Shader, DescriptorSetLayout> materialLayouts = new HashMap<>();
@@ -201,8 +231,16 @@ public final class RenderingSystem implements AutoCloseable {
         // 否则末槽末相机 offset+range 会越出缓冲）
         this.frameSet.update(DescriptorUpdate.dynamicUniformBuffer(0, uboBuffer, 0, CAMERA_STRIDE));
 
-        // set1 帧级 storage 布局（原空占位翻牌为 SSBO 通道，三期批次①）
+        // set1 帧级 storage 布局（原空占位翻牌为 SSBO 通道，三期批次①；
+        // 批次②起含 binding0 光照 UBO + binding1 lightList——frameStorageLayoutDesc）
         this.frameStorageSetLayout = device.createDescriptorSetLayout(frameStorageLayoutDesc());
+        // 光照帧级通道（批次②）：binding0 UBO（帧槽 × 相机块，动态偏移）+ binding1 lightList
+        this.lightingBuffer = device.createBuffer(new BufferDesc(
+                frameSlots * MAX_CAMERAS * LIGHTING_STRIDE, Set.of(BufferUsage.UNIFORM),
+                MemoryPreference.hostVisibleCoherent()), null);
+        this.lightListBuffer = device.createBuffer(new BufferDesc(
+                LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4,
+                Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -250,6 +288,37 @@ public final class RenderingSystem implements AutoCloseable {
         return renderers;
     }
 
+    // ═══ 灯注册表（SceneRenderBridge pull 翻译；Engine_Lighting_Design §4 批次②） ═══
+
+    /**
+     * 注册灯（桥层过滤 isActiveAndEnabled 后调用；位姿/参数由桥每帧同步进 RenderLight）。
+     */
+    public void addLight(RenderLight light) {
+        if (light == null) {
+            throw new IllegalArgumentException("light must not be null");
+        }
+        lights.add(light);
+    }
+
+    public void removeLight(RenderLight light) {
+        lights.remove(light);
+    }
+
+    /** 引擎侧灯注册表（只读；统计/调试消费） */
+    public List<RenderLight> lights() {
+        return lights;
+    }
+
+    /** 末帧首视口点/聚光在册数（剔除后，F3 overlay 口径） */
+    public int pointLightCount() {
+        return lastPointLightCount;
+    }
+
+    /** 末帧方向光在册数（含主光） */
+    public int directionalLightCount() {
+        return lastDirectionalCount;
+    }
+
     // ═══ 材质桥（Engine_Material_Design.md §4） ═══
 
     /**
@@ -261,7 +330,7 @@ public final class RenderingSystem implements AutoCloseable {
      * ZWrite On；Cull/ZTest/ColorMask 保留 Shader 声明，覆盖经 {@link PassState#copy()}
      * 不回写 Shader 资产）。采样档 = 本 Pass 附件 MSAA 档（rasterizationSamples 必须
      * 与附件一致，同材质双档并存不串）；图元类型 = Mesh 拓扑；set 布局 = set0 帧 +
-     * set1 帧级 storage（批次①开通 binding1/2 SSBO 槽）+ set2 材质（RHI 20.3/20.4）。
+     * set1 帧级光照/通用通道（批次②）+ set2 材质（RHI 20.3/20.4）。
      */
     public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
                                         PrimitiveTopology topology, SampleCount samples,
@@ -452,6 +521,8 @@ public final class RenderingSystem implements AutoCloseable {
         lastFrame = frameIndex;
 
         int slotBase = (int) (frameIndex % frameSlots) * SLOT_SIZE;
+        // 光照 UBO 帧槽基址（LIGHTING_STRIDE × MAX_CAMERAS 一槽，与 UBO1 同奇偶）
+        int lightSlotBase = (int) (frameIndex % frameSlots) * MAX_CAMERAS * LIGHTING_STRIDE;
         float tpf = Time.getDeltaTime();
         sortCamerasByDepth();
 
@@ -461,15 +532,28 @@ public final class RenderingSystem implements AutoCloseable {
             cam.recalculate();
             uboBuffer.writeAligned(slotBase + camIndex * CAMERA_STRIDE,
                     FloatBuffer.wrap(cam.viewProj().get(new float[16])));
+            // 灯收集（每视口：方向光视空间方向 per-view 各自正确；lightList 打包
+            // 首视口一份——多视口各自列表归批次③ ClusterBuildPass 落位，档内挂账）
+            lightCollector.collect(lights, cam.view(), cam.proj(),
+                    cam.projectionType() == ProjectionType.ORTHOGRAPHIC,
+                    cam.nearZ(), cam.farZ());
+            packLightingParams(lightSlotBase + camIndex * LIGHTING_STRIDE,
+                    cam.nearZ(), cam.farZ());
+            if (camIndex == 0) {
+                packLightList();
+                warnOverflow();
+            }
             RenderList list = collectList(cam);
             if (!collectLogged) {
                 collectLogged = true;
-                log.info("首帧收集: backbuffer={}x{} 相机[{}] viewport={}x{} 不透明={} 透明={}",
+                log.info("首帧收集: backbuffer={}x{} 相机[{}] viewport={}x{} 不透明={} 透明={} 灯(点/方向)={}/{}",
                         w, h, cam.name(), cam.viewportWidth(), cam.viewportHeight(),
-                        list.opaque().size(), list.transparent().size());
+                        list.opaque().size(), list.transparent().size(),
+                        lastPointLightCount, lastDirectionalCount);
             }
             views.add(new RenderView(cam.name(),
                     slotBase + camIndex * CAMERA_STRIDE,
+                    lightSlotBase + camIndex * LIGHTING_STRIDE,
                     new RHIViewport(cam.viewportX(), cam.viewportY(),
                             cam.viewportWidth(), cam.viewportHeight(), 0.0f, 1.0f),
                     new RHIScissor(cam.viewportX(), cam.viewportY(),
@@ -534,6 +618,96 @@ public final class RenderingSystem implements AutoCloseable {
         list.opaque().sort(Comparator.comparingLong(RenderObject::bucketKey));
         list.transparent().sort(Comparator.comparingDouble(o -> viewZ.getOrDefault(o, 0.0f)));
         return list;
+    }
+
+    // ═══ 灯收集打包（批次②；Engine_Lighting_Design §3.1/§3.3） ═══
+
+    /**
+     * LightingParamsBlock 打包（std140，与 ShaderInjector 注入声明同源）：
+     * directional[8]×2vec4（槽 0=主光，视空间方向）/ ivec4 counts / ivec4 gridDim
+     * （批次③填）/ vec4 zParams / vec4 ambient。主光阴影段批次④扩块。
+     */
+    private void packLightingParams(int offset, float nearZ, float farZ) {
+        lightingPack.clear();
+        List<LightCollector.DirectionalItem> directionalItems = lightCollector.directionals();
+        for (int i = 0; i < LightCollector.MAX_DIRECTIONAL; i++) {
+            if (i < directionalItems.size()) {
+                LightCollector.DirectionalItem d = directionalItems.get(i);
+                lightingPack.putFloat(d.viewDir.x)
+                        .putFloat(d.viewDir.y)
+                        .putFloat(d.viewDir.z)
+                        .putFloat(d.castShadow ? 1.0f : 0.0f)
+                        .putFloat(d.colorIntensity[0])
+                        .putFloat(d.colorIntensity[1])
+                        .putFloat(d.colorIntensity[2])
+                        .putFloat(d.colorIntensity[3]);
+            } else {
+                for (int j = 0; j < 8; j++) {
+                    lightingPack.putFloat(0.0f);
+                }
+            }
+        }
+        lightingPack.putInt(directionalItems.size());
+        lightingPack.putInt(lightCollector.pointItems().size());
+        lightingPack.putInt(0).putInt(0);   // counts.zw 预留
+        lightingPack.putInt(0).putInt(0).putInt(0).putInt(0);   // gridDim（批次③）
+        lightingPack.putFloat(nearZ).putFloat(farZ).putFloat(0.0f).putFloat(0.0f);   // zParams
+        lightingPack.putFloat(AMBIENT_COLOR[0]).putFloat(AMBIENT_COLOR[1])
+                .putFloat(AMBIENT_COLOR[2]).putFloat(AMBIENT_COLOR[3]);
+        lightingPack.flip();
+        lightingBuffer.update(offset, lightingPack);
+    }
+
+    /** lightList SSBO 打包（视空间 16 float/灯，首视口口径；F3 计数同步） */
+    private void packLightList() {
+        lightListPack.clear();
+        List<float[]> items = lightCollector.pointItems();
+        for (float[] item : items) {
+            for (float v : item) {
+                lightListPack.putFloat(v);
+            }
+        }
+        lightListPack.flip();
+        lightListBuffer.update(0, lightListPack);
+        lastPointLightCount = items.size();
+        lastDirectionalCount = lightCollector.directionals().size();
+    }
+
+    /**
+     * 超容 WARN（§3.1/§3.3 显性化）：剔除后仍超 lightList 容量取强度前 4096、
+     * 方向光超 8 截尾。状态位条件解除复位，持续超限不重复刷屏。
+     */
+    private void warnOverflow() {
+        boolean pointOverflow = lightCollector.collectedPointCount() - lightCollector.culledCount()
+                > LightCollector.MAX_POINT_LIGHTS;
+        if (pointOverflow != pointOverflowActive) {
+            pointOverflowActive = pointOverflow;
+            if (pointOverflow) {
+                log.warn("点/聚光超 lightList 容量 {}（在册 {}），已按强度截尾去最弱",
+                        LightCollector.MAX_POINT_LIGHTS, lightCollector.collectedPointCount()
+                                - lightCollector.culledCount());
+            }
+        }
+        boolean directionalOverflow = lightCollector.directionals().size()
+                >= LightCollector.MAX_DIRECTIONAL
+                && countDirectional() > LightCollector.MAX_DIRECTIONAL;
+        if (directionalOverflow != directionalOverflowActive) {
+            directionalOverflowActive = directionalOverflow;
+            if (directionalOverflow) {
+                log.warn("方向光超 UBO 上限 {}（在册 {}），已截尾", LightCollector.MAX_DIRECTIONAL,
+                        countDirectional());
+            }
+        }
+    }
+
+    private int countDirectional() {
+        int count = 0;
+        for (RenderLight light : lights) {
+            if (light.type() == RenderLight.Type.DIRECTIONAL) {
+                count++;
+            }
+        }
+        return count;
     }
 
     // ═══ 内部 ═══
@@ -640,30 +814,34 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
-     * set1 帧级 storage 布局契约（材质 PSO 共用）：binding1/binding2 SSBO，FRAGMENT 消费。
-     * binding 位对齐灯光档终态槽位（binding1=lightList、binding2=clusterGrid，
-     * Engine_Lighting_Design §3.4）——批次②③扩成全套契约按档落位。
+     * set1 帧级光照布局契约（材质 PSO 共用，Engine_Lighting_Design §3.4 终态槽位）：
+     * binding0 = LightingParamsBlock UBO（DYNAMIC，每视口偏移，FRAGMENT）；
+     * binding1 = lightList SSBO（引擎常驻）；binding2/3 = 通用 storage 通道
+     * （批次③ clusterGrid/clusterIndices；binding4 shadowMap 归批次④）。
      * 声明 set1 的 shader 只须是自己所用 binding 的子集（布局超集合法）。
      */
     private DescriptorSetLayoutDesc frameStorageLayoutDesc() {
         return new DescriptorSetLayoutDesc(List.of(
+                new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
+                        ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(1, DescriptorType.STORAGE_BUFFER, 1,
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(2, DescriptorType.STORAGE_BUFFER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(3, DescriptorType.STORAGE_BUFFER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
-    // ═══ set1 帧级 storage 注册表（三期批次①通用通道；批次② lightList 收集落位前身） ═══
+    // ═══ set1 帧级通道注册表（binding2/3 通用位；批次③ ClusterBuildPass 消费） ═══
 
     /**
-     * 注册帧级 storage buffer 到 set1 binding（支持位 1~2）。
-     * Forward 系 Pass 录制时统一绑定 set1；未声明 set1 的旧 shader 不受影响
-     * （布局超集合法，且注册为空时 Pass 不绑 set1）。
+     * 注册通用帧级 storage buffer 到 set1（支持位 2~3；binding0/1 为引擎光照通道
+     * 专用位——批次②起 lightList 落 binding1）。Forward 系 Pass 录制时统一绑定 set1。
      */
     public void registerFrameStorage(int binding, Buffer buffer) {
         checkOpen();
-        if (binding < 1 || binding > 2) {
-            throw new IllegalArgumentException("set1 storage binding 仅支持 1~2，得到: " + binding);
+        if (binding < 2 || binding > 3) {
+            throw new IllegalArgumentException("set1 通用 storage binding 仅支持 2~3，得到: " + binding);
         }
         if (buffer == null) {
             throw new IllegalArgumentException("buffer must not be null");
@@ -672,30 +850,32 @@ public final class RenderingSystem implements AutoCloseable {
         frameStorageDirty = true;
     }
 
-    /** 注销（Pass 卸载时调用；空注册表后 Forward Pass 停绑 set1） */
+    /** 注销（Pass 卸载时调用；binding0/1 引擎常驻不受影响） */
     public void unregisterFrameStorage(int binding) {
         frameStorages.remove(binding);
         frameStorageDirty = true;
     }
 
-    /** 已注册的帧级 storage（Forward Pass 图声明 addBufferRead 用，绑定序） */
+    /** 已注册的通用帧级 storage（Forward Pass 图声明 addBufferRead 用，绑定序） */
     public List<Buffer> frameStorages() {
         return List.copyOf(frameStorages.values());
     }
 
     /**
-     * set1 描述符集（无注册时 null——Pass 不绑；有注册懒建/变更重写）。
+     * set1 描述符集（批次②起恒有效：binding0/1 = 引擎光照通道每帧填充，
+     * binding2/3 = 通用注册位）。Pass 侧绑定需带 1 个动态偏移
+     * （{@link RenderView#lightingOffset()}）。
      */
     public DescriptorSet frameStorageSet() {
         checkOpen();
-        if (frameStorages.isEmpty()) {
-            return null;
-        }
         if (frameStorageSet == null || frameStorageDirty) {
             if (frameStorageSet == null) {
                 frameStorageSet = device.createDescriptorSet(frameStorageSetLayout);
             }
-            List<DescriptorUpdate> updates = new ArrayList<>(frameStorages.size());
+            List<DescriptorUpdate> updates = new ArrayList<>(frameStorages.size() + 2);
+            updates.add(DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0,
+                    LIGHTING_STRIDE));
+            updates.add(DescriptorUpdate.storageBuffer(1, lightListBuffer));
             for (Map.Entry<Integer, Buffer> e : frameStorages.entrySet()) {
                 updates.add(DescriptorUpdate.storageBuffer(e.getKey(), e.getValue()));
             }
@@ -878,6 +1058,11 @@ public final class RenderingSystem implements AutoCloseable {
         frameSet.dispose();
         frameSetLayout.dispose();
         frameStorageSetLayout.dispose();
+        if (frameStorageSet != null) {
+            frameStorageSet.dispose();
+        }
+        lightingBuffer.dispose();
+        lightListBuffer.dispose();
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

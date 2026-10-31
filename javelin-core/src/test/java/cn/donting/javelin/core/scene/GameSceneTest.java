@@ -5,7 +5,11 @@ import cn.donting.javelin.core.scene.Component;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Node;
 import cn.donting.javelin.core.scene.component.Camera;
+import cn.donting.javelin.core.scene.component.DirectionalLight;
+import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
+import cn.donting.javelin.core.scene.component.PointLight;
+import cn.donting.javelin.core.scene.component.SpotLight;
 import cn.donting.javelin.core.scene.component.Transform;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.BeforeEach;
@@ -476,5 +480,82 @@ public class GameSceneTest {
         // 摘出场景注销（主相机退场）
         scene.remove(nodeMain);
         assertSame(second, scene.getMainCamera());
+    }
+
+    // ═══ 灯注册表与主光解析（三期批次②，Engine_Lighting_Design §4） ═══
+
+    @Test
+    void addRegistersLightComponents() {
+        Node node = new Node();
+        Light point = node.addComponent(PointLight.class);
+        Light directional = node.addComponent(DirectionalLight.class);
+        Light spot = node.addComponent(SpotLight.class);
+
+        scene.add(node);
+
+        assertEquals(3, scene.getLights().size());
+        assertTrue(scene.getLights().contains(point));
+        assertTrue(scene.getLights().contains(directional));
+        assertTrue(scene.getLights().contains(spot));
+        // 灯型 = 子类身份（getType 由子类给，不支持切换——拍板 2026-10-31）
+        assertEquals(Light.LightType.DIRECTIONAL, directional.getType());
+        assertEquals(Light.LightType.POINT, point.getType());
+        assertEquals(Light.LightType.SPOT, spot.getType());
+    }
+
+    @Test
+    void removeUnregistersLight() {
+        Node node = new Node();
+        node.addComponent(PointLight.class);
+        scene.add(node);
+        assertEquals(1, scene.getLights().size());
+
+        scene.remove(node);
+        assertTrue(scene.getLights().isEmpty());
+    }
+
+    @Test
+    void getSunResolvesStrongestActiveDirectional() {
+        // 无灯：null
+        assertNull(scene.getSun());
+
+        // 点光/聚光不算主光（仅 DIRECTIONAL 有 sun 语义）
+        Node nodePoint = new Node();
+        Light point = nodePoint.addComponent(PointLight.class);
+        point.setIntensity(100.0f);
+        scene.add(nodePoint);
+        assertNull(scene.getSun());
+
+        // 单盏方向光即主光（无需任何标志——自动裁决）
+        Node nodeSun = new Node();
+        Light sun = nodeSun.addComponent(DirectionalLight.class);
+        sun.setIntensity(1.0f);
+        scene.add(nodeSun);
+        assertSame(sun, scene.getSun());
+
+        // 更强的方向光接管主光（自动裁决 = 最强激活方向光，对齐 Unity）
+        Node nodeBright = new Node();
+        Light bright = nodeBright.addComponent(DirectionalLight.class);
+        bright.setIntensity(5.0f);
+        scene.add(nodeBright);
+        assertSame(bright, scene.getSun());
+
+        // 强度调低即时换回（裁决每调用现算，无缓存）
+        bright.setIntensity(0.5f);
+        assertSame(sun, scene.getSun());
+
+        // 非激活节点不参与裁决（强灯让位 → 次强接管）
+        nodeSun.setActive(false);
+        assertSame(bright, scene.getSun());
+        nodeSun.setActive(true);
+        assertSame(sun, scene.getSun());
+
+        // 摘出场景：主光退位给次强
+        scene.remove(nodeSun);
+        assertSame(bright, scene.getSun());
+
+        // 全体方向光失活：无主光（点光 intensity 100 仍在场，不算）
+        nodeBright.setActive(false);
+        assertNull(scene.getSun());
     }
 }

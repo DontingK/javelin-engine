@@ -191,7 +191,8 @@ assetName（v0.3，GUID_ASSET 显示名，其他类型 null）——字段行 VO
 
 - 收集面 = 节点头（手拼 VO）+ **@InsHeader 闸门组件扫描**（v0.4 增量）：遍历
   `node.getComponents()`（Node 新增公开只读口，挂载序），贴 `@InsHeader` 的组件
-  才进面板——旧白名单 `INSPECTABLE_COMPONENTS` 退役（v0.1~v0.3 沿革：Transform
+  才进面板（**组件子类族须逐子类贴 @InsHeader**——注解不 @Inherited 传递，
+  2026-10-31 灯族子类化实锤：贴基类子类被闸门整体跳过，逐子类显式贴为拍板口径）——旧白名单 `INSPECTABLE_COMPONENTS` 退役（v0.1~v0.3 沿革：Transform
   → v0.2 Camera → v0.3 MeshRenderer 渐次放开）；挂载序=面板分组序（Unity 口径），
   Transform 构造首挂恒首位；多实例组件全部入面板，节点单组件假设作废；
 - 类 → 属性清单缓存（ConcurrentHashMap，首次访问构建一次）：沿类层级收集声明字段，

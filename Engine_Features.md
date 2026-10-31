@@ -52,7 +52,8 @@
 | 渲染激活过滤 isActiveInHierarchy（Unity 口径，翻转即时注销） | ✅ | ✅ 随 Gizmo 显隐 / 编辑器日常 |
 | Node.userData 运行态挂载（不入序列化） | ✅ | — 随 Gizmo 轴判别 |
 | 场景级 raycast（Collider 注册表查询，L1——Physics 静态门面 + RaycastHit + Scene.getColliders 投影） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，PhysicsTest 14 用例；Engine_Collision_Design §10） |
-| environment / sun | ⬜ 三期（随光照） | — |
+| **灯族组件（子类化拍板 2026-10-31）+ lights 注册表 + getSun 主光自动裁决**（三期批次②，2026-10-31 落地：`Light` 抽象基类（color/intensity/castShadow）+ `DirectionalLight`/`PointLight`(+range)/`SpotLight`(+range+锥角)——每型只显自己的字段、**不支持切换类型**（Collider 族同构）+ .scene 通则序列化（type 不落盘=子类身份）+ 双语包键/light 图标；GameScene lights 分流与 read 重建；**getSun=最强激活方向光自动裁决（对齐 Unity 拍板，isMain 标志推翻删除）**，EditorScene 用户场景口径透传；**菜单解锁**——hierarchy.create.light 三命令（directional/point/spot），Editor_Menu_Design v0.19） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31——菜单挂灯/检查器编辑/主光自动裁决/F3 灯数；单测全绿；随批排障:检查器 isX 字段命名撞闸门、@InsHeader 子类显式贴法契约立定） |
+| environment / sun | ⬜ 三期（sun 解析已落见上行；environment 环境光升级归 GI 期） | — |
 
 ### 2.3 相机（render.Camera）
 
@@ -80,6 +81,7 @@
 | SceneRenderBridge pull 翻译（场景→RenderObject） | ✅ | ✅ 同上 |
 | GizmoPass 末尾置顶（颜色 LOAD + 深度 CLEAR 两层深度语义） | ✅ | ✅ 随 Gizmo 链（2026-10-14 拖拽验收） |
 | MSAA 视口附件（isMsaaPath 边界：stacking/预览降 1x、overlay 恒 1x） | ✅ | ✅ 用户实测（2026-10-06） |
+| **灯收集与 set1 光照数据通路**（三期批次②，2026-10-31 落地：SceneRenderBridge Light→RenderLight pull 翻译（身份对应/每帧位姿参数同步）+ LightCollector 纯逻辑收集（方向光两遍收主光槽 0/点聚光预排序 intensity÷distSq/视空间球剔除自写——FrustumIntersection 对含 Y 翻转反射矩阵不可信）+ RenderingSystem 帧收集打包（binding0 LightingParamsBlock UBO **DYNAMIC 每视口动态偏移** 320B 块/512B 步长 + binding1 lightList SSBO 引擎常驻 256KB 首视口口径 + 超容 WARN 状态位）+ Opaque/Transparent set1 绑定带动态偏移 + ShaderInjector **fs 声明注入**（lighting/lightList，保留字生效）+ F3 行 8 在册灯数；**着色消费归批次③**（本批无画面验收项）；多视口 lightList 各自列表挂账批次③，字段详表 Uniform_Keys §4-1） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，同批次②合挂销账） |
 | overlay 挂点（DebugText / RenderStats，buildFrameGraph） | ✅ | ✅ 用户实测（2026-09-27） |
 | 视锥剔除 | ⬜ 后置优化（Aabb/Mesh.bounds 已备） | — |
 
@@ -283,12 +285,13 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**（三期批次① RHI SSBO/compute 底座 + `.compute` 资产类型 + set1 帧级 storage 通道
-2026-10-31 当日用户实测销账——ComputeSsboTest 全环（双段 compute 链+图形读+帧 60 读回 65536 元素
-逐比对通过；首跑 AV 崩溃=动态 viewport 空集 VUID 违规、二跑 4931 超容差=sin 大自变量区间归约
-GPU/CPU 实现差，两坑随批修复入 Vulkan_Pitfalls #27/#28）+ ComputeShaderImporterTest 绿）。
+**当前挂账 0 项**（三期批次② 光数据模型 2026-10-31 当日用户实测销账——菜单挂灯（三型）
++ 检查器编辑（子类各显字段/运行期调参生效）+ getSun 主光自动裁决换位 + F3 行 8 灯数；单测全绿
+（LightCollectorTest + GameSceneTest 灯用例）；随验收过程三笔拍板改向：isMain 显式标志推翻改
+getSun 自动裁决（对齐 Unity）、灯族子类化（不支持切换类型）、@InsHeader 子类显式贴法契约 +
+图标彩色规则立定——细则见 Roadmap 三期条目与光照档 v0.6）。
 
-**历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目。
+**历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目；三期批次① RHI SSBO/compute 底座 2026-10-31 当日用户实测销账（ComputeSsboTest 全环 + ComputeShaderImporterTest 绿；两坑入 Vulkan_Pitfalls #27/#28）。
 
 **二期挂账历史（①~⑧全销账，保留记录）**：
 

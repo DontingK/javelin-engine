@@ -96,7 +96,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 
 - `extends AbstractAppState`；F3 边沿（`Input.wasPressed`）切 `visible`，**默认 true**；
 - 关闭时逐行 `DebugText.clear(row)` 清干净自己占的行；
-- **固定占用 DebugText 行 0~7**（组件规范，其他 DebugText 客户端请避开），
+- **固定占用 DebugText 行 0~8**（组件规范，其他 DebugText 客户端请避开），
   每帧单行覆写惯用法 `clear(row) + printf(row, ...)`：
   **文本刷新 1 秒节流一轮**（2026-09-27 用户反馈"FPS 跳动太快"）——数字每秒刷
   一次不逐帧闪动，F3 开关不受节流即时响应；计时用未缩放 dt（timeScale 暂停时
@@ -112,6 +112,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 | 5 | 纹理 / 缓冲 / 图形管线 / compute 管线 |
 | 6 | 采样器 / 描述符集 / 描述符布局 |
 | 7 | 着色器模块 / 管线布局 / 栅栏 / 信号量 |
+| 8 | 灯光：点光 / 方向在册数（三期批次②，2026-10-31——RenderingSystem 末帧首视口剔除后口径，Engine_Lighting_Design §3.1 F3 显性化） |
 
 ### 3.3 JavelinEngine 接线
 
@@ -120,7 +121,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 - 新增 protected 钩子 `registerDefaultAppStates(AppStateManager)`，默认 attach
   `RenderStatsAppState`；`initialize()` 在 `subsystemManager.initAll(this)` 之后调用；
 - **DebugTextDemo 覆盖此钩子为空**：该样例自身就在验收 DebugText 行区语义
-  （自动行 0/1、色表行区），与 overlay 的行 0~7 必然叠写冲突，关闭以保持样例纯净；
+  （自动行 0/1、色表行区），与 overlay 的行 0~8 必然叠写冲突，关闭以保持样例纯净；
 - **其余 demo 与 JavelinEditor（编辑器视口）默认显示统计**。JavelinEditor 原有
   `registerSubsystem` 覆盖（历史动机：编辑器要拿 AppStateSubsystem 引用，故自建
   实例替换）在基类持有 protected 字段 + 注册 DebugDrawTextSubsystem 后与基类
@@ -147,7 +148,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 
 1. 任一 demo（SceneRenderDemo / MultiCameraDemo）或编辑器启动，左上角默认显示 8 行统计；
    GPU 名 / 驱动版本与机器实际一致；
-2. F3 关闭后行 0~7 全部消失，再按恢复；数字每秒刷新一轮（1Hz 节流）、不逐帧闪动；
+2. F3 关闭后行 0~8 全部消失，再按恢复；数字每秒刷新一轮（1Hz 节流）、不逐帧闪动；
 3. drawCalls / 三角形数与场景规模吻合（SceneRenderDemo 已知三角形数可对照）；
    overlay 读到的是**上一帧**快照，帧间不闪零、跳帧不归零；
 4. 资源计数稳定应用：资产加载 / 窗口 resize 后数字与实际创建量一致，长跑无漂移

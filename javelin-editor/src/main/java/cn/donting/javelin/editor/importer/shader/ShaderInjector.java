@@ -24,7 +24,8 @@ import java.util.List;
  * 描述符布局超集 Vulkan 合法）。</p>
  *
  * <p>保留字校验（RHI 21.6-7）：用户不得手写 cam / pc / material 注入同名声明，
- * CameraBlock / PushBlock / MaterialBlock 任何出现即构建报错。</p>
+ * CameraBlock / PushBlock / MaterialBlock 任何出现即构建报错；lighting / lightList /
+ * LightingParamsBlock 随批次②光照实装同拦（Engine_Uniform_Keys §6）。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -34,6 +35,25 @@ public final class ShaderInjector {
     private static final String ENGINE_BLOCKS = """
             layout(set = 0, binding = 0) uniform CameraBlock { mat4 viewProj; } cam;
             layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;""";
+
+    /**
+     * set1 光照声明（只注入 fs，Engine_Lighting_Design §3.3/§3.4 批次②版）——排布与
+     * RenderingSystem.packLightingParams 同源：directional[16]（8 盏 × 2 vec4，槽 0=主光，
+     * 每盏 dir+castShadow / color+intensity）、lightCounts（x=dirCount, y=pointCount）、
+     * gridDim/zParams（批次③ cluster 落位时填）、ambient。主光阴影段批次④扩块，
+     * clusterGrid/clusterIndices 声明归批次③。
+     */
+    private static final String LIGHTING_BLOCKS = """
+            layout(std140, set = 1, binding = 0) uniform LightingParamsBlock {
+                vec4 directional[16];
+                ivec4 lightCounts;
+                ivec4 gridDim;
+                vec4 zParams;
+                vec4 ambient;
+            } lighting;
+            layout(std430, set = 1, binding = 1) readonly buffer lightList {
+                vec4 lights[];
+            };""";
 
     private ShaderInjector() {
     }
@@ -51,10 +71,14 @@ public final class ShaderInjector {
         validateReservedNames(body, sourceName, stageName);
 
         int versionEnd = findVersionLineEnd(body, sourceName, stageName);
-        StringBuilder injected = new StringBuilder(body.length() + 512);
+        StringBuilder injected = new StringBuilder(body.length() + 768);
         injected.append(body, 0, versionEnd);
         injected.append("\n// ── engine injected declarations (auto-generated, do not write) ──\n");
         injected.append(ENGINE_BLOCKS).append('\n');
+        // set1 光照声明只入 fs（消费在片元；vs 声明未用 binding 反增布局面）
+        if ("fs".equals(stageName)) {
+            injected.append(LIGHTING_BLOCKS).append('\n');
+        }
         appendMaterialDeclaration(injected, properties);
         injected.append("// ── injection end ──\n");
         injected.append(body, versionEnd, body.length());
@@ -113,11 +137,13 @@ public final class ShaderInjector {
 
     /**
      * 保留字校验：注入同名声明冲突（RHI 21.6-7）。块名任何出现即报错
-     * （注释里提及也会拦——保留字，写注释请换说法）。
+     * （注释里提及也会拦——保留字，写注释请换说法）。lighting / lightList /
+     * LightingParamsBlock 为批次②光照通道保留字（Engine_Uniform_Keys §6）。
      */
     private static void validateReservedNames(String body, String sourceName, String stageName) {
         ArrayList<String> found = new ArrayList<>();
-        for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock"}) {
+        for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock",
+                "LightingParamsBlock", "lighting", "lightList"}) {
             if (body.contains(reserved)) {
                 found.add(reserved);
             }

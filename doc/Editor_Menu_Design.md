@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.18）
+# 编辑器菜单与命令系统设计（v0.19）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -163,6 +163,14 @@
 > setLanguage 启动期一次）。菜单序
 > 保存 ─ 分隔 ─ 首选项；i18n 增 file.preferences + preferences.* 5 条随批。
 > 命名拍板：「首选项」非「设置」（Unity Preferences / Windows 惯例，用户 2026-10-29）。
+> v0.19（2026-10-31，随三期批次②）：**hierarchy.create.light.directional / point / spot 灯光三命令落地**（替换占位注册行）——
+> CreateLightMenuCommand 一类三命令（构造注入 id、baseName、组件子类——灯族子类化
+> 拍板后组件身份即类型，不拆三类不建切换）；Unity 口径：节点名 Directional Light /
+> Point Light / Spot Light (+n)、位姿新建默认（原点无旋转——方向光朝局部 +Z）、
+> 灯参数取组件默认；
+> **主光无标志**（2026-10-31 拍板对齐 Unity：引擎自动裁决最强激活方向光，
+> Scene.getSun 单点——创建命令不做任何 isMain 预设，Lighting 档 v0.5）；
+> 菜单三项全解锁（v0.6 灯族子类化后 spot 收集侧已支持——着色消费批次③，菜单项先行）。
 
 ## 1. 背景与约束
 
@@ -430,6 +438,9 @@ public class MenuItemVo {        // 顶层与子项同构
 | `hierarchy.create.sphere` | 球 | 场景树右键 → 3D 对象 | 选中节点下创建直径 1 球体（UV 球 24×12 分段，无选中=根级），重名去重 Sphere (n)，创建后选中新节点；mesh=内置 sphere.smesh（旋转体算法离线生成、绕序自检）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，替换占位注册，Unity 3D Object → Sphere 口径） |
 | `hierarchy.create.capsule` | 胶囊体 | 场景树右键 → 3D 对象 | 选中节点下创建总高 2×直径 1 胶囊（中段圆柱+上下半球盖，无选中=根级），重名去重 Capsule (n)，创建后选中新节点；mesh=内置 capsule.smesh（离线生成同上）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，新增菜单项，Unity 3D Object → Capsule 口径） |
 | `hierarchy.create.cylinder` | 圆柱体 | 场景树右键 → 3D 对象 | 选中节点下创建高 2×直径 1 圆柱（含端盖，端盖/侧面硬边重复顶点分离法线，无选中=根级），重名去重 Cylinder (n)，创建后选中新节点；mesh=内置 cylinder.smesh（离线生成同上）、材质=default.shader 运行期实例，语义同 plane 命令（2026-10-25 落地 v0.15，新增菜单项，Unity 3D Object → Cylinder 口径） |
+| `hierarchy.create.light.directional` | 定向光 | 场景树右键 → 灯光 | 选中节点下创建方向光（无选中=根级），重名去重 Directional Light (n)，创建后选中新节点；节点位姿 Unity 新建默认（原点无旋转——朝局部 +Z）、灯参数取组件默认（intensity 1/color 白）；主光无标志（引擎自动裁决最强激活方向光，对齐 Unity 拍板 2026-10-31）；CreateLightMenuCommand 一类三命令（构造注入 id/baseName/组件子类——灯族子类化拍板 2026-10-31），序列化按子类走保存可恢复（2026-10-31 随三期批次②落地，替换占位注册） |
+| `hierarchy.create.light.point` | 点光源 | 场景树右键 → 灯光 | 同上（PointLight 组件，节点名 Point Light）；着色消费归批次③——创建后 F3 行 8 可见在册灯数（2026-10-31 随三期批次②落地） |
+| `hierarchy.create.light.spot` | 聚光灯 | 场景树右键 → 灯光 | 同上（SpotLight 组件，节点名 Spot Light，默认 range 10 / 内 30° 外 45°）；收集侧已支持进 lightList，着色消费归批次③（2026-10-31 随灯族子类化一并解锁） |
 | `hierarchy.create.camera` | 摄像机 | 场景树右键 → 摄像机 | 选中节点下创建相机（无选中=根级），重名去重 Main Camera (n)，创建后选中新节点；Unity 口径=节点名 Main Camera、原点无旋转、参数全取 Camera 组件默认（fov 60°/near 0.1/far 1000/depth 0/SOLID_COLOR/全屏），main 标志不预设（引擎 main 消费未落地）；相机入用户 game scene——SCENE 模式编辑器视口不受影响（EditorScene 相机 SceneModel 双模式分流）、GAME 模式渲染用户相机，Camera 序列化已通保存可恢复（2026-10-11 落地，替换占位注册） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
@@ -449,7 +460,8 @@ Scene 视图类开关（如网格）在 Unity 属视图内 Gizmos 工具栏—�
 
 场景树右键域首批命令已随场景树对接落地（2026-09-30）；v0.7（2026-10-11）结构按
 用户清单重排为 Unity 顺序：**剪切/复制/粘贴—删除—空对象—3D 对象（Plane、
-立方体、球、胶囊、圆柱已实现——原始体 2026-10-25 批次、三角锥占位）/灯光（定向光/点光源占位）/粒子（占位）/摄像机（v0.8 落地）**，
+立方体、球、胶囊、圆柱已实现——原始体 2026-10-25 批次、三角锥占位）/灯光（定向光/点光源
+2026-10-31 随三期批次②落地、SPOT 随批次③）/粒子（占位）/摄像机（v0.8 落地）**，
 rename
 撤出（随树内编辑 UI 后置）、未实现项占位置灰（§4；pasteAsChild/duplicate 暂不注册）。
 project 右键域的

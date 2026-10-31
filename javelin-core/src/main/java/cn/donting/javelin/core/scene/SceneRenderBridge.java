@@ -1,6 +1,7 @@
 package cn.donting.javelin.core.scene;
 
 import cn.donting.javelin.core.render.RenderCamera;
+import cn.donting.javelin.core.render.RenderLight;
 import cn.donting.javelin.core.render.RenderObject;
 import cn.donting.javelin.core.render.Renderable;
 import cn.donting.javelin.core.render.RenderingSystem;
@@ -10,7 +11,11 @@ import cn.donting.javelin.core.render.mesh.Mesh;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.scene.component.Camera;
+import cn.donting.javelin.core.scene.component.DirectionalLight;
+import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
+import cn.donting.javelin.core.scene.component.PointLight;
+import cn.donting.javelin.core.scene.component.SpotLight;
 import cn.donting.javelin.core.scene.component.Transform;
 import cn.donting.javelin.rhi.data.RHIClearColor;
 import cn.donting.javelin.rhi.Texture;
@@ -33,7 +38,8 @@ import java.util.Set;
  * RenderingSystem 本类不感知 scene 包）。
  *
  * <p>组件与渲染侧包装按身份（IdentityHashMap）一一对应，每帧三阶段：
- * 注销消失的 → 注册新增的 → 同步存量（相机参数/位姿、物体世界矩阵）。
+ * 注销消失的 → 注册新增的 → 同步存量（相机参数/位姿、物体世界矩阵；灯
+ * 数值/位姿——Engine_Lighting_Design §4，批次②）。
  * 相机位姿取自所在 Node 的 Transform（Unity 相机朝局部 +Z，向上 +Y）；
  * 视口 = viewportRect（Unity 口径归一化矩形）换算像素，
  * 未设置默认全屏（用户拍板 2026-09-26：无均分，多相机分屏必须手动设矩形）。
@@ -58,6 +64,8 @@ public final class SceneRenderBridge {
     private boolean poseLogged;
     private final Map<Camera, RenderCamera> cameras = new IdentityHashMap<>();
     private final Map<MeshRenderer, List<RenderObject>> renderers = new IdentityHashMap<>();
+    /** 灯组件 → 引擎侧灯（身份对应，每帧同步位姿；Engine_Lighting_Design §4） */
+    private final Map<Light, RenderLight> lights = new IdentityHashMap<>();
     private final Set<String> usedNames = new HashSet<>();
 
     /**
@@ -70,6 +78,7 @@ public final class SceneRenderBridge {
     public void sync(Scene scene, RenderingSystem rs, Texture backbuffer) {
         List<Camera> sceneCameras = scene.getCameras();
         List<Renderable> sceneRenderables = scene.getRenderables();
+        List<Light> sceneLights = scene.getLights();
         if (!syncLogged) {
             syncLogged = true;
             int meshRenderers = 0;
@@ -99,6 +108,14 @@ public final class SceneRenderBridge {
             if (!sceneRenderables.contains(e.getKey())) {
                 removeRendererList(rs, e.getValue());
                 roIt.remove();
+            }
+        }
+        Iterator<Map.Entry<Light, RenderLight>> lightIt = lights.entrySet().iterator();
+        while (lightIt.hasNext()) {
+            Map.Entry<Light, RenderLight> e = lightIt.next();
+            if (!sceneLights.contains(e.getKey())) {
+                rs.removeLight(e.getValue());
+                lightIt.remove();
             }
         }
 
@@ -203,6 +220,64 @@ public final class SceneRenderBridge {
                 }
             }
         }
+
+        // 注册 + 同步灯（Engine_Lighting_Design §4 灯族子类；isActiveAndEnabled 过滤
+        // 同相机段，已注册的即时注销防残留。灯型不切换（拍板 2026-10-31）——
+        // 组件身份即类型，IdentityHashMap 键稳；参数/位姿每帧同步）
+        for (Light light : sceneLights) {
+            if (!light.isActiveAndEnabled()) {
+                RenderLight stale = lights.remove(light);
+                if (stale != null) {
+                    rs.removeLight(stale);
+                }
+                continue;
+            }
+            RenderLight rl = lights.get(light);
+            if (rl == null) {
+                rl = new RenderLight(engineType(light), light.isCastShadow(),
+                        rangeOf(light), cosInnerOf(light), cosOuterOf(light));
+                rs.addLight(rl);
+                lights.put(light, rl);
+            }
+            // 数值/颜色/锥角每帧同步（运行期调 intensity/color/range/角度即时生效）；
+            // 位姿 = 节点世界位姿（点光取平移；方向/聚光取局部 +Z 世界像，
+            // transformDirection 正变换口径见 applyPose 注）
+            rl.setParams(light.isCastShadow(), rangeOf(light),
+                    cosInnerOf(light), cosOuterOf(light));
+            float[] ci = rl.colorIntensity();
+            ci[0] = light.getColor().r;
+            ci[1] = light.getColor().g;
+            ci[2] = light.getColor().b;
+            ci[3] = light.getIntensity();
+            Matrix4f m = light.getNode().getTransform().getLocalToWorld();
+            m.getTranslation(rl.worldPos());
+            m.transformDirection(rl.worldDir().set(0.0f, 0.0f, 1.0f)).normalize();
+        }
+    }
+
+    /** 组件子类 → 引擎侧灯型（DIRECTIONAL 恒无 range/锥角——子类不摆死字段） */
+    private static RenderLight.Type engineType(Light light) {
+        if (light instanceof DirectionalLight) {
+            return RenderLight.Type.DIRECTIONAL;
+        }
+        if (light instanceof SpotLight) {
+            return RenderLight.Type.SPOT;
+        }
+        return RenderLight.Type.POINT;
+    }
+
+    private static float rangeOf(Light light) {
+        return light instanceof PointLight p ? p.getRange() : 0.0f;
+    }
+
+    private static float cosInnerOf(Light light) {
+        return light instanceof SpotLight s
+                ? (float) Math.cos(Math.toRadians(s.getInnerAngle())) : 1.0f;
+    }
+
+    private static float cosOuterOf(Light light) {
+        return light instanceof SpotLight s
+                ? (float) Math.cos(Math.toRadians(s.getOuterAngle())) : 0.0f;
     }
 
     /**
@@ -236,8 +311,12 @@ public final class SceneRenderBridge {
         for (List<RenderObject> ros : renderers.values()) {
             removeRendererList(rs, ros);
         }
+        for (RenderLight rl : lights.values()) {
+            rs.removeLight(rl);
+        }
         cameras.clear();
         renderers.clear();
+        lights.clear();
         usedNames.clear();
     }
 

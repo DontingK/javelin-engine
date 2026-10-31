@@ -1,10 +1,14 @@
 package cn.donting.javelin.editor.menu;
 
+import cn.donting.javelin.core.scene.component.DirectionalLight;
+import cn.donting.javelin.core.scene.component.PointLight;
+import cn.donting.javelin.core.scene.component.SpotLight;
 import cn.donting.javelin.editor.menu.hierarchy.CreateBoxMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateCapsuleMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateCameraMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateCylinderMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
+import cn.donting.javelin.editor.menu.hierarchy.CreateLightMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateSphereMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.DeleteMenuCommand;
@@ -37,7 +41,9 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * 「空对象」）/ hierarchy.create.plane、hierarchy.create.cube、
  * hierarchy.create.sphere、hierarchy.create.capsule、hierarchy.create.cylinder
  * （「3D 对象」子菜单，原始体 2026-10-25 批次落地）/ hierarchy.create.camera
- * （「摄像机」，2026-10-11 落地）；剪切/复制/粘贴、3D 对象其余项、灯光/粒子以
+ * （「摄像机」，2026-10-11 落地）/ hierarchy.create.light.directional+point
+ * （「灯光」子菜单三项，三期批次② 2026-10-31 落地——灯族子类化后 spot 一并解锁）；
+ * 剪切/复制/粘贴、3D 对象其余项、粒子以
  * {@link UnimplementedMenuCommand} 占位注册置灰，功能落地时逐个替换为实类注册行
  * （rename 随树内编辑 UI 后置，未入菜单）。
  * 「项目面板右键」域首期落地（2026-10-17）：showInExplorer / copyPath / reimport
@@ -76,13 +82,19 @@ public final class EditorMenuSetup {
         context.registerCommand(new CreateCameraMenuCommand());
         context.registerCommand(new DeleteMenuCommand());
         // Unity 壳占位（未实现置灰，落地时替换为实类注册行）：剪贴板三项阻塞于
-        // .scene 序列化（剪贴板格式）；3D 对象其余项/灯光/粒子阻塞于对应组件
+        // .scene 序列化（剪贴板格式）；3D 对象其余项/粒子阻塞于对应组件
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.cut", "Ctrl+X"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.copy", "Ctrl+C", "copy"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.paste", "Ctrl+V", "paste"));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.pyramid", null));
-        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.light.directional", null));
-        context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.light.point", null));
+        // 灯光三项随三期批次②解锁（灯族子类化拍板 2026-10-31：组件身份即类型，
+        // 不支持切换——三类各一命令）
+        context.registerCommand(new CreateLightMenuCommand("hierarchy.create.light.directional",
+                CreateLightMenuCommand.DIRECTIONAL_NAME, "light-directional", DirectionalLight.class));
+        context.registerCommand(new CreateLightMenuCommand("hierarchy.create.light.point",
+                CreateLightMenuCommand.POINT_NAME, "light-point", PointLight.class));
+        context.registerCommand(new CreateLightMenuCommand("hierarchy.create.light.spot",
+                CreateLightMenuCommand.SPOT_NAME, "light-spot", SpotLight.class));
         context.registerCommand(new UnimplementedMenuCommand("hierarchy.create.particle", null));
         context.registerCommand(new ShowInExplorerMenuCommand());
         context.registerCommand(new CopyPathMenuCommand());
@@ -143,7 +155,8 @@ public final class EditorMenuSetup {
                         .item("hierarchy.create.pyramid"))
                 .submenu(EditorLang.key("hierarchy.lights"), light -> light
                         .item("hierarchy.create.light.directional")
-                        .item("hierarchy.create.light.point"))
+                        .item("hierarchy.create.light.point")
+                        .item("hierarchy.create.light.spot"))
                 .item("hierarchy.create.particle")
                 .item("hierarchy.create.camera");
 

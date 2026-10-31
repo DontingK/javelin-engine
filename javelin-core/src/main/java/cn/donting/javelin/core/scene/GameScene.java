@@ -5,6 +5,7 @@ import cn.donting.javelin.core.assets.AbsAsset;
 import cn.donting.javelin.core.render.Renderable;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
+import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.scene.component.Transform;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
@@ -47,6 +48,7 @@ public class GameScene extends AbsAsset implements Scene {
     private List<Camera> cameras = new ArrayList<>();
     private List<Renderable> renderables = new ArrayList<>();
     private List<Collider> colliders = new ArrayList<>();
+    private List<Light> lights = new ArrayList<>();
 
     public GameScene() {
     }
@@ -237,6 +239,36 @@ public class GameScene extends AbsAsset implements Scene {
         return colliders;
     }
 
+    /**
+     * 灯光注册表（Engine_Lighting_Design §4；渲染收集/编辑器调试线消费；返回内部列表，只读）。
+     */
+    @Override
+    public List<Light> getLights() {
+        return lights;
+    }
+
+    /**
+     * 主光（对齐 Unity：**最强激活方向光**自动裁决——无 isMain 标志，用户拍板
+     * 2026-10-31 推翻显式标志方案；同强度取挂入序首个保确定性。槽 0 进 UBO
+     * 方向光数组、ShadowPass 只服务主光）。
+     */
+    @Override
+    public Light getSun() {
+        Light sun = null;
+        float best = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < lights.size(); i++) {
+            Light light = lights.get(i);
+            if (light.getType() != Light.LightType.DIRECTIONAL || !light.isActiveAndEnabled()) {
+                continue;
+            }
+            if (light.getIntensity() > best) {
+                best = light.getIntensity();
+                sun = light;
+            }
+        }
+        return sun;
+    }
+
     // ═══ Node 联动钩子（package-private，同包调用） ═══
 
     /**
@@ -260,6 +292,9 @@ public class GameScene extends AbsAsset implements Scene {
         if (component instanceof Collider) {
             colliders.add((Collider) component);
         }
+        if (component instanceof Light) {
+            lights.add((Light) component);
+        }
     }
 
     private void unregister(Component component) {
@@ -267,6 +302,7 @@ public class GameScene extends AbsAsset implements Scene {
         cameras.remove(component);
         renderables.remove(component);
         colliders.remove(component);
+        lights.remove(component);
     }
 
     /**
@@ -317,12 +353,13 @@ public class GameScene extends AbsAsset implements Scene {
         // 注册表主表回写
         ArrayList<Component> componentList = input.readArrayList("components", Component.class);
         components = componentList != null ? componentList : new ArrayList<>();
-        // cameras/renderables/colliders 分流表重建（register 的 instanceof 口径——元素
+        // cameras/renderables/colliders/lights 分流表重建（register 的 instanceof 口径——元素
         // 实例在导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套
         // populate，时序安全；红线 10 辨析见设计档 §9.3）
         cameras = new ArrayList<>();
         renderables = new ArrayList<>();
         colliders = new ArrayList<>();
+        lights = new ArrayList<>();
         for (Component component : components) {
             if (component instanceof Camera) {
                 cameras.add((Camera) component);
@@ -332,6 +369,9 @@ public class GameScene extends AbsAsset implements Scene {
             }
             if (component instanceof Collider) {
                 colliders.add((Collider) component);
+            }
+            if (component instanceof Light) {
+                lights.add((Light) component);
             }
         }
     }

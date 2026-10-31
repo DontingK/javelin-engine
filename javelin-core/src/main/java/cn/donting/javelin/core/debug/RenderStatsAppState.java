@@ -10,21 +10,22 @@ import cn.donting.javelin.rhi.RenderStats;
 
 /**
  * 渲染统计 overlay（doc/Engine_RenderStats_Design.md §3.2）：每帧覆写 DebugText
- * 固定行 0~7，展示 GPU 信息 / FPS / draw call 统计 / 存活资源计数。
+ * 固定行 0~8，展示 GPU 信息 / FPS / draw call 统计 / 存活资源计数 / 在册灯数。
  *
- * <p><b>固定占用 DebugText 行 0~7</b>（行号 {@link #LAST_ROW}），其他 DebugText
+ * <p><b>固定占用 DebugText 行 0~8</b>（行号 {@link #LAST_ROW}），其他 DebugText
  * 客户端请避开该行区；每帧单行覆写惯用法 {@code clear(row) + printf(row, ...)}，
  * 与持续文本语义同行屏共存。{@code F3} 边沿开关，<b>默认显示</b>；关闭时逐行清空。</p>
  *
  * <p>读到的是<b>上一帧</b>快照：overlay 装配先于录制，
- * {@link Device#renderStats()} 公开 getter 即 lastFrame 快照（§3.1 时序）。
+ * {@link Device#renderStats()} 公开 getter 即 lastFrame 快照（§3.1 时序）；灯数为
+ * RenderingSystem 末帧首视口剔除后口径（三期批次②，Engine_Lighting_Design §3.1）。
  * 由 JavelinEngine 默认挂载（{@code registerDefaultAppStates} 钩子）；
  * DebugTextDemo 因行区冲突覆盖关闭。</p>
  */
 public class RenderStatsAppState extends AbstractAppState {
 
     /** overlay 固定占用行 0 ~ LAST_ROW */
-    private static final int LAST_ROW = 7;
+    private static final int LAST_ROW = 8;
 
     /** 文本刷新节流间隔（秒）：写行 0~7 每秒一轮，数字不逐帧跳动（F3 开关不受节流） */
     private static final float REFRESH_INTERVAL = 1.0f;
@@ -111,6 +112,14 @@ public class RenderStatsAppState extends AbstractAppState {
                 + "  管线布局 " + stats.pipelineLayoutCount()
                 + "  栅栏 " + stats.fenceCount()
                 + "  信号量 " + stats.semaphoreCount(), DebugTextColor.LIGHT_CYAN);
+
+        // 行 8：在册灯数（末帧首视口剔除后口径；Engine_Lighting_Design §3.1 F3 显性化）
+        DebugText.clear(8);
+        if (engine.renderingSystem() != null) {
+            DebugText.printf(8, "灯光 点光 " + engine.renderingSystem().pointLightCount()
+                    + "  方向 " + engine.renderingSystem().directionalLightCount(),
+                    DebugTextColor.LIGHT_CYAN);
+        }
     }
 
     /** 关闭/隐藏：把占用行清干净 */
