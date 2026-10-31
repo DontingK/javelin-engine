@@ -15,7 +15,7 @@
 > v0.23：命名统一为 26 节 API 清单体系（入口 RHI/Instance/Device + 资源简洁名 + data/ + render/），废除 RHI 前缀冗余命名。
 
 ```
-com.javelin.rhi               // API 层（26 节规格）
+cn.donting.javelin.rhi               // API 层（26 节规格）
 
 ├─ RHI.java                   // 入口：createInstance（23.4a 阶段1）
 ├─ Instance.java              // createDevice / createSurface（23.4a 阶段2/4）
@@ -50,7 +50,7 @@ com.javelin.rhi               // API 层（26 节规格）
    ├─ GLFWRenderSurface.java  // 上层实现：GLFW 窗口
    └─ SwingRenderSurface.java // 上层实现：Swing Canvas
 
-com.javelin.rhi.impl           // 内部实现，上层不可访问
+cn.donting.javelin.rhi.impl           // 内部实现，上层不可访问
 
 ├─ VulkanRHI.java
 ├─ VkInstance.java / VkDevice.java / VkQueue.java

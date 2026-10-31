@@ -22,10 +22,10 @@
     <property name="log.charset" value="UTF-8"/>
 
     <!--来自sptingboot 的彩色日志-->
-    <conversionRule conversionWord="clr" converterClass="com.javelin.log.ColorConverter"/>
-    <conversionRule conversionWord="wex" converterClass="com.javelin.log.WhitespaceThrowableProxyConverter"/>
+    <conversionRule conversionWord="clr" converterClass="cn.donting.javelin.log.ColorConverter"/>
+    <conversionRule conversionWord="wex" converterClass="cn.donting.javelin.log.WhitespaceThrowableProxyConverter"/>
     <conversionRule conversionWord="wEx"
-                    converterClass="com.javelin.log.ExtendedWhitespaceThrowableProxyConverter"/>
+                    converterClass="cn.donting.javelin.log.ExtendedWhitespaceThrowableProxyConverter"/>
 
     <property name="CONSOLE_LOG_PATTERN" value="${CONSOLE_LOG_PATTERN:-%clr(%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd HH:mm:ss.SSS}}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}"/>
     <property name="CONSOLE_LOG_CHARSET" value="${CONSOLE_LOG_CHARSET:-${file.encoding:-UTF-8}}"/>

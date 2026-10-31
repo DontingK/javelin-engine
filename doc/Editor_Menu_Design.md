@@ -471,7 +471,7 @@ project 右键域的
 
 ## 10. 落地清单
 
-**Java（`com.javelin.editor.menu` + 桥）**
+**Java（`cn.donting.javelin.editor.menu` + 桥）**
 
 | 件 | 职责 |
 |---|---|

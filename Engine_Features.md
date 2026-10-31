@@ -282,7 +282,11 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项——二期待验收全部清零（2026-10-30）**（①~⑧全销账，保留记录）：
+**当前挂账 1 项**（二期 ①~⑧ 2026-10-30 全清零；开源前置批新增）：
+
+- **Ⓐ groupId/包名迁移 `com.javelin` → `cn.donting.javelin` + 版本号 `0.1.0` 定版（2026-10-31 落地，开源前置批）**——用户 IDEA Shift+F6 主源码重构（六模块主树 + 服务文件名自动迁移）+ 补齐 IDEA 未覆盖面（core test 树 30 文件、字符串字面量 15 处、全部 build.gradle group/mainClass/Automatic-Module-Name）+ project-template 整修（新坐标/mainClass/死仓库清理/junit-bom 6.0.0 对齐/compileOnly 去重）+ 版本收根（logback 1.5.13 硬编码→根 ext 1.5.38）+ **版本 `1.0-SNAPSHOT`→`0.1.0` 固定无后缀收 `gradle.properties` 单点**（模块 version 行全删继承根、模板版本与坐标同步；Central 拒收 SNAPSHOT、去 SNAPSHOT 化拍板）+ doc 17 份 FQCN 替换（两处批量替换误伤已修）；用户游戏项目默认 groupId 占位符 = `com.javelin.game`（三处同步，非残留）。**验收口径：整套 test task 跑绿 + mavenLocal 重发新坐标后编辑器新建项目/打包三端实机与改前一致**（固定版本同号覆盖缓存坑与细则见 Roadmap §5 构建链条目）。
+
+**二期挂账历史（①~⑧全销账，保留记录）**：
 
 ~~①两个 Demo 回归（SceneRenderDemo·MultiCameraDemo——Texture2D 引用层改造回归；单测面已全销：
 ShaderParserTest / Texture2DTest 2026-10-30 跑绿，随绿修复三笔——ShaderParser Range

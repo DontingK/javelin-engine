@@ -14,7 +14,7 @@
   │ (ImageImporter)              byte[] pixels              + mipLevels + gpu 句柄       (guid 分流→Texture2D)
 ```
 
-- **Image（`com.javelin.core.render.texture.Image`，extends AbsAsset）**：像素资产=导入产物，纯数据持有者。磁盘一份（`Library/{guid}.asset`）全项目共享，多引用零复制。
+- **Image（`cn.donting.javelin.core.render.texture.Image`，extends AbsAsset）**：像素资产=导入产物，纯数据持有者。磁盘一份（`Library/{guid}.asset`）全项目共享，多引用零复制。
 - **Texture2D**：引用层=Image 引用 + 采样/派生设置（FilterMode/WrapMode/mipLevels）。**同一 Image 可被多个 Texture2D 以不同设置引用**——消解 Unity「导入设置在源文件 .meta、一文件一导入结果、多设置须复制文件」痛点；本质=Vulkan image/sampler 分离上移资产层。宽高/格式/像素经 image 委托（image 为 null 访问即抛）。gpu 句柄维持懒上传回填、序列化不落地。
 - **占位常量**（whiteTexture/blackTexture/normalTexture）：Texture2D 包 1×1 `Image.solid`，device 无关语义不变。
 

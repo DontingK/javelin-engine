@@ -5,17 +5,12 @@ plugins {
     id 'org.graalvm.buildtools.native' version '1.1.0'
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin.game'
+version = '0.1.0'
 
 repositories {
     mavenLocal()
-    maven { url "https://oss.sonatype.org/content/repositories/snapshots/" }
-    maven { url "https://central.sonatype.com/repository/maven-snapshots" }
-    // JMonkeyEngine 仓库
-    maven { url "https://jcenter.bintray.com" }
     mavenCentral()
-
 }
 compileJava {
     options.release = 25
@@ -27,20 +22,19 @@ compileTestJava {
     options.encoding = 'UTF-8'
 }
 dependencies {
-    implementation 'com.javelin:javelin-core:1.0-SNAPSHOT'
-    implementation 'com.javelin:javelin-log:1.0-SNAPSHOT'
+    implementation 'cn.donting.javelin:javelin-core:0.1.0'
+    implementation 'cn.donting.javelin:javelin-log:0.1.0'
 
-    annotationProcessor 'com.javelin:javelin-ast:1.0-SNAPSHOT'
-    compileOnly 'com.javelin:javelin-ast:1.0-SNAPSHOT'
+    annotationProcessor 'cn.donting.javelin:javelin-ast:0.1.0'
+    compileOnly 'cn.donting.javelin:javelin-ast:0.1.0'
 
-    compileOnly 'com.javelin:javelin-ast:1.0-SNAPSHOT'
-    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation platform('org.junit:junit-bom:6.0.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
 
 
 application {
-    mainClass = 'com.javelin.core.GameMain'
+    mainClass = 'cn.donting.javelin.core.GameMain'
     applicationName = project.name
 }
 // 新增：配置jar任务
@@ -75,7 +69,7 @@ graalvmNative {
                 vendor = JvmVendorSpec.matching("Oracle Corporation")
             }
             imageName = project.name
-            mainClass = 'com.javelin.core.AotGameMain'
+            mainClass = 'cn.donting.javelin.core.AotGameMain'
             debug = false
             verbose = false
             fallback = false

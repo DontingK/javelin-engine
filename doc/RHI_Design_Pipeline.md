@@ -1502,7 +1502,7 @@ frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 3. 提交后 present 等 renderFinished——backbuffer 写完成才呈现。
 
 > 落地（阶段⑥，用户决策：core 侧帧循环 + Device 扩展）：帧循环实现于
-> javelin-core `com.javelin.core.render.FrameLoop` / `FrameState`，单线程退化模式（27.1）。
+> javelin-core `cn.donting.javelin.core.render.FrameLoop` / `FrameState`，单线程退化模式（27.1）。
 > 与上文伪代码的差异：① 图为每帧声明，backbuffer 在 acquire 之后经
 > `renderFrame(Function<Texture, RenderGraphBuilder> graphFactory)` 入参传入声明回调；
 > ② 图执行走 `graph.execute(cmd, backbuffer, compiled)` 三参重载（RenderGraphCache 产物，

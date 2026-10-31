@@ -70,7 +70,7 @@ ReloadResult reload(String guid);   // invalidate + loadGuidInstance 重读，�
 
 **此层与持有形态完全解耦**：无论谁持有、持多久，reload 只负责「下次能拿到新实例」。
 
-### 4.2 反射 Walker（编辑器侧，com.javelin.editor.asset.reload）
+### 4.2 反射 Walker（编辑器侧，cn.donting.javelin.editor.asset.reload）
 
 **入口**：`EditorObjectRegistry.snapshot()`——编辑器对象注册表产出的全部存活对象快照。注册表经 `ObjectId.setRegistrar` 装入构造回调（`ObjectId` 构造尾部同步通知；未装回调时构造零额外开销，引擎运行时恒不装），以**弱引用**收拢每个 `ObjectId` 实例，不阻 GC；死条目在 snapshot 入口清理（清理节奏自持，不依赖外部 update 驱动）。
 

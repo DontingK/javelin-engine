@@ -2,7 +2,7 @@
 
 > 版本：v0.1
 > 日期：2026-09-21
-> 模块：javelin-core（`com.javelin.core.window`）
+> 模块：javelin-core（`cn.donting.javelin.core.window`）
 > 上游依赖：javelin-rhi 的 `RenderSurface` / `Platform`（RHI 设计文档 23.2 / 23.3）
 
 ---
@@ -26,7 +26,7 @@ javelin-core 已具备 Subsystem 体系（`SubsystemManager` / `Subsystem`）与
 ## 3. 核心设计：Window 与 RenderSurface 分离
 
 ```
-com.javelin.core.window              com.javelin.rhi.render
+cn.donting.javelin.core.window              cn.donting.javelin.rhi.render
 ┌──────────────────────┐             ┌─────────────────────┐
 │ Window（接口）        │             │ RenderSurface（接口） │
 │  showWindow          │             │  nativeHandle()     │

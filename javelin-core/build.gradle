@@ -7,15 +7,14 @@ plugins {
 
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin'
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
 }
 application {
-    mainClass = 'com.javelin.core.JavelinEngine'
+    mainClass = 'cn.donting.javelin.core.JavelinEngine'
     applicationName = project.name
 }
 compileJava {
@@ -62,7 +61,7 @@ test {
 tasks.register('runTest', JavaExec) {
     group = 'application'
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = System.getProperty('mainClass', 'com.javelin.core.ClearColorTest')
+    mainClass = System.getProperty('mainClass', 'cn.donting.javelin.core.ClearColorTest')
     jvmArgs = ['--enable-native-access=ALL-UNNAMED']
 }
 
@@ -89,7 +88,7 @@ graalvmNative {
                 vendor = JvmVendorSpec.matching("Oracle Corporation")
             }
             imageName = 'javelin'
-            mainClass = 'com.javelin.core.JavelinEngine'
+            mainClass = 'cn.donting.javelin.core.JavelinEngine'
             debug = false
             verbose = false
             fallback = false

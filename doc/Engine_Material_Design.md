@@ -14,7 +14,7 @@
 - core 的 material 包**只放纯数据**：不含 .shader 解析器、不含 GLSL、不含 shaderc、不碰 RHI Device；
 - 所有 device-bound 资源（set 2 布局、material UBO、描述符集、PSO）由渲染侧（RenderingSystem 体系）懒创建与缓存。
 
-## 2. 包结构（com.javelin.core.render.material）
+## 2. 包结构（cn.donting.javelin.core.render.material）
 
 | 类 | 职责 | 对应 RHI 文档 |
 |---|---|---|

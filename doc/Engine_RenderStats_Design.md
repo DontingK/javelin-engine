@@ -12,7 +12,7 @@
 | 统计范围 | 11 类资源全量计数：texture / buffer / graphicsPipeline / computePipeline / sampler / shaderModule / pipelineLayout / descriptorSetLayout / descriptorSet / fence / semaphore |
 | 展示 | 新增 AppState 控制的 DebugText overlay，F3 开关，默认显示 |
 
-## 2. RHI 层（com.javelin.rhi）
+## 2. RHI 层（cn.donting.javelin.rhi）
 
 ### 2.1 GPUInfo（一次性静态信息）
 
@@ -92,7 +92,7 @@ mainLoop 尾 → resetFrameStats：runtime 快照进 lastFrame 并清零
 图声明（含 overlay 装配）天然先于录制，overlay 读到的只能是上一帧——
 快照双缓冲即为此设计（bgfx stats 同款语义），不存在读零问题。
 
-### 3.2 RenderStatsAppState（com.javelin.core.debug）
+### 3.2 RenderStatsAppState（cn.donting.javelin.core.debug）
 
 - `extends AbstractAppState`；F3 边沿（`Input.wasPressed`）切 `visible`，**默认 true**；
 - 关闭时逐行 `DebugText.clear(row)` 清干净自己占的行；

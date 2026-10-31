@@ -3,8 +3,7 @@ plugins {
     id 'maven-publish'
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin'
 
 dependencies {
     implementation "org.slf4j:slf4j-api:$slf4jVersion"

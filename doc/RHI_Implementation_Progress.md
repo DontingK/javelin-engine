@@ -290,7 +290,7 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
 ## 阶段 ⑥ 第一步：帧循环收口 + 清屏（2026-09-21 完成，2026-09-22 端到端验证跑通）
 
 ### 用户决策（2026-09-21）
-- 帧循环放 **core 侧**（javelin-core `com.javelin.core.render`），通过扩展 Device 公开接口驱动——不建 RHI 内 FrameScheduler
+- 帧循环放 **core 侧**（javelin-core `cn.donting.javelin.core.render`），通过扩展 Device 公开接口驱动——不建 RHI 内 FrameScheduler
 - swapchain recreate 触发在帧循环类**内部**（isResized 轮询 + acquire<0 双路径，自包含）
 - 本次验证范围 = **清屏**，三角形留到下一步
 
@@ -321,7 +321,7 @@ gradlew :javelin-rhi:compileJava  ✅ 通过（阶段③ + 阶段④均验证）
   - API：`renderFrame(Function<Texture, RenderGraphBuilder> graphFactory)`——acquire 先于图声明，
     backbuffer 以入参提供给声明回调（对计划 renderFrame(RenderGraphBuilder) 的必要修正）
 - `test/java/com/javelin/core/ClearColorTest.java` —— 端到端清屏验证，
-  运行：`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.ClearColorTest`
+  运行：`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.ClearColorTest`
 
 ### 已知问题（本步接受，记入待办）
 | 问题 | 影响 | 方向 |
@@ -412,7 +412,7 @@ RHI 侧改动：
   `vkCmdPushConstants`，stageFlags=ALL_GRAPHICS（与管线布局声明一致），
   管线布局句柄复用 bindPipeline 缓存；pushConstantSize 的管线布局接线是第三步顺带完成的
 
-新增 `PushUniformTest`（`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.PushUniformTest`）：
+新增 `PushUniformTest`（`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.PushUniformTest`）：
 
 - **UBO1 帧环形**：单块 hostVisible 缓冲 2 槽 × 256B（= maxFramesInFlight），槽号 =
   `frameCounter % 2`（与 FrameState 环形同奇偶，槽位复用前有 fence 闸门），set0 声明
@@ -455,7 +455,7 @@ pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDes
 
 ### 阶段⑥ 前置（已完成，2026-09-21）
 
-core 侧窗口接口：`com.javelin.core.window` 包——`Window` / `GLFWWindow` /
+core 侧窗口接口：`cn.donting.javelin.core.window` 包——`Window` / `GLFWWindow` /
 `GLFWRenderSurface`（适配器，包私有）。Window 为 `JavelinEngine` 构造注入属性
 （用户拍板：不是子系统），Window 与 RenderSurface 分离设计，
 详见 `doc/Engine_Window_Design.md`（用户已拍板：分离 + 最小呈现集）。

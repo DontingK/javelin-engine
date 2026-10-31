@@ -200,7 +200,7 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
 
 ### 6.5 文件类型注册器（file 包，2026-10-18 落地、2026-10-23 用户验收）
 
-`com.javelin.editor.file` 五件——`FileType` 接口（extensions 含点号小写 /
+`cn.donting.javelin.editor.file` 五件——`FileType` 接口（extensions 含点号小写 /
 icon 裸名 / canOpen / open：EDT 调用、内部自管线程）+ `IconFileType`（纯图标型，
 .java/.json 首批）+ `SceneFileType`（.scene：图标+打开）+ `FileTypeRegistry`
 （静态门面：扩展名→类型 LinkedHashMap、重复注册 fail-fast、find 按文件名

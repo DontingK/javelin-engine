@@ -57,7 +57,7 @@
   - `Scene` 接口（getName/getCameras/getRenderables/update）+ `GameScene`：add/remove（attachSubtree/detachSubtree：整树递归、归属检查、onAwake 全树先于 onEnable）+ update 扁平注册表驱动 onStart（每组件一次）/onUpdate + 组件注册表（cameras/renderables/全量 components，O(1) 增删，不每帧遍历场景树）；
   - 内置组件：Camera（fov/near/far/main）、MeshRenderer（阴影标记 + implements Renderable，mesh/material 字段待阶段④资产管线）；Layer/LayerMask/Tag（31 层预定义 + 位掩码，Unity 风格）；材质骨架 Material/Shader（extends AbsAsset，随 AbsAsset 改继承 ObjectId 落地）；
 - **拍板（2026-09-25）**：**无 createNode**；`setParent` 挂到已入场景的父节点自动整树入场景，**摘除即出场景**（整棵子树 onDisable/onDestroy + 注销；不同于 Unity 出生即入场景——本引擎节点可裸存在）；已属场景禁止跨场景 setParent（抛异常）；**渲染衔接走 pull**（推翻 ③ 节原"scene.add 自动调 addCamera/addRenderer"预登记路径：引擎层每帧从 getCameras/getRenderables 取组件，翻译成 RenderCamera/RenderObject 喂 RenderingSystem）；onAwake 对整树触发含 inactive 节点（Unity 语义），仅 onEnable 按激活过滤；
-- **验收 ✅（2026-09-25 用户运行全绿）**：`GameSceneTest` 13 用例——add/remove/setActive 回调序与级联边界、setParent 自动入/出场景（含孙节点）、跨场景/二次 remove 抛异常、注册表内容、update 驱动、Transform 父链世界矩阵与防环、重复 Transform 拒绝；`gradlew :javelin-core:test --tests com.javelin.core.scene.GameSceneTest`；
+- **验收 ✅（2026-09-25 用户运行全绿）**：`GameSceneTest` 13 用例——add/remove/setActive 回调序与级联边界、setParent 自动入/出场景（含孙节点）、跨场景/二次 remove 抛异常、注册表内容、update 驱动、Transform 父链世界矩阵与防环、重复 Transform 拒绝；`gradlew :javelin-core:test --tests cn.donting.javelin.core.scene.GameSceneTest`；
 - **遗留**：~~GameScene→RenderingSystem 的 pull 翻译接线~~——**已关闭（2026-09-25 场景渲染接入）**：`SceneRenderBridge` 落地（Camera→RenderCamera、MeshRenderer→RenderObject、多相机横向均分视口），MeshRenderer.mesh/material 字段已补；environment/sun、.scene 序列化仍 P2；
 - **对应文档**：`Engine_Scene_Design.md`（v0.2）1–6 节。
 
@@ -72,7 +72,7 @@
   - `RenderingSystem`：注册表 + UBO1 帧环形收编（2 槽 × 1280B，相机块 256B 对齐 + 时间块；描述符 range=256B 防末槽越界）+ 内置无光照 PSO 缓存（VertexLayout×混合 为键）+ 每相机深度纹理（resize 换绑交 Cleaner）+ 每帧收集（opaque 分桶排序 / transparent 视图空间 z 升序；**视锥剔除/AABB 属优化点，用户拍板后置 2026-09-25**）；
   - v0.1 Forward 管线 `DefaultHybridRenderPipeline`：OpaqueForward（区域 CLEAR，分屏互不覆盖）→ TransparentForward（LOAD 叠加、深度复用、alpha 混合）；钩子点 8 个 + PostProcessChain 空链直通；**着色器源码不进 core**（用户拍板 2026-09-25）：GLSL 放 `src/test/resources/shaders/`，`TestShaders`/`RhiTestBase.compileShaderResource` 读资源 + shaderc 编译 SPIR-V 后 installBuiltinShaders；
   - mainLoop 收口：renderFrame(graphFactory) 内 collectFrame（acquire 后声明，24.1）→ 逐视口 buildGraph；
-  - `MultiCameraDemo`（test 源）：左右分屏双相机 + 3 旋转四边形（含 1 透明）；运行 `gradlew :javelin-core:runTest -DmainClass=com.javelin.core.MultiCameraDemo`；
+  - `MultiCameraDemo`（test 源）：左右分屏双相机 + 3 旋转四边形（含 1 透明）；运行 `gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.MultiCameraDemo`；
 - **验收 ✅（2026-09-25 用户运行通过）**：**19 节多相机多物体 Demo**——分屏区域清屏正确、双相机各自画面、透明混合排序正确、物体不颠倒、resize 不崩；**RHI 阶段⑥正式关账**；
 - **后续（路线一第二、三步）**：+ShadowPass/GBuffer/Lighting 切混合（渲染管线专档第 8 节）；后处理链具体化；
 - **对应文档**：`Engine_Scene_Design.md` 5–7 节、`Engine_Rendering_Design.md`（待写）、RHI 9/19/27 节。

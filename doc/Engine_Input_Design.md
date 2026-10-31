@@ -31,7 +31,7 @@ InputSubsystem（InputSink + Subsystem 双重角色）
 Input 静态门面（唯一使用方式：原始查询 + 动作 bind/bindAxis/unbind + 动作名查询）
 ```
 
-### 2.1 类清单（`com.javelin.core.input`）
+### 2.1 类清单（`cn.donting.javelin.core.input`）
 
 | 类/接口 | 职责 |
 |---------|------|
@@ -147,7 +147,7 @@ InputSubsystem（单线程消费，后续与 GLFW 路径完全一致）
 
 ## 7. 验收样例（双 Demo 对照：动作层 / 原始层）
 
-`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.InputCameraDemo`
+`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.InputCameraDemo`
 （动作层样例：移动/视角/缩放走 bind + 按名查询）
 
 - WASD/方向键移动（Input.bind 布尔动作 + 键组轴）、QE 升降、滚轮调速度（scroll 连续源轴）、
@@ -159,7 +159,7 @@ InputSubsystem（单线程消费，后续与 GLFW 路径完全一致）
 - 失焦再聚焦：按住的键不卡键；
 - ESC 不再关窗（系统关闭按钮关窗）。
 
-`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.RawInputDemo`
+`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.RawInputDemo`
 （**原始层对照样例**：与上例同场景同行为，但**全程零 bind / 零按名查询**——
 isDown/isMouseDown/wasPressed/mouseDelta/scrollDelta/mouseXY 直查；
 SPACE 此处为边沿翻转移动方向。两个 Demo 的 [perf] 对比即动作表解析开销的

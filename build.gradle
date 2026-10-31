@@ -2,8 +2,7 @@ plugins {
     id 'java'
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin'
 
 project.ext.lwjglVersion = "3.4.2"
 project.ext.lwjglNatives = "natives-windows"

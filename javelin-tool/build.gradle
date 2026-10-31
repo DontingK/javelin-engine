@@ -3,8 +3,7 @@ plugins {
     id 'application'
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin'
 
 dependencies {
     // 从根项目继承平台版本管理
@@ -22,7 +21,7 @@ test {
 // DebugText 调试文本资产生成 CLI（字库 bin + .spv）：
 // gradlew :javelin-tool:run --args="<TTF/OTF 路径> <输出目录>"
 application {
-    mainClass = 'com.javelin.tool.debugtext.DebugTextAssets'
+    mainClass = 'cn.donting.javelin.tool.debugtext.DebugTextAssets'
     // COMPAT=随系统控制台编码（GBK），避免 Java18+ 默认 UTF-8 在中文 Windows 控制台乱码；
     // 若改在 IDEA Run 窗口跑出现乱码则删掉这一条（IDEA 控制台默认 UTF-8）
     applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED', '-Djava.awt.headless=true', '-Dfile.encoding=COMPAT']
@@ -31,7 +30,7 @@ application {
 // GPU 拾取着色器资产生成 CLI（pick.spv，Engine_Picking_Design）：
 // gradlew :javelin-tool:generatePickSpv [--args="<输出目录>"]
 tasks.register('generatePickSpv', JavaExec) {
-    mainClass = 'com.javelin.tool.pick.PickAssets'
+    mainClass = 'cn.donting.javelin.tool.pick.PickAssets'
     classpath = sourceSets.main.runtimeClasspath
     jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
 }
@@ -39,7 +38,7 @@ tasks.register('generatePickSpv', JavaExec) {
 // 编辑器调试线着色器资产生成 CLI（debugline.spv，Editor_DebugLine_Design）：
 // gradlew :javelin-tool:generateDebugLineSpv [--args="<输出目录>"]
 tasks.register('generateDebugLineSpv', JavaExec) {
-    mainClass = 'com.javelin.tool.debugline.DebugLineAssets'
+    mainClass = 'cn.donting.javelin.tool.debugline.DebugLineAssets'
     classpath = sourceSets.main.runtimeClasspath
     jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
 }

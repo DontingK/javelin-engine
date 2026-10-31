@@ -125,7 +125,7 @@ zh_CN 语言 + 两域语言包，新语言包 = 对应插件注册即生效，�
 
 ### 3.1 发现机制：ServiceLoader
 
-JDK 标准零依赖；`META-INF/services/com.javelin.editor.plugin.Plugin` 声明入口类——
+JDK 标准零依赖；`META-INF/services/cn.donting.javelin.editor.plugin.Plugin` 声明入口类——
 **看得见、无魔法，与项目「不做注解扫描、集中显式」口径同源**，services 文件本身就是
 manifest（不发明 XML/JSON 格式）。无参构造反射实例化（与菜单域 ClassUtil 扫描同口径，
 无依赖注入——插件要的一切从 `setup(PluginContext)` 进来）。
@@ -341,7 +341,7 @@ myplugin.jar
  ├─ com/example/myplugin/（MyPlugin 入口 / MyLang 门面 / 功能类）
  ├─ lang/en_US.properties          ← 自己域的英文（注册目标域 = 自己 namespace）
  ├─ lang/zh_CN.properties          ← 自己域的中文（可选）
- └─ META-INF/services/com.javelin.editor.plugin.Plugin → 入口类
+ └─ META-INF/services/cn.donting.javelin.editor.plugin.Plugin → 入口类
 ```
 
 语言包（key 局部名 + {} 顺位插值）：

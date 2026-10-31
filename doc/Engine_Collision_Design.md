@@ -34,7 +34,7 @@ L2 物理系统（后期，选型后立项：自研/物理库）
 L1 场景查询（二期③ Ray；**2026-10-28 落地待验收，§10**——Physics 静态门面 + RaycastHit；编辑器拾取不经此线，终态统一 GPU ID-buffer）
 │  Collider 组件族（已拍板：碰撞体=组件、负责形状）+ 屏幕点→世界射线（Camera.screenToRay，已验收）+ 场景 raycast（Physics.raycast/raycastAll）→ RaycastHit
 ▲ 全部几何计算委托
-L0 纯数学（本档，现在做）：com.javelin.core.physics(.collision)
+L0 纯数学（本档，现在做）：cn.donting.javelin.core.physics(.collision)
    Ray / CollisionShape 族 / Aabb / 相交例程——零 ECS、零场景、零序列化、零帧语义
 ```
 

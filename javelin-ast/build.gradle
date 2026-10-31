@@ -3,8 +3,7 @@ plugins {
     id 'maven-publish' // 核心：Maven 发布插件
 }
 
-group = 'com.javelin'
-version = '1.0-SNAPSHOT'
+group = 'cn.donting.javelin'
 
 java {
     toolchain {
@@ -60,7 +59,7 @@ dependencies {
 tasks.jar {
     manifest {
         attributes(
-                'Automatic-Module-Name': 'com.javelin.ast'
+                'Automatic-Module-Name': 'cn.donting.javelin.ast'
         )
     }
 }

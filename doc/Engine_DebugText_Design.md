@@ -44,7 +44,7 @@ AppStateSubsystem 之后（写发生在用户代码 update 时段、消费在渲
 
 ### 2.1 类清单
 
-core `com.javelin.core.debug`（**预留空包，正好落位**）：
+core `cn.donting.javelin.core.debug`（**预留空包，正好落位**）：
 
 | 类 | 职责 |
 |----|------|
@@ -148,7 +148,7 @@ javelin-tool：
 
 ## 7. 验收样例
 
-`gradlew :javelin-core:runTest -DmainClass=com.javelin.core.DebugTextDemo`
+`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.DebugTextDemo`
 （JavelinEngineTestBase + loadScene→null 范本，**无相机纯清屏场景**）：
 
 - 无相机也出字（挂点验证——ClearOnly 分支外 overlay 独立生效）；

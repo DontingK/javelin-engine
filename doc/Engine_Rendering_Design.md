@@ -54,7 +54,7 @@ collectFrame(frameIndex, backbuffer):
 > RHI 9 节的 RenderView 是「视图/投影/视口」的消费契约；引擎侧 RenderView 是**每帧为每个相机生成**的视图描述，字段级定义如下（RHI 文档只有概念，本文定引擎侧实体）。
 
 ```java
-class EngineRenderView {              // 命名 RenderView，包 com.javelin.core.render
+class EngineRenderView {              // 命名 RenderView，包 cn.donting.javelin.core.render
     Camera camera;                    // 来源组件（Scene 5.2）
     Matrix4 view;                     // transform.worldToLocal（世界 → 视图）
     Matrix4 proj;                     // Vulkan NDC 约定 + Y 翻转（第 7 节）
