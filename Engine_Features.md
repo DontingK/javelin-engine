@@ -249,7 +249,7 @@
 | 第三方装载管线（PluginClassLoader parent-first / PluginInstance.load 全程不抛 + 失败关 cl 释放 jar 锁 / 一个 jar 一个插件） | ✅（2026-10-20） | — 静态骨架，第三方 jar 实测随后置装载批 |
 | PluginManager 宿主管线（classpath 恒先 fail-fast / jar 段 warn 跳过 + FAILED 账本 / namespace 冲突后来者跳过 / 语言包注册先于 setup） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 装载接入（ProjectLoadingFrame Engine Main 线程、GradleProject 后资产初始化前；Plugins/ 目录项目级） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
-| 插件装载错误显性化（任何插件报错——本体/第三方、发现/装载/冲突/setup——弹错误框显示 namespace+错误信息，确认后关闭编辑器 System.exit；原「第三方 warn 跳过/降级装载」口径作废，Editor_Plugin_Design §3.4） | ✅（2026-10-29） | ⏳ 待验收（坏 jar → 弹框+退出） |
+| 插件装载错误显性化（任何插件报错——本体/第三方、发现/装载/冲突/setup——弹错误框显示 namespace+错误信息，确认后关闭编辑器 System.exit；原「第三方 warn 跳过/降级装载」口径作废，Editor_Plugin_Design §3.4） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31） |
 | i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ✅ 用户实测（2026-10-30，随④焦点扫描批次验收） |
