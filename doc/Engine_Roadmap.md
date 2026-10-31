@@ -194,7 +194,7 @@ Engine_Material_Design §3.2 / Editor_Menu_Design v0.13。
 （key=命令 id 约定，域基类默认 label，12 命令类覆写全删），`lang/zh_cn.properties`
 36 条（含 create.material 注册补漏 ac8a514）。待拍板挂账：命令 id 前缀化/FileType 冲突策略/默认语言。详见 Editor_Plugin_Design。
 
-进度（2026-10-30 落地，⏳ 待用户实测验收）：**i18n 全量化批次**（Editor_Plugin_Design
+进度（2026-10-30 落地，✅ 2026-10-31 用户实测验收销账）：**i18n 全量化批次**（Editor_Plugin_Design
 v0.3 §9）——编辑模块 ~300 条非日志用户可见字面量全迁（异常/弹窗/面板与窗口标题/
 检查器全件/打包日志行），双语言包 zh_CN·en_US 各 354 键对齐；异常面收 I18nKey
 （LangException 受检新基类 + TipException/ShaderParseException 构造器收键）；
@@ -322,7 +322,7 @@ identity 稳定；API 面全保留）；material() 改双重检查锁（已建�
 进同步块）。验收口：改 .shader → reimport → 画面当帧变；改 .mat → 不 reload（检查器
 内存编辑仍即时生效）。
 
-进度（2026-10-29 落地，**待用户验收**）：**插件装载错误显性化 + 语言包注册制随批**
+进度（2026-10-29 落地，**语言包注册制随 i18n 批次已验收（2026-10-31）；插件装载错误显性化待验收**）：**插件装载错误显性化 + 语言包注册制随批**
 （Editor_Plugin_Design §3.4/§4.3）——装载期任何插件报错（本体/第三方、发现/装载/
 namespace 冲突/setup 失败，含语言包路径缺失）一律弹错误框显示 namespace+错误信息
 （EDT invokeAndWait 阻塞至确认，显示 namespace+包路径+错误信息——包路径供排障

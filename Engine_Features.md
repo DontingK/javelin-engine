@@ -167,8 +167,8 @@
 | project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅ 用户实测（2026-10-25） |
 | project.create.texture 创建纹理命令（v0.17，texture.texture=空 image+默认采样设置的 Texture2D 文本序列化；创建族第三项、guid 与 meta 同源四处一致） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | file.open 实做（文件类型注册器分发打开 + 脏场景三键确认） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
-| file.preferences 首选项命令（v0.18，文件域第二项——PreferencesDialog 语言设置首批，确定写回 EditorSettings.language 存盘 + 重启生效） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机） |
-| 语言设置全链（**语言包注册制**：I18n.registerLanguage 支持语言注册表 + registerPack「域+语言+路径」显式注册（PluginContext 收口，`lang/{lang}.properties` 固定路径规范废除——文件布局自定、一文件一域、集中式语言包可翻译其他插件域；editor.core 注册 en_US/zh_CN）+ EditorSettings.language 字段 + 启动链 main setLanguage——未设置按系统语言 tag 解析、**缺键逐键回退该域基线（该域第一个注册的语言包，英文不特殊）**） | ✅（2026-10-29） | ⏳ 待验收（首启系统语言/切换重启生效） |
+| file.preferences 首选项命令（v0.18，文件域第二项——PreferencesDialog 语言设置首批，确定写回 EditorSettings.language 存盘 + 重启生效） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31，随 i18n 全量化批次验收） |
+| 语言设置全链（**语言包注册制**：I18n.registerLanguage 支持语言注册表 + registerPack「域+语言+路径」显式注册（PluginContext 收口，`lang/{lang}.properties` 固定路径规范废除——文件布局自定、一文件一域、集中式语言包可翻译其他插件域；editor.core 注册 en_US/zh_CN）+ EditorSettings.language 字段 + 启动链 main setLanguage——未设置按系统语言 tag 解析、**缺键逐键回退该域基线（该域第一个注册的语言包，英文不特殊）**） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31，随 i18n 全量化批次验收） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
 | GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
 
@@ -253,8 +253,8 @@
 | i18n 基建（I18nKey 自持 namespace + text() / I18nScope + EditorLang 门面 / I18n 注册中心：约定路径装载 UTF-8、!key! 兜底不抛、去重 warn、miss/used 采集、setLanguage 启动期锁定） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 菜单 i18n 首批（MenuCommand.label()→I18nKey 全链；key=命令 id 域基类默认；渲染点 .text()；lang/zh_cn.properties 36 条，含 create.material 补注册 2026-10-20） | ✅（2026-10-20） | ✅ 用户实测（2026-10-20） |
 | 新功能文案随批 i18n（导入进度框 3 条 / 创建着色器弹框 2 条 / 着色器诊断台状态行 5 条随功能批次接 EditorLang，2026-10-27——不再攒批进第二批） | ✅（2026-10-27） | ✅ 用户实测（2026-10-30，随④焦点扫描批次验收） |
-| 默认语言 en_US（`lang/en_US.properties` 全量 50 键英文翻译新建 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"——必备默认文件换位，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包，Editor_Plugin_Design §7.1 拍板） | ✅（2026-10-29） | ⏳ 待验收（编辑器实机英文界面） |
-| **i18n 全量化批次**（编辑模块 ~300 条非日志字面量全迁：异常/弹窗/面板与窗口标题/检查器标签与面板/打包日志行；双语言包 zh_CN·en_US 各 354 键对齐；异常面收 I18nKey——LangException 受检基类 + TipException/ShaderParseException 构造器收键；@InsField/@InsHeader/InsEnumLabel label 改语言包局部键；Editor_Plugin_Design §9） | ✅（2026-10-30） | ⏳ 待验收（zh_CN/en_US 全界面 + 弹框路径 + 机检测试） |
+| 默认语言 en_US（`lang/en_US.properties` 全量 50 键英文翻译新建 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"——必备默认文件换位，zh_CN.properties（原 zh_cn 同批大写规范）降为可选本地化包，Editor_Plugin_Design §7.1 拍板） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31，随 i18n 全量化批次验收） |
+| **i18n 全量化批次**（编辑模块 ~300 条非日志字面量全迁：异常/弹窗/面板与窗口标题/检查器标签与面板/打包日志行；双语言包 zh_CN·en_US 各 354 键对齐；异常面收 I18nKey——LangException 受检基类 + TipException/ShaderParseException 构造器收键；@InsField/@InsHeader/InsEnumLabel label 改语言包局部键；Editor_Plugin_Design §9） | ✅（2026-10-30） | ✅ 用户实测（2026-10-31） |
 | 源码机检（CjkStringLiteralCheckTest：CJK 字面量即红，log 行豁免 + 引导期/数据面白名单） | ✅（2026-10-30，Editor_Plugin_Design §4.5-3） | — 随单测任务（:javelin-editor:test 全绿面） |
 | i18n 报告导出命令（Tools 域 miss/used 分桶工单）+ 注解层启动校验（§4.5-2） | ⬜ 后置批次（Editor_Plugin_Design §7.2） | — |
 

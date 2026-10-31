@@ -511,7 +511,7 @@ PluginClassLoader/PluginManager/EditorCorePlugin/EditorLang）、`editor.i18n` �
 MenuPopupFactory/三域基类/全部命令类）、三 Setup、JavelinEditor/MainFrame/
 ProjectLoadingFrame。
 
-## 9. i18n 全量化批次（2026-10-30，待用户实测验收）
+## 9. i18n 全量化批次（2026-10-30 落地，2026-10-31 用户实测验收销账）
 
 **范围**：编辑模块全部非日志用户可见字面量——异常消息（导入器/解析器/检查器回写/
 序列化/工具类）、弹窗与状态栏（打包/场景打开/创建命令/资产拖放）、面板与窗口文案
