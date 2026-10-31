@@ -199,12 +199,6 @@ final class VulkanDevice implements Device {
     }
 
     @Override
-    public PipelineLayout createPipelineLayout(PipelineLayoutDesc desc) {
-        checkDisposed();
-        return new VulkanPipelineLayout(this, desc);
-    }
-
-    @Override
     public DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc) {
         checkDisposed();
         return new VulkanDescriptorSetLayout(this, desc);

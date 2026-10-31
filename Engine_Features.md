@@ -28,6 +28,7 @@
 | 描述符池环形 | ⬜ 后置 | — |
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
 | R32Uint 拾取附件 + 图像读回 | ✅（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ✅ 用户实测（2026-10-23，随拾取全链） |
+| **SSBO + compute 全链**（三期批次①，2026-10-31 落地：compute 管线布局装配补齐（原空壳——setLayouts+pushConstantRange，stage=COMPUTE）/ pushConstants stageFlags 按 bindPoint 分流 / **Buffer 进图同步**——PassDef addBufferRead/Write + 依赖推导 + structureHash + VkBufferMemoryBarrier 屏障计划（通用资源面，非光照特化）/ DescriptorUpdate.storageBuffer VK_WHOLE_SIZE 修正+offset/range 重载 / 删 VulkanPipelineLayout+createPipelineLayout 死代码；SSBO 描述符链/dispatch/compute 进图骨架为 RHI 实装期既有） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，ComputeSsboTest 全环——双段 compute 链+图形读+读回 65536 元素逐比对通过 + ComputeShaderImporterTest 绿；排障两条入 Vulkan_Pitfalls #27/#28） |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -282,7 +283,12 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**（二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目）。
+**当前挂账 0 项**（三期批次① RHI SSBO/compute 底座 + `.compute` 资产类型 + set1 帧级 storage 通道
+2026-10-31 当日用户实测销账——ComputeSsboTest 全环（双段 compute 链+图形读+帧 60 读回 65536 元素
+逐比对通过；首跑 AV 崩溃=动态 viewport 空集 VUID 违规、二跑 4931 超容差=sin 大自变量区间归约
+GPU/CPU 实现差，两坑随批修复入 Vulkan_Pitfalls #27/#28）+ ComputeShaderImporterTest 绿）。
+
+**历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目。
 
 **二期挂账历史（①~⑧全销账，保留记录）**：
 

@@ -462,6 +462,77 @@ core 侧窗口接口：`cn.donting.javelin.core.window` 包——`Window` / `GLF
 
 ---
 
+## 三期批次①：SSBO + compute 全链（2026-10-31 落地，待实机验收）
+
+**背景**：Engine_Lighting_Design §9 批次①（RHI 底座前置）。实勘校正设计稿认知：SSBO 描述符链
+（DescriptorType.STORAGE_BUFFER / DescriptorUpdate.storageBuffer / VulkanDescriptorSet 布局映射）、
+`dispatch` / 双 bindPoint `bindPipeline`、compute Pass 进图/拓扑/执行骨架、RenderStats 计数——
+RHI 实装期已有，**非本批工作**。真缺口五项 + 资产面/通道面：
+
+**RHI 改动**：
+- `VulkanComputePipeline.createPipelineLayout` 原空壳（只 sType 即创建，无 pSetLayouts/pPushConstantRanges
+  ——compute 管线绑不了任何描述符集也用不了 push constant）→ 照 VulkanGraphicsPipeline:246-281 补齐
+  （ownedSetLayouts 持有 + dispose 成对），stageFlags=COMPUTE；
+- `VulkanCommandBuffer.pushConstants` stageFlags 原写死 ALL_GRAPHICS（compute 管线布局声明 COMPUTE 位，
+  不匹配即 validation 报错/静默失效）→ 按当前 bindPoint 分流；
+- **Buffer 进图同步**（「能跑」与「正确」的分界线）：`PassDef.addBufferRead/addBufferWrite` 声明面 +
+  `RenderGraphImpl` 依赖推导纳入 buffer（与纹理共用 writers/readers 表，**句柄取反作命名空间**——
+  VkImage/VkBuffer 句柄同为 long，规范不保证跨类型不撞键）+ structureHash（0x4252/0x4257 标记）+
+  `CompiledGraph.BufferBarrier` 屏障计划（编译期按拓扑序跟踪最近使用，仅非首用出条目——首帧首用无
+  帧内先行者，帧外同步归上传路径）+ 执行器 `bufferLastUse` 跟踪 + `CommandBuffer.bufferBarrier`
+  （VkBufferMemoryBarrier，VK_WHOLE_SIZE，源/目标域按两端 Pass 类型现推：compute=COMPUTE_SHADER、
+  图形=FRAGMENT_SHADER，访问位 SHADER_READ/WRITE）；
+- `DescriptorUpdate.storageBuffer` 原 range=0 直传 VkDescriptorBufferInfo（VUID 要求 >0 或 VK_WHOLE_SIZE，
+  0 非法）→ 整段绑定显式 VK_WHOLE_SIZE + `storageBuffer(binding, buffer, offset, range)` 重载；
+- 删死代码：`VulkanPipelineLayout` + `PipelineLayout` 接口 + `desc/PipelineLayoutDesc` +
+  `Device.createPipelineLayout`（setLayouts 循环空转零消费方；管线布局统一由两 Pipeline 类内建装配）。
+
+**资产面**（`.compute` 独立资产类型，2026-10-31 用户拍板——Unity 口径扩展名区分；内嵌 spv 路线判废）：
+core `ComputeShader` 资产类（name + spirv，isValid stub 判据对齐 Shader；红线 9 非 final）；
+editor `ComputeShaderImporter`（shaderc COMPUTE 编译，**无注入**——compute 不声明 cam/pc/MaterialBlock，
+手写全部 layout）+ `ComputeShaderImportSettings` + `.compute` FileType/图标/compute.svg +
+MetaManager/AssetImportPipeline `detectAssetType` 补 .compute→ComputeShader + 双语言包键
+`import.compute.importFailed`。一文件一 kernel（GLSL 入口恒 main；Unity 式 #pragma kernel 多入口需
+HLSL 源码改写机制，拍板不值；批次③ ClusterBuild 三步=三文件）。
+
+**set1 通道**：`RenderingSystem` 帧级 storage 注册表（`registerFrameStorage(binding 1~2, buffer)` /
+`unregister` / `frameStorageSet()` 懒建+脏重写）+ set1 布局翻牌（原 emptySetLayout 空 占位 → binding1/2
+SSBO，**对齐灯光档 §3.4 终态槽位**——批次②③扩全套时验收 shader 不用重写）+ Opaque/Transparent 两 Pass
+补绑（有注册才绑；图声明 addBufferRead 进依赖推导）+ 覆盖制 pass（PickPass/DebugLinePass）只带 set0 不受影响。
+
+**验收件**（**2026-10-31 终拍板：纯测试形态，编辑器不掺和**——"编辑器就是编辑器，不应该去演示这些
+东西；test 类自己通过 tool 编译就好了"，推翻同日早先的"编辑器实机验收"路线；builtin 三资产与
+ComputeTestPass/AppState 已撤）：测试源码资产进 **core test resources**（首跑踩坑修正：.compute 原误放
+editor test resources，core 测试类加载器不可见直接崩——test 源集/资源不跨模块，资源须跟测试同模块）——
+`src/test/resources/compute/` 两份 .compute + `shader/ssbo-read.vert/.frag`（全屏三角形 fs 读 SSBO）；
+- **editor `ComputeShaderImporterTest`**：内联 .compute 源码 → ComputeShaderImporter → 真实编译 + 坏源
+  ShaderCompileException 显性抛（导入器装配面单测；源码内联免两模块 duplicate .compute 漂移——
+  PushUniformTest 内联先例）；
+- **core `ComputeSsboTest`**（RhiTestBase 家族，**批次①验收口**）：双段 compute 链（A 写 bufferA →
+  B 读 A 写 bufferB，compute→compute RAW 同步）→ 图形 Pass 全屏三角形 fs 读 bufferB（compute→图形
+  跨 Pass 同步）→ 帧 60 `Buffer.read` 读回 65536 元素与 CPU 期望值逐元素比对（确定性图案，数据错即
+  屏障/链路断——错误显性化）+ 肉眼灰度渐变条带画面。运行：
+  `gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.ComputeSsboTest`。
+
+**验收口径**：✅ **已验收关账（2026-10-31 当日用户实测）**——ComputeSsboTest 全环跑通（读回 65536
+元素逐比对通过 + 画面正确 + ESC 退出不崩）+ ComputeShaderImporterTest 绿。F3 存活计数不涨
+（编辑器日常使用中 compute 相关常驻资源为零——set1 通道未注册时零开销）。
+
+**排障实录（2026-10-31 首跑/二跑）**：① 首跑 EXCEPTION_ACCESS_VIOLATION = 自建 PSO 动态状态
+空集 + 执行器恒调 setViewport（非动态下调用=VUID 违规→驱动 UB，Pitfalls #27，修=补
+VIEWPORT/SCISSOR 动态声明）；② 二跑读回比对 4931/65536 超容差 = **sin 大自变量区间归约
+GPU/CPU 实现差**（非链路/屏障问题——零散分布是精度指纹；换纯整数位运算图案，Pitfalls #28）。
+诊断手段：onInit 逐步日志 bisect + VulkanComputePipeline 布局/管线两步日志（该路径历史零调用需
+子步可见）。
+
+**涉及文件**：RHI——VulkanComputePipeline/VulkanCommandBuffer/PassDef/CommandBuffer/CompiledGraph/
+RenderGraphImpl/DescriptorUpdate/Device/VulkanDevice（删三文件）；core——ComputeShader（新）/
+RenderingSystem/OpaqueForwardPass/TransparentForwardPass/test ComputeSsboTest（新）+ test resources
+三源码；editor——ComputeShaderImporter（新）/ComputeShaderImportSettings（新）/FileTypeSetup/
+MetaManager/AssetImportPipeline/test ComputeShaderImporterTest（新）/icon/compute.svg/lang 双包。
+
+---
+
 ## Cleaner 延迟销毁重构（2026-10-30，无实踩，防御性根治）
 
 **背景**：阶段⑥引入的 `markDisposed(handle)` + `DISPOSED_HANDLES` 全局集合（见上「显式 dispose 与

@@ -1,0 +1,21 @@
+#version 450
+// 三期批次① 流程验证段 A：每线程写 4 个元素（256 组 × 64 线程 × 4 = 65536 vec4）。
+// 图案 = 纯整数位运算/小整数除法（GPU 与 CPU 同为 IEEE 基本运算，读回逐元素比对
+// 无超越函数精度歧义——sin 等大自变量区间归约 GPU/CPU 实现不同，首版超容差 4931 个）。
+// 测试资产（test resources），经 tool shaderc 编译。
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) writeonly buffer DataA {
+    vec4 elements[];
+} dataA;
+
+void main() {
+    uint base = gl_GlobalInvocationID.x * 4u;
+    for (uint k = 0u; k < 4u; k++) {
+        uint i = base + k;
+        float r = float(i & 63u) / 64.0;           // 低 6 位：竖向细条纹
+        float g = float((i >> 6u) & 255u) / 255.0; // 中 8 位：横向梯度
+        float b = float((i >> 14u) & 3u) / 4.0;    // 高 2 位：象限块
+        dataA.elements[i] = vec4(r, g, b, 1.0);
+    }
+}

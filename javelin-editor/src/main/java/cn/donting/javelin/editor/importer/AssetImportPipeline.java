@@ -475,6 +475,8 @@ public class AssetImportPipeline {
             return "Texture";
         } else if (name.endsWith(".shader")) {
             return "Shader";
+        } else if (name.endsWith(".compute")) {
+            return "ComputeShader";
         } else if (name.endsWith(".wav") || name.endsWith(".mp3") || name.endsWith(".ogg")) {
             return "Audio";
         } else if (name.endsWith(".scene")) {

@@ -5,6 +5,8 @@ import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
+import cn.donting.javelin.rhi.Buffer;
+import cn.donting.javelin.rhi.DescriptorSet;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.Texture;
 import cn.donting.javelin.rhi.types.SampleCount;
@@ -76,6 +78,10 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             }
             pass.setViewport(view.viewport());
             pass.setScissor(view.scissor());
+            // set1 帧级 storage 读声明（依赖推导纳入：compute 写 → 本 Pass 读的内存屏障由此生成）
+            for (Buffer b : rs.frameStorages()) {
+                pass.addBufferRead(b);
+            }
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {
@@ -92,6 +98,11 @@ public class OpaqueForwardPass extends AbstractForwardPass {
                 // set0 同为帧布局，后续 drawObject 按材质/layout 切 PSO 不影响已绑描述符）
                 cmd.bindPipeline(entryPipeline(rs, objects.get(0), samples));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
+                // set1 帧级 storage（有注册才绑；未声明 set1 的材质 shader 不受影响）
+                DescriptorSet frameStorageSet = rs.frameStorageSet();
+                if (frameStorageSet != null) {
+                    cmd.bindDescriptorSet(1, frameStorageSet, 0, null);
+                }
                 for (RenderObject ro : objects) {
                     drawObject(cmd, rs, ro, tpf, samples);
                 }

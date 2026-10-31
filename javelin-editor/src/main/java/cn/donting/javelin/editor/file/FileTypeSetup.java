@@ -12,6 +12,7 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * 面板后置，双击暂无动作）；.shader 随创建命令批次注册（2026-10-25，纯图标）；
  * .png/.jpg/.jpeg 随贴图导入管线批次注册（2026-10-25，纯图标）；
  * .texture 随创建纹理菜单批次注册（2026-10-25，纯图标——TextureImporter 自动扫描注册）；
+ * .compute 随三期批次①注册（2026-10-31，计算着色器独立资产类型，纯图标）；
  * .smesh 等要用时再补注册。</p>
  *
  * @author javelin
@@ -39,6 +40,7 @@ public final class FileTypeSetup {
         context.registerFileType(new IconFileType("json", ".json"));
         context.registerFileType(new IconFileType("material", ".mat"));
         context.registerFileType(new IconFileType("shader", ".shader"));
+        context.registerFileType(new IconFileType("compute", ".compute"));
         context.registerFileType(new IconFileType("image", ".png", ".jpg", ".jpeg"));
         context.registerFileType(new IconFileType("texture", ".texture"));
     }

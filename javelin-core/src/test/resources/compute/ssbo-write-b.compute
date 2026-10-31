@@ -1,0 +1,23 @@
+#version 450
+// 三期批次① 流程验证段 B：读段 A 输出（binding0）加工写入 binding1——验证
+// compute→compute 的 buffer RAW 同步（依赖边 + VkBufferMemoryBarrier 由
+// RenderGraph 按声明自动生成）。输出 = 输入的确定性灰度映射，读回比对即知链路正误。
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer DataA {
+    vec4 elements[];
+} dataA;
+
+layout(std430, set = 0, binding = 1) writeonly buffer DataB {
+    vec4 elements[];
+} dataB;
+
+void main() {
+    uint base = gl_GlobalInvocationID.x * 4u;
+    for (uint k = 0u; k < 4u; k++) {
+        uint i = base + k;
+        vec4 src = dataA.elements[i];
+        float shade = 0.2126 * src.r + 0.7152 * src.g + 0.0722 * src.b;
+        dataB.elements[i] = vec4(shade, shade, shade, 1.0);
+    }
+}

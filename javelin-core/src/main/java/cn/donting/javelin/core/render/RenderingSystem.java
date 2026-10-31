@@ -119,8 +119,13 @@ public final class RenderingSystem implements AutoCloseable {
     private final Buffer uboBuffer;
     private final DescriptorSetLayout frameSetLayout;
     private final DescriptorSet frameSet;
-    // set 1 空布局预留光照数据（2026-10-23 拍板，原 ObjectBlock 占位语义作废，per-object 恒走 push constants）
-    private final DescriptorSetLayout emptySetLayout;
+    // set 1 帧级 storage（SSBO）通道（三期批次①，2026-10-31）：binding 对齐灯光档终态槽位
+    // （binding1=lightList、binding2=clusterGrid 位，Engine_Lighting_Design §3.4）——批次②③
+    // 扩成全套契约（binding0 UBO + 1~3 SSBO + 4 shadowMap）时按档落位，本批先开通两条 SSBO 槽
+    private final DescriptorSetLayout frameStorageSetLayout;
+    private final Map<Integer, Buffer> frameStorages = new java.util.TreeMap<>();
+    private DescriptorSet frameStorageSet;
+    private boolean frameStorageDirty;
 
     // 材质桥：set 2 布局按 Shader 缓存；材质资源按 Material 实例缓存；采样器按参数缓存
     private final Map<Shader, DescriptorSetLayout> materialLayouts = new HashMap<>();
@@ -196,7 +201,8 @@ public final class RenderingSystem implements AutoCloseable {
         // 否则末槽末相机 offset+range 会越出缓冲）
         this.frameSet.update(DescriptorUpdate.dynamicUniformBuffer(0, uboBuffer, 0, CAMERA_STRIDE));
 
-        this.emptySetLayout = device.createDescriptorSetLayout(new DescriptorSetLayoutDesc(List.of()));
+        // set1 帧级 storage 布局（原空占位翻牌为 SSBO 通道，三期批次①）
+        this.frameStorageSetLayout = device.createDescriptorSetLayout(frameStorageLayoutDesc());
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -255,7 +261,7 @@ public final class RenderingSystem implements AutoCloseable {
      * ZWrite On；Cull/ZTest/ColorMask 保留 Shader 声明，覆盖经 {@link PassState#copy()}
      * 不回写 Shader 资产）。采样档 = 本 Pass 附件 MSAA 档（rasterizationSamples 必须
      * 与附件一致，同材质双档并存不串）；图元类型 = Mesh 拓扑；set 布局 = set0 帧 +
-     * set1 空占位 + set2 材质（RHI 20.3/20.4）。
+     * set1 帧级 storage（批次①开通 binding1/2 SSBO 槽）+ set2 材质（RHI 20.3/20.4）。
      */
     public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
                                         PrimitiveTopology topology, SampleCount samples,
@@ -304,7 +310,7 @@ public final class RenderingSystem implements AutoCloseable {
                 s.getBlendOp(),
                 s.getColorMask(),
                 List.of(colorAttachmentFormat()), depthFormat(),
-                List.of(frameLayoutDesc(), emptySetLayoutDesc(), materialLayoutDesc(shader)),
+                List.of(frameLayoutDesc(), frameStorageLayoutDesc(), materialLayoutDesc(shader)),
                 PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
                 samples);
@@ -633,8 +639,70 @@ public final class RenderingSystem implements AutoCloseable {
         return frameSetLayoutDesc();
     }
 
-    private DescriptorSetLayoutDesc emptySetLayoutDesc() {
-        return new DescriptorSetLayoutDesc(List.of());
+    /**
+     * set1 帧级 storage 布局契约（材质 PSO 共用）：binding1/binding2 SSBO，FRAGMENT 消费。
+     * binding 位对齐灯光档终态槽位（binding1=lightList、binding2=clusterGrid，
+     * Engine_Lighting_Design §3.4）——批次②③扩成全套契约按档落位。
+     * 声明 set1 的 shader 只须是自己所用 binding 的子集（布局超集合法）。
+     */
+    private DescriptorSetLayoutDesc frameStorageLayoutDesc() {
+        return new DescriptorSetLayoutDesc(List.of(
+                new DescriptorSetLayoutDesc.Binding(1, DescriptorType.STORAGE_BUFFER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(2, DescriptorType.STORAGE_BUFFER, 1,
+                        ShaderStage.FRAGMENT)));
+    }
+
+    // ═══ set1 帧级 storage 注册表（三期批次①通用通道；批次② lightList 收集落位前身） ═══
+
+    /**
+     * 注册帧级 storage buffer 到 set1 binding（支持位 1~2）。
+     * Forward 系 Pass 录制时统一绑定 set1；未声明 set1 的旧 shader 不受影响
+     * （布局超集合法，且注册为空时 Pass 不绑 set1）。
+     */
+    public void registerFrameStorage(int binding, Buffer buffer) {
+        checkOpen();
+        if (binding < 1 || binding > 2) {
+            throw new IllegalArgumentException("set1 storage binding 仅支持 1~2，得到: " + binding);
+        }
+        if (buffer == null) {
+            throw new IllegalArgumentException("buffer must not be null");
+        }
+        frameStorages.put(binding, buffer);
+        frameStorageDirty = true;
+    }
+
+    /** 注销（Pass 卸载时调用；空注册表后 Forward Pass 停绑 set1） */
+    public void unregisterFrameStorage(int binding) {
+        frameStorages.remove(binding);
+        frameStorageDirty = true;
+    }
+
+    /** 已注册的帧级 storage（Forward Pass 图声明 addBufferRead 用，绑定序） */
+    public List<Buffer> frameStorages() {
+        return List.copyOf(frameStorages.values());
+    }
+
+    /**
+     * set1 描述符集（无注册时 null——Pass 不绑；有注册懒建/变更重写）。
+     */
+    public DescriptorSet frameStorageSet() {
+        checkOpen();
+        if (frameStorages.isEmpty()) {
+            return null;
+        }
+        if (frameStorageSet == null || frameStorageDirty) {
+            if (frameStorageSet == null) {
+                frameStorageSet = device.createDescriptorSet(frameStorageSetLayout);
+            }
+            List<DescriptorUpdate> updates = new ArrayList<>(frameStorages.size());
+            for (Map.Entry<Integer, Buffer> e : frameStorages.entrySet()) {
+                updates.add(DescriptorUpdate.storageBuffer(e.getKey(), e.getValue()));
+            }
+            frameStorageSet.update(updates.toArray(new DescriptorUpdate[0]));
+            frameStorageDirty = false;
+        }
+        return frameStorageSet;
     }
 
     /**
@@ -809,7 +877,7 @@ public final class RenderingSystem implements AutoCloseable {
         retiredResources.clear();
         frameSet.dispose();
         frameSetLayout.dispose();
-        emptySetLayout.dispose();
+        frameStorageSetLayout.dispose();
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

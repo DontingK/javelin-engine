@@ -87,6 +87,19 @@ public interface PassDef {
     /** 声明存储纹理写入（写：Storage，计算着色器 storage image 写 → GENERAL） */
     void addTextureStorageWrite(Texture texture);
 
+    /**
+     * 声明 Buffer 读取（storage buffer 读，着色器只读消费）。
+     * 与纹理读不同：buffer 无布局概念，参与依赖推导后由执行器生成内存屏障
+     * （VkBufferMemoryBarrier），首帧首用不计屏障（帧外同步归上传路径保证）。
+     */
+    void addBufferRead(Buffer buffer);
+
+    /**
+     * 声明 Buffer 写入（storage buffer 写）。
+     * 同一 buffer 在本 Pass 内既读又写时按写参与依赖（写优先，同纹理口径）。
+     */
+    void addBufferWrite(Buffer buffer);
+
     void setViewport(RHIViewport viewport);
 
     void setScissor(RHIScissor scissor);

@@ -55,6 +55,18 @@ public interface CommandBuffer extends GPUResource {
     void pipelineBarrier(Texture texture, TextureLayout oldLayout, TextureLayout newLayout,
                          boolean write, boolean computePass);
 
+    /**
+     * Buffer 内存屏障（VkBufferMemoryBarrier，storage buffer 读写同步）。
+     * 由 RenderGraph 执行器按依赖计划自动插入（24.3），上层业务禁止直接调用（22.4 迁移纪律）。
+     *
+     * @param srcCompute buffer 先前访问是否发生在计算域（false = 图形着色器域）
+     * @param srcWrite   先前访问是否含写（false = 仅读，WAR 同步）
+     * @param dstCompute 本 Pass 是否计算域
+     * @param dstWrite   本 Pass 访问是否含写
+     */
+    void bufferBarrier(Buffer buffer, boolean srcCompute, boolean srcWrite,
+                       boolean dstCompute, boolean dstWrite);
+
     void bindDescriptorSet(int setIndex, DescriptorSet set,
                            int dynamicOffsetCount, int[] dynamicOffsets);
 

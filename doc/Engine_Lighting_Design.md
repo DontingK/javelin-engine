@@ -1,8 +1,9 @@
 # 引擎光照设计（Engine Lighting Design）
 
-> 版本：v0.2
-> 日期：2026-10-28（v0.2 2026-10-31）
-> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成、未实装**；实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> 版本：v0.3
+> 日期：2026-10-28（v0.2 2026-10-31；v0.3 2026-10-31）
+> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成；批次① RHI 底座已落地并验收关账（2026-10-31 当日用户实测）**，实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> v0.3 变更（2026-10-31）：**批次①落地**（§9 批次①行——RHI 五缺口补齐 + `.compute` 资产面 + set1 帧级 storage 通道 + 编辑器验收件）；**compute 着色器资产路线拍板**（§7——`.compute` 独立资产类型，内嵌 spv 路线推翻，DebugText/pick/DebugLine 迁源码独立批待派）。
 > v0.2 变更（2026-10-31）：**补 ShadowPass 明细（§4.2——单张硬影拍板，级联/软化后置）**；§7 着色注入补红线（**default.shader = DefaultMaterial 兜底专用，禁止改造成注入样例**——用户拍板）；批次④产出补阴影消费路径；天空盒视觉化（cubemap）转专档 `Engine_Skybox_Design.md`（批次⑤）。
 > 职责边界：
 > - 本文管**光数据通路与光照组织**（灯怎么收集、打包、分簇、进着色器）+ **主光阴影的深度通路**（ShadowPass 数据侧：shadowCasters 收集、lightViewProj、shadowMap 采样参数）；
@@ -161,7 +162,7 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 - **一致性**：Opaque/Transparent/（批次④）LightingPass 读同一套 set1 契约——正透明光照无差异（管线档 4.5 取舍消解，两处文案随批次④回填）；
 - 材质钩子：着色入口由 ShaderInjector 注入的光照段提供（具体注入形态随批次③与 ShaderParser/Injector 联动拍板——旧 .shader 产物无需重导的兼容口径是目标，做不到则随批重导）；
 - **注入红线（2026-10-31 用户拍板）**：**内置 `default.shader` 是 DefaultMaterial 兜底专用（缺材质/坏 shader 时的紫色错误显性化产物），禁止改造成注入光照段的样例**——光照注入的验证样例与用户面引导 = 新增内置 `Lit.shader`（命名拍板 2026-10-31，对标 HDRP 主受光着色器；随批次③落 builtin-asset-core；四期 BRDF 升级升其本体、名字不换），default.shader 的纯色语义维持不变；
-- 内置光照 shader 的 .shader 源（vs 传插值视空间坐标、fs 留表面色接光照段）与注入段本身**不进 core**（着色器源码不进 core 拍板照旧）——源在 editor builtin-asset，注入段文本归 Injector/编译链，clusterBuild 的 compute spv 走 javelin-tool 内嵌链路（DebugText/pick 先例）。
+- 内置光照 shader 的 .shader 源（vs 传插值视空间坐标、fs 留表面色接光照段）与注入段本身**不进 core**（着色器源码不进 core 拍板照旧）——源在 editor builtin-asset，注入段文本归 Injector/编译链；~~clusterBuild 的 compute spv 走 javelin-tool 内嵌链路（DebugText/pick 先例）~~ **已推翻（2026-10-31 用户拍板）：compute 着色器 = `.compute` 独立源码资产类型**（Unity 口径，扩展名区分）——ComputeShader 资产 + ComputeShaderImporter（shaderc COMPUTE 编译，无注入）+ 内置 builtin-asset-core/compute/；一文件一 kernel（GLSL 入口恒 main，多 kernel=多文件；Unity 式 #pragma kernel 多入口需 HLSL 源码改写机制，不值）；**DebugText/pick/DebugLine 的「GLSL 放 tool、spv 内嵌 core resources」路线同判废，迁源码独立批待派**。
 
 ## 8. 与管线的咬合
 
@@ -175,11 +176,10 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 
 | 批 | 内容 | 产出/验收 |
 |----|------|----------|
-| ① RHI 底座 | SSBO 实装（`RHIBinding.STORAGE_BUFFER`/`bindStorageBuffer` 现仅设计稿 API）/ ComputePipeline + dispatch / RenderGraph compute Pass 节点与 Buffer 读写声明同步（阶段掩码进图推导） | compute 写 SSBO → 图形 Pass 读回最小闭环 Demo；**通用性红线：Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止只伺候 cluster 三件套的光照特化窄接口**——探针实时 GI（GI 目标态拍板 2026-10-28，Roadmap 三期）与 rayQuery 扩展的第一消费者地位由此保证 |
+| ① RHI 底座 | ~~SSBO 实装 / ComputePipeline + dispatch / RenderGraph compute Pass 节点与 Buffer 读写声明同步~~ **✅ 已落地并验收关账（2026-10-31 当日用户实测）**——实勘校正：SSBO 描述符链/dispatch/双 bindPoint/compute 进图骨架一期已有（RHI 实装期产物），真缺口=①compute 管线布局装配（原空壳，setLayouts+pushConstantRange 补齐，stage=COMPUTE）②pushConstants stageFlags 按 bindPoint 分流（原写死 ALL_GRAPHICS）③Buffer 进图同步（PassDef addBufferRead/Write + 依赖推导（句柄取反命名空间防纹理撞键）+ structureHash + VkBufferMemoryBarrier 屏障计划（源/目标域按两端 Pass 类型现推））④storageBuffer range=0 VUID 坑修正（VK_WHOLE_SIZE）+offset/range 重载⑤删 VulkanPipelineLayout/createPipelineLayout 死代码（管线布局统一由 Pipeline 内建） | **验收形态终拍板（2026-10-31）：纯测试，编辑器不掺和**（同日早先"编辑器实机验收"路线被推翻——编辑器不演示流程验证件）：`.compute` 资产面（ComputeShader 资产类+ComputeShaderImporter+FileType/图标）+ set1 帧级 storage 通道（RenderingSystem registerFrameStorage binding1/2 对齐本档 §3.4 终态槽位，Opaque/Transparent 补绑+addBufferRead 声明）+ 测试件——core `ComputeSsboTest`（**批次①验收口**：双段 compute 链 A 写→B 读改写（compute→compute RAW 同步）+ 图形 Pass fs 读 SSBO（跨 Pass 同步）+ 帧 60 Buffer.read 读回 65536 元素逐元素 CPU 比对）+ editor `ComputeShaderImporterTest`（.compute→tool 编译链）——**两测试 2026-10-31 用户实测全过**（排障实录：动态 viewport 空集 AV 崩溃 + sin 区间归约精度差，Vulkan_Pitfalls #27/#28）；**通用性红线守住**：Buffer 声明/屏障为通用资源面，GI/RT 第一复用方地位不变 |
 | ② 光数据模型 | Light 组件 + Scene lights 注册表 + 收集/剔除/预排序/视空间打包 + set1 布局与注入 | 单测（组件/注册表/主光解析）+ F3 在册灯数显示 |
 | ③ cluster 构建 + Forward 消费（= Forward+ 成形） | ClusterBuildPass 三步 + 着色器光照段注入 + Lambert+环境项 + SPOT（后半） | 点光/方向光明暗正确（用户运行）；几十盏场景帧率稳；F3 帧时间不劣化超阈值 |
 | ④ ShadowPass + Deferred 复用 | ShadowPass（管线档 4.1 兑现，**v0.x 单张硬影**——§4.5：无 PCF/无 CSM，rasterization 侧保守 bias；sunViewProj 段+binding4 落位）+ 注入段阴影采样分支 + GBuffer/LightingPass 上线（同一 cluster 直喂）+ 混合/纯 Forward 可配置切换 | 主光投影正确（单张硬影口径）；两路光照一致（同场景切换对比）；管线档 §8 步骤二验收口径 |
-
 - 批次③收尾即拥有全质量光照（几十~几百盏无截断），Deferred 是第四批的另一个消费者，非光照质量前提；
 - 后处理链（Bloom/Tonemap + HDR 切换点，管线档 4.6）不在本四批内，随批次④后按管线档步骤三独立推进。
 

@@ -1,5 +1,7 @@
 package cn.donting.javelin.rhi;
 
+import static org.lwjgl.vulkan.VK10.VK_WHOLE_SIZE;
+
 /**
  * 描述符更新。
  * 对照 VkWriteDescriptorSet。
@@ -50,8 +52,20 @@ public final class DescriptorUpdate {
         return new DescriptorUpdate(Type.SAMPLED_TEXTURE, binding, 0, null, 0, 0, texture, sampler);
     }
 
+    /**
+     * 整段 storage buffer 绑定（offset=0 / range=VK_WHOLE_SIZE）。
+     * range 不可为 0：VkDescriptorBufferInfo 要求 range &gt; 0 或 VK_WHOLE_SIZE（VUID）。
+     */
     public static DescriptorUpdate storageBuffer(int binding, Buffer buffer) {
-        return new DescriptorUpdate(Type.STORAGE_BUFFER, binding, 0, buffer, 0, 0, null, null);
+        return storageBuffer(binding, buffer, 0, VK_WHOLE_SIZE);
+    }
+
+    /** 分段 storage buffer 绑定（offset 起 range 字节） */
+    public static DescriptorUpdate storageBuffer(int binding, Buffer buffer, long offset, long range) {
+        if (range <= 0 && range != VK_WHOLE_SIZE) {
+            throw new IllegalArgumentException("Storage buffer range must be > 0 or VK_WHOLE_SIZE, got: " + range);
+        }
+        return new DescriptorUpdate(Type.STORAGE_BUFFER, binding, 0, buffer, offset, range, null, null);
     }
 
     public Type type() { return type; }

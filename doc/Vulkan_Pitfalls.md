@@ -347,6 +347,31 @@
 - **出处**：2026-10-30 Cleaner 生命周期重构（无实踩，防御性根治——#24 修后遗留的两条次生
   隐患；`RHI_Implementation_Progress.md` 同步）。
 
+### 27. PSO 动态状态空集 + 执行器恒调 setViewport/setScissor：非动态下调用即驱动崩溃 ★实踩
+
+- **症状**：`ComputeSsboTest`（三期批次①）首跑 swapchain 创建后、onInit 完成提示日志
+  未打出即 `EXCEPTION_ACCESS_VIOLATION`（nvoglv64.dll，无 validation layer 环境）；
+- **根因**：自建 PSO 的 dynamicStates 传了空集 `Set.of()`，而 RenderGraph 执行器对每 Pass
+  恒调 `cmd.setViewport/setScissor`——管线不声明 `VK_DYNAMIC_STATE_VIEWPORT/SCISSOR` 时
+  调用 vkCmdSetViewport 属 VUID 违规（viewport 状态非 dynamic 不允许命令设置），
+  validation 在场报错、缺席直接驱动 UB（本机表现为原生崩溃）；
+- **修法**：自建 PSO 一律 `Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR)`
+  （既有 pass 全如此——DebugLinePass/PickPass 均带，测试侧照抄即安）；
+- **出处**：2026-10-31 ComputeSsboTest 首跑实踩，随修（复跑崩溃消失，链路走通）。
+
+### 28. GPU↔CPU 数值比对用超越函数图案：大自变量区间归约实现差炸容差 ★测试方法论
+
+- **症状**：同测试读回比对 4931/65536 元素超 1e-4 容差（7.5%，零散分布）——但崩溃已修、
+  画面正常，链路/屏障实际全对；
+- **根因**：图案含 `sin(f*6.28318)`，f 最大 1024 → 自变量 ~6433 弧度。**GPU sin 的大自变量
+  区间归约**（快速实现）与 Java `Math.sin`（Payne-Hanek 精确归约）实现不同，大自变量区段
+  误差超 1e-4；零散分布（部分大自变量恰好归约准）是精度差的指纹——若是屏障/数据链断，
+  错误形态是压倒性的（未写元素=显存初值/0，量级 O(1)）；
+- **修法**：**GPU 读回数值比对一律用纯整数位运算/小整数除法图案**（两侧同为 IEEE 基本
+  运算，差异 ≤ 数 ULP ≈ 1e-7；容差 1e-4 内超标只能是真链路问题）；失败输出带 maxDiff
+  辅助分诊（1e-4~1e-3 量级=精度方向，O(1)=链路断）；
+- **出处**：2026-10-31 ComputeSsboTest 二跑实踩，换位运算图案随修。
+
 ---
 
 ## 六、排障方法论（沉淀）

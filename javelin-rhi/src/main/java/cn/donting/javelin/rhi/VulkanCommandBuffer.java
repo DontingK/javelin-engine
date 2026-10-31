@@ -10,7 +10,9 @@ import cn.donting.javelin.rhi.data.RHILoadOp;
 import cn.donting.javelin.rhi.data.RHIScissor;
 import cn.donting.javelin.rhi.desc.TextureDesc;
 import cn.donting.javelin.rhi.types.Format;
+import cn.donting.javelin.rhi.types.AccessFlags;
 import cn.donting.javelin.rhi.types.IndexType;
+import cn.donting.javelin.rhi.types.PipelineStage;
 import cn.donting.javelin.rhi.types.TextureLayout;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -343,6 +345,36 @@ final class VulkanCommandBuffer implements CommandBuffer {
         }
     }
 
+    @Override
+    public void bufferBarrier(Buffer buffer, boolean srcCompute, boolean srcWrite,
+                              boolean dstCompute, boolean dstWrite) {
+        checkRecording();
+        // storage buffer 访问均发生在着色器域：compute = COMPUTE_SHADER，图形 = FRAGMENT_SHADER
+        //（与 VulkanBarrierGenerator 纹理侧着色器域口径一致）
+        PipelineStage srcStage = srcCompute ? PipelineStage.COMPUTE_SHADER : PipelineStage.FRAGMENT_SHADER;
+        AccessFlags srcAccess = srcWrite ? AccessFlags.SHADER_WRITE : AccessFlags.SHADER_READ;
+        PipelineStage dstStage = dstCompute ? PipelineStage.COMPUTE_SHADER : PipelineStage.FRAGMENT_SHADER;
+        AccessFlags dstAccess = dstWrite ? AccessFlags.SHADER_WRITE : AccessFlags.SHADER_READ;
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkBufferMemoryBarrier.Buffer barrier = VkBufferMemoryBarrier.calloc(1, stack);
+            barrier.get(0)
+                    .sType$Default()
+                    .srcAccessMask(VulkanBarrierGenerator.toVkAccess(srcAccess))
+                    .dstAccessMask(VulkanBarrierGenerator.toVkAccess(dstAccess))
+                    .srcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                    .dstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+                    .buffer(buffer.handle())
+                    .offset(0)
+                    .size(VK_WHOLE_SIZE);
+
+            vkCmdPipelineBarrier(vkCommandBuffer,
+                    VulkanBarrierGenerator.toVkStage(srcStage),
+                    VulkanBarrierGenerator.toVkStage(dstStage),
+                    0, null, barrier, null);
+        }
+    }
+
     private static int aspectMaskOf(Format format) {
         return switch (format) {
             case D16_UNORM, D32_SFLOAT -> VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -384,8 +416,11 @@ final class VulkanCommandBuffer implements CommandBuffer {
         if (layout == VK_NULL_HANDLE) {
             throw new IllegalStateException("No pipeline bound before pushConstants");
         }
-        // 阶段标志与管线布局声明一致（VulkanGraphicsPipeline 用 ALL_GRAPHICS 声明范围）
-        vkCmdPushConstants(vkCommandBuffer, layout, VK_SHADER_STAGE_ALL_GRAPHICS,
+        // 阶段标志与管线布局声明一致（Graphics 布局声明 ALL_GRAPHICS / Compute 布局声明 COMPUTE）
+        int stageFlags = currentBindPoint == VK_PIPELINE_BIND_POINT_COMPUTE
+                ? VK_SHADER_STAGE_COMPUTE_BIT
+                : VK_SHADER_STAGE_ALL_GRAPHICS;
+        vkCmdPushConstants(vkCommandBuffer, layout, stageFlags,
                 offset, data);
     }
 

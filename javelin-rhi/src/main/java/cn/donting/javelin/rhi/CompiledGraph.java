@@ -105,12 +105,29 @@ public final class CompiledGraph {
                 if (j > 0) sb.append(", ");
                 sb.append(p.reads().get(j).handle());
             }
+            sb.append("], \"bufferReads\": [");
+            for (int j = 0; j < p.bufferReads().size(); j++) {
+                if (j > 0) sb.append(", ");
+                sb.append(p.bufferReads().get(j).handle());
+            }
+            sb.append("], \"bufferWrites\": [");
+            for (int j = 0; j < p.bufferWrites().size(); j++) {
+                if (j > 0) sb.append(", ");
+                sb.append(p.bufferWrites().get(j).handle());
+            }
             sb.append("], \"barriers\": [");
             for (int j = 0; j < p.barriers().size(); j++) {
                 Barrier b = p.barriers().get(j);
                 if (j > 0) sb.append(", ");
                 sb.append("{\"texture\": ").append(b.texture().handle())
                         .append(", \"targetLayout\": \"").append(b.targetLayout()).append("\"")
+                        .append(", \"write\": ").append(b.isWrite()).append("}");
+            }
+            sb.append("], \"bufferBarriers\": [");
+            for (int j = 0; j < p.bufferBarriers().size(); j++) {
+                BufferBarrier b = p.bufferBarriers().get(j);
+                if (j > 0) sb.append(", ");
+                sb.append("{\"buffer\": ").append(b.buffer().handle())
                         .append(", \"write\": ").append(b.isWrite()).append("}");
             }
             sb.append("]}");
@@ -135,7 +152,10 @@ public final class CompiledGraph {
         private final List<Texture> reads;
         private final List<Texture> storageReads;
         private final List<Texture> storageWrites;
+        private final List<Buffer> bufferReads;
+        private final List<Buffer> bufferWrites;
         private final List<Barrier> barriers;
+        private final List<BufferBarrier> bufferBarriers;
         private final Map<String, float[]> uniforms;
         private final Consumer<CommandBuffer> callback;
 
@@ -144,7 +164,8 @@ public final class CompiledGraph {
              RHIViewport viewport, RHIScissor scissor,
              List<Attachment> attachments, List<Texture> reads,
              List<Texture> storageReads, List<Texture> storageWrites,
-             List<Barrier> barriers,
+             List<Buffer> bufferReads, List<Buffer> bufferWrites,
+             List<Barrier> barriers, List<BufferBarrier> bufferBarriers,
              Map<String, float[]> uniforms, Consumer<CommandBuffer> callback) {
             this.declarationIndex = declarationIndex;
             this.name = name;
@@ -157,7 +178,10 @@ public final class CompiledGraph {
             this.reads = List.copyOf(reads);
             this.storageReads = List.copyOf(storageReads);
             this.storageWrites = List.copyOf(storageWrites);
+            this.bufferReads = List.copyOf(bufferReads);
+            this.bufferWrites = List.copyOf(bufferWrites);
             this.barriers = List.copyOf(barriers);
+            this.bufferBarriers = List.copyOf(bufferBarriers);
             this.uniforms = Map.copyOf(uniforms);
             this.callback = callback;
         }
@@ -210,9 +234,24 @@ public final class CompiledGraph {
             return storageWrites;
         }
 
+        /** Buffer 读取声明（storage buffer 读，参与依赖推导与内存屏障计划） */
+        public List<Buffer> bufferReads() {
+            return bufferReads;
+        }
+
+        /** Buffer 写入声明（storage buffer 写，参与依赖推导与内存屏障计划） */
+        public List<Buffer> bufferWrites() {
+            return bufferWrites;
+        }
+
         /** 本 Pass 的屏障计划（按纹理去重、合并后的目标布局） */
         public List<Barrier> barriers() {
             return barriers;
+        }
+
+        /** 本 Pass 的 Buffer 内存屏障计划（按句柄去重；读写语义参与同步域推导） */
+        public List<BufferBarrier> bufferBarriers() {
+            return bufferBarriers;
         }
 
         /** 构建期 uniform 记录（执行器暂不解析，见 PassDef.setUniform） */
@@ -314,6 +353,31 @@ public final class CompiledGraph {
         }
 
         /** true = 本 Pass 写（附件）；false = 仅读 */
+        public boolean isWrite() {
+            return write;
+        }
+    }
+
+    /**
+     * Buffer 内存屏障计划条目：本 Pass 对某 buffer 的访问前，需与该 buffer 的
+     * 先前访问（上一依赖边另一端 Pass）同步。Buffer 无布局概念，条目只记
+     * 访问方向（读写），同步域由执行器按两端 Pass 类型（compute/graphics）推导。
+     */
+    public static final class BufferBarrier {
+
+        private final Buffer buffer;
+        private final boolean write;
+
+        BufferBarrier(Buffer buffer, boolean write) {
+            this.buffer = buffer;
+            this.write = write;
+        }
+
+        public Buffer buffer() {
+            return buffer;
+        }
+
+        /** true = 本 Pass 写（storage buffer 写）；false = 仅读 */
         public boolean isWrite() {
             return write;
         }

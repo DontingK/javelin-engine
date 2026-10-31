@@ -1,0 +1,8 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 计算着色器：齿轮+网格节点（dispatch 工作组意象，青绿与 .shader 紫区分；.compute 资产条目图标） -->
+<rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="#B2DFDB" stroke="#00695C" stroke-width="1.2"/>
+<path d="M8 4.4v7.2M4.4 8h7.2M8 4.4l3.6 3.6M8 4.4L4.4 8" stroke="#00897B" stroke-width="1.1" stroke-linecap="round"/>
+<circle cx="8" cy="8" r="2.1" fill="#00695C"/>
+<circle cx="11.6" cy="11.6" r="1.5" fill="#00897B" stroke="#004D40" stroke-width="0.8"/>
+<circle cx="4.4" cy="11.6" r="1.5" fill="#00897B" stroke="#004D40" stroke-width="0.8"/>
+</svg>

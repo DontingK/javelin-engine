@@ -102,6 +102,14 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 h = mix(h, t.handle());
                 h = mix(h, 0x5357L); // Storage 写声明标记
             }
+            for (Buffer b : p.bufferReads) {
+                h = mix(h, b.handle());
+                h = mix(h, 0x4252L); // Buffer 读声明标记，与纹理标记区分
+            }
+            for (Buffer b : p.bufferWrites) {
+                h = mix(h, b.handle());
+                h = mix(h, 0x4257L); // Buffer 写声明标记
+            }
         }
         cachedHash = h;
         hashValid = true;
@@ -140,6 +148,14 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             }
             for (Texture t : p.storageReads) {
                 usage.merge(t.handle(), Boolean.FALSE, (oldV, newV) -> oldV);
+            }
+            // buffer 与纹理共用 writers/readers 表：句柄取反作命名空间（VkImage/VkBuffer
+            // 句柄同为 long，规范不保证跨类型不撞键，取反隔离后各自唯一）
+            for (Buffer b : p.bufferWrites) {
+                usage.merge(~b.handle(), Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
+            }
+            for (Buffer b : p.bufferReads) {
+                usage.merge(~b.handle(), Boolean.FALSE, (oldV, newV) -> oldV);
             }
             for (Map.Entry<Long, Boolean> e : usage.entrySet()) {
                 long handle = e.getKey();
@@ -199,6 +215,9 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
 
         // --- 屏障计划：每 Pass 每纹理一条（同 Pass 合并、写优先于读） ---
         List<CompiledGraph.Pass> compiledPasses = new ArrayList<>(n);
+        // buffer 最近一次使用的访问方向（Buffer 身份键，随拓扑序推进）；同步域两端
+        // （compute/图形）执行器按 Pass 类型现推，计划只记「是否已有先前使用 + 本 Pass 方向」
+        Map<Buffer, Boolean> bufferLastUse = new LinkedHashMap<>();
         for (int idx : order) {
             PassData p = passes.get(idx);
             Map<Long, CompiledGraph.Barrier> barriers = new LinkedHashMap<>();
@@ -231,12 +250,29 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                         new CompiledGraph.Barrier(t, TextureLayout.SHADER_READ_ONLY, false),
                         RenderGraphImpl::mergeBarrier);
             }
+            // buffer 内存屏障计划：同 Pass 声明合并（写优先）；本帧已有先前使用才出条目
+            // （首帧首用无帧内先行者，帧外同步归上传路径保证，见 PassDef.addBufferRead 契约）
+            Map<Buffer, Boolean> bufferUsage = new LinkedHashMap<>();
+            for (Buffer b : p.bufferWrites) {
+                bufferUsage.merge(b, Boolean.TRUE, (oldV, newV) -> Boolean.TRUE);
+            }
+            for (Buffer b : p.bufferReads) {
+                bufferUsage.merge(b, Boolean.FALSE, (oldV, newV) -> oldV);
+            }
+            List<CompiledGraph.BufferBarrier> bufferBarriers = new ArrayList<>();
+            for (Map.Entry<Buffer, Boolean> e : bufferUsage.entrySet()) {
+                if (bufferLastUse.containsKey(e.getKey())) {
+                    bufferBarriers.add(new CompiledGraph.BufferBarrier(e.getKey(), e.getValue()));
+                }
+            }
+            bufferLastUse.putAll(bufferUsage);
             compiledPasses.add(new CompiledGraph.Pass(
                     idx, p.name, p.compute,
                     p.graphicsPipeline, p.computePipeline,
                     p.viewport, p.scissor,
                     p.attachments, p.reads, p.storageReads, p.storageWrites,
-                    new ArrayList<>(barriers.values()),
+                    p.bufferReads, p.bufferWrites,
+                    new ArrayList<>(barriers.values()), bufferBarriers,
                     p.uniforms, p.callback));
         }
 
@@ -279,7 +315,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                     p.declarationIndex(), p.name(), p.compute(),
                     src.graphicsPipeline, src.computePipeline,
                     src.viewport, src.scissor,
-                    p.attachments(), p.reads(), p.storageReads(), p.storageWrites(), p.barriers(),
+                    p.attachments(), p.reads(), p.storageReads(), p.storageWrites(),
+                    p.bufferReads(), p.bufferWrites(), p.barriers(), p.bufferBarriers(),
                     src.uniforms, src.callback));
         }
         return new CompiledGraph(cached.structureHash(), rebound, cached.edges());
@@ -313,6 +350,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             if (hasBackbuffer) {
                 tracker.set(backbufferHandle, TextureLayout.PRESENT_SRC);
             }
+            // buffer 句柄 → {本帧最近使用是否计算域, 是否含写}——屏障源端同步域现推用
+            Map<Long, boolean[]> bufferLastUse = new HashMap<>();
             boolean wroteBackbuffer = false;
 
             for (CompiledGraph.Pass pass : compiled.passes()) {
@@ -328,6 +367,21 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                     if (hasBackbuffer && handle == backbufferHandle && b.isWrite()) {
                         wroteBackbuffer = true;
                     }
+                }
+
+                // buffer 内存屏障：源端域/方向按本帧最近使用现推（计划保证只有非首用才有条目）；
+                // 同 Pass 读写并存按写收尾（先读登记、写覆盖）
+                for (CompiledGraph.BufferBarrier b : pass.bufferBarriers()) {
+                    boolean[] last = bufferLastUse.get(b.buffer().handle());
+                    if (last != null) {
+                        cmd.bufferBarrier(b.buffer(), last[0], last[1], pass.compute(), b.isWrite());
+                    }
+                }
+                for (Buffer b : pass.bufferReads()) {
+                    bufferLastUse.putIfAbsent(b.handle(), new boolean[]{pass.compute(), false});
+                }
+                for (Buffer b : pass.bufferWrites()) {
+                    bufferLastUse.put(b.handle(), new boolean[]{pass.compute(), true});
                 }
 
                 // 渲染通道包裹（dynamic rendering）：图形 Pass 有附件时自动 begin/end
@@ -399,6 +453,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
         final List<Texture> reads = new ArrayList<>();
         final List<Texture> storageReads = new ArrayList<>();
         final List<Texture> storageWrites = new ArrayList<>();
+        final List<Buffer> bufferReads = new ArrayList<>();
+        final List<Buffer> bufferWrites = new ArrayList<>();
         final Map<String, float[]> uniforms = new LinkedHashMap<>();
         Consumer<CommandBuffer> callback;
 
@@ -516,6 +572,22 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                 throw new IllegalArgumentException("Storage write texture must not be null");
             }
             storageWrites.add(texture);
+        }
+
+        @Override
+        public void addBufferRead(Buffer buffer) {
+            if (buffer == null) {
+                throw new IllegalArgumentException("Buffer read must not be null");
+            }
+            bufferReads.add(buffer);
+        }
+
+        @Override
+        public void addBufferWrite(Buffer buffer) {
+            if (buffer == null) {
+                throw new IllegalArgumentException("Buffer write must not be null");
+            }
+            bufferWrites.add(buffer);
         }
 
         @Override

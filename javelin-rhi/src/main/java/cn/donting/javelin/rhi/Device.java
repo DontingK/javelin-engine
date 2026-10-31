@@ -21,7 +21,6 @@ public interface Device extends GPUResource {
     // --- 管线 ---
     GraphicsPipeline createGraphicsPipeline(GraphicsPipelineDesc desc);
     ComputePipeline createComputePipeline(ComputePipelineDesc desc);
-    PipelineLayout createPipelineLayout(PipelineLayoutDesc desc);
     DescriptorSetLayout createDescriptorSetLayout(DescriptorSetLayoutDesc desc);
 
     /**
