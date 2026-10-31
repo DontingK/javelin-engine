@@ -22,7 +22,7 @@
 | 06-bump | Loading textures. | 纹理加载 + 法线贴图 bump 光照 | 贴图槽/采样链（已落地，可对照） |
 | 07-callback | ...callbacks for taking screen shots, caching OpenGL binary shaders, and video capture. | bgfx 回调接口：截图 / GL 二进制 shader 缓存 / 视频录制 | 截图与产物缓存机制 |
 | 08-update | Updating textures. | 运行期纹理更新（`updateTexture2D`） | Texture2D 运行期可变（revision 已落地）对照 |
-| 09-hdr | Using multiple views with frame buffers, and view order remapping. | 多 view + framebuffer 组 HDR 管线：skybox→亮度链（128→1 逐级降采样）→bright/blur→tonemap | 后处理链/多 view 编排（三期扩展候选） |
+| 09-hdr | Using multiple views with frame buffers, and view order remapping. | 多 view + framebuffer 组 HDR 管线：skybox→亮度链（128→1 逐级降采样）→bright/blur→tonemap | **四期第 1 项后处理链**；skybox 着色器（`fs_hdr_skybox.sc`）= textureCube 立方图采样，与三期批次⑤形态拍板同形 |
 | 10-font | Use the font system to display text and styled text. | 位图字体 + 样式文本 | DebugText 之外的富文本形态 |
 | 11-fontsdf | Use a single distance field font to render text of various size. | SDF 字体任意尺度渲染 | 编辑器文字若升级可参考 |
 | 12-lod | Mesh LOD transitions. | 多级 LOD 网格 + 距离切换 + 过渡帧混合 | 渲染优化（LOD 后置 P2） |
@@ -31,7 +31,7 @@
 | 15-shadowmaps-simple | Shadow maps example | 基础阴影贴图：深度纹理 + 比较采样 + PCF + 光照投射 | **三期 ShadowPass 入门对照** |
 | 16-shadowmaps | Shadow maps example. | 进阶矩阵：定向级联 CSM / 全向 omni × Hard/PCF/PCSS/VSM/ESM × InvZ/线性深度，含级联切分（GPU Gems 3）与 VSM blur pass | **ShadowPass 进阶形态参考** |
 | 17-drawstress | Draw stress, maximizing number of draw calls. | encoder 压测海量 draw call，可切实例化/非实例化对照 | 性能基线手法（对照 F3/RenderStats） |
-| 18-ibl | Image-based lighting. | 预滤波环境贴图 IBL（irradiance/radiance/BRDF LUT） | 三期光照环境项/GI 占位 |
+| 18-ibl | Image-based lighting. | 预滤波环境贴图 IBL（irradiance/radiance/BRDF LUT）；skybox = textureCube（`vs/fs_ibl_skybox.sc`，irradiance 采样 `s_texCubeIrr` + radiance `textureCubeLod`） | **四期第 4 项天空盒环境光照（SH/mipmap 预滤波路线）直接参考**；skybox 着色器与三期批次⑤同形 |
 | 19-oit | Weighted, Blended Order Independent Transparency. | 加权混合 OIT：accum/revealage MRT + 合成，免排序透明 | 透明分桶之上若要 OIT 可参考 |
 | 20-nanovg | NanoVG is small antialiased vector graphics rendering library. | 矢量图形（抗锯齿路径）库集成 | 参考面低（编辑器走 Swing） |
 | 21-deferred | MRT rendering and deferred shading. | MRT G-buffer + 延迟着色 + 光体积 + 调试视图多模式 | **三期批次④ Deferred 复用** |
@@ -51,7 +51,7 @@
 | 35-dynamic | Dynamic buffers update. | 动态顶点/索引缓冲每帧重写 | 动态缓冲（含 buffer staging 遗留项） |
 | 36-sky | Perez dynamic sky model. | Perez 全天候动态天空 + 景观光照随天空参数 | **Skybox ClearFlags 挂账项 + 光照环境** |
 | 37-gpudrivenrendering | GPU-Driven Rendering. | HZB 降采样 + compute 遮挡剔除 + stream compaction + 实例化间接绘制 | GPU 剔除 / indirect 远期路线 |
-| 38-bloom | Bloom. | 泛光后处理链（亮度提取/模糊/合成多 pass） | 后处理链（三期扩展候选） |
+| 38-bloom | Bloom. | 泛光后处理链（亮度提取/模糊/合成多 pass） | **四期第 1 项**后处理链 Bloom pass |
 | 39-assao | Adaptive Screen Space Ambient Occlusion. | ASSAO（Intel 实现移植）集成 | **GI 第一步 SSAO 拍板的直接参考** |
 | 40-svt | Sparse Virtual Textures. | 稀疏虚拟纹理：页表 + 反馈缓冲（渲染 tile/mip 反馈 → 按需载页） | 远期纹理流送 |
 | 41-tess | Adaptive GPU Tessellation. | compute 算地形 LOD + indirect dispatch + 细分着色器渲染 | GPU 驱动几何 / tessellation |
@@ -74,14 +74,19 @@
 | `assets/` | 公共资产：`meshes/`（tree/bunny 等）、`shaders/`、`textures/`、`font/` | 示例运行期数据 |
 | `runtime/` | 示例浏览器宿主（列表选择 + 切换重启），配合 `makefile` 构建 | 一次编出全部示例的入口 |
 
-## 3. 与当前排期最贴的几行
+## 3. 与当前排期最贴的几行（三期五批 / 四期六项对照，2026-10-31 版）
 
-- **24**（compute + SSBO 最小闭环）→ 三期光照批次① RHI SSBO/compute 底座；
-- **15 / 16**（基础 → 进阶阴影贴图）→ 三期 ShadowPass；
-- **21 / 43**（Deferred / SVGF 降噪）→ 三期批次④ Deferred 复用与 GI 降噪衔接；
-- **39**（ASSAO）→ GI 第一步 SSAO；
-- **18 / 36**（IBL / Perez 天空）→ 光照环境项与 ClearFlags Skybox 挂账项；
+> **重要负面结论（2026-10-31 实勘）**：52 个示例中**无 clustered / tiled 光照剔除直接对照**（`cluster/tiled` 命中仅 40-svt 的虚拟纹理 tile 聚类，语义无关）——三期核心算法（ClusterBuildPass 三步）无现成参考、按灯光档 §6 自研；构件级参考 = 24（compute+SSBO）与 37（stream compaction，前缀和计算化后置项）。
+
+- **24**（compute + SSBO 最小闭环）→ 三期批次① RHI SSBO/compute 底座；
+- **15**（基础阴影贴图：深度+比较采样+PCF）→ 三期批次④单张硬影对照；
+- **16**（进阶矩阵：CSM/Hard/PCF/PCSS/VSM/ESM × InvZ/线性，`_csm/_omni` 后缀成套着色器）→ **四期第 3 项阴影质量分级**整谱参考；
+- **21 / 43**（Deferred / SVGF 降噪）→ 三期批次④ Deferred 复用与 **四期第 5/6 项 GI/光追降噪**衔接；
+- **39**（ASSAO）→ **四期第 2 项** SSAO 直接参考；
+- **18 / 36 / 09**（IBL 预滤波 / Perez 动态天空 / HDR 链含 skybox）→ **四期第 1/4 项**后处理与天空盒环境光；**09 与 18 的 skybox 着色器 = textureCube 立方图采样，三期批次⑤同形对照**；
 - **30**（GPU 读回拾取）→ 与已落地的 GPU ID-buffer 拾取互校；
+- **31**（RSM 单弹射 GI）→ 四期 GI 的另一流派（本引擎拍板 DDGI 探针，仅作概念对照）；
+- **37**（HZB + compute 遮挡剔除 + stream compaction）→ 剔除远期 + 前缀和计算化构件；
 - **34 / 48 / 35**（多顶点流 / 间接绘制 / 动态缓冲）→ RHI 扩展面与 buffer staging 遗留项。
 
 ---

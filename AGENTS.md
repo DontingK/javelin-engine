@@ -17,7 +17,7 @@
 9. **资产/序列化类字段禁止 `final`**：`Serializable` / `Asset`（AbsAsset 子类）反序列化需回写字段；不可变/只读靠 API 面保证——构建走 Builder、不暴露公开修改方法，不靠 `final`。无独立序列化协议、随宿主重建的纯值对象不受此限
 10. **序列化 write 禁止包装写入、read 禁止派生嵌套字段**：`write()` 里集合/数组字段必须**直传字段本体**（`output.write("x", field)`），不许 `new ArrayList<>(field)`、unmodifiable 视图等任何包装——包装切断对象图引用同一性，共享引用会丢失。集合字段类型就用序列化实体类型（`ArrayList` 直通）。`read()` 只回写字段引用，不许解引用嵌套元素字段做派生结构（BinaryImporter 按 id 升序 populate，根对象先于嵌套对象，此时嵌套字段全是 null）。详见 Engine_Material_Design.md §3 坑点存档
 11. **git 提交信息一句话**：只写一行 `类型(范围): 描述`（示例：`feat(editor): 去Web化收官——三窗口迁Swing + jcef桥包与前端工程整体清退`）；不加 bullet、不加日期——细节归设计文档/记忆，不在提交里展开（2026-10-18 收严，原「主题行+少量 bullet」口径作废）
-12. **提交 git 前必须先写进度文档**：本批进度先落 doc/——功能批次写对应设计档（版本段+验收状态）并同步 `Engine_Roadmap.md` 的阶段进度与 §4 映射表，排障坑写 `Vulkan_Pitfalls.md`，然后才提交。git 只是收口，禁止「先提交、进度文档后补」
+12. **提交 git 前必须先写进度文档**：本批进度先落 doc/——功能批次写对应设计档（版本段+验收状态）并同步 `Engine_Roadmap.md` 的阶段进度与 §5 映射表，排障坑写 `Vulkan_Pitfalls.md`，然后才提交。git 只是收口，禁止「先提交、进度文档后补」
 13. **没有用户指令禁止提交 git**：commit/push 一律由用户明确发起——验收通过、进度文档收口均不构成提交授权（红线 12 只约束提交前文档先行的顺序，不是提交触发器；历史会话的「验收→提交」模式不延伸到本次）
 14. **javadoc 精简——注释说「是什么、怎么用」，设计档说「为什么」**：类注释最多 3~4 行（一句定位 + 使用方必须知道的契约，如「全程不抛、失败转 FAILED」）；方法注释一句话 + 必要 `@param/@throws`。设计论证（拍板依据、取舍对比、将来规划）一律归 doc/ 设计档，不进 javadoc——参照 PanelRegistry / FileTypeRegistry 既有风格（2026-10-20 拍板）
 15. **错误显性化——异常态该弹错误就弹，禁止代码静默消化本来就不正常的逻辑**：GUI 流程遇异常（解析不到引用、导入失败、状态缺失等）一律弹错误提示框让用户看见（JOptionPane 挂 MainFrame 先例），不许只打日志或写防御分支兜过去——静默兜底掩盖真问题（数据损坏、流程错序）。注意与**正常域的缺失态**区分：设计口径内合法的空状态（如未赋贴图槽=占位贴图、新建纹理未选图=纹理壳）按设计处理不算异常，不弹（2026-10-25 拍板，起因=拖入未导入文件静默失败）
@@ -84,7 +84,8 @@
 | `Engine_Texture_Design.md` | 引擎贴图设计（v0.2）：三层资产模型（Image 像素资产 / Texture2D 引用+设置层 / 材质贴图槽——一图多设置免复制）、.png/.jpg/.jpeg 导入链（ImageImporter）、.texture 纹理资产（创建命令+导入器+检查器面板，编辑载体=文本私有实例）、alpha 修复、边界（mip/压缩/sRGB 后置） |
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.5）：组件模型、Node/Component/Scene、RenderingSystem、生命周期帧驱动状态机（§4）、.scene 序列化（§9）、colliders 注册表分流投影（L1 物理查询遍历源，2026-10-28）、**MeshRenderer 多材质（materials[i] 对应子网格 i + 每 (renderer, 子网格) 一 RenderObject + 缺失位默认材质兜底，§5.1，2026-10-29）**——拍板细节与红线辨析见档内 |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
-| `Engine_Lighting_Design.md` | 引擎光照设计（v0.1）：**clustered + SSBO（Forward+ 形态，2026-10-28 拍板一步到位、跳过 UBO 数组/逐盏画光中间档）**——Light 组件+收集（视空间 64B 打包/强度预排序）、cluster 三件套（grid/变长索引池/参数 UBO，每 cluster 上限 64 截尾=去最弱）、ClusterBuildPass（compute 三步构建）、Lambert+环境项着色消费、四批实装路线（①RHI SSBO/compute 底座②组件收集③构建+Forward=Forward+ 成形④ShadowPass+Deferred 复用）；主光=Scene.getSun（与 getMainCamera 对称） |
+| `Engine_Lighting_Design.md` | 引擎光照设计（v0.2）：**clustered + SSBO（Forward+ 形态，2026-10-28 拍板一步到位、跳过 UBO 数组/逐盏画光中间档）**——Light 组件+收集（视空间 64B 打包/强度预排序）、cluster 三件套（grid/变长索引池/参数 UBO，每 cluster 上限 64 截尾=去最弱）、ClusterBuildPass（compute 三步构建）、Lambert+环境项着色消费、**ShadowPass 数据侧（§4.5 单张硬影 2026-10-31 拍板——PCF/CSM 后置）、注入红线（default.shader=DefaultMaterial 兜底禁改造、注入样例=新增内置 Lit.shader）**、四批实装路线（①RHI SSBO/compute 底座②组件收集③构建+Forward=Forward+ 成形④ShadowPass+Deferred 复用）；主光=Scene.getSun（与 getMainCamera 对称） |
+| `Engine_Skybox_Design.md` | 引擎天空盒设计（v0.1）：**三期批次⑤（2026-10-31 三拍板：cubemap 形态不走 equirect 捷径 / 纯视觉不参与光照（ambient 升级归 GI 探针期）/ 光照四批后独立批零耦合）**——RHI cubemap 底座（通用纹理种类面红线）、SkyboxPass（3.5 位插 Lighting 后/Transparent 前、LEqual+ZWrite Off、ClearFlags.SKYBOX 兑现）、资产/场景接线（导入形态实装前再出方案） |
 | `Engine_RenderPipeline_Design.md` | 引擎渲染管线设计（v0.1）：默认混合管线 Pass 组织、视图级资源规划、钩子点、MSAA 抗锯齿（§5.3） |
 | `Engine_Window_Design.md` | 引擎窗口设计（v0.1）：Window 抽象、与 RenderSurface 分离、GLFW 实现（Window 归 JavelinEngine 持有） |
 | `Editor_Design.md` | 编辑器模块架构（v0.1）：**设计基准=完全参考 Unity（交互口径/面板组织/命名，分歧以 Unity 为默认答案）**、资产管线（.meta/GUID/导入器/Library）+文件类型注册器、线程模型、已知问题与演进方向（§9/§10）——CEF/Web 历史章节已清退（2026-10-23，§4 仅留指针），UI 现状以 Editor_Swing_Design 为准 |
@@ -105,7 +106,7 @@
 | 文档 | 内容 |
 |------|------|
 | `Engine_Implementation_Plan.md` | 引擎实现计划（v0.1）：六阶段路线（接线 RHI→场景→渲染→材质→子系统+输入→物理/音频）、RHI 遗留修复插入时机、开放项拍板表 |
-| `Engine_Roadmap.md` | 引擎阶段路线（v0.1）：一期渲染基础关账总结、二期引擎功能（输入/碰撞/Ray/编辑器基本）、三期光照，与六阶段计划的映射 |
+| `Engine_Roadmap.md` | 引擎阶段路线（v0.2）：一期渲染基础关账总结、二期引擎功能（输入/碰撞/Ray/编辑器基本）、三期光照（clustered Forward+ 五批+单张硬影+视觉天空盒）、**四期高质量渲染（2026-10-31 立项——后处理/SSAO/阴影分级/天空盒环境光/探针实时 GI(DDGI)/光追 rayQuery，§4）**，与六阶段计划的映射 |
 | `Engine_Features.md`（根目录） | 功能清单（v0.1）：按模块（RHI/核心/编辑器/构建链/支撑）分级盘点每项功能的完成状态+验收状态（方式+日期）——**验收状态/日期全项目单点**；§6 待验收挂账、§7 已知问题一览 |
 | `RHI_Implementation_Progress.md` | RHI 实现进度记录：各阶段完成状态、文件清单、已知问题、API 签名确认记录 |
 | `Vulkan_Pitfalls.md` | Vulkan / LWJGL / GLFW / Java NIO 陷阱记录（症状→根因→修法→出处）+ GPU 排障方法论 |

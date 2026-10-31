@@ -1,12 +1,14 @@
 # 引擎光照设计（Engine Lighting Design）
 
-> 版本：v0.1
-> 日期：2026-10-28
-> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、着色消费与实现批次。**设计拍板完成、未实装**；实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> 版本：v0.2
+> 日期：2026-10-28（v0.2 2026-10-31）
+> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成、未实装**；实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> v0.2 变更（2026-10-31）：**补 ShadowPass 明细（§4.2——单张硬影拍板，级联/软化后置）**；§7 着色注入补红线（**default.shader = DefaultMaterial 兜底专用，禁止改造成注入样例**——用户拍板）；批次④产出补阴影消费路径；天空盒视觉化（cubemap）转专档 `Engine_Skybox_Design.md`（批次⑤）。
 > 职责边界：
-> - 本文管**光数据通路与光照组织**（灯怎么收集、打包、分簇、进着色器）；
-> - 管线档管 Pass 编排与视口资源（clusterBuild 的插入位置、Lighting/GBuffer 的 RT 读写）；
-> - 着色模型（BRDF 演进、材质光照钩子）归材质/着色模型专档（后置），本文 v0.x = Lambert + 环境项。
+> - 本文管**光数据通路与光照组织**（灯怎么收集、打包、分簇、进着色器）+ **主光阴影的深度通路**（ShadowPass 数据侧：shadowCasters 收集、lightViewProj、shadowMap 采样参数）；
+> - 管线档管 Pass 编排与视口资源（clusterBuild/Skybox 的插入位置、Lighting/GBuffer 的 RT 读写）；
+> - 着色模型（BRDF 演进、材质光照钩子）归材质/着色模型专档（后置），本文 v0.x = Lambert + 环境项；
+> - 天空盒（视觉 Pass + cubemap 底座）归 `Engine_Skybox_Design.md`（2026-10-31 建档）。
 
 ---
 
@@ -75,7 +77,7 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 | 方向光数组 | `directional[8]`，每盏 2×vec4（dir+castShadow / color+intensity） | 槽 0 = 主光；上限 8，超限 WARN |
 | 计数 | `dirCount` / `pointCount`（uint×2） | pointCount = lightList 有效长度 |
 | grid 元数据 | `gridDim`（uvec3）+ `zParams`（vec2：near/far）+ `tileSize`（uint） | 着色器重建 cell 坐标用（§6 公式） |
-| 环境项 | `ambient`（vec4：RGB + 强度） | v0.x 环境光=常量色（Scene.environment 空间光/天空盒后置，Roadmap 遗留项） |
+| 环境项 | `ambient`（vec4：RGB + 强度） | v0.x 环境光=常量色（Scene.environment 空间光/天空盒环境项后置——天空盒视觉化归 Engine_Skybox_Design，环境光照升级归 GI 探针期，Roadmap 遗留项） |
 | 主光阴影段 | `sunViewProj`（mat4）+ shadowMap 采样参数 | **批次④占位**；挂点已拍板（2026-10-28）= set1 扩展 binding4 combined depth-sampler（管线档 §7 同步收口），随 ShadowPass 落位 |
 
 ### 3.4 set1 契约（binding 划分）
@@ -113,6 +115,14 @@ class Light extends Component {
 - **收集**（RenderingSystem 帧收集扩展）：非激活过滤 → 点/聚光按世界包围球做相机视锥剔除 → 视空间打包 → 预排序；方向光全量进 UBO（无剔除）；
 - .scene 序列化：Light 为普通 Component，随组件通则序列化，无特例。
 
+## 4.5 ShadowPass 数据侧（v0.x = 单张硬影，2026-10-31 拍板）
+
+- **形态拍板**：主光**全局单张** 2048² depth-only、正交包围盒盖全场景，先兑现「投影正确」验收；**PCF 软化 / CSM 级联 / bias 精调分层后置**（§10）——与 clustered「一步到位」不矛盾：clustered 解决的是「灯数量无截断」，阴影质量分级属另一维度，v0.x 单灯单张无级联必要；
+- **lightViewProj**：主光方向 + 场景 AABB（RenderList.shadowCasters 世界包围盒并集）构造正交 frustum；朝向锁定主光前向、up 取稳定轴防抖动（Unity 式 stabilize 后置）；
+- **shadowCasters**：v0.x = 全部不透明 mesh renderer（无 per-object 开关，`castShadow` 组件位后置）；收集归 RenderingSystem 帧收集（与 lights/renderables 同域）；
+- **着色消费**：注入光照段的阴影采样分支——`sunViewProj` 重建 shadowMap UV → 单次采样 depth compare（sampler = set1 binding4 combined depth-sampler，§3.4）；`castShadow=false` 的方向光跳过采样；**v0.x 无 PCF 无 bias**（`slope-scaled depth bias` 在 PSO rasterization 侧按主光分辨率/朝向先给保守值，漏影/彼得潘宁实测再调——无经验值盲写属红线 2/5）；
+- **两路一致**：Forward 注入段与 Deferred LightingPass（管线档 4.3）消费同一 shadowMap + sunViewProj，无两套阴影语义。
+
 ## 5. Cluster 切分几何
 
 - **X/Y**：屏幕 tile，`tileIndex = floor(pixelCoord / tileSize)`，tileSize=16；
@@ -149,7 +159,9 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 - 点光：像素重建视空间位置（vs 传出视空间坐标插值，v0.x 不走深度重建——深度重建归 P2）→ 定位 cell → 迭代索引段；
 - SPOT：同点光 + 方向锥判定（cos inner/outer 平滑带）——批次③后半；
 - **一致性**：Opaque/Transparent/（批次④）LightingPass 读同一套 set1 契约——正透明光照无差异（管线档 4.5 取舍消解，两处文案随批次④回填）；
-- 材质钩子：着色入口由 ShaderInjector 注入的光照段提供（具体注入形态随批次③与 ShaderParser/Injector 联动拍板——旧 .shader 产物无需重导的兼容口径是目标，做不到则随批重导）。
+- 材质钩子：着色入口由 ShaderInjector 注入的光照段提供（具体注入形态随批次③与 ShaderParser/Injector 联动拍板——旧 .shader 产物无需重导的兼容口径是目标，做不到则随批重导）；
+- **注入红线（2026-10-31 用户拍板）**：**内置 `default.shader` 是 DefaultMaterial 兜底专用（缺材质/坏 shader 时的紫色错误显性化产物），禁止改造成注入光照段的样例**——光照注入的验证样例与用户面引导 = 新增内置 `Lit.shader`（命名拍板 2026-10-31，对标 HDRP 主受光着色器；随批次③落 builtin-asset-core；四期 BRDF 升级升其本体、名字不换），default.shader 的纯色语义维持不变；
+- 内置光照 shader 的 .shader 源（vs 传插值视空间坐标、fs 留表面色接光照段）与注入段本身**不进 core**（着色器源码不进 core 拍板照旧）——源在 editor builtin-asset，注入段文本归 Injector/编译链，clusterBuild 的 compute spv 走 javelin-tool 内嵌链路（DebugText/pick 先例）。
 
 ## 8. 与管线的咬合
 
@@ -166,20 +178,20 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 | ① RHI 底座 | SSBO 实装（`RHIBinding.STORAGE_BUFFER`/`bindStorageBuffer` 现仅设计稿 API）/ ComputePipeline + dispatch / RenderGraph compute Pass 节点与 Buffer 读写声明同步（阶段掩码进图推导） | compute 写 SSBO → 图形 Pass 读回最小闭环 Demo；**通用性红线：Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止只伺候 cluster 三件套的光照特化窄接口**——探针实时 GI（GI 目标态拍板 2026-10-28，Roadmap 三期）与 rayQuery 扩展的第一消费者地位由此保证 |
 | ② 光数据模型 | Light 组件 + Scene lights 注册表 + 收集/剔除/预排序/视空间打包 + set1 布局与注入 | 单测（组件/注册表/主光解析）+ F3 在册灯数显示 |
 | ③ cluster 构建 + Forward 消费（= Forward+ 成形） | ClusterBuildPass 三步 + 着色器光照段注入 + Lambert+环境项 + SPOT（后半） | 点光/方向光明暗正确（用户运行）；几十盏场景帧率稳；F3 帧时间不劣化超阈值 |
-| ④ ShadowPass + Deferred 复用 | ShadowPass（管线档 4.1 兑现，sunViewProj 段落位）+ GBuffer/LightingPass 上线（同一 cluster 直喂）+ 混合/纯 Forward 可配置切换 | 主光投影正确；两路光照一致（同场景切换对比）；管线档 §8 步骤二验收口径 |
+| ④ ShadowPass + Deferred 复用 | ShadowPass（管线档 4.1 兑现，**v0.x 单张硬影**——§4.5：无 PCF/无 CSM，rasterization 侧保守 bias；sunViewProj 段+binding4 落位）+ 注入段阴影采样分支 + GBuffer/LightingPass 上线（同一 cluster 直喂）+ 混合/纯 Forward 可配置切换 | 主光投影正确（单张硬影口径）；两路光照一致（同场景切换对比）；管线档 §8 步骤二验收口径 |
 
 - 批次③收尾即拥有全质量光照（几十~几百盏无截断），Deferred 是第四批的另一个消费者，非光照质量前提；
 - 后处理链（Bloom/Tonemap + HDR 切换点，管线档 4.6）不在本四批内，随批次④后按管线档步骤三独立推进。
 
-## 10. 后置项与边界
+## 10. 后置项与边界（2026-10-31 拍板：质量升级整体归四期——Roadmap §4 单点）
 
-- 脏标记跳过重建（相机/灯集合不变时不跑 ClusterBuildPass）；
-- 前缀和计算化（compute scan 替代 CPU）；cell 线性索引 Morton 化（局部性）；
-- 深度重建视空间位置（省 vs 视空间坐标插值带宽）；正交相机 Z 线性切分；
+- **阴影质量分级**：PCF 软采样（注入段采样次数 × 邻域偏移）、CSM 级联（多 lightViewProj/级联选择/接缝处理）、深度 bias 精调、shadowCasters per-object 开关、stabilize 抖动抑制——**归四期第 3 项**（Roadmap §4）；
+- 天空盒环境光照（天空盒作 ambient 源：SH9/mipmap 降采样，替换 §3.3 ambient 常量）——**归四期第 4 项**（过渡环境光，探针 GI 落地后并入第 5 项）；
+- **GI 方向**：目标态 = 探针实时 GI（DDGI 路线）、烘焙管线不建、SSAO 为 GI 第一步——**归四期第 5 项**（Roadmap §4，探针复用本档批次①底座、求交后端可替换软光栅 → rayQuery；3D 纹理/纹理数组为采样前置缺口）；
+- **光追方向**：rayQuery 优先、RT pipeline 后置——**归四期第 6 项**（Roadmap §4，缺口 = AS 资源种类/图状态、BDA、GL_EXT_ray_query 编译链、蒙皮 BLAS 首范围=静态几何；复用本档批次①通用性红线）；
+- 脏标记跳过重建（相机/灯集合不变时不跑 ClusterBuildPass）；前缀和计算化（compute scan 替代 CPU）；cell 线性索引 Morton 化（局部性）；深度重建视空间位置；正交相机 Z 线性切分——clustered 后置项不设期，随四期批次需要（Roadmap §4 尾注）；
 - **cluster 索引系统复用**：decals / 反射探针后续并入同一 cluster（Godot 4 启发——索引池语义泛化为「per-cell 可见物列表」时不重复建基建）；
-- **GI 方向（2026-10-28 拍板记录，单点归 Roadmap 三期）**：目标态 = 探针实时 GI（DDGI 路线）、烘焙管线不建、SSAO 为 GI 第一步；探针复用本档批次①底座，求交后端可替换（软光栅 → rayQuery）；3D 纹理/纹理数组为采样前置缺口；
-- **光追方向（后续需求，单点归 Roadmap 三期）**：rayQuery 优先、RT pipeline 后置；缺口 = AS 资源种类/图状态、BDA、GL_EXT_ray_query 编译链、蒙皮 BLAS（首范围=静态几何）；
-- 环境空间光/天空盒环境项（Scene.environment 实装时）；光照 gizmo/调试显示（编辑器侧，DebugLine 光球线框 + 灯图标，随批次③后编辑器批次）；
+- 光照 gizmo/调试显示（编辑器侧，DebugLine 光球线框 + 灯图标，随批次③后编辑器批次）；
 - 着色模型升级（Lambert → BRDF）归材质/着色模型专档；tiled/clustered 的进一步分档（如 reducing Z 精度）随实测调参。
 
 ## 11. 文档衔接

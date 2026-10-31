@@ -1,8 +1,8 @@
 # 引擎阶段路线（Engine Roadmap）
 
-> 版本：v0.1（2026-09-25）
-> 说明：三期路线总览与一期完成关账。**一期 = 渲染基础（已完成）**；**二期 = 引擎功能（输入 / 碰撞检查 / Ray / 编辑器基本）**；**三期 = 光照**。各期细节以对应专档为准，本文只做总览与状态。
-> 用户拍板（2026-09-25）：三期路线——一期渲染基础完 → 二期引擎功能 → 三期光照（阴影随光照；Deferred/后处理列三期扩展）。
+> 版本：v0.2（2026-10-31）
+> 说明：阶段路线总览与一期完成关账。**一期 = 渲染基础（已完成）**；**二期 = 引擎功能（输入 / 碰撞检查 / Ray / 编辑器基本）**；**三期 = 光照（clustered Forward+ 五批）**；**四期 = 高质量渲染（后处理 / 阴影分级 / 环境光照 / 实时 GI / 光线追踪，2026-10-31 立项）**。各期细节以对应专档为准，本文只做总览与状态。
+> 用户拍板（2026-09-25）：三期路线——一期渲染基础完 → 二期引擎功能 → 三期光照（阴影随光照；Deferred/后处理列三期扩展）；**2026-10-31 拍板：高质量光照/光追/天空盒环境光/实时 GI 等后期项归四期**（三期收口为「有光照」= Forward+ 成形+单张硬影+视觉天空盒，质量升级整体下期）。
 
 ---
 
@@ -354,21 +354,36 @@ Vulkan_Pitfalls #26）——
 
 ## 3. 三期：光照
 
-- **目标**：场景开灯出可见差异——灯光数据通路 + 有光照着色 + 阴影；
+- **目标**：场景开灯出可见差异——灯光数据通路 + 有光照着色 + 阴影 + 视觉天空盒；**质量升级（后处理/阴影软化级联/环境光照/实时 GI/光追）整体归四期（2026-10-31 拍板）**；
 - **拍板（2026-10-28，`Engine_Lighting_Design.md` v0.1 单点）**：**clustered + SSBO（Forward+ 形态）一步到位，跳过 UBO 数组 / 逐盏画光体积中间档**——只面向 PC、质量优先；正透明同读一份 cluster（管线档 4.5 两路光照一致性取舍**消解**）；默认参数 = 16×16 tile × Z32 指数切分、每 cluster 索引上限 64（截尾=去最弱）、光列表容量 4096；主光 = 首个激活 isMain 方向光（`Scene.getSun()`，与 getMainCamera 对称，`Scene.sun` 字段引用案弃用）；shadowMap 挂点 = set1 binding4；
 - **内容**（四批，灯光档 §9）：
   1. **RHI 底座前置（新增段）**：SSBO 实装（现仅设计稿 API）+ ComputePipeline/dispatch + RenderGraph compute Pass 节点与 Buffer 读写同步——compute 写 SSBO → 图形 Pass 读回最小闭环为验收；
   2. **Light 组件 + 收集**：DIRECTIONAL/POINT/SPOT（字段级归灯光档 §4）+ Scene lights 注册表 + 视锥剔除/强度预排序/视空间 64B 打包；
   3. **cluster 构建 + Forward 消费（= Forward+ 成形）**：ClusterBuildPass（compute，每视口，三步构建）+ 着色器光照段注入 + Lambert + 环境项 + SPOT（后半）；
-  4. **ShadowPass + Deferred 复用**：ShadowPass（管线档 4.1 兑现）+ GBuffer/LightingPass 同一 cluster 直喂 + 混合/纯 Forward 可配置切换；
+  4. **ShadowPass + Deferred 复用**：ShadowPass（管线档 4.1 兑现，**v0.x = 单张硬影——2026-10-31 拍板：单张 2048² 正交包围盒、无 PCF/无 CSM/bias 保守值，质量分级后置灯光档 §10**）+ 注入段阴影采样分支 + GBuffer/LightingPass 同一 cluster 直喂 + 混合/纯 Forward 可配置切换；
+  5. **天空盒（2026-10-31 建档）**：cubemap 形态（RHI 新纹理种类底座）+ SkyboxPass（管线 3.5 位）+ ClearFlags.SKYBOX 兑现 + 资产/场景接线——**纯视觉不参与光照**（ambient 升级归 GI 探针期）；光照四批后独立批、零耦合可穿插，`Engine_Skybox_Design.md` v0.1 单点；
+- **着色器配套口径（2026-10-31 用户拍板）**：**内置 default.shader = DefaultMaterial 兜底专用（纯紫=错误显性化产物），禁止改造成光照注入样例**——注入验证样例 = 批次③新增内置 Lit.shader；clusterBuild compute 与 SkyboxPass 走引擎内嵌 spv 链路（javelin-tool，DebugText/pick 先例）、GLSL 不进 core 拍板照旧；
 - **验收**：方向光/点光下物体明暗正确 + 主方向光投影正确（用户运行）；几十盏场景帧率稳（F3 帧时间不劣化超阈值）；混合/纯 Forward 可配置切换且两路光照一致（管线档 §8 步骤二回填点）；
-- **三期扩展（可选排序）**：后处理链具体化（Bloom/Tonemap + HDR 切换点，管线档 4.6）、clustered 后置项（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）；
-- **GI 目标态拍板（2026-10-28）**：**探针实时 GI（DDGI 路线，团结引擎实时 GI / HDRP APV 产业验证）**——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；GI 第一步 = SSAO（后处理链 Pass，管线档 4.6 挂点，零新底座）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数；探针采样前置 = 3D 纹理/纹理数组（RHI 现仅 Texture2D，待核实）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档；
-- **光追方向（后续需求，2026-10-28 记录）**：rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；前置约束 = 三期批次①通用性红线（灯光档 §9——Buffer 进图同步+storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口）。
+- **后置项全部归四期**（2026-10-31 拍板，见 §4）：后处理链、clustered 后置项（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）、阴影质量分级（PCF/CSM/bias 精调，灯光档 §10）、GI、光追、天空盒环境光照。
 
 ---
 
-## 4. 与 `Engine_Implementation_Plan.md` 六阶段的映射
+## 4. 四期：高质量渲染（2026-10-31 立项，拍板：后期项整体归此期）
+
+> 三期收官 = 「有光照」（Forward+ 成形 + 单张硬影 + 视觉天空盒）；四期 = 质量升级全谱。排序为初步依赖序，开工前逐项拍板方案（先方案后码）。
+
+1. **后处理链**（Bloom/Tonemap + **HDR 切换点**，管线档 4.6——四期第一候选：链式结构已落地，具体化零新底座）；
+2. **SSAO**（后处理链 Pass，管线档 4.6 挂点——**GI 第一步**，零新底座）；
+3. **阴影质量分级**（PCF 软采样 → CSM 级联 → bias 精调/per-object 开关/stabilize，灯光档 §10——消费侧注入段与 shadowMap 底座三期已备，纯增量）；
+4. **天空盒环境光照**（天空盒作 ambient 源：SH9 球谐或 mipmap 降采样，替换灯光档 §3.3 ambient 常量——**DDGI 落地前的过渡环境光**；天空盒视觉面三期批次⑤已备）；
+5. **探针实时 GI**（GI 目标态拍板 2026-10-28：**DDGI 路线**，团结引擎实时 GI / HDRP APV 产业验证）——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数（含第 4 项的过渡环境光）；探针采样前置 = **3D 纹理/纹理数组**（RHI 现仅 Texture2D——cubemap（三期批次⑤）同族先行，纹理数组随探针实装前核实）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档；
+6. **光线追踪**（光追方向 2026-10-28 记录）：**rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先**、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；**前置约束 = 三期批次①通用性红线**（灯光档 §9——Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口——四期 GI/RT 是该红线的第一复用方）。
+
+- **着色模型升级**（Lambert → BRDF，材质/着色模型专档）与 **clustered 后置项**（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）不设期，随四期各批次需要顺带或独立小批。
+
+---
+
+## 5. 与 `Engine_Implementation_Plan.md` 六阶段的映射
 
 | 路线期 | 实现计划阶段 | 状态 |
 |--------|-------------|------|
@@ -376,7 +391,8 @@ Vulkan_Pitfalls #26）——
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
 | 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** + **Mesh 子网格 + MeshRenderer 多材质 + 检查器 GUID_ASSET_LIST 多材质行✅（2026-10-29 落地、2026-10-30 用户验收，Engine_Assets_Design §2.9/Engine_Scene_Design §5.1 v0.5/Inspector_Design v0.13）** |
-| 三期 | 灯光 + ShadowPass（clustered Forward+ 拍板 2026-10-28——四批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass+Deferred 复用；Engine_Lighting_Design v0.1） | 🔄 设计拍板收口（2026-10-28），实装未开始 |
+| 三期 | 灯光 + ShadowPass + 天空盒（clustered Forward+ 拍板 2026-10-28——五批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass（**单张硬影 2026-10-31 拍板**）+Deferred 复用→SkyboxPass（cubemap+纯视觉，2026-10-31 建档）；Engine_Lighting_Design v0.2 / Engine_Skybox_Design v0.1） | 🔄 设计拍板收口（2026-10-28 + 2026-10-31 阴影/天空盒/注入红线三拍板），实装未开始 |
+| 四期 | 高质量渲染（2026-10-31 立项，§4 单点——后处理链/SSAO/阴影质量分级/天空盒环境光照/探针实时 GI（DDGI）/光追 rayQuery） | ⬜ 立项收口（排序为初步依赖序，各项开工前逐项拍板方案） |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
 > **2026-10-30 批映射注**：资产热重载注册表流派（Walker 全量扫描 + 导入事件总线）、Texture2D 运行期可变 +
@@ -384,7 +400,7 @@ Vulkan_Pitfalls #26）——
 > Cleaner Registration 合一 → 挂靠**一期 RHI 底座（既有关账能力上的防御性重构）**。状态 = **2026-10-30
 > 用户验收销账（单测+实机全过，见 §2.4 本批进度段与各设计档版本沿革）**。
 
-## 5. 跨期遗留（不阻塞当期推进）
+## 6. 跨期遗留（不阻塞当期推进）
 
 - RHI 遗留：Buffer staging 上传（deviceLocal）、描述符池环形、backbuffer 句柄入 structureHash；
 - 场景：environment/sun（三期灯光一并定）、.scene 序列化（二期编辑器前置）；

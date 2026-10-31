@@ -62,7 +62,7 @@
 | ClearFlags（SOLID_COLOR / DEPTH_ONLY / DONT_CLEAR） | ✅ | ✅ 同上（Skybox 项后置） |
 | Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
 | 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，运行时） |
-| ClearFlags Skybox 项 | ⬜ 待天空盒 | — |
+| ClearFlags Skybox 项 | ⬜ 三期批次⑤（cubemap+纯视觉 2026-10-31 拍板，Engine_Skybox_Design v0.1——RHI cubemap 底座 + SkyboxPass 管线 3.5 位） | — |
 | main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，GameSceneTest） |
 
 ### 2.4 渲染系统与管线（render）
@@ -282,7 +282,7 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**（二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §5 构建链条目）。
+**当前挂账 0 项**（二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目）。
 
 **二期挂账历史（①~⑧全销账，保留记录）**：
 
