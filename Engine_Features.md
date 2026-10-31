@@ -61,7 +61,7 @@
 | cullingMask / viewportRect / depth 渲染排序 / per-camera 清屏 | ✅ | ✅ 多相机 Demo + 编辑器日常 |
 | ClearFlags（SOLID_COLOR / DEPTH_ONLY / DONT_CLEAR） | ✅ | ✅ 同上（Skybox 项后置） |
 | Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
-| 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ⏳ 待验收（运行时） |
+| 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，运行时） |
 | ClearFlags Skybox 项 | ⬜ 待天空盒 | — |
 | main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，GameSceneTest） |
 
@@ -125,7 +125,7 @@
 |------|---------|---------|
 | Subsystem / AppState 双层（底层冻结可暂停 / 控制层挂卸单心跳） | ✅ | ✅ 一期接线 Demo |
 | 窗口抽象 + GLFW 实现（Window 与 RenderSurface 分离、showWindow） | ✅ | ✅ 一期 |
-| 引擎静态实例 + 渲染表面访问口（JavelinEngine.getInstance()（构造赋值/shutdown 摘除）+ renderSurface()——相机 screenToRay 尺寸自取源，JavelinEditor.getInstance 同款先例） | ✅（2026-10-28） | ⏳ 待验收（运行时） |
+| 引擎静态实例 + 渲染表面访问口（JavelinEngine.getInstance()（构造赋值/shutdown 摘除）+ renderSurface()——相机 screenToRay 尺寸自取源，JavelinEditor.getInstance 同款先例） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，随 mouseRay 运行时） |
 | DebugText 点阵调试文本（含汉字、行级 printf / attr 调色 / clear） | ✅ | ✅ 用户实测（2026-09-27；AOT 资源路径 2026-10-13 复验） |
 | RenderStats / GPUInfo（11 类存活计数 + draw call 快照双缓冲）+ F3 overlay | ✅ | ✅ 用户复跑（2026-09-27） |
 | vsync 语义（MAILBOX 防撕裂不限速）+ maxFps 限帧器（0=不限） | ✅ | ✅ 用户实测（2026-10-06/07） |
