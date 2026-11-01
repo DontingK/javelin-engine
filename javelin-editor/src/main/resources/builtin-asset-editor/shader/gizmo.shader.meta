@@ -1,6 +1,6 @@
 javelin-text-serialization
 version=1
-[0:meta.cn.donting.javelin.editor.AssetMeta]
+[0:cn.donting.javelin.editor.meta.AssetMeta]
 guid=c4ea2b512ff7d04cb67e4d71d43a4142
 assetType=Shader
 importSettings=@null

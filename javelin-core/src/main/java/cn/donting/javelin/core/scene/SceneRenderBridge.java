@@ -267,7 +267,11 @@ public final class SceneRenderBridge {
     }
 
     private static float rangeOf(Light light) {
-        return light instanceof PointLight p ? p.getRange() : 0.0f;
+        // 点/聚光各有 range 字段（子类化——参数集不相交）；方向光无 range 恒 0
+        if (light instanceof PointLight p) {
+            return p.getRange();
+        }
+        return light instanceof SpotLight s ? s.getRange() : 0.0f;
     }
 
     private static float cosInnerOf(Light light) {

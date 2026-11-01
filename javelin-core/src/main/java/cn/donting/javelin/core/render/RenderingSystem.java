@@ -110,10 +110,14 @@ public final class RenderingSystem implements AutoCloseable {
     // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
     /** LightingParamsBlock 帧槽步长（std140 实需 320B，256 对齐进取；动态偏移单位） */
     static final int LIGHTING_STRIDE = 512;
-    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/ambient 各 16） */
-    static final int LIGHTING_BLOCK_BYTES = 320;
-    /** 环境项 v0.x 常量色（rgb + 强度；Scene.environment/天空盒环境项归 GI 期，§3.3） */
-    private static final float[] AMBIENT_COLOR = {0.15f, 0.15f, 0.15f, 1.0f};
+    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16） */
+    static final int LIGHTING_BLOCK_BYTES = 336;
+    /**
+     * 环境项（rgb + 强度）：v0.x = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
+     * 用户拍板；原 0.15 中性灰占位作废）。真值源 = 天空盒环境光照，归四期第 4 项
+     * （SH9/mipmap 降采样，灯光档 §3.3/§10）。
+     */
+    private static final float[] AMBIENT_COLOR = {0.0f, 0.0f, 0.0f, 1.0f};
 
     private final Device device;
     private final FrameLoop frameLoop;
@@ -130,20 +134,22 @@ public final class RenderingSystem implements AutoCloseable {
     private final Buffer uboBuffer;
     private final DescriptorSetLayout frameSetLayout;
     private final DescriptorSet frameSet;
-    // set 1 帧级光照 + storage（SSBO）通道（三期批次①开通用通道、批次②落光照数据面）：
-    // binding0 = LightingParamsBlock UBO（DYNAMIC，每视口偏移）、binding1 = lightList SSBO
-    // （引擎常驻，§3.4 终态槽位）；binding2/3 = registerFrameStorage 通用通道
-    // （批次③ clusterGrid/clusterIndices 用 2~3 位）
+    // set1 帧级光照通道（批次②落光照数据面、批次③ per-view 化）：binding0 = LightingParamsBlock
+    // UBO（DYNAMIC，每视口偏移，引擎常驻）；binding1/2/3 = lightList/clusterGrid/clusterIndices
+    // 按<b>视口</b>各自缓冲（首视口口径挂账随批次③解除；registerFrameStorage 通用通道已清退）
     private final DescriptorSetLayout frameStorageSetLayout;
-    private final Map<Integer, Buffer> frameStorages = new java.util.TreeMap<>();
-    private DescriptorSet frameStorageSet;
-    private boolean frameStorageDirty;
+    /** 每视口灯光资源：binding1/2/3 三缓冲 + set1 描述符集（视口像素尺寸变化重建） */
+    private final Map<String, ViewLighting> viewLights = new HashMap<>();
+    private final ClusterBuilder clusterBuilder = new ClusterBuilder();
+    /** grid 序列化暂存（cells×2 int，尺寸变化重分配；小端直写 hostVisible） */
+    private ByteBuffer gridPack;
+    /** 索引池序列化暂存（poolUsed int；小端直写 hostVisible） */
+    private ByteBuffer poolPack;
 
     // 灯注册表 + 收集打包（批次②；SceneRenderBridge pull 翻译 Light → RenderLight）
     private final List<RenderLight> lights = new ArrayList<>();
     private final LightCollector lightCollector = new LightCollector();
     private final Buffer lightingBuffer;
-    private final Buffer lightListBuffer;
     /** 每帧复用的打包暂存（小端直写 hostVisible） */
     private final ByteBuffer lightingPack = ByteBuffer.allocateDirect(LIGHTING_BLOCK_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
@@ -156,6 +162,11 @@ public final class RenderingSystem implements AutoCloseable {
     /** 超容 WARN 状态位（条件解除复位，周期性超限不重复刷屏） */
     private boolean pointOverflowActive;
     private boolean directionalOverflowActive;
+    // 末帧 cluster 读数（首视口口径；F3 行 9 消费）
+    private long clusterBuildNanos;
+    private int clusterPoolUsed;
+    /** cluster 索引池溢出 WARN 状态位（截断保护发生过的帧显性化） */
+    private boolean clusterPoolOverflowActive;
 
     // 材质桥：set 2 布局按 Shader 缓存；材质资源按 Material 实例缓存；采样器按参数缓存
     private final Map<Shader, DescriptorSetLayout> materialLayouts = new HashMap<>();
@@ -231,16 +242,14 @@ public final class RenderingSystem implements AutoCloseable {
         // 否则末槽末相机 offset+range 会越出缓冲）
         this.frameSet.update(DescriptorUpdate.dynamicUniformBuffer(0, uboBuffer, 0, CAMERA_STRIDE));
 
-        // set1 帧级 storage 布局（原空占位翻牌为 SSBO 通道，三期批次①；
-        // 批次②起含 binding0 光照 UBO + binding1 lightList——frameStorageLayoutDesc）
+        // set1 光照布局（批次② binding0 UBO + binding1 lightList；批次③ per-view 化后
+        // binding2/3 = clusterGrid/clusterIndices——frameStorageLayoutDesc）
         this.frameStorageSetLayout = device.createDescriptorSetLayout(frameStorageLayoutDesc());
-        // 光照帧级通道（批次②）：binding0 UBO（帧槽 × 相机块，动态偏移）+ binding1 lightList
+        // 光照 UBO（批次②）：binding0 帧槽 × 相机块，动态偏移——唯一引擎常驻光照缓冲；
+        // lightList/clusterGrid/clusterIndices 归每视口（viewLightsFor 惰性创建）
         this.lightingBuffer = device.createBuffer(new BufferDesc(
                 frameSlots * MAX_CAMERAS * LIGHTING_STRIDE, Set.of(BufferUsage.UNIFORM),
                 MemoryPreference.hostVisibleCoherent()), null);
-        this.lightListBuffer = device.createBuffer(new BufferDesc(
-                LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4,
-                Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -258,6 +267,10 @@ public final class RenderingSystem implements AutoCloseable {
     public void removeCamera(RenderCamera camera) {
         cameras.remove(camera);
         if (camera != null) {
+            ViewLighting viewLighting = viewLights.remove(camera.name());
+            if (viewLighting != null) {
+                retireResource(viewLighting::dispose);
+            }
             retire(depthTextures.remove(camera.name()));
             retire(msaaColorTextures.remove(camera.name()));
             retire(msaaDepthTextures.remove(camera.name()));
@@ -317,6 +330,16 @@ public final class RenderingSystem implements AutoCloseable {
     /** 末帧方向光在册数（含主光） */
     public int directionalLightCount() {
         return lastDirectionalCount;
+    }
+
+    /** 末帧首视口 cluster 构建耗时（纳秒；F3 行 9 读数） */
+    public long clusterBuildNanos() {
+        return clusterBuildNanos;
+    }
+
+    /** 末帧首视口 cluster 索引池占用（uint 数；分母=ClusterBuilder.MAX_POOL_UINTS） */
+    public int clusterPoolUsed() {
+        return clusterPoolUsed;
     }
 
     // ═══ 材质桥（Engine_Material_Design.md §4） ═══
@@ -530,19 +553,26 @@ public final class RenderingSystem implements AutoCloseable {
         int camIndex = 0;
         for (RenderCamera cam : sortedCameras) {
             cam.recalculate();
-            uboBuffer.writeAligned(slotBase + camIndex * CAMERA_STRIDE,
-                    FloatBuffer.wrap(cam.viewProj().get(new float[16])));
-            // 灯收集（每视口：方向光视空间方向 per-view 各自正确；lightList 打包
-            // 首视口一份——多视口各自列表归批次③ ClusterBuildPass 落位，档内挂账）
+            int camOffset = slotBase + camIndex * CAMERA_STRIDE;
+            uboBuffer.writeAligned(camOffset, FloatBuffer.wrap(cam.viewProj().get(new float[16])));
+            // CameraBlock.view（批次③）：vs 传视空间位置/法线插值（Lit 类受光着色器）
+            uboBuffer.writeAligned(camOffset + 64,
+                    FloatBuffer.wrap(cam.view().get(new float[16])));
+            // 灯收集（每视口：方向光视空间方向 + lightList 各自正确——批次③ per-view
+            // 三缓冲落位，批次②「首视口一份」挂账解除）
             lightCollector.collect(lights, cam.view(), cam.proj(),
                     cam.projectionType() == ProjectionType.ORTHOGRAPHIC,
                     cam.nearZ(), cam.farZ());
+            int viewW = cam.viewportWidth();
+            int viewH = cam.viewportHeight();
+            int gridX = (viewW + ClusterBuilder.TILE_SIZE - 1) / ClusterBuilder.TILE_SIZE;
+            int gridY = (viewH + ClusterBuilder.TILE_SIZE - 1) / ClusterBuilder.TILE_SIZE;
+            ViewLighting vl = viewLightsFor(cam.name(), viewW, viewH, gridX, gridY);
             packLightingParams(lightSlotBase + camIndex * LIGHTING_STRIDE,
-                    cam.nearZ(), cam.farZ());
-            if (camIndex == 0) {
-                packLightList();
-                warnOverflow();
-            }
+                    cam, gridX, gridY);
+            packLightList(vl, camIndex == 0);
+            buildClusters(vl, cam, gridX, gridY, viewW, viewH, camIndex == 0);
+            warnOverflow();
             RenderList list = collectList(cam);
             if (!collectLogged) {
                 collectLogged = true;
@@ -625,9 +655,11 @@ public final class RenderingSystem implements AutoCloseable {
     /**
      * LightingParamsBlock 打包（std140，与 ShaderInjector 注入声明同源）：
      * directional[8]×2vec4（槽 0=主光，视空间方向）/ ivec4 counts / ivec4 gridDim
-     * （批次③填）/ vec4 zParams / vec4 ambient。主光阴影段批次④扩块。
+     * （批次③：xy=维度 z=Z 切片数 w=tileSize）/ vec4 zParams（near/far/ortho 标志）/
+     * vec4 viewport（帧缓冲左上原点+尺寸，gl_FragCoord 同源）/ vec4 ambient。
+     * 主光阴影段批次④扩块。字段详表=Engine_Uniform_Keys §4-1。
      */
-    private void packLightingParams(int offset, float nearZ, float farZ) {
+    private void packLightingParams(int offset, RenderCamera cam, int gridX, int gridY) {
         lightingPack.clear();
         List<LightCollector.DirectionalItem> directionalItems = lightCollector.directionals();
         for (int i = 0; i < LightCollector.MAX_DIRECTIONAL; i++) {
@@ -650,16 +682,21 @@ public final class RenderingSystem implements AutoCloseable {
         lightingPack.putInt(directionalItems.size());
         lightingPack.putInt(lightCollector.pointItems().size());
         lightingPack.putInt(0).putInt(0);   // counts.zw 预留
-        lightingPack.putInt(0).putInt(0).putInt(0).putInt(0);   // gridDim（批次③）
-        lightingPack.putFloat(nearZ).putFloat(farZ).putFloat(0.0f).putFloat(0.0f);   // zParams
+        lightingPack.putInt(gridX).putInt(gridY)
+                .putInt(ClusterBuilder.Z_SLICES).putInt(ClusterBuilder.TILE_SIZE);   // gridDim
+        lightingPack.putFloat(cam.nearZ()).putFloat(cam.farZ())
+                .putFloat(cam.projectionType() == ProjectionType.ORTHOGRAPHIC ? 1.0f : 0.0f)
+                .putFloat(0.0f);   // zParams：正交=Z 线性切分分支标志
+        lightingPack.putFloat(cam.viewportX()).putFloat(cam.viewportY())
+                .putFloat(cam.viewportWidth()).putFloat(cam.viewportHeight());   // viewport
         lightingPack.putFloat(AMBIENT_COLOR[0]).putFloat(AMBIENT_COLOR[1])
                 .putFloat(AMBIENT_COLOR[2]).putFloat(AMBIENT_COLOR[3]);
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }
 
-    /** lightList SSBO 打包（视空间 16 float/灯，首视口口径；F3 计数同步） */
-    private void packLightList() {
+    /** lightList SSBO 打包（视空间 16 float/灯，写给本视口缓冲；首视口顺带 F3 计数快照） */
+    private void packLightList(ViewLighting vl, boolean captureStats) {
         lightListPack.clear();
         List<float[]> items = lightCollector.pointItems();
         for (float[] item : items) {
@@ -668,9 +705,53 @@ public final class RenderingSystem implements AutoCloseable {
             }
         }
         lightListPack.flip();
-        lightListBuffer.update(0, lightListPack);
-        lastPointLightCount = items.size();
-        lastDirectionalCount = lightCollector.directionals().size();
+        vl.lightList.update(0, lightListPack);
+        if (captureStats) {
+            lastPointLightCount = items.size();
+            lastDirectionalCount = lightCollector.directionals().size();
+        }
+    }
+
+    /**
+     * Cluster 构建（批次③ CPU 构建拍板 2026-11-01，Engine_Lighting_Design §6 修订版）：
+     * 本视口 lightList → clusterGrid/clusterIndices 直写 hostVisible；构建耗时与
+     * 池占用读数按首视口口径快照（F3 行 9）。proj 元素带符号消费（Y 翻转保号——
+     * tile 定位非对称，与 LightCollector 取绝对值的剔除口径不同）。
+     */
+    private void buildClusters(ViewLighting vl, RenderCamera cam, int gridX, int gridY,
+                               int viewW, int viewH, boolean captureStats) {
+        ClusterBuilder.Params params = new ClusterBuilder.Params(gridX, gridY,
+                ClusterBuilder.Z_SLICES, viewW, viewH, cam.nearZ(), cam.farZ(),
+                cam.projectionType() == ProjectionType.ORTHOGRAPHIC,
+                cam.proj().m00(), cam.proj().m11());
+        long start = System.nanoTime();
+        clusterBuilder.build(lightCollector.pointItems(), params);
+        long nanos = System.nanoTime() - start;
+
+        gridPack = ensureCapacity(gridPack, clusterBuilder.gridInts() * 4);
+        gridPack.clear();
+        clusterBuilder.writeGrid(gridPack);
+        gridPack.flip();
+        vl.clusterGrid.update(0, gridPack);
+        if (clusterBuilder.poolUsed() > 0) {
+            poolPack = ensureCapacity(poolPack, clusterBuilder.poolUsed() * 4);
+            poolPack.clear();
+            clusterBuilder.writePool(poolPack);
+            poolPack.flip();
+            vl.clusterIndices.update(0, poolPack);
+        }
+        if (captureStats) {
+            clusterBuildNanos = nanos;
+            clusterPoolUsed = clusterBuilder.poolUsed();
+        }
+    }
+
+    /** 序列化暂存扩容（容量不足重分配；小端） */
+    private static ByteBuffer ensureCapacity(ByteBuffer buffer, int bytes) {
+        if (buffer != null && buffer.capacity() >= bytes) {
+            return buffer;
+        }
+        return ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN);
     }
 
     /**
@@ -698,6 +779,14 @@ public final class RenderingSystem implements AutoCloseable {
                         countDirectional());
             }
         }
+        boolean clusterPoolOverflow = clusterBuilder.poolOverflow();
+        if (clusterPoolOverflow != clusterPoolOverflowActive) {
+            clusterPoolOverflowActive = clusterPoolOverflow;
+            if (clusterPoolOverflow) {
+                log.warn("cluster 索引池溢出（定容 {} uint），尾段截断——cell 计数已同步收缩",
+                        ClusterBuilder.MAX_POOL_UINTS);
+            }
+        }
     }
 
     private int countDirectional() {
@@ -715,6 +804,9 @@ public final class RenderingSystem implements AutoCloseable {
     /** 材质首渲染：建 set 2 布局（按 Shader 缓存）+ UBO + 描述符集（贴图懒上传 + 占位解析） */
     private MaterialResources createMaterialResources(Material material) {
         Shader shader = material.getShader();
+        // 反序列化实例补缺（read 旁路 setShader 默认值填充——坏 stub 时期落盘的空
+        // values / 属性集少于现行 shader 的旧 .mat，pack 前按现行 shader 回填）
+        material.fillMissingDefaults();
         DescriptorSetLayout layout = materialLayouts.computeIfAbsent(shader,
                 s -> device.createDescriptorSetLayout(materialLayoutDesc(s)));
         DescriptorSet set = device.createDescriptorSet(layout);
@@ -816,8 +908,8 @@ public final class RenderingSystem implements AutoCloseable {
     /**
      * set1 帧级光照布局契约（材质 PSO 共用，Engine_Lighting_Design §3.4 终态槽位）：
      * binding0 = LightingParamsBlock UBO（DYNAMIC，每视口偏移，FRAGMENT）；
-     * binding1 = lightList SSBO（引擎常驻）；binding2/3 = 通用 storage 通道
-     * （批次③ clusterGrid/clusterIndices；binding4 shadowMap 归批次④）。
+     * binding1 = lightList / binding2、3 = clusterGrid、clusterIndices SSBO
+     * （批次③起 per-view 缓冲；通用注册通道已清退——零外部用户；binding4 shadowMap 归批次④）。
      * 声明 set1 的 shader 只须是自己所用 binding 的子集（布局超集合法）。
      */
     private DescriptorSetLayoutDesc frameStorageLayoutDesc() {
@@ -832,57 +924,101 @@ public final class RenderingSystem implements AutoCloseable {
                         ShaderStage.FRAGMENT)));
     }
 
-    // ═══ set1 帧级通道注册表（binding2/3 通用位；批次③ ClusterBuildPass 消费） ═══
+    // ═══ set1 per-view 光照资源（批次③：lightList/clusterGrid/clusterIndices 按视口） ═══
 
     /**
-     * 注册通用帧级 storage buffer 到 set1（支持位 2~3；binding0/1 为引擎光照通道
-     * 专用位——批次②起 lightList 落 binding1）。Forward 系 Pass 录制时统一绑定 set1。
+     * 每视口灯光资源（惰性创建；视口像素尺寸变化重建——grid 规模随之变）：
+     * binding1 lightList（4096×64B）/ binding2 clusterGrid（cells×8B）/
+     * binding3 clusterIndices（定容 1M uint）+ set1 描述符集（binding0 恒指引擎
+     * 常驻 lightingBuffer 动态偏移）。旧资源两帧退役（GPU in-flight 安全）。
      */
-    public void registerFrameStorage(int binding, Buffer buffer) {
+    private ViewLighting viewLightsFor(String cameraName, int viewW, int viewH,
+                                       int gridX, int gridY) {
+        ViewLighting existing = viewLights.get(cameraName);
+        if (existing != null && existing.viewW == viewW && existing.viewH == viewH
+                && existing.gridX == gridX && existing.gridY == gridY) {
+            return existing;
+        }
+        if (existing != null) {
+            log.info("视口灯光资源重建: camera[{}] viewport {}x{} → {}x{} grid {}x{} → {}x{}",
+                    cameraName, existing.viewW, existing.viewH, viewW, viewH,
+                    existing.gridX, existing.gridY, gridX, gridY);
+            viewLights.remove(cameraName);
+            retireResource(existing::dispose);
+        }
+        Buffer lightList = device.createBuffer(new BufferDesc(
+                (long) LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4,
+                Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
+        Buffer clusterGrid = device.createBuffer(new BufferDesc(
+                (long) gridX * gridY * ClusterBuilder.Z_SLICES * 8,
+                Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
+        Buffer clusterIndices = device.createBuffer(new BufferDesc(
+                (long) ClusterBuilder.MAX_POOL_UINTS * 4,
+                Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
+        DescriptorSet set = device.createDescriptorSet(frameStorageSetLayout);
+        set.update(new DescriptorUpdate[]{
+                DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
+                DescriptorUpdate.storageBuffer(1, lightList),
+                DescriptorUpdate.storageBuffer(2, clusterGrid),
+                DescriptorUpdate.storageBuffer(3, clusterIndices)});
+        ViewLighting created = new ViewLighting(lightList, clusterGrid, clusterIndices,
+                set, viewW, viewH, gridX, gridY);
+        viewLights.put(cameraName, created);
+        log.info("视口灯光资源创建: camera[{}] viewport {}x{} grid {}x{}x{} ({}B/{}B)",
+                cameraName, viewW, viewH, gridX, gridY, ClusterBuilder.Z_SLICES,
+                gridX * gridY * ClusterBuilder.Z_SLICES * 8, ClusterBuilder.MAX_POOL_UINTS * 4);
+        return created;
+    }
+
+    /** set1 描述符集（本视口光照套件；collectFrame 先行建资源）。绑定带 1 个动态偏移（{@link RenderView#lightingOffset()}） */
+    public DescriptorSet lightingSet(String cameraName) {
         checkOpen();
-        if (binding < 2 || binding > 3) {
-            throw new IllegalArgumentException("set1 通用 storage binding 仅支持 2~3，得到: " + binding);
+        ViewLighting vl = viewLights.get(cameraName);
+        if (vl == null) {
+            throw new IllegalStateException("视口灯光资源缺失: camera[" + cameraName
+                    + "]（帧收集必须先于图构建执行）");
         }
-        if (buffer == null) {
-            throw new IllegalArgumentException("buffer must not be null");
-        }
-        frameStorages.put(binding, buffer);
-        frameStorageDirty = true;
+        return vl.set;
     }
 
-    /** 注销（Pass 卸载时调用；binding0/1 引擎常驻不受影响） */
-    public void unregisterFrameStorage(int binding) {
-        frameStorages.remove(binding);
-        frameStorageDirty = true;
-    }
-
-    /** 已注册的通用帧级 storage（Forward Pass 图声明 addBufferRead 用，绑定序） */
-    public List<Buffer> frameStorages() {
-        return List.copyOf(frameStorages.values());
-    }
-
-    /**
-     * set1 描述符集（批次②起恒有效：binding0/1 = 引擎光照通道每帧填充，
-     * binding2/3 = 通用注册位）。Pass 侧绑定需带 1 个动态偏移
-     * （{@link RenderView#lightingOffset()}）。
-     */
-    public DescriptorSet frameStorageSet() {
-        checkOpen();
-        if (frameStorageSet == null || frameStorageDirty) {
-            if (frameStorageSet == null) {
-                frameStorageSet = device.createDescriptorSet(frameStorageSetLayout);
-            }
-            List<DescriptorUpdate> updates = new ArrayList<>(frameStorages.size() + 2);
-            updates.add(DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0,
-                    LIGHTING_STRIDE));
-            updates.add(DescriptorUpdate.storageBuffer(1, lightListBuffer));
-            for (Map.Entry<Integer, Buffer> e : frameStorages.entrySet()) {
-                updates.add(DescriptorUpdate.storageBuffer(e.getKey(), e.getValue()));
-            }
-            frameStorageSet.update(updates.toArray(new DescriptorUpdate[0]));
-            frameStorageDirty = false;
+    /** 本视口 set1 storage 三缓冲（Forward Pass 图声明 addBufferRead：显式依赖 + 句柄进 structureHash） */
+    public List<Buffer> viewStorages(String cameraName) {
+        ViewLighting vl = viewLights.get(cameraName);
+        if (vl == null) {
+            throw new IllegalStateException("视口灯光资源缺失: camera[" + cameraName + "]");
         }
-        return frameStorageSet;
+        return List.of(vl.lightList, vl.clusterGrid, vl.clusterIndices);
+    }
+
+    /** 每视口灯光资源（binding1/2/3 三缓冲 + set1 描述符集；渲染域私有） */
+    private static final class ViewLighting {
+        final Buffer lightList;
+        final Buffer clusterGrid;
+        final Buffer clusterIndices;
+        final DescriptorSet set;
+        final int viewW;
+        final int viewH;
+        final int gridX;
+        final int gridY;
+
+        ViewLighting(Buffer lightList, Buffer clusterGrid, Buffer clusterIndices,
+                     DescriptorSet set, int viewW, int viewH, int gridX, int gridY) {
+            this.lightList = lightList;
+            this.clusterGrid = clusterGrid;
+            this.clusterIndices = clusterIndices;
+            this.set = set;
+            this.viewW = viewW;
+            this.viewH = viewH;
+            this.gridX = gridX;
+            this.gridY = gridY;
+        }
+
+        void dispose() {
+            set.dispose();
+            lightList.dispose();
+            clusterGrid.dispose();
+            clusterIndices.dispose();
+        }
     }
 
     /**
@@ -1058,11 +1194,9 @@ public final class RenderingSystem implements AutoCloseable {
         frameSet.dispose();
         frameSetLayout.dispose();
         frameStorageSetLayout.dispose();
-        if (frameStorageSet != null) {
-            frameStorageSet.dispose();
-        }
+        viewLights.values().forEach(ViewLighting::dispose);
+        viewLights.clear();
         lightingBuffer.dispose();
-        lightListBuffer.dispose();
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

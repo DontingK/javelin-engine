@@ -1,8 +1,9 @@
 # 引擎光照设计（Engine Lighting Design）
 
-> 版本：v0.6
-> 日期：2026-10-28（v0.2 2026-10-31；v0.3 2026-10-31；v0.4 2026-10-31；v0.5 2026-10-31；v0.6 2026-10-31）
-> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建 compute Pass、ShadowPass、着色消费与实现批次。**设计拍板完成；批次① RHI 底座已落地并验收关账（2026-10-31 当日用户实测）；批次② 光数据模型已落地并验收关账（2026-10-31 当日用户实测）**，实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> 版本：v0.7
+> 日期：2026-10-28（v0.2 2026-10-31；v0.3 2026-10-31；v0.4 2026-10-31；v0.5 2026-10-31；v0.6 2026-10-31；v0.7 2026-11-01）
+> 说明：三期光照专档——clustered 光照（Forward+ 形态）的数据结构、set1 契约、Light 组件与收集、cluster 构建、ShadowPass、着色消费与实现批次。**设计拍板完成；批次①②已落地并验收关账（2026-10-31）；批次③ cluster 构建 + Forward 消费已实装（2026-11-01，CPU 构建拍板——§6 修订）待用户验收**，实装随四批路线推进（§9），字段详表落位时同步 `Engine_Uniform_Keys.md`。
+> v0.7 变更（2026-11-01）：**批次③实装 + §6 构建路线修订**——①**CPU 构建拍板**（原 GPU count + CPU 前缀和 + GPU write 三步形态不可行：单命令缓冲帧图无「提交→fence→CPU 回读→再录制」的中帧拆分机制，`Buffer.read` 须等帧尾；且 GPU write 原子取槽序 ≠ 列表强度序，超 64 截尾无法按原设计兑现「去最弱」）——两路线同构帧占损（单线程引擎 CPU/GPU 时间线等价）、CPU 版截尾语义精确、纯单测可验（GPU 化时作 oracle 参照），GPU 化（前缀和计算化）归 §10 后置不变；②lightList 首视口挂账解除：binding1/2/3 全部 per-view 缓冲（`RenderingSystem.viewLightsFor`，视口像素尺寸变化重建、removeCamera 两帧退役）；③CameraBlock 扩 `mat4 view`（@64B，槽内 256B 放得下，旧产物超集合法免重导）；④Lambert+环境项+SPOT 全链一批落（原「SPOT 后半」合入——注入函数一次写全）；⑤新建材质默认 shader = Lit（default.shader 维持兜底专用）；⑥`registerFrameStorage` 通用通道清退（批次①预留、零外部用户，cluster 走 per-view 资源不通用注册）。
 > v0.6 变更（2026-10-31）：**灯组件子类化拍板**（用户提案+拍板：「每种 light 一个类」——每型参数集不相交，单类+type 枚举会摆无生效语义的死字段（点光显锥角/方向光显 range），Collider 族同构）：`Light` 抽象基类（color/intensity/castShadow + getType() 抽象 + 序列化 super 链）+ `DirectionalLight`（零附加字段）/`PointLight`（+range）/`SpotLight`（+range+锥角）；**不支持切换类型**（换型 = 删组件重加，不做 Inspector 条件显隐）；type 不落盘（子类身份即类型）；引擎侧 `RenderLight` 改自持 `RenderLight.Type` 枚举（render 包不再依赖 scene 组件类层次）；菜单三项全解锁（spot 收集侧已支持，着色批次③）；Inspector 面板每型只显自己的字段。
 > v0.5 变更（2026-10-31）：**主光裁决拍板改向——推翻 v0.1 显式 isMain 标志，对齐 Unity 自动裁决**（用户拍板「引擎自己处理」）：主光 = 最强激活方向光（tie 取挂入序首个保确定性），`Light.isMain` 字段/访问器全删、`Scene.getSun` 改裁决实现、LightCollector 槽 0 改强度排定、菜单创建命令去 isMain 预设——原「确定性优先/编辑器可视化清晰」论证作废（Unity 对照后用户裁决：标志位是多余的用户负担）。ShadowPass 消费口径不变（仍只服务主光）；**相机 main 标志不动**（本拍板只涉灯光域）。
 > v0.4 变更（2026-10-31）：**批次②落地**（Light 组件 + lights 注册表/getSun + SceneRenderBridge pull 翻译 + LightCollector 收集（剔除/预排序/视空间打包）+ set1 binding0/1（LightingParamsBlock UBO 动态偏移 + lightList SSBO）+ ShaderInjector fs 声明注入/保留字生效 + F3 行 8 在册灯数 + 单测——LightCollectorTest/GameSceneTest 灯注册表与主光解析）；**实装拍板**：binding0 UBO 用 DYNAMIC 每视口动态偏移（set0 相机块同构）；视锥剔除自写视空间球测试（viewProj 含 Y 翻转是反射矩阵，FrustumIntersection 平面朝向不可信）；**多视口挂账**：lightList 帧级单缓冲=首视口口径，各视口列表随批次③ ClusterBuildPass 落位（§3.1）。
@@ -83,7 +84,7 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 | 方向光数组 | `directional[8]`，每盏 2×vec4（dir+castShadow / color+intensity） | 槽 0 = 主光；上限 8，超限 WARN |
 | 计数 | `dirCount` / `pointCount`（uint×2） | pointCount = lightList 有效长度 |
 | grid 元数据 | `gridDim`（uvec3）+ `zParams`（vec2：near/far）+ `tileSize`（uint） | 着色器重建 cell 坐标用（§6 公式） |
-| 环境项 | `ambient`（vec4：RGB + 强度） | v0.x 环境光=常量色（Scene.environment 空间光/天空盒环境项后置——天空盒视觉化归 Engine_Skybox_Design，环境光照升级归 GI 探针期，Roadmap 遗留项） |
+| 环境项 | `ambient`（vec4：RGB + 强度） | v0.x = **纯黑**（Unity 口径拍板 2026-11-01：无环境源即纯黑，原 0.15 中性灰占位作废）；真值源 = 天空盒环境光照（四期第 4 项 SH9/mipmap 降采样；GI 探针期再升级按位置查询） |
 | 主光阴影段 | `sunViewProj`（mat4）+ shadowMap 采样参数 | **批次④占位**；挂点已拍板（2026-10-28）= set1 扩展 binding4 combined depth-sampler（管线档 §7 同步收口），随 ShadowPass 落位 |
 
 - **批次②实装口径**：块为 std140 全 vec4 数组式排布（directional[16] vec4 / lightCounts ivec4 / gridDim ivec4 / zParams vec4 / ambient vec4），实需 320B、**DYNAMIC 动态偏移步长 512B**（每视口一块，字段详表单点归 `Engine_Uniform_Keys.md` §4-1）；gridDim/zParams 批次②写 0/相机裁剪面真值、cluster 消费归批次③；主光阴影段批次④追加扩块；环境项 v0.x = 0.15 中性常量。
@@ -144,39 +145,45 @@ zSlice 边界：z_s = near * (far / near)^(s / numZ)
 - cell 线性索引：`x + y * gridX + zSlice * gridX * gridY`（Morton 码后置，§10）；
 - near/far 取**相机裁剪面**（v0.x）；正交相机 Z 切分退化为线性（正交无透视密度差）——归批次③后半边界项。
 
-## 6. ClusterBuildPass（compute）
+## 6. Cluster 构建（v0.7 修订：CPU 构建，2026-11-01 拍板）
 
-- **位置**：每视口 Pass 链首（ShadowPass 之前；不依赖任何几何，只吃 lightList + 相机）；
-- **dispatch 组织**（三步，经典两遍构建 + 前缀和）：
-  1. **count**：每 thread 一盏灯 → 求其视空间 AABB 覆盖的 tile 范围 × z 范围 → 对覆盖 cell `atomicAdd(count)`；
-  2. **前缀和**：count → 池 offset（**clamp(count, 64) 后**的前缀和，决定每 cell 池配额）；初版 **CPU 侧做**（26 万元素单线程 <1ms，compute scan 后置）；
-  3. **write**：每 thread 一盏灯重走覆盖 → 每 cell `atomicAdd(cursor)` 取槽位写入索引；cursor ≥ 64 丢弃（池配额只有 64，天然封顶）。
-- **截断语义**：lightList 已按强度预排序（§3.1），覆盖同一 cell 的灯按列表序 append——超 64 被丢弃的是**更弱者**（强度序截尾），兑现「每像素最多迭代 64 盏」的封顶承诺；
-- **每帧 reset**：cursor/offset 池清零（小缓冲 host-visible 直写；26 万 cell 的 grid 清零归 compute 或 CPU，批次③实测定）；
-- dispatch 规模 = 灯数（step1/3）与 cell 数（step2 若计算化），工作组成变化不进 structureHash（数据级）。
+- **原 GPU 三步形态不可行**（两处硬伤，2026-11-01 实勘发现）：
+  - **中帧回读无门**：原「count（GPU）→ 前缀和（CPU）→ write（GPU）」需要帧内提交→fence→CPU 读回→再录制；本引擎帧图 = 单命令缓冲一次提交（compile→execute→帧尾 fence），`Buffer.read` 须等帧结束——中帧拆分机制不存在，纯 GPU 版须改全 GPU 两级 scan（workgroup 内 + 全局）+ 每帧 grid 清零，工作量与调参成本高数倍；
+  - **GPU 原子截尾缺陷**：write 步每 thread `atomicAdd` 取槽的顺序是线程调度序而非列表强度序——cell 超 64 时被丢弃的可能是强光保留弱光，「截尾=去最弱」的原设计承诺无法兑现（补第四趟 cell 并行再压缩不值）。
+- **拍板：v0.x = CPU 构建**（collectFrame 每视口循环内、与 lightList 打包同域，`ClusterBuilder` 纯逻辑直写 host-visible）：
+  - 两遍构建 + 前缀和在 CPU 单线程完成（目标场景几十~几百盏 sub-ms~3ms；单线程引擎下 CPU/GPU 构建的端到端帧占损同构，CPU 版无净损失）；
+  - **截尾语义精确兑现**：pass 2 按强度序列表序写入、超 quota（min(count,64)）即丢弃列表尾部更弱者——纯 CPU 天然保序；
+  - **池溢出截断**：定容 1M uint，溢出截断段尾 + WARN + cell 计数同步收缩（count 写回实际写入数）；
+  - **单测可验**：覆盖投影/截尾/切片公式/池 offset 链全 CPU 断言（`ClusterBuilderTest`），GPU 化时作已知正确 oracle 参照。
+- **GPU 化归 §10 后置**（原「前缀和计算化」条目扩展为整链 GPU 化）：契约（binding2/3、注入函数、per-view 缓冲）与构建侧无关，迁移只换 ClusterBuilder → compute Pass。
+- **覆盖计算**：视空间球 AABB 8 角 NDC 投影包围（保守正确）；投影元素**带符号**消费（Y 翻转保号——tile 定位非对称，与 §4 剔除的取绝对值口径不同）；球穿近平面 → tile 全范围保守；proj 保号换算与 fs `gl_FragCoord` 定位同源。
+- **正交相机 Z 线性切分**：原「归批次③后半边界项」随批落位（§5 公式 ortho 分支，zParams.z 标志）。
 
-## 7. 着色消费（v0.x = Lambert + 环境项）
+## 7. 着色消费（v0.x = Lambert + 环境项；批次③实装形态）
 
 ```
 outColor = ambient + Σ directional[0..dirCount) (Lambert)
          + Σ lightList[clusterIndices[cell 段]] (Lambert × 衰减)
-衰减 = intensity / max(d², ε)，d ≥ range 处平滑归零（smoothstep 预滚降，避免硬边）
+衰减 = intensity / max(d², ε) × 距离窗，距离窗 = (1 - (d/range)²)²（Unity URP 口径，
+全程单调淡出 + range 处 C¹ 连续导数归零——无平台段即无边界线；初版「前 75% 全亮 +
+末 25% smoothstep 滚降」在贴地掠射 worst case 下光圈过硬，2026-11-01 用户实机拍板换 Unity 窗）
 ```
 
 - **方向光全局段**直读 UBO 数组，不查 cluster；主光槽 0；
-- 点光：像素重建视空间位置（vs 传出视空间坐标插值，v0.x 不走深度重建——深度重建归 P2）→ 定位 cell → 迭代索引段；
-- SPOT：同点光 + 方向锥判定（cos inner/outer 平滑带）——批次③后半；
+- 点光：像素视空间位置（vs 传出插值——**CameraBlock 扩 `mat4 view`**（v0.7，@64B 槽内 256B 放得下，旧产物超集合法免重导）供 vs 变换；不走深度重建——深度重建归 P2）→ `gl_FragCoord` 定位 cell（viewport 元数据减帧缓冲原点 → tile → z 切片，透视指数/正交线性两分支，zParams.z 标志）→ 迭代索引段；
+- SPOT：同点光 + 方向锥判定（cos inner/outer smoothstep 平滑带）——**批次③一批落全**（注入函数一次写全，原「后半」拆分作废）；
 - **一致性**：Opaque/Transparent/（批次④）LightingPass 读同一套 set1 契约——正透明光照无差异（管线档 4.5 取舍消解，两处文案随批次④回填）；
-- 材质钩子：着色入口由 ShaderInjector 注入的光照段提供（具体注入形态随批次③与 ShaderParser/Injector 联动拍板——旧 .shader 产物无需重导的兼容口径是目标，做不到则随批重导）；
+- 材质钩子（批次③实装形态）：ShaderInjector fs 注入 **`vec3 javelinLighting(vec3 viewNormal, vec3 viewPos)`** 光照段函数（声明+函数一体注入）——用户 fs 直接 `albedo * javelinLighting(n, p)`；数据面实例名（lighting/lightList/clusterGrid/clusterIndices）仍为保留字不直接暴露，函数名与 cam/pc 同类可自由使用（重定义由 GLSL 编译期兜底，不进构建期拦截名单）；不调用即不受影响（超集合法，旧产物免重导）；
 - **注入红线（2026-10-31 用户拍板）**：**内置 `default.shader` 是 DefaultMaterial 兜底专用（缺材质/坏 shader 时的紫色错误显性化产物），禁止改造成注入光照段的样例**——光照注入的验证样例与用户面引导 = 新增内置 `Lit.shader`（命名拍板 2026-10-31，对标 HDRP 主受光着色器；随批次③落 builtin-asset-core；四期 BRDF 升级升其本体、名字不换），default.shader 的纯色语义维持不变；
 - 内置光照 shader 的 .shader 源（vs 传插值视空间坐标、fs 留表面色接光照段）与注入段本身**不进 core**（着色器源码不进 core 拍板照旧）——源在 editor builtin-asset，注入段文本归 Injector/编译链；~~clusterBuild 的 compute spv 走 javelin-tool 内嵌链路（DebugText/pick 先例）~~ **已推翻（2026-10-31 用户拍板）：compute 着色器 = `.compute` 独立源码资产类型**（Unity 口径，扩展名区分）——ComputeShader 资产 + ComputeShaderImporter（shaderc COMPUTE 编译，无注入）+ 内置 builtin-asset-core/compute/；一文件一 kernel（GLSL 入口恒 main，多 kernel=多文件；Unity 式 #pragma kernel 多入口需 HLSL 源码改写机制，不值）；**DebugText/pick/DebugLine 的「GLSL 放 tool、spv 内嵌 core resources」路线同判废，迁源码独立批待派**。
+- **Lit.shader 已随批次③落地**（builtin-asset-core/shader，_Color + _MainTex 两属性、vs 三插值 vViewPos/vNormal/vUV、法线经 `transpose(inverse(mat3(model)))` 吸收非均匀缩放）；**新建材质默认 shader = Lit**（project.create.material 模板换 Lit，2026-11-01 拍板对齐 Unity 主受光着色器位——default.shader 维持兜底专用纯紫语义）；首个消费 NORMAL/UV 顶点属性的内置着色器（内置原始体 .smesh 管线产物带法线；无法线 mesh 渲染为纯环境光面，未绑定顶点输入不崩）。
 
 ## 8. 与管线的咬合
 
-- **Pass 列表**：`ClusterBuildPass` 经管线档 6.2 有序列表插入（新增 compute 类型 Pass，图执行器扩展归 RHI 批次①）；LightingPass 输入改「set1 cluster 套件」（管线档 4.3 同步）；
-- **PipelineContext 扩展**：`lightList / clusterGrid / clusterIndices`（与 gbuffer×3 / lightingRT / shadowMap 同批扩，管线档 6.1）；
-- **MSAA**：cluster 构建与消费均与采样数无关（compute 全屏 1x；着色读数据非附件）——与 MSAA 分支正交，无新增路径；
-- **视口资源表**：管线档 5.1 补三行（视口归属、随视口创建、resize 重建——与 depth 同生命周期口径）；
+- **Pass 列表**：~~ClusterBuildPass 经管线档 6.2 有序列表插入~~ **CPU 构建后管线零新 Pass**（构建在 collectFrame 收集域完成，v0.7 修订；GPU 化时按管线档 6.2 插 compute Pass）；LightingPass 输入改「set1 cluster 套件」（管线档 4.3 同步，归批次④）；
+- ~~**PipelineContext 扩展**：lightList / clusterGrid / clusterIndices~~ **不进 ctx**（v0.7 实装拍板：走 `RenderingSystem.viewLightsFor/viewStorages/lightingSet` per-view 资源访问器，与 depthFor 同构——PipelineContext 唯一构造点零改动，管线档 6.1 预留作废）；
+- **MSAA**：cluster 构建与消费均与采样数无关（CPU 构建 + 着色读数据非附件）——与 MSAA 分支正交，无新增路径；
+- **视口资源表**：管线档 5.1 三行已落（per-view 三缓冲：视口像素尺寸变化重建、removeCamera 两帧退役；resize 换 depth 重建时 per-view 灯光资源按自身尺寸判独立重建）；
 - **多视口**：每视口独立 cluster（编辑器 Scene/Game 双视口各自剔除各自构建）；共享 backbuffer 相机的 LOAD 叠加不受影响。
 
 ## 9. 实现路线（四批；批次①为 RHI 底座前置，原三期路线没有的新增段）
@@ -185,7 +192,7 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 |----|------|----------|
 | ① RHI 底座 | ~~SSBO 实装 / ComputePipeline + dispatch / RenderGraph compute Pass 节点与 Buffer 读写声明同步~~ **✅ 已落地并验收关账（2026-10-31 当日用户实测）**——实勘校正：SSBO 描述符链/dispatch/双 bindPoint/compute 进图骨架一期已有（RHI 实装期产物），真缺口=①compute 管线布局装配（原空壳，setLayouts+pushConstantRange 补齐，stage=COMPUTE）②pushConstants stageFlags 按 bindPoint 分流（原写死 ALL_GRAPHICS）③Buffer 进图同步（PassDef addBufferRead/Write + 依赖推导（句柄取反命名空间防纹理撞键）+ structureHash + VkBufferMemoryBarrier 屏障计划（源/目标域按两端 Pass 类型现推））④storageBuffer range=0 VUID 坑修正（VK_WHOLE_SIZE）+offset/range 重载⑤删 VulkanPipelineLayout/createPipelineLayout 死代码（管线布局统一由 Pipeline 内建） | **验收形态终拍板（2026-10-31）：纯测试，编辑器不掺和**（同日早先"编辑器实机验收"路线被推翻——编辑器不演示流程验证件）：`.compute` 资产面（ComputeShader 资产类+ComputeShaderImporter+FileType/图标）+ set1 帧级 storage 通道（RenderingSystem registerFrameStorage binding1/2 对齐本档 §3.4 终态槽位，Opaque/Transparent 补绑+addBufferRead 声明）+ 测试件——core `ComputeSsboTest`（**批次①验收口**：双段 compute 链 A 写→B 读改写（compute→compute RAW 同步）+ 图形 Pass fs 读 SSBO（跨 Pass 同步）+ 帧 60 Buffer.read 读回 65536 元素逐元素 CPU 比对）+ editor `ComputeShaderImporterTest`（.compute→tool 编译链）——**两测试 2026-10-31 用户实测全过**（排障实录：动态 viewport 空集 AV 崩溃 + sin 区间归约精度差，Vulkan_Pitfalls #27/#28）；**通用性红线守住**：Buffer 声明/屏障为通用资源面，GI/RT 第一复用方地位不变 |
 | ② 光数据模型 | Light 组件 + Scene lights 注册表 + 收集/剔除/预排序/视空间打包 + set1 布局与注入 | **✅ 已落地并验收关账（2026-10-31 当日用户实测：菜单挂灯三型+检查器编辑+getSun 换位+F3 灯数，单测全绿；随验收三笔拍板改向——isMain 推翻/getSun 自动裁决、灯族子类化、@InsHeader 子类显式贴法 + 图标彩色规则）**——`Light` 组件（Type/color/intensity/castShadow/range/锥角——**isMain 已删，主光自动裁决 v0.5 拍板**；.scene 通则序列化 + 检查器字段 + 双语包键/图标）+ `Scene.getLights/getSun`（getSun=最强激活方向光自动裁决；GameScene lights 注册表分流、read 重建；EditorScene 用户场景口径透传）+ SceneRenderBridge pull 翻译（Light→RenderLight 身份对应、isActiveAndEnabled 过滤、位姿/参数每帧同步）+ `LightCollector` 纯逻辑收集（方向光两遍收主光槽 0=强度排定 / 点聚光预排序（intensity/distSq）/ 视空间球剔除（自写，FrustumIntersection 对含 Y 翻转的反射矩阵不可信））+ RenderingSystem 帧收集打包（binding0 UBO 每视口动态偏移 + binding1 lightList SSBO 首视口口径 + 超容 WARN）+ ShaderInjector **fs 声明注入**（LightingParamsBlock + lightList，保留字生效）+ F3 overlay 行 8 在册灯数 + 菜单解锁（hierarchy.create.light 双型命令，Editor_Menu_Design v0.19）；单测 = `LightCollectorTest`（视空间打包/剔除/预排序/主光槽=强度排定/容量截尾）+ `GameSceneTest` 灯注册表/getSun 裁决用例；验收 = 单测全绿 + 用户挂灯实机 F3 灯数显示（着色消费归批次③——本批无画面验收项） |
-| ③ cluster 构建 + Forward 消费（= Forward+ 成形） | ClusterBuildPass 三步 + 着色器光照段注入 + Lambert+环境项 + SPOT（后半） | 点光/方向光明暗正确（用户运行）；几十盏场景帧率稳；F3 帧时间不劣化超阈值 |
+| ③ cluster 构建 + Forward 消费（= Forward+ 成形） | Cluster 构建（**CPU 构建拍板 2026-11-01**，§6 修订——GPU 三步原形态中帧回读无门+原子截尾缺陷两硬伤作废）+ 着色器光照段注入（javelinLighting 函数：Lambert+环境项+点光衰减+SPOT 一批落全）+ Lit.shader 样例 + 新建材质默认 Lit | **✅ 已落地并验收关账（2026-11-01 当日用户实测全项：三型灯明暗正确+光圈软化认可+Scene-Game 双视口各自光照（批次②首视口挂账销账）+ 单测全绿（ClusterBuilderTest/ShaderImporterTest）+ 40 盏 HSL 彩色点光压力场景帧率稳（压力场景随验生成进 test 项目 default.scene））**——`ClusterBuilder` 纯逻辑（两遍构建+前缀和 CPU 单线程、64 截尾=列表强度序精确去最弱、池溢出截断+WARN+计数收缩、透视指数/正交线性切分、球 AABB 8 角保守投影带符号保号）+ RenderingSystem per-view 化（binding1/2/3 三缓冲+set1 描述符集 per-view（viewLightsFor，视口尺寸变化重建/两帧退役）；首视口挂账解除；gridDim/zParams/viewport 填真值；registerFrameStorage 通用通道清退零外部用户）+ CameraBlock 扩 view + ShaderInjector（clusterGrid/clusterIndices 声明 + javelinLighting 函数注入 + 数据面保留字；函数名可自由使用编译期兜底）+ Lit.shader（+伴生 meta）+ CreateMaterialMenuCommand 模板换 Lit + F3 行 9（cluster 构建耗时+池占用）；**随验收四坑排障**（Pitfalls #29 全录）：Lit.fs 裸 `_Color`（Unity 方言≠GLSL 块成员限定）→ 坏 stub 落盘空 values 换代后 pack NPE（修=`Material.fillMissingDefaults` 盘上加载路径统一回填）→ 桥层 `rangeOf` 漏 SpotLight 分支（range 恒 0 双杀全灭）→ 注入段 cosInner/cosOuter 读反；**衰减窗口径拍板**（同日）：初版末 25% smoothstep 滚降贴地光圈过硬 → 换 **Unity URP 距离窗 (1-(d/range)²)²**（§7 公式已更新）；**ambient 纯黑拍板**（同日，Unity 口径：无环境源即纯黑，0.15 灰占位作废——真值源归四期天空盒环境光，§3.3 已同步） |
 | ④ ShadowPass + Deferred 复用 | ShadowPass（管线档 4.1 兑现，**v0.x 单张硬影**——§4.5：无 PCF/无 CSM，rasterization 侧保守 bias；sunViewProj 段+binding4 落位）+ 注入段阴影采样分支 + GBuffer/LightingPass 上线（同一 cluster 直喂）+ 混合/纯 Forward 可配置切换 | 主光投影正确（单张硬影口径）；两路光照一致（同场景切换对比）；管线档 §8 步骤二验收口径 |
 - 批次③收尾即拥有全质量光照（几十~几百盏无截断），Deferred 是第四批的另一个消费者，非光照质量前提；
 - 后处理链（Bloom/Tonemap + HDR 切换点，管线档 4.6）不在本四批内，随批次④后按管线档步骤三独立推进。
@@ -196,7 +203,7 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 - 天空盒环境光照（天空盒作 ambient 源：SH9/mipmap 降采样，替换 §3.3 ambient 常量）——**归四期第 4 项**（过渡环境光，探针 GI 落地后并入第 5 项）；
 - **GI 方向**：目标态 = 探针实时 GI（DDGI 路线）、烘焙管线不建、SSAO 为 GI 第一步——**归四期第 5 项**（Roadmap §4，探针复用本档批次①底座、求交后端可替换软光栅 → rayQuery；3D 纹理/纹理数组为采样前置缺口）；
 - **光追方向**：rayQuery 优先、RT pipeline 后置——**归四期第 6 项**（Roadmap §4，缺口 = AS 资源种类/图状态、BDA、GL_EXT_ray_query 编译链、蒙皮 BLAS 首范围=静态几何；复用本档批次①通用性红线）；
-- 脏标记跳过重建（相机/灯集合不变时不跑 ClusterBuildPass）；前缀和计算化（compute scan 替代 CPU）；cell 线性索引 Morton 化（局部性）；深度重建视空间位置；正交相机 Z 线性切分——clustered 后置项不设期，随四期批次需要（Roadmap §4 尾注）；
+- 脏标记跳过重建（相机/灯集合不变时不重跑构建）；**cluster 构建整链 GPU 化**（原「前缀和计算化」扩展：count/scan/write 三步 compute 化 + 每帧 grid 清零——CPU 版测试为迁移 oracle，v0.7 §6 修订记录）；cell 线性索引 Morton 化（局部性）；深度重建视空间位置——clustered 后置项不设期，随四期批次需要（Roadmap §4 尾注）；正交相机 Z 线性切分已随批次③落位（§5 ortho 分支）；
 - **cluster 索引系统复用**：decals / 反射探针后续并入同一 cluster（Godot 4 启发——索引池语义泛化为「per-cell 可见物列表」时不重复建基建）；
 - 光照 gizmo/调试显示（编辑器侧，DebugLine 光球线框 + 灯图标，随批次③后编辑器批次）；
 - 着色模型升级（Lambert → BRDF）归材质/着色模型专档；tiled/clustered 的进一步分档（如 reducing Z 精度）随实测调参。

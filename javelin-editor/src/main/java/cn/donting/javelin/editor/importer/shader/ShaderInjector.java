@@ -13,7 +13,7 @@ import java.util.List;
  *
  * <p>注入内容（与运行时实际通道一一对应，Engine_Rendering_Design 第 6 节）：
  * <pre>
- * layout(set = 0, binding = 0) uniform CameraBlock { mat4 viewProj; } cam;   // UBO1 动态偏移选相机
+ * layout(set = 0, binding = 0) uniform CameraBlock { mat4 viewProj; mat4 view; } cam;  // UBO1 动态偏移选相机
  * layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;     // 每物件 push
  * layout(std140, set = 2, binding = 0) uniform MaterialBlock { ... } material; // 数值属性（有才注入）
  * layout(set = 2, binding = N) uniform sampler2D _Name;                      // 贴图槽，声明序
@@ -23,9 +23,14 @@ import java.util.List;
  * CPU 排布器同规则保证；无数值属性不注入 MaterialBlock（空块 16B 占位只存在 CPU 侧，
  * 描述符布局超集 Vulkan 合法）。</p>
  *
- * <p>保留字校验（RHI 21.6-7）：用户不得手写 cam / pc / material 注入同名声明，
- * CameraBlock / PushBlock / MaterialBlock 任何出现即构建报错；lighting / lightList /
- * LightingParamsBlock 随批次②光照实装同拦（Engine_Uniform_Keys §6）。</p>
+ * <p>fs 专属（批次③，Engine_Lighting_Design §3/§6/§7）：set1 灯光/cluster 声明 +
+ * {@code javelinLighting} 光照段函数（Lambert + 环境项 + 点/聚光衰减）。不调用该函数
+ * 的 fs 不受影响（超集合法，与批次②兼容口径同族）。</p>
+ *
+ * <p>保留字校验（RHI 21.6-7）：块名/数据面实例名手写即构建报错（lighting / lightList /
+ * clusterGrid / clusterIndices 等批次②③保留字，Engine_Uniform_Keys §6）；注入函数
+ * {@code javelinLighting} 与 cam / pc / material 同类——用户直接使用，重定义由
+ * GLSL 编译期兜底。</p>
  *
  * @author Javelin Engine Team
  * @since 1.0.0
@@ -33,15 +38,25 @@ import java.util.List;
 public final class ShaderInjector {
 
     private static final String ENGINE_BLOCKS = """
-            layout(set = 0, binding = 0) uniform CameraBlock { mat4 viewProj; } cam;
+            layout(set = 0, binding = 0) uniform CameraBlock {
+                mat4 viewProj;
+                mat4 view;
+            } cam;
             layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;""";
 
     /**
-     * set1 光照声明（只注入 fs，Engine_Lighting_Design §3.3/§3.4 批次②版）——排布与
-     * RenderingSystem.packLightingParams 同源：directional[16]（8 盏 × 2 vec4，槽 0=主光，
-     * 每盏 dir+castShadow / color+intensity）、lightCounts（x=dirCount, y=pointCount）、
-     * gridDim/zParams（批次③ cluster 落位时填）、ambient。主光阴影段批次④扩块，
-     * clusterGrid/clusterIndices 声明归批次③。
+     * set1 光照声明 + 光照段函数（只注入 fs，Engine_Lighting_Design §3.3/§3.4/§6/§7
+     * 批次③版）——排布与 RenderingSystem.packLightingParams 同源：directional[16]
+     * （8 盏 × 2 vec4，槽 0=主光，每盏 dir+castShadow / color+intensity）、
+     * lightCounts（x=dirCount, y=pointCount）、gridDim（xyz=维度, w=tileSize）、
+     * zParams（x=near, y=far, z=ortho 标志）、viewport（帧缓冲原点+尺寸，
+     * gl_FragCoord 定位 cell 用）、ambient。主光阴影段批次④扩块。
+     *
+     * <p>{@code javelinLighting(viewNormal, viewPos)}：Lambert + 环境项 + 点/聚光
+     * 衰减（§7）——ambient + 方向光全局段（UBO 直读）+ gl_FragCoord 定位 cell →
+     * clusterIndices 索引段 → lightList 逐盏（inverse-square + range smoothstep
+     * 滚降；SPOT 锥判定 cos 平滑带）。视空间全链（vs 用 {@code cam.view} 传出
+     * 插值）。调用方：{@code vec3 color = albedo * javelinLighting(n, p);}。</p>
      */
     private static final String LIGHTING_BLOCKS = """
             layout(std140, set = 1, binding = 0) uniform LightingParamsBlock {
@@ -49,11 +64,85 @@ public final class ShaderInjector {
                 ivec4 lightCounts;
                 ivec4 gridDim;
                 vec4 zParams;
+                vec4 viewport;
                 vec4 ambient;
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
-            };""";
+            };
+            layout(std430, set = 1, binding = 2) readonly buffer clusterGridBuffer {
+                uvec2 clusterGrid[];
+            };
+            layout(std430, set = 1, binding = 3) readonly buffer clusterIndicesBuffer {
+                uint clusterIndices[];
+            };
+
+            vec3 javelinLighting(vec3 viewNormal, vec3 viewPos) {
+                vec3 result = lighting.ambient.rgb * lighting.ambient.a;
+                for (int i = 0; i < lighting.lightCounts.x; i++) {
+                    vec3 L = -normalize(lighting.directional[2 * i].xyz);
+                    float ndl = max(dot(viewNormal, L), 0.0);
+                    result += lighting.directional[2 * i + 1].rgb
+                            * lighting.directional[2 * i + 1].a * ndl;
+                }
+                if (lighting.gridDim.x <= 0) {
+                    return result;
+                }
+                vec2 pixel = gl_FragCoord.xy - lighting.viewport.xy;
+                ivec2 tile = ivec2(pixel) / lighting.gridDim.w;
+                tile = clamp(tile, ivec2(0), lighting.gridDim.xy - 1);
+                float dist = -viewPos.z;
+                float nearZ = lighting.zParams.x;
+                float farZ = lighting.zParams.y;
+                int zSlice;
+                if (lighting.zParams.z > 0.5) {
+                    zSlice = int(clamp(float(lighting.gridDim.z) * (dist - nearZ) / max(farZ - nearZ, 1e-6), 0.0, float(lighting.gridDim.z - 1)));
+                } else {
+                    zSlice = int(clamp(float(lighting.gridDim.z) * log2(max(dist, nearZ) / nearZ) / log2(farZ / nearZ), 0.0, float(lighting.gridDim.z - 1)));
+                }
+                int cell = tile.y * lighting.gridDim.x + tile.x
+                        + zSlice * lighting.gridDim.x * lighting.gridDim.y;
+                uvec2 range = clusterGrid[cell];
+                int base = int(range.x);
+                int count = min(int(range.y), 64);
+                for (int k = 0; k < count; k++) {
+                    int idx = int(clusterIndices[base + k]);
+                    vec4 posType = lights[4 * idx];
+                    vec4 colorIntensity = lights[4 * idx + 2];
+                    vec3 toLight = posType.xyz - viewPos;
+                    float d = length(toLight);
+                    float rangeL = lights[4 * idx + 1].w;
+                    if (d >= rangeL) {
+                        continue;
+                    }
+                    float atten = colorIntensity.a / max(d * d, 1e-4);
+                    // 距离窗 = (1-(d/range)²)²（Unity URP 口径）：全程单调淡出、
+                    // range 处导数归零（C¹）——无平台段即无边界线；替代初版
+                    // 「前 75% 全亮 + 末 25% smoothstep」滚降（贴地掠射实测光圈过硬）
+                    float dn = d / rangeL;
+                    float window = 1.0 - dn * dn;
+                    atten *= window * window;
+                    vec3 L = toLight / max(d, 1e-4);
+                    float ndl = max(dot(viewNormal, L), 0.0);
+                    if (ndl <= 0.0) {
+                        continue;
+                    }
+                    if (posType.w > 0.5) {
+                        vec3 spotDir = normalize(lights[4 * idx + 1].xyz);
+                        float cd = dot(-L, spotDir);
+                        // spotParams：x=cos(inner)、y=cos(outer)（§3.1 LightItem 排布）
+                        float cosInner = lights[4 * idx + 3].x;
+                        float cosOuter = lights[4 * idx + 3].y;
+                        float cone = smoothstep(cosOuter, cosInner, cd);
+                        if (cone <= 0.0) {
+                            continue;
+                        }
+                        atten *= cone;
+                    }
+                    result += colorIntensity.rgb * atten * ndl;
+                }
+                return result;
+            }""";
 
     private ShaderInjector() {
     }
@@ -71,7 +160,7 @@ public final class ShaderInjector {
         validateReservedNames(body, sourceName, stageName);
 
         int versionEnd = findVersionLineEnd(body, sourceName, stageName);
-        StringBuilder injected = new StringBuilder(body.length() + 768);
+        StringBuilder injected = new StringBuilder(body.length() + 2560);
         injected.append(body, 0, versionEnd);
         injected.append("\n// ── engine injected declarations (auto-generated, do not write) ──\n");
         injected.append(ENGINE_BLOCKS).append('\n');
@@ -138,12 +227,16 @@ public final class ShaderInjector {
     /**
      * 保留字校验：注入同名声明冲突（RHI 21.6-7）。块名任何出现即报错
      * （注释里提及也会拦——保留字，写注释请换说法）。lighting / lightList /
-     * LightingParamsBlock 为批次②光照通道保留字（Engine_Uniform_Keys §6）。
+     * LightingParamsBlock 为批次②数据面保留字；clusterGrid / clusterIndices /
+     * clusterGridBuffer / clusterIndicesBuffer 为批次③ cluster 数据面保留字
+     * （数据只经注入函数消费）。{@code javelinLighting} 是<b>用户可调用</b>的注入函数
+     * （与 cam/pc 同类——重定义冲突由 GLSL 编译期兜底），不进构建期名单。
      */
     private static void validateReservedNames(String body, String sourceName, String stageName) {
         ArrayList<String> found = new ArrayList<>();
         for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock",
-                "LightingParamsBlock", "lighting", "lightList"}) {
+                "LightingParamsBlock", "lighting", "lightList",
+                "clusterGridBuffer", "clusterIndicesBuffer", "clusterGrid", "clusterIndices"}) {
             if (body.contains(reserved)) {
                 found.add(reserved);
             }

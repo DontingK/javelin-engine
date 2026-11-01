@@ -82,6 +82,7 @@
 | GizmoPass 末尾置顶（颜色 LOAD + 深度 CLEAR 两层深度语义） | ✅ | ✅ 随 Gizmo 链（2026-10-14 拖拽验收） |
 | MSAA 视口附件（isMsaaPath 边界：stacking/预览降 1x、overlay 恒 1x） | ✅ | ✅ 用户实测（2026-10-06） |
 | **灯收集与 set1 光照数据通路**（三期批次②，2026-10-31 落地：SceneRenderBridge Light→RenderLight pull 翻译（身份对应/每帧位姿参数同步）+ LightCollector 纯逻辑收集（方向光两遍收主光槽 0/点聚光预排序 intensity÷distSq/视空间球剔除自写——FrustumIntersection 对含 Y 翻转反射矩阵不可信）+ RenderingSystem 帧收集打包（binding0 LightingParamsBlock UBO **DYNAMIC 每视口动态偏移** 320B 块/512B 步长 + binding1 lightList SSBO 引擎常驻 256KB 首视口口径 + 超容 WARN 状态位）+ Opaque/Transparent set1 绑定带动态偏移 + ShaderInjector **fs 声明注入**（lighting/lightList，保留字生效）+ F3 行 8 在册灯数；**着色消费归批次③**（本批无画面验收项）；多视口 lightList 各自列表挂账批次③，字段详表 Uniform_Keys §4-1） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，同批次②合挂销账） |
+| **Cluster 构建 + Forward 着色消费（= Forward+ 成形，三期批次③，2026-11-01 落地）**：**CPU 构建拍板**（原 GPU 三步形态两硬伤作废——单命令缓冲帧图无中帧 CPU 回读门 + GPU 原子取槽序无法兑现「64 截尾=去最弱」；两路线帧占损同构，GPU 化归四期，灯光档 §6 v0.7）——`ClusterBuilder` 纯逻辑（两遍构建+前缀和单线程、透视指数/正交线性切分、球 AABB 8 角保守投影带符号保号、池溢出截断+WARN+计数收缩）；RenderingSystem **per-view 化**（lightList/clusterGrid/clusterIndices 三缓冲+set1 描述符集按视口惰性创建/视口尺寸变化重建/两帧退役——**首视口挂账解除**；gridDim/zParams/viewport 填真值；registerFrameStorage 通用通道清退）；**CameraBlock 扩 view**（@64B，旧产物超集合法免重导）；ShaderInjector 注入 **javelinLighting 光照段函数**（声明+函数一体：Lambert+环境项+方向光全局段+cluster 点/聚光衰减（**距离窗 = (1-(d/range)²)² Unity URP 口径**，2026-11-01 实机拍板换装）+SPOT 锥——一批落全；数据面实例名保留字、函数名与 cam/pc 同类可自由使用；**ambient 纯黑拍板**（Unity 口径：无环境源即纯黑，原 0.15 灰占位作废——真值源归四期天空盒环境光））；**内置 Lit.shader**（+伴生 meta，首个消费 NORMAL/UV 顶点属性）+ **新建材质默认 shader = Lit 拍板**（default.shader 维持兜底专用）+ F3 行 9 cluster 读数 + `Material.fillMissingDefaults`（坏 stub 落盘/旧 .mat 属性缺补默认——盘上加载路径回填缺口随排障补）；单测 ClusterBuilderTest（覆盖手算投影/Y 翻转保号专项/截尾强度序/池前缀链/正交线性/近平面全范围/复用扩容）+ ShaderImporterTest Lit 端到端；**随验收四坑排障**（GLSL 块名限定/坏 stub 落盘 NPE/桥层 SpotLight range 漏分支/cos 读反——Pitfalls #29） | ✅（2026-11-01） | ✅ 用户实测全过（2026-11-01：三型灯明暗正确+光圈软化认可+**Scene-Game 双视口各自光照正确**——首视口挂账销账+**单测全绿**（ClusterBuilderTest/ShaderImporterTest）+**40 盏 HSL 彩色点光压力场景帧率稳、F3 行 9 读数正常**——压力场景随验生成进 test 项目 default.scene） |
 | overlay 挂点（DebugText / RenderStats，buildFrameGraph） | ✅ | ✅ 用户实测（2026-09-27） |
 | 视锥剔除 | ⬜ 后置优化（Aabb/Mesh.bounds 已备） | — |
 
@@ -285,11 +286,18 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**（三期批次② 光数据模型 2026-10-31 当日用户实测销账——菜单挂灯（三型）
-+ 检查器编辑（子类各显字段/运行期调参生效）+ getSun 主光自动裁决换位 + F3 行 8 灯数；单测全绿
-（LightCollectorTest + GameSceneTest 灯用例）；随验收过程三笔拍板改向：isMain 显式标志推翻改
-getSun 自动裁决（对齐 Unity）、灯族子类化（不支持切换类型）、@InsHeader 子类显式贴法契约 +
-图标彩色规则立定——细则见 Roadmap 三期条目与光照档 v0.6）。
+**当前挂账 0 项**（三期批次③ cluster 构建 + Forward 着色消费 2026-11-01 用户实测全项
+销账——三型灯明暗正确/光圈软化认可（距离窗换 Unity URP 口径）/Scene-Game 双视口各自
+光照（批次②首视口挂账销账）/单测全绿（ClusterBuilderTest + ShaderImporterTest）/
+**40 盏 HSL 彩色点光压力场景帧率稳**（压力场景随验生成进 test 项目 default.scene，40 灯
+网格铺 plane 彩色混光）；随验四坑排障入 Vulkan_Pitfalls #29、ambient 纯黑拍板（Unity
+口径）。细则见 Roadmap 三期条目与光照档 §9 批次③行 v0.7。）
+
+（三期批次② 光数据模型 2026-10-31 当日用户实测销账——菜单挂灯（三型）+ 检查器编辑
++ getSun 主光自动裁决换位 + F3 行 8 灯数；单测全绿（LightCollectorTest + GameSceneTest
+灯用例）；随验收过程三笔拍板改向：isMain 显式标志推翻改 getSun 自动裁决（对齐 Unity）、
+灯族子类化（不支持切换类型）、@InsHeader 子类显式贴法契约 + 图标彩色规则立定——细则见
+Roadmap 三期条目与光照档 v0.6。）
 
 **历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目；三期批次① RHI SSBO/compute 底座 2026-10-31 当日用户实测销账（ComputeSsboTest 全环 + ComputeShaderImporterTest 绿；两坑入 Vulkan_Pitfalls #27/#28）。
 

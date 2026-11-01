@@ -36,6 +36,18 @@ public class ShaderImporterTest {
         }
     }
 
+    private static String readResource(String path) {
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        try (InputStream in = cl.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("classpath 资源不存在: " + path);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取测试着色器失败: " + path, e);
+        }
+    }
+
     @Test
     public void buildShaderEndToEnd() {
         String source = readTestShader();
@@ -69,6 +81,23 @@ public class ShaderImporterTest {
 
         // Pass 名即阶段归属（严格制，2026-10-17）：按名直查，无回退
         assertEquals("Forward", shader.pass("Forward").getName());
+    }
+
+    /**
+     * Lit.shader 端到端（批次③）：注入 javelinLighting 函数 + clusterGrid/clusterIndices
+     * 声明 + CameraBlock.view 扩展后全链编译通过；vs 三插值（视空间位置/法线/UV）。
+     */
+    @Test
+    public void litShaderEndToEnd() {
+        String source = readResource("shader/Lit.shader");
+        Shader shader = ShaderImporter.buildShader(source, "Lit.shader");
+
+        assertEquals("Lit", shader.getShaderName());
+        assertEquals(2, shader.getProperties().size());
+
+        ShaderPass forward = shader.pass("Forward");
+        assertValidSpirv(forward.getVertexSpirv());
+        assertValidSpirv(forward.getFragmentSpirv());
     }
 
     private static void assertValidSpirv(byte[] spirv) {

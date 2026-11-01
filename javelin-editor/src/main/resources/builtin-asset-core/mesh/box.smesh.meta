@@ -1,6 +1,6 @@
 javelin-text-serialization
 version=1
-[0:meta.cn.donting.javelin.editor.AssetMeta]
+[0:cn.donting.javelin.editor.meta.AssetMeta]
 guid=4fb68afe659236f21a991401ce354def
 assetType=SimpleMesh
 importSettings=@null

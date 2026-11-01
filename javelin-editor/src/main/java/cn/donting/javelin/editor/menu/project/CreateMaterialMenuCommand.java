@@ -20,9 +20,11 @@ import javax.swing.JOptionPane;
 
 /**
  * 创建材质资产（project.create.material，Unity Create → Material 对齐）：选中目录
- * 落 {@code material.mat}（重名去重 material 1.mat …），内容 = 内置 default.shader
- * 的初始 {@link Material} 文本序列化（「.mat 就是 Material 的序列化」2026-10-19
- * 拍板；new Material(shader) 运行期实例同 CreatePlaneMenuCommand 先例）。**源文本
+ * 落 {@code material.mat}（重名去重 material 1.mat …），内容 = 内置 Lit.shader
+ * 的初始 {@link Material} 文本序列化（新建材质默认受光着色器，批次③ 2026-11-01
+ * 拍板对齐 Unity 主受光着色器位；default.shader 维持 DefaultMaterial 兜底专用；
+ * 「.mat 就是 Material 的序列化」2026-10-19 拍板；new Material(shader) 运行期实例
+ * 同 CreatePlaneMenuCommand 先例）。**源文本
  * guid 与伴生 .meta 同源**（.scene 保存同口径）：先 getOrCreateMeta 建 .meta 拿
  * guid、setGuid 后一次性落盘——源文本/伴生 .meta/Library 产物/index 四处一致
  * （导入器仍以 meta 为真值源覆盖自述，防手改脱节）。落盘即提交导入：submitImport
@@ -48,8 +50,8 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
     private final String id;
     private final String shortcut;
     private final String icon;
-    /** 内置默认着色器 loadAsset 路径（初始材质模板，CreatePlaneMenuCommand 同源） */
-    private static final String DEFAULT_SHADER_PATH = "core/shader/default.shader";
+    /** 初始材质模板 = 内置受光着色器（批次③拍板；default.shader 为兜底专用不外用） */
+    private static final String LIT_SHADER_PATH = "core/shader/Lit.shader";
     public CreateMaterialMenuCommand(String id, String shortcut) {
         this(id, shortcut, null);
     }
@@ -89,9 +91,9 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
             return;
         }
 
-        Shader shader = editor.getAssetManager().loadAsset(DEFAULT_SHADER_PATH, Shader.class);
+        Shader shader = editor.getAssetManager().loadAsset(LIT_SHADER_PATH, Shader.class);
         if (shader == null) {
-            LOGGER.error("默认着色器加载失败 path={}（Library 缺产物或索引未建），跳过创建", DEFAULT_SHADER_PATH);
+            LOGGER.error("受光着色器加载失败 path={}（Library 缺产物或索引未建），跳过创建", LIT_SHADER_PATH);
             return;
         }
 

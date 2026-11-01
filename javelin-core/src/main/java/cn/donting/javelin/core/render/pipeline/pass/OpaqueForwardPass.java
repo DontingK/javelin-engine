@@ -77,8 +77,9 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             }
             pass.setViewport(view.viewport());
             pass.setScissor(view.scissor());
-            // set1 帧级 storage 读声明（依赖推导纳入：compute 写 → 本 Pass 读的内存屏障由此生成）
-            for (Buffer b : rs.frameStorages()) {
+            // set1 storage 读声明（本视口 lightList/clusterGrid/clusterIndices：依赖显式
+            // 纳入 + 句柄进 structureHash——视口缓冲重建即失效图缓存）
+            for (Buffer b : rs.viewStorages(view.name())) {
                 pass.addBufferRead(b);
             }
             int uboOffset = view.uboOffset();
@@ -97,9 +98,9 @@ public class OpaqueForwardPass extends AbstractForwardPass {
                 // set0 同为帧布局，后续 drawObject 按材质/layout 切 PSO 不影响已绑描述符）
                 cmd.bindPipeline(entryPipeline(rs, objects.get(0), samples));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
-                // set1 帧级光照通道（批次②起恒有效：binding0 灯参数 UBO 按视口动态偏移
-                // + binding1 lightList + 通用 storage 位；未声明 set1 的材质 shader 不受影响）
-                cmd.bindDescriptorSet(1, rs.frameStorageSet(), 1, new int[]{view.lightingOffset()});
+                // set1 光照通道（批次③ per-view：binding0 灯参数 UBO 动态偏移 + 本视口
+                // lightList/cluster 套件；未声明 set1 的材质 shader 不受影响）
+                cmd.bindDescriptorSet(1, rs.lightingSet(view.name()), 1, new int[]{view.lightingOffset()});
                 for (RenderObject ro : objects) {
                     drawObject(cmd, rs, ro, tpf, samples);
                 }

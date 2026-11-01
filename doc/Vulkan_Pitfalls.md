@@ -372,6 +372,31 @@
   辅助分诊（1e-4~1e-3 量级=精度方向，O(1)=链路断）；
 - **出处**：2026-10-31 ComputeSsboTest 二跑实踩，换位运算图案随修。
 
+### 29. GLSL 注入段与 Java 打包的字段契约错位 + 桥层子类漏分支：三连环（Lit 光照首验实踩）★契约级
+
+- **症状**：批次③首验三连炸——①Lit 编译失败 `_Color undeclared`；②修后重启 NPE
+  （`Material.findValue` null @ pack）；③再修后方向光/点光正常、**聚光全无光**；
+- **根因（三个独立坑叠加，一处现象藏多因）**：
+  - ① **GLSL 方言**：Color 属性注入形态是 `MaterialBlock` 块成员（`material._Color`），
+    按 Unity 习惯裸写 `_Color` 即 undeclared（Unity 的 cbuffer 宏展开后才是裸名）；
+  - ② **坏 stub 落盘陷阱**：①编译失败期 ShaderImporter 落 stub 产物（空属性），
+    期间创建的 .mat 绑 stub 落盘空 values；修好后 reimport 同 guid 换代真 Lit，
+    重启 `read()` 只回写引用（红线 10 禁派生）→ 首帧 pack 按现行 shader 取值 NPE。
+    热重载 Walker 有补默认值后处理，但**盘上加载路径无回填**——真实缺口；
+  - ③ **子类化漏分支**：灯族子类化把 `range` 摆进 Point/Spot 两个类，桥层
+    `rangeOf` 只 `instanceof PointLight` 一支 → 聚光 range 恒 0：CPU 侧 ClusterBuilder
+    `r<=0` 零覆盖 + GPU 侧 `d>=range` 恒真跳过，双杀全灭（点光命中分支正常——
+    「某型灯独坏」即查桥层 instanceof 分派）；另同批 GLSL 注入段 spotParams 的
+    cosInner/cosOuter 读反（x/y 对调）是第四处，因 ③ 全灭而晚一轮暴露；
+- **修法**：①`material._Color` 块名限定（注入形态两方言差异——写 GLSL 前先看测试
+  样例既有惯例）；②`Material.fillMissingDefaults()`（幂等补缺）在
+  `createMaterialResources` 入口统一回填——盘上加载路径从此与热重载同兜；③桥层
+  `rangeOf` 补 SpotLight 分支 + 注入段 cos 对调；
+- **连带坑（非崩溃但同类）**：**注入器 Java 改动不会自动重导**——注入文本编译期烤进
+  SPIR-V，重导判定按 .shader 源文件字节，改注入器后源未变 = Library 旧产物劫持
+  （#六-6 同族）；需手动 reimport 或源文件字节扰动触发；
+- **出处**：2026-11-01 批次③用户实机验收三连排障。
+
 ---
 
 ## 六、排障方法论（沉淀）

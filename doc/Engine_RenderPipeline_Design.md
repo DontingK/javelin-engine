@@ -187,8 +187,8 @@ pipeline.postProcess().remove("Bloom");
 | shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ❌ |
 | GBuffer×3 | 见 4.2 | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ |
 | lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌（直写 backbuffer） |
-| lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ❌ 三期 |
-| clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（ClusterBuildPass）；resize 重建 | ❌ 三期 |
+| lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ✅ 批次②首视口单缓冲 → 批次③ per-view（2026-11-01 待验收） |
+| clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（**CPU 构建**——批次③拍板 2026-11-01，GPU Pass 化归四期；灯光档 §6 修订）；视口尺寸变化重建 | ✅ 三期批次③已实装（2026-11-01 待验收） |
 | 后处理中间 RT | 链内自定 | 链内自定 | 链持有 | 帧临时（RHI 17.4 别名，P1） | ⚠️ 空链无 |
 
 ### 5.2 规则

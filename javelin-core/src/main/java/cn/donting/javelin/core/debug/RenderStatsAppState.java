@@ -2,6 +2,7 @@ package cn.donting.javelin.core.debug;
 
 import cn.donting.javelin.core.Time;
 import cn.donting.javelin.core.appstate.AbstractAppState;
+import cn.donting.javelin.core.render.ClusterBuilder;
 import cn.donting.javelin.core.input.Input;
 import cn.donting.javelin.core.input.KeyCode;
 import cn.donting.javelin.rhi.Device;
@@ -10,22 +11,24 @@ import cn.donting.javelin.rhi.RenderStats;
 
 /**
  * 渲染统计 overlay（doc/Engine_RenderStats_Design.md §3.2）：每帧覆写 DebugText
- * 固定行 0~8，展示 GPU 信息 / FPS / draw call 统计 / 存活资源计数 / 在册灯数。
+ * 固定行 0~9，展示 GPU 信息 / FPS / draw call 统计 / 存活资源计数 / 在册灯数 /
+ * cluster 构建读数（批次③）。
  *
- * <p><b>固定占用 DebugText 行 0~8</b>（行号 {@link #LAST_ROW}），其他 DebugText
+ * <p><b>固定占用 DebugText 行 0~9</b>（行号 {@link #LAST_ROW}），其他 DebugText
  * 客户端请避开该行区；每帧单行覆写惯用法 {@code clear(row) + printf(row, ...)}，
  * 与持续文本语义同行屏共存。{@code F3} 边沿开关，<b>默认显示</b>；关闭时逐行清空。</p>
  *
  * <p>读到的是<b>上一帧</b>快照：overlay 装配先于录制，
  * {@link Device#renderStats()} 公开 getter 即 lastFrame 快照（§3.1 时序）；灯数为
- * RenderingSystem 末帧首视口剔除后口径（三期批次②，Engine_Lighting_Design §3.1）。
+ * RenderingSystem 末帧首视口剔除后口径（三期批次②）；cluster 构建耗时/池占用
+ * 同首视口口径（三期批次③，Engine_Lighting_Design §6）。
  * 由 JavelinEngine 默认挂载（{@code registerDefaultAppStates} 钩子）；
  * DebugTextDemo 因行区冲突覆盖关闭。</p>
  */
 public class RenderStatsAppState extends AbstractAppState {
 
     /** overlay 固定占用行 0 ~ LAST_ROW */
-    private static final int LAST_ROW = 8;
+    private static final int LAST_ROW = 9;
 
     /** 文本刷新节流间隔（秒）：写行 0~7 每秒一轮，数字不逐帧跳动（F3 开关不受节流） */
     private static final float REFRESH_INTERVAL = 1.0f;
@@ -118,6 +121,16 @@ public class RenderStatsAppState extends AbstractAppState {
         if (engine.renderingSystem() != null) {
             DebugText.printf(8, "灯光 点光 " + engine.renderingSystem().pointLightCount()
                     + "  方向 " + engine.renderingSystem().directionalLightCount(),
+                    DebugTextColor.LIGHT_CYAN);
+        }
+
+        // 行 9：cluster 构建读数（CPU 构建耗时 + 索引池占用；批次③验收「帧时间不劣化」观测口）
+        DebugText.clear(9);
+        if (engine.renderingSystem() != null) {
+            DebugText.printf(9, "Cluster " + String.format("%.2f",
+                            engine.renderingSystem().clusterBuildNanos() / 1e6)
+                    + "ms  池 " + engine.renderingSystem().clusterPoolUsed()
+                    + "/" + ClusterBuilder.MAX_POOL_UINTS,
                     DebugTextColor.LIGHT_CYAN);
         }
     }

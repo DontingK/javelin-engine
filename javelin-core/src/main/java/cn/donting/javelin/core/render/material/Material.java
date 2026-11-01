@@ -108,6 +108,28 @@ public class Material extends AbsAsset {
     }
 
     /**
+     * 补缺失属性默认值（幂等，已有条目一律不动）：序列化 {@code read()} 旁路了
+     * {@link #setShader} 的默认值填充——盘上 shader 曾为坏 stub（空属性）或属性集
+     * 少于现行 shader（Lit 升级加属性）的实例，渲染侧绑定时按现行 shader 回填
+     * （值缺补默认、贴图槽缺补 null）。渲染资源创建入口调用（createMaterialResources）。
+     */
+    public void fillMissingDefaults() {
+        if (shader == null || !shader.isValid()) {
+            return;
+        }
+        for (MaterialProperty property : shader.getProperties()) {
+            String name = property.getName();
+            if (property.getDefaultValues() != null) {
+                if (findValue(name) == null) {
+                    values.add(new MaterialValueEntry(name, property.getDefaultValues().clone()));
+                }
+            } else if (findTexture(name) == null) {
+                textures.add(new MaterialTextureEntry(name, null));
+            }
+        }
+    }
+
+    /**
      * 面型写入：TRANSPARENT → 透明桶（由远及近）+ Blend SrcAlpha OneMinusSrcAlpha /
      * ZWrite Off（PSO 侧覆盖，Cull/ZTest/ColorMask 保留 Shader 声明）。
      */
