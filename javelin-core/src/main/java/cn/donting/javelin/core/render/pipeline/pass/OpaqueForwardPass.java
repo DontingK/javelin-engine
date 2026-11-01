@@ -82,6 +82,9 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             for (Buffer b : rs.viewStorages(view.name())) {
                 pass.addBufferRead(b);
             }
+            // 主光阴影图采样读（批次④）：set1 binding4 着色消费——依赖声明建 Shadow→Opaque
+            // 边（图拓扑保证阴影先画）；恒声明保结构稳定（未采时零成本）
+            pass.addTextureRead(rs.shadowMap());
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {

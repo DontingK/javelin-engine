@@ -465,7 +465,7 @@ public class JavelinEngine {
         if (renderingSystem == null) {
             return null;
         }
-        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline();
+        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline(device(), assetManager);
         pipeline.setClearColor(clearColor());
         return pipeline;
     }

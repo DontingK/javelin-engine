@@ -60,6 +60,14 @@ public class SceneFileType implements FileType {
 
     @Override
     public void open(File file) {
+        openScene(file);
+    }
+
+    /**
+     * 打开场景整链入口（项目面板双击 / CreateSceneMenuCommand 创建即打开共用）：
+     * 脏确认 → submitTask 帧边界切换（save → load → swap → 事件）。
+     */
+    public static void openScene(File file) {
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
             LOGGER.warn("编辑器实例未创建，跳过打开场景: {}", file);
@@ -76,6 +84,22 @@ public class SceneFileType implements FileType {
         }
         boolean saveFirst = choice == 0;
         editor.submitTask(() -> swapScene(editor, file, saveFirst));
+    }
+
+    /**
+     * 脏场景确认（净场景放行不弹）。创建场景等「必然离开当前场景」的命令用：
+     * 返回 false = 用户取消，命令应中止。
+     */
+    public static boolean confirmDirtyOrCancel() {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        if (editor == null) {
+            return false;
+        }
+        EditorScene editorScene = editor.getEditorScene();
+        if (editorScene == null || editorScene.getGameScene() == null) {
+            return true;   // 无当前场景无从弄脏，直接放行
+        }
+        return confirmDirty(editorScene) != CHOICE_CANCEL;
     }
 
     /**
@@ -101,6 +125,23 @@ public class SceneFileType implements FileType {
     }
 
     /**
+     * 记录最后打开场景到项目设置（project.settings 的 defaultOpenScene，Assets 相对
+     * 路径）并落盘——下次打开项目自动恢复该场景（loadScene 消费）。双击打开与
+     * 创建场景（CreateSceneMenuCommand 经 openScene）统一在本收尾回写。场景在
+     * Assets 外时跳过（相对路径语义不成立，编辑器运行域文件不进启动恢复链）。
+     */
+    private static void rememberLastOpenScene(JavelinEditor editor, File file) {
+        File assetsDir = editor.getProject().getAssetsDir();
+        if (!file.toPath().normalize().startsWith(assetsDir.toPath().normalize())) {
+            LOGGER.warn("场景不在 Assets 目录内，跳过启动恢复记录: {}", file);
+            return;
+        }
+        String relative = cn.donting.javelin.editor.util.FileUtil.relativePath(assetsDir, file);
+        editor.getSettingsManager().getProjectSettings().setDefaultOpenScene(relative);
+        editor.getSettingsManager().saveProjectSettings();
+    }
+
+    /**
      * 场景切换（引擎主线程帧边界执行）：save（可选）→ 文本导入新场景 → 换引用 →
      * 清选中/清脏/发事件。失败记 error 并 tinyfd 弹窗（同 file.save 隔离口径）。
      */
@@ -123,6 +164,7 @@ public class SceneFileType implements FileType {
             // 新场景即净 + 树/检查器重拉（树根星标随重拉消失）
             editorScene.clearDirty();
             EditorEventBus.publish(new SceneChangedEvent(false));
+            rememberLastOpenScene(editor, file);
             LOGGER.info("打开场景: {}（{} 个根节点）", file.getName(), gameScene.getRootNodes().size());
         } catch (Exception ex) {
             LOGGER.error("打开场景失败: {}", file, ex);

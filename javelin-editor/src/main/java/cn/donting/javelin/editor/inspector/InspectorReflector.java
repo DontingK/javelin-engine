@@ -7,6 +7,7 @@ import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.inspector.InsHeader;
 import cn.donting.javelin.core.inspector.InsLayerMask;
 import cn.donting.javelin.core.inspector.InsRotation;
+import cn.donting.javelin.core.inspector.InsShadowResolution;
 import cn.donting.javelin.core.assets.Asset;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
@@ -287,6 +288,8 @@ public final class InspectorReflector {
         switch (prop.valueType) {
             case STRING:
                 return (String) value;
+            case SHADOW_RESOLUTION:
+                // 值面与 INT 同构（像素值串）；复合控件只是展示层投影
             case INT:
                 return value instanceof Layer ? String.valueOf(((Layer) value).getValue())
                         : String.valueOf(value);
@@ -581,8 +584,13 @@ public final class InspectorReflector {
     private static InspectorValueType mapValueType(Field field) {
         Class<?> type = field.getType();
         if (type == int.class || type == Integer.class) {
-            // @InsLayerMask 标记的 int 按层位掩码（勾选式多选）展示，否则普通整数
-            return field.isAnnotationPresent(InsLayerMask.class) ? InspectorValueType.LAYER_MASK
+            // @InsLayerMask 标记的 int 按层位掩码（勾选式多选）展示；@InsShadowResolution
+            // 按阴影分辨率复合行（预设档下拉 + Custom 数字联动，Unity 口径）；否则普通整数
+            if (field.isAnnotationPresent(InsLayerMask.class)) {
+                return InspectorValueType.LAYER_MASK;
+            }
+            return field.isAnnotationPresent(InsShadowResolution.class)
+                    ? InspectorValueType.SHADOW_RESOLUTION
                     : InspectorValueType.INT;
         }
         if (type == float.class || type == Float.class) {
@@ -705,6 +713,8 @@ public final class InspectorReflector {
                     return Boolean.valueOf(value);
                 }
                 throw new TipException(EditorLang.key("inspector.apply.badBoolean", value));
+            case SHADOW_RESOLUTION:
+                // 值面与 INT 同构（组件 setter 自带钳制）；回调方是 int setter，Layer 特判不沾
             case INT:
                 int i = parseInt(value);
                 if (prop.setter.getParameterTypes()[0] == Layer.class) {

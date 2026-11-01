@@ -46,17 +46,21 @@ public final class ShaderInjector {
 
     /**
      * set1 光照声明 + 光照段函数（只注入 fs，Engine_Lighting_Design §3.3/§3.4/§6/§7
-     * 批次③版）——排布与 RenderingSystem.packLightingParams 同源：directional[16]
-     * （8 盏 × 2 vec4，槽 0=主光，每盏 dir+castShadow / color+intensity）、
+     * 批次③版 + 批次④主光阴影段）——排布与 RenderingSystem.packLightingParams 同源：
+     * directional[16]（8 盏 × 2 vec4，槽 0=主光，每盏 dir+castShadow / color+intensity）、
      * lightCounts（x=dirCount, y=pointCount）、gridDim（xyz=维度, w=tileSize）、
      * zParams（x=near, y=far, z=ortho 标志）、viewport（帧缓冲原点+尺寸，
-     * gl_FragCoord 定位 cell 用）、ambient。主光阴影段批次④扩块。
+     * gl_FragCoord 定位 cell 用）、ambient、sunViewProj（批次④：主光 世界→光裁剪，
+     * fs 重建 shadowMap 采样坐标）。
      *
-     * <p>{@code javelinLighting(viewNormal, viewPos)}：Lambert + 环境项 + 点/聚光
-     * 衰减（§7）——ambient + 方向光全局段（UBO 直读）+ gl_FragCoord 定位 cell →
+     * <p>{@code javelinLighting(viewNormal, viewPos, worldPos)}：Lambert + 环境项 +
+     * 点/聚光衰减（§7）+ 主光单张硬影（§4.5 批次④：槽 0 castShadow 位门控，
+     * sunViewProj 投影 → NDC xy 映 [0,1] 采样 → compare LESS 深度比较，盒外受光）。
+     * ambient + 方向光全局段（UBO 直读）+ gl_FragCoord 定位 cell →
      * clusterIndices 索引段 → lightList 逐盏（inverse-square + range smoothstep
-     * 滚降；SPOT 锥判定 cos 平滑带）。视空间全链（vs 用 {@code cam.view} 传出
-     * 插值）。调用方：{@code vec3 color = albedo * javelinLighting(n, p);}。</p>
+     * 滚降；SPOT 锥判定 cos 平滑带）。视空间光照全链（vs 用 {@code cam.view} 传出
+     * 插值）+ 阴影重建世界位置插值（vs 从 {@code pc.model} 直出）。调用方：
+     * {@code vec3 color = albedo * javelinLighting(n, p, wp);}。</p>
      */
     private static final String LIGHTING_BLOCKS = """
             layout(std140, set = 1, binding = 0) uniform LightingParamsBlock {
@@ -66,6 +70,7 @@ public final class ShaderInjector {
                 vec4 zParams;
                 vec4 viewport;
                 vec4 ambient;
+                mat4 sunViewProj;
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
@@ -76,14 +81,28 @@ public final class ShaderInjector {
             layout(std430, set = 1, binding = 3) readonly buffer clusterIndicesBuffer {
                 uint clusterIndices[];
             };
+            layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
 
-            vec3 javelinLighting(vec3 viewNormal, vec3 viewPos) {
+            vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
                 vec3 result = lighting.ambient.rgb * lighting.ambient.a;
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);
+                    float shadow = 1.0;
+                    // 主光单张硬影（批次④）：槽 0 castShadow 位门控；sunViewProj 正交
+                    // 投影（z 映 [0,1]），NDC xy×0.5+0.5 成采样 UV；盒外/越深度界=受光。
+                    // compare LESS：参考深度（像素到光深度）< 纹素深度（最近遮挡面）= 1.0
+                    if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
+                        vec3 proj = (lighting.sunViewProj * vec4(worldPos, 1.0)).xyz;
+                        if (proj.x >= -1.0 && proj.x <= 1.0
+                                && proj.y >= -1.0 && proj.y <= 1.0
+                                && proj.z >= 0.0 && proj.z <= 1.0) {
+                            vec2 uv = proj.xy * 0.5 + 0.5;
+                            shadow = texture(shadowMap, vec3(uv, proj.z));
+                        }
+                    }
                     result += lighting.directional[2 * i + 1].rgb
-                            * lighting.directional[2 * i + 1].a * ndl;
+                            * lighting.directional[2 * i + 1].a * ndl * shadow;
                 }
                 if (lighting.gridDim.x <= 0) {
                     return result;
@@ -229,14 +248,16 @@ public final class ShaderInjector {
      * （注释里提及也会拦——保留字，写注释请换说法）。lighting / lightList /
      * LightingParamsBlock 为批次②数据面保留字；clusterGrid / clusterIndices /
      * clusterGridBuffer / clusterIndicesBuffer 为批次③ cluster 数据面保留字
-     * （数据只经注入函数消费）。{@code javelinLighting} 是<b>用户可调用</b>的注入函数
+     * （数据只经注入函数消费）；shadowMap 为批次④数据面保留字。
+     * {@code javelinLighting} 是<b>用户可调用</b>的注入函数
      * （与 cam/pc 同类——重定义冲突由 GLSL 编译期兜底），不进构建期名单。
      */
     private static void validateReservedNames(String body, String sourceName, String stageName) {
         ArrayList<String> found = new ArrayList<>();
         for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock",
                 "LightingParamsBlock", "lighting", "lightList",
-                "clusterGridBuffer", "clusterIndicesBuffer", "clusterGrid", "clusterIndices"}) {
+                "clusterGridBuffer", "clusterIndicesBuffer", "clusterGrid", "clusterIndices",
+                "shadowMap"}) {
             if (body.contains(reserved)) {
                 found.add(reserved);
             }

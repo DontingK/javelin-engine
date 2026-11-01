@@ -181,6 +181,11 @@ public class JavelinEditor extends JavelinEngine {
     protected Scene loadScene() {
         ProjectSettings projectSettings = settingsManager.getProjectSettings();
         String defaultOpenScene = projectSettings.getDefaultOpenScene();
+        if (defaultOpenScene == null || defaultOpenScene.isBlank()) {
+            // 无记录（新项目/字段被清）：无场景可恢复，走未就绪降级（清屏兜底）
+            log.warn("项目设置无启动场景记录（defaultOpenScene 空），跳过场景恢复");
+            return null;
+        }
         File file = new File(project.getAssetsDir(), defaultOpenScene);
 
         TextImporter textImporter = new TextImporter(file, assetManager);

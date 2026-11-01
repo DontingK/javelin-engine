@@ -104,6 +104,12 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             rasterizer.cullMode(toVkCullMode(desc.cullMode()));
             rasterizer.frontFace(toVkFrontFace(desc.frontFace()));
             rasterizer.lineWidth(desc.lineWidth());
+            // 深度偏移（shadowMap 光栅化抗 acne；关闭时不写参数 = VkSamplerCreateInfo 同族默认 0）
+            if (desc.depthBiasEnable()) {
+                rasterizer.depthBiasEnable(true);
+                rasterizer.depthBiasConstantFactor(desc.depthBiasConstant());
+                rasterizer.depthBiasSlopeFactor(desc.depthBiasSlopeFactor());
+            }
 
             // 多重采样
             VkPipelineMultisampleStateCreateInfo multisample = VkPipelineMultisampleStateCreateInfo.calloc(stack);

@@ -244,6 +244,8 @@ public final class SceneRenderBridge {
             // transformDirection 正变换口径见 applyPose 注）
             rl.setParams(light.isCastShadow(), rangeOf(light),
                     cosInnerOf(light), cosOuterOf(light));
+            // 阴影图分辨率（基类字段全体灯同步；v0.x 仅主光消费——点/聚光阴影后置）
+            rl.setShadowResolution(light.getShadowResolution());
             float[] ci = rl.colorIntensity();
             ci[0] = light.getColor().r;
             ci[1] = light.getColor().g;

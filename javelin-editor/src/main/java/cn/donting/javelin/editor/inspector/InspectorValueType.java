@@ -10,6 +10,8 @@ package cn.donting.javelin.editor.inspector;
 public enum InspectorValueType {
     /** int 字段；配 @InsIntRange 时渲染滑条 */
     INT,
+    /** int 字段按阴影分辨率语义（@InsShadowResolution）：预设档下拉（256~4096，无 Custom），value=像素值 */
+    SHADOW_RESOLUTION,
     /** float 字段；配 @InsFloatRange 时渲染滑条 */
     FLOAT,
     /** Color 字段（"r,g,b,a" 0-1 浮点） */

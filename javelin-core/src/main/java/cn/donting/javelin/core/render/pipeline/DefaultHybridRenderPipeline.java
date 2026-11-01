@@ -1,8 +1,11 @@
 package cn.donting.javelin.core.render.pipeline;
 
+import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.pipeline.pass.OpaqueForwardPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
+import cn.donting.javelin.core.render.pipeline.pass.ShadowPass;
 import cn.donting.javelin.core.render.pipeline.pass.TransparentForwardPass;
+import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.data.RHIClearColor;
 
@@ -19,7 +22,7 @@ import java.util.List;
  * Shadow/GBuffer/Lighting 的 Pass 设计与资源规划见设计文档第 4 节，落地为第二步。
  *
  * <p>编排 = 有序 {@link RenderPass} 列表（设计文档 6.2）：buildGraph 按序调用各 Pass 的
- * addToGraph；扩展 = 向 {@link #passes()} 增删/插入自定义 Pass（RHI 14.3 方式 1，
+ * addToGraph；扩展 = 向 {@link #addPass} 增删/插入自定义 Pass（RHI 14.3 方式 1，
  * 列表组成变化 = 图缓存 structureHash 正常失效，RHI 18.5）。
  *
  * <p>着色器约定（core 主代码不含 GLSL 源码，用户拍板 2026-09-25）：内置无光照着色程序
@@ -34,8 +37,12 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
     private final PostProcessChain postProcess = new PostProcessChain();
     private final OpaqueForwardPass opaque;
 
-    public DefaultHybridRenderPipeline() {
-        opaque=new OpaqueForwardPass();
+    public DefaultHybridRenderPipeline(Device device, AssetManager assetManager) {
+        // Shadow 在 Opaque 前（阴影深度先画，Opaque/Transparent 图声明 addTextureRead 建
+        // 依赖边保序——ShadowPass 全局单张 per-view 幂等挂载，批次④；着色器走资产
+        // 导入链装载（shadow.vert/.frag = SpvShader 资产））
+        passes.add(new ShadowPass(device, assetManager));
+        opaque = new OpaqueForwardPass();
         passes.add(opaque);
         passes.add(new TransparentForwardPass());
     }

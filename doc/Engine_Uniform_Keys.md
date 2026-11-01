@@ -36,18 +36,19 @@
 - 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
 - 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj@0 + view@64，128B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
 
-## 4. set 1 灯光（binding0/1 批次②已实装；2/3 **批次③已实装**；4 批次④）
+## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③已实装；**4 批次④-A 已实装——binding4 并入 set1 布局**）
 
 2026-10-28 拍板（Engine_Lighting_Design v0.1）：**跳过 UBO 数组中间档，直接 clustered + SSBO（Forward+ 形态）**——原 LightBlock UBO 落此预留口径作废。set1 = 光照域多 binding（FRAGMENT）：
 
 | binding | 类型 | key（实例名） | 内容 |
 |---|---|---|---|
-| 0 | UBO（**DYNAMIC**，每视口动态偏移；批次②实装） | `lighting` | LightingParamsBlock：方向光数组（≤8，槽 0=主光）+ 灯数计数 + cluster grid 元数据 + 环境项（主光阴影段批次④扩块） |
+| 0 | UBO（**DYNAMIC**，每视口动态偏移；批次②实装） | `lighting` | LightingParamsBlock：方向光数组（≤8，槽 0=主光）+ 灯数计数 + cluster grid 元数据 + 环境项 + sunViewProj（批次④-A 扩块 §4-1） |
 | 1 | SSBO（批次②实装；**批次③起按视口各缓存各打包——首视口口径作废**） | `lightList` | 点/聚光列表（视空间 64B/灯统一结构，容量 4096/视口，强度预排序） |
 | 2 | SSBO（批次③实装，按视口） | `clusterGrid` | 每 cell `{offset, count}`（uvec2，8B/cell；CPU 构建，批次③拍板，GPU 化后置 §10） |
 | 3 | SSBO（批次③实装，按视口） | `clusterIndices` | 变长光索引池（uint 定容 1M/视口；每 cell 上限 64，截尾=去最弱——CPU 列表序写入精确兑现） |
+| 4 | **COMBINED_IMAGE_SAMPLER**（批次④-A 实装；深度比较采样器） | `shadowMap` | 主光单张硬影深度图（2048² D32 全局唯一非视口归属；**LINEAR 比较采样=硬件双线性 PCF（2x2 免费软化，2026-11-01 实机锯齿反馈换装）** + CLAMP_TO_EDGE + compare LESS；GLSL 声明 `sampler2DShadow`）——per-view set 各自指同图同采样器（图+采样器引擎常驻） |
 
-### 4-1. LightingParamsBlock 字段表（批次③版；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
+### 4-1. LightingParamsBlock 字段表（批次④-A 版；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
 
 | 字段 | GLSL 声明 | 偏移 | 类型 | 语义 |
 |------|-----------|------|------|------|
@@ -56,12 +57,14 @@
 | `lighting.gridDim` | `ivec4` | 272 | 16B | xy=grid 维度（ceil(视口像素/16)）、z=Z 切片数（32）、w=tileSize（16）——批次③填真值 |
 | `lighting.zParams` | `vec4` | 288 | 16B | x=相机 near、y=far、**z=ortho 标志（正交=1：Z 线性切分分支）**、w 预留 |
 | `lighting.viewport` | `vec4` | 304 | 16B | **批次③新增**：视口帧缓冲区 x/y/w/h（Vulkan 左上原点，同 gl_FragCoord/RHIViewport——着色器 cell 定位用） |
-| `lighting.ambient` | `vec4` | 320 | 16B | 环境项（v0.x 常量色，0.15 中性；天空盒环境项归 GI 期） |
+| `lighting.ambient` | `vec4` | 320 | 16B | 环境项（v0.x = 纯黑，Unity 口径 2026-11-01 拍板；真值源归四期天空盒环境光） |
+| `lighting.sunViewProj` | `mat4` | 336 | 64B | **批次④-A 新增**：主光 世界→光裁剪 正交矩阵（zZeroToOne：裁剪 z 映 [0,1]、NDC xy [-1,1]）——fs 阴影采样重建投影；无主光/关阴影时值不消费（castShadow 标志门控） |
 
-- 块实需 **336B**，描述符 range/动态偏移步长 = 512B（256 对齐进取）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶；主光阴影段（sunViewProj + 采样参数）批次④追加扩块（新字段在 ambient 后串接，届时随批产物重导）；
+- 块实需 **400B**，描述符 range/动态偏移步长 = 512B（256 对齐进取）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶（sunViewProj 扩块于 ambient 后串接，2026-11-01 随批落位）；
 - lightList（binding1）：`vec4 lights[]`（std430，无名块）——16 float/灯布局语义归 `Engine_Lighting_Design.md` §3.1；**批次③起 per-view 缓冲**（首视口单缓冲口径作废——多视口挂账 BatchB 解除）；
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
-- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos)`（Lambert + 环境项 + 点/聚光衰减，消费上述全部 binding；定义归 Engine_Lighting_Design §7）；不调用即不受影响（超集合法）。
+- shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
+- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光硬影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 Engine_Lighting_Design §7）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 
@@ -80,9 +83,9 @@
 | 类别 | 保留字 | 拦截时机 |
 |------|--------|----------|
 | 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` / `LightingParamsBlock`（批次②生效）/ `clusterGridBuffer` / `clusterIndicesBuffer`（批次③生效） | 构建期（注释里出现也拦） |
-| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList`（批次②生效）；`clusterGrid` / `clusterIndices`（批次③生效） | GLSL 编译期（与注入声明重复定义） |
+| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList`（批次②生效）；`clusterGrid` / `clusterIndices`（批次③生效）；`shadowMap`（批次④-A 生效） | GLSL 编译期（与注入声明重复定义） |
 
-> 数据面实例名（lighting / lightList / clusterGrid / clusterIndices）用户不得直接消费——光照数据只经注入函数 `javelinLighting(viewNormal, viewPos)` 访问；该函数与 cam / pc / material 同类（用户直接使用，重定义由 GLSL 编译期兜底，不进构建期拦截名单）。
+> 数据面实例名（lighting / lightList / clusterGrid / clusterIndices / shadowMap）用户不得直接消费——光照数据只经注入函数 `javelinLighting(viewNormal, viewPos, worldPos)` 访问；该函数与 cam / pc / material 同类（用户直接使用，重定义由 GLSL 编译期兜底，不进构建期拦截名单）。
 
 > 注入声明由 ShaderInjector 在每个 vs/fs 块 `#version` 行后固定生成（v0.13：无标记、位置固定），声明内容 = 本表 §2/§3/§4(fs 专属）/§5；fs 专属光照段函数 `javelinLighting` 随 §4 声明注入。
 > 旧 .shader 产物不重导不含 set1 声明——引擎布局超集合法照常跑（批次②兼容口径，批次③.viewport 新字段同族适用：无 shader 消费 ambient 旧偏移，无破坏面）。

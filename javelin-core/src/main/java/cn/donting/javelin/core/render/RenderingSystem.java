@@ -1,6 +1,7 @@
 package cn.donting.javelin.core.render;
 
 import cn.donting.javelin.core.Time;
+import cn.donting.javelin.core.physics.collision.Aabb;
 import cn.donting.javelin.core.render.material.Material;
 import cn.donting.javelin.core.render.material.MaterialBlock;
 import cn.donting.javelin.core.render.material.MaterialProperty;
@@ -25,6 +26,7 @@ import cn.donting.javelin.rhi.Sampler;
 import cn.donting.javelin.rhi.Texture;
 import cn.donting.javelin.rhi.VertexLayout;
 import cn.donting.javelin.rhi.types.BlendFactor;
+import cn.donting.javelin.rhi.types.CompareOp;
 import cn.donting.javelin.rhi.data.RHIScissor;
 import cn.donting.javelin.rhi.data.RHIViewport;
 import cn.donting.javelin.rhi.desc.BufferDesc;
@@ -48,6 +50,7 @@ import cn.donting.javelin.rhi.types.SamplerMipmapMode;
 import cn.donting.javelin.rhi.types.ShaderStage;
 import cn.donting.javelin.rhi.types.TextureType;
 import cn.donting.javelin.rhi.types.TextureUsage;
+import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,14 +113,18 @@ public final class RenderingSystem implements AutoCloseable {
     // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
     /** LightingParamsBlock 帧槽步长（std140 实需 320B，256 对齐进取；动态偏移单位） */
     static final int LIGHTING_STRIDE = 512;
-    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16） */
-    static final int LIGHTING_BLOCK_BYTES = 336;
+    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16 + sunViewProj 64，批次④阴影段） */
+    static final int LIGHTING_BLOCK_BYTES = 400;
     /**
      * 环境项（rgb + 强度）：v0.x = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
      * 用户拍板；原 0.15 中性灰占位作废）。真值源 = 天空盒环境光照，归四期第 4 项
      * （SH9/mipmap 降采样，灯光档 §3.3/§10）。
      */
     private static final float[] AMBIENT_COLOR = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    // ── 主光阴影（批次④，Engine_Lighting_Design §4.5：全局单张 2048² 硬影）──
+    /** shadowMap 缺省边长（构造期初建；实际分辨率随主光组件参数按需重建——ensureShadowMap） */
+    public static final int SHADOW_MAP_SIZE = 2048;
 
     private final Device device;
     private final FrameLoop frameLoop;
@@ -145,6 +152,21 @@ public final class RenderingSystem implements AutoCloseable {
     private ByteBuffer gridPack;
     /** 索引池序列化暂存（poolUsed int；小端直写 hostVisible） */
     private ByteBuffer poolPack;
+
+    // 主光阴影资源（批次④）：shadowMap 全局单张 + 深度比较采样器（set1 binding4 消费）。
+    // shadowMap 非终态——分辨率随主光组件参数可变（computeShadow 里 ensureShadowMap
+    // 按需重建、旧图两帧退役，per-view set binding4 重指）
+    private Texture shadowMap;
+    private int shadowMapResolution;
+    private final Sampler shadowSampler;
+    /** 主光 世界→光裁剪 正交矩阵（帧首 collectFrame 重算；无主光/关阴影时值不消费——fs 侧 castShadow 标志门控） */
+    private final Matrix4f sunViewProj = new Matrix4f();
+    /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据 */
+    private boolean shadowSunActive;
+    // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
+    private final Aabb shadowWorldBounds = new Aabb();
+    private final Aabb casterBoundsTmp = new Aabb();
+    private final float[] sunViewProjTmp = new float[16];
 
     // 灯注册表 + 收集打包（批次②；SceneRenderBridge pull 翻译 Light → RenderLight）
     private final List<RenderLight> lights = new ArrayList<>();
@@ -250,6 +272,23 @@ public final class RenderingSystem implements AutoCloseable {
         this.lightingBuffer = device.createBuffer(new BufferDesc(
                 frameSlots * MAX_CAMERAS * LIGHTING_STRIDE, Set.of(BufferUsage.UNIFORM),
                 MemoryPreference.hostVisibleCoherent()), null);
+
+        // 主光阴影资源（批次④）：全局单张深度图（DEPTH + SAMPLED 双 usage：Pass 写、
+        // set1 binding4 采样）+ 深度比较采样器。LINEAR=硬件双线性 PCF：比较采样器配
+        // LINEAR 滤波时 4 纹素比较结果按双线性权重平均，一次采样免费 2x2 软化——
+        // 2026-11-01 用户实机验收「边缘块状锯齿」反馈换装（NEAREST 硬取样作废；
+        // 3x3/5x5 邻域 PCF 归四期）。CLAMP_TO_EDGE 盒界外边缘纹素深度恒 1.0 采出
+        // 受光、compare LESS=未遮挡即 1.0
+        this.shadowMapResolution = SHADOW_MAP_SIZE;
+        this.shadowMap = device.createTexture(new TextureDesc(
+                TextureType.TYPE_2D, depthFormat(), shadowMapResolution, shadowMapResolution,
+                1, 1, 1, SampleCount.COUNT_1,
+                Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.SAMPLED),
+                MemoryPreference.deviceLocal()), null);
+        this.shadowSampler = device.createSampler(new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f, CompareOp.LESS));
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -548,6 +587,7 @@ public final class RenderingSystem implements AutoCloseable {
         int lightSlotBase = (int) (frameIndex % frameSlots) * MAX_CAMERAS * LIGHTING_STRIDE;
         float tpf = Time.getDeltaTime();
         sortCamerasByDepth();
+        computeShadow();
 
         List<RenderView> views = new ArrayList<>();
         int camIndex = 0;
@@ -642,7 +682,11 @@ public final class RenderingSystem implements AutoCloseable {
                 }
             }
             if (ro.isCastShadow()) {
-                list.addShadowCaster(ro);
+                if (!ro.isTransparent()) {
+                    // v0.x 透明物不投影（灯光档 §4.5「全部不透明 mesh renderer」）；
+                    // 后置：材质/组件级投影开关
+                    list.addShadowCaster(ro);
+                }
             }
         }
         list.opaque().sort(Comparator.comparingLong(RenderObject::bucketKey));
@@ -651,6 +695,103 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     // ═══ 灯收集打包（批次②；Engine_Lighting_Design §3.1/§3.3） ═══
+
+    /**
+     * 主光阴影帧收集（批次④，Engine_Lighting_Design §4.5）：主光裁决（与 LightCollector
+     * 同口径——最强激活方向光，tie 取列表序首个）且 castShadow → caster 世界 AABB 并集
+     * 构造正交 sunViewProj（世界→光裁剪，Vulkan z [0,1]）。caster 集取全体 castShadow
+     * 不透明渲染对象（不按视口 cullingMask 过滤——超集保守正确，盒只大不小）；
+     * castShadow 标志仅在主光为真时生效（ShadowPass 只服务主光）。无线性剔除——
+     * shadowCasters 盒盖全场景拍板，场景规模裁剪归 CSM 期。
+     */
+    private void computeShadow() {
+        // 主光裁决：最强激活方向光（castShadow 位不参与裁决——关阴影主光仍占槽 0，
+        // 着色侧 w=0 跳采样，本帧不画 ShadowPass）
+        RenderLight sun = null;
+        float sunIntensity = Float.NEGATIVE_INFINITY;
+        for (RenderLight light : lights) {
+            if (light.type() == RenderLight.Type.DIRECTIONAL
+                    && light.colorIntensity()[3] > sunIntensity) {
+                sunIntensity = light.colorIntensity()[3];
+                sun = light;
+            }
+        }
+        shadowSunActive = sun != null && sun.isCastShadow();
+        if (!shadowSunActive) {
+            return;   // 矩阵值不消费：主光槽 castShadow=0 → fs 采样分支整段跳过
+        }
+        // 主光阴影图分辨率随组件参数（Inspector 编辑即时生效——按需重建，旧图两帧退役）
+        ensureShadowMap(sun.shadowResolution());
+
+        // caster 世界包围盒并集（本地 bounds 行和公式精确值 × world；空集兜底 -1..1
+        // 保矩阵有限——shadowMap 全清后采样恒受光，画面语义不变）
+        Vector3f min = shadowWorldBounds.getMin();
+        Vector3f max = shadowWorldBounds.getMax();
+        min.set(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE);
+        max.set(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE);
+        boolean anyCaster = false;
+        for (RenderObject ro : renderers) {
+            if (!ro.isCastShadow() || ro.isTransparent()) {
+                continue;
+            }
+            ro.mesh().getBounds().transform(ro.world(), casterBoundsTmp);
+            Vector3f cMin = casterBoundsTmp.getMin();
+            Vector3f cMax = casterBoundsTmp.getMax();
+            min.x = Math.min(min.x, cMin.x);
+            min.y = Math.min(min.y, cMin.y);
+            min.z = Math.min(min.z, cMin.z);
+            max.x = Math.max(max.x, cMax.x);
+            max.y = Math.max(max.y, cMax.y);
+            max.z = Math.max(max.z, cMax.z);
+            anyCaster = true;
+        }
+        if (!anyCaster) {
+            min.set(-1.0f, -1.0f, -1.0f);
+            max.set(1.0f, 1.0f, 1.0f);
+        }
+        ShadowMath.buildSunViewProj(sun.worldDir(), shadowWorldBounds, sunViewProj);
+    }
+
+    /** 主光阴影是否本帧生效（主光存在且 castShadow；ShadowPass 挂点判据） */
+    public boolean shadowSunActive() {
+        return shadowSunActive;
+    }
+
+    /** 主光 世界→光裁剪 正交矩阵（ShadowPass push 消费；仅 shadowSunActive 时有效） */
+    public Matrix4f sunViewProj() {
+        return sunViewProj;
+    }
+
+    /** 全局单张 shadowMap（ShadowPass 深度输出 / Forward Pass 图声明采样读） */
+    public Texture shadowMap() {
+        return shadowMap;
+    }
+
+    /**
+     * shadowMap 按需重建（分辨率变化时）：新图即时替换、旧图两帧退役（GPU in-flight
+     * 安全）；已建视口的 set1 binding4 重指新图（新建视口走 viewLightsFor 常规链，
+     * 读的已是新图）。图句柄变化经 Opaque/Transparent 的 addTextureRead 进
+     * structureHash 自动失效图缓存。
+     */
+    private void ensureShadowMap(int resolution) {
+        if (shadowMap != null && shadowMapResolution == resolution) {
+            return;
+        }
+        if (shadowMap != null) {
+            Texture retired = shadowMap;
+            retireResource(retired::dispose);
+            log.info("shadowMap 分辨率切换: {} -> {}（旧图两帧退役）", shadowMapResolution, resolution);
+        }
+        shadowMapResolution = resolution;
+        shadowMap = device.createTexture(new TextureDesc(
+                TextureType.TYPE_2D, depthFormat(), resolution, resolution,
+                1, 1, 1, SampleCount.COUNT_1,
+                Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.SAMPLED),
+                MemoryPreference.deviceLocal()), null);
+        for (ViewLighting vl : viewLights.values()) {
+            vl.set.update(DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler));
+        }
+    }
 
     /**
      * LightingParamsBlock 打包（std140，与 ShaderInjector 注入声明同源）：
@@ -691,6 +832,11 @@ public final class RenderingSystem implements AutoCloseable {
                 .putFloat(cam.viewportWidth()).putFloat(cam.viewportHeight());   // viewport
         lightingPack.putFloat(AMBIENT_COLOR[0]).putFloat(AMBIENT_COLOR[1])
                 .putFloat(AMBIENT_COLOR[2]).putFloat(AMBIENT_COLOR[3]);
+        // 主光阴影段（批次④）：sunViewProj（世界→光裁剪，fs 采样重建 shadow UV 消费；
+        // 无主光/关阴影时值不消费——w=castShadow 标志门控）
+        for (float v : sunViewProj.get(sunViewProjTmp)) {
+            lightingPack.putFloat(v);
+        }
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }
@@ -921,6 +1067,10 @@ public final class RenderingSystem implements AutoCloseable {
                 new DescriptorSetLayoutDesc.Binding(2, DescriptorType.STORAGE_BUFFER, 1,
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(3, DescriptorType.STORAGE_BUFFER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding4 = shadowMap 深度比较采样（批次④，主光单张硬影；compare 采样器
+                // 引擎常驻，ShadowPass 每帧写图、Forward Pass addTextureRead 声明依赖）
+                new DescriptorSetLayoutDesc.Binding(4, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -960,7 +1110,8 @@ public final class RenderingSystem implements AutoCloseable {
                 DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
                 DescriptorUpdate.storageBuffer(1, lightList),
                 DescriptorUpdate.storageBuffer(2, clusterGrid),
-                DescriptorUpdate.storageBuffer(3, clusterIndices)});
+                DescriptorUpdate.storageBuffer(3, clusterIndices),
+                DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler)});
         ViewLighting created = new ViewLighting(lightList, clusterGrid, clusterIndices,
                 set, viewW, viewH, gridX, gridY);
         viewLights.put(cameraName, created);
@@ -1197,6 +1348,8 @@ public final class RenderingSystem implements AutoCloseable {
         viewLights.values().forEach(ViewLighting::dispose);
         viewLights.clear();
         lightingBuffer.dispose();
+        shadowMap.dispose();
+        shadowSampler.dispose();
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

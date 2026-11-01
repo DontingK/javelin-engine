@@ -2,6 +2,7 @@ package cn.donting.javelin.rhi;
 
 import cn.donting.javelin.rhi.desc.SamplerDesc;
 import cn.donting.javelin.rhi.exception.VulkanException;
+import cn.donting.javelin.rhi.types.CompareOp;
 import cn.donting.javelin.rhi.types.Filter;
 import cn.donting.javelin.rhi.types.SamplerAddressMode;
 import cn.donting.javelin.rhi.types.SamplerMipmapMode;
@@ -41,6 +42,11 @@ final class VulkanSampler implements Sampler {
             samplerInfo.addressModeW(toVkAddressMode(desc.addressModeW()));
             samplerInfo.maxAnisotropy(desc.maxAnisotropy());
             samplerInfo.maxLod(desc.maxLod());
+            // 深度比较采样（shadowMap）：Vulkan 要求 compareOp 设了 compareEnable 才消费
+            samplerInfo.compareEnable(desc.compareEnable());
+            if (desc.compareEnable()) {
+                samplerInfo.compareOp(toVkCompareOp(desc.compareOp()));
+            }
 
             LongBuffer samplerBuf = stack.mallocLong(1);
             int result = vkCreateSampler(device.vkDevice(), samplerInfo, null, samplerBuf);
@@ -77,6 +83,19 @@ final class VulkanSampler implements Sampler {
         return switch (filter) {
             case NEAREST -> VK_FILTER_NEAREST;
             case LINEAR -> VK_FILTER_LINEAR;
+        };
+    }
+
+    private static int toVkCompareOp(CompareOp op) {
+        return switch (op) {
+            case NEVER -> VK_COMPARE_OP_NEVER;
+            case LESS -> VK_COMPARE_OP_LESS;
+            case EQUAL -> VK_COMPARE_OP_EQUAL;
+            case LESS_OR_EQUAL -> VK_COMPARE_OP_LESS_OR_EQUAL;
+            case GREATER -> VK_COMPARE_OP_GREATER;
+            case NOT_EQUAL -> VK_COMPARE_OP_NOT_EQUAL;
+            case GREATER_OR_EQUAL -> VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case ALWAYS -> VK_COMPARE_OP_ALWAYS;
         };
     }
 

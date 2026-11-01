@@ -13,12 +13,13 @@ Javelin 引擎着色器编写规范。权威定义见 `doc/RHI_Design_Shader.md`
 
 | 通道 | 声明（注入模板生成 / 手写对齐） | 使用 | 值来源 |
 |------|------------------------|------|--------|
-| 相机（set 0, UBO1 动态） | `layout(set=0, binding=0) uniform CameraBlock { mat4 viewProj; } cam;` | `cam.viewProj` | 引擎每帧写入；绑定时动态偏移选"当前帧当前相机"的段 |
+| 相机（set 0, UBO1 动态） | `layout(set=0, binding=0) uniform CameraBlock { mat4 viewProj; mat4 view; } cam;` | `cam.viewProj` / `cam.view`（世界→视空间，法线/位置变换用） | 引擎每帧写入；绑定时动态偏移选"当前帧当前相机"的段 |
 | 每物件（push constants, 80B） | `layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;` | `pc.model` / `pc.tpf` | 引擎每个 draw call 前自动推送 |
+| 光照（set 1，只注入 fs） | `LightingParamsBlock`（binding0 灯参数/环境/sunViewProj）+ lightList/cluster SSBO（binding1-3）+ shadowMap（binding4） | 不直接读——经注入函数 `javelinLighting` 消费 | 引擎每帧每视口写入；主光单张硬影自动含于函数内 |
 | 材质数值（set 2, binding 0） | `layout(std140, set=2, binding=0) uniform MaterialBlock { /* 按 Properties 生成 */ } material;` | `material._Tint` 等 | 材质实例属性，std140 打包 |
 | 材质贴图（set 2, binding 1..n） | `layout(set=2, binding=1) uniform sampler2D _MainTex;` | 直接 `texture()` 采样 | 按 Properties 声明序，未赋值走占位贴图 |
 
-- set 1 是 ObjectBlock 空占位（per-object 已改走 push constants），**不写任何声明**。
+- 光照消费口径：fs 里 `vec3 lit = javelinLighting(viewNormal, viewPos, worldPos)`（三参：视空间法线/位置 + 世界位置插值——第三参供主光阴影采样重建，批次④起）。调 Lambert + 环境项 + 点/聚光衰减 + 主光硬影，不调用不受影响。保留字（数据面，写了构建报错）：`lighting / lightList / clusterGrid / clusterIndices / shadowMap / 各块名`。
 - push 形态 = `model` + `tpf`，**不是 mvp**（早期原型用过，已弃用：多相机要每物件×每相机重算，且着色器拿不到 model 无法做世界空间计算。拍板存档见 Engine_Rendering_Design 第 6 节）。
 - 多相机：着色器**无相机索引概念**，同一 SPIR-V 复用所有相机；"哪个相机"由 Pass 录制时的动态偏移 + viewport/scissor 决定。
 - 时间块（timeSec/tpf）在 UBO1 槽尾（offset 1024）但当前描述符 range=256B **不可见**；着色器要 tpf 用 `pc.tpf`。

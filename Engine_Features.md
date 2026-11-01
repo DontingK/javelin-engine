@@ -83,6 +83,7 @@
 | MSAA 视口附件（isMsaaPath 边界：stacking/预览降 1x、overlay 恒 1x） | ✅ | ✅ 用户实测（2026-10-06） |
 | **灯收集与 set1 光照数据通路**（三期批次②，2026-10-31 落地：SceneRenderBridge Light→RenderLight pull 翻译（身份对应/每帧位姿参数同步）+ LightCollector 纯逻辑收集（方向光两遍收主光槽 0/点聚光预排序 intensity÷distSq/视空间球剔除自写——FrustumIntersection 对含 Y 翻转反射矩阵不可信）+ RenderingSystem 帧收集打包（binding0 LightingParamsBlock UBO **DYNAMIC 每视口动态偏移** 320B 块/512B 步长 + binding1 lightList SSBO 引擎常驻 256KB 首视口口径 + 超容 WARN 状态位）+ Opaque/Transparent set1 绑定带动态偏移 + ShaderInjector **fs 声明注入**（lighting/lightList，保留字生效）+ F3 行 8 在册灯数；**着色消费归批次③**（本批无画面验收项）；多视口 lightList 各自列表挂账批次③，字段详表 Uniform_Keys §4-1） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，同批次②合挂销账） |
 | **Cluster 构建 + Forward 着色消费（= Forward+ 成形，三期批次③，2026-11-01 落地）**：**CPU 构建拍板**（原 GPU 三步形态两硬伤作废——单命令缓冲帧图无中帧 CPU 回读门 + GPU 原子取槽序无法兑现「64 截尾=去最弱」；两路线帧占损同构，GPU 化归四期，灯光档 §6 v0.7）——`ClusterBuilder` 纯逻辑（两遍构建+前缀和单线程、透视指数/正交线性切分、球 AABB 8 角保守投影带符号保号、池溢出截断+WARN+计数收缩）；RenderingSystem **per-view 化**（lightList/clusterGrid/clusterIndices 三缓冲+set1 描述符集按视口惰性创建/视口尺寸变化重建/两帧退役——**首视口挂账解除**；gridDim/zParams/viewport 填真值；registerFrameStorage 通用通道清退）；**CameraBlock 扩 view**（@64B，旧产物超集合法免重导）；ShaderInjector 注入 **javelinLighting 光照段函数**（声明+函数一体：Lambert+环境项+方向光全局段+cluster 点/聚光衰减（**距离窗 = (1-(d/range)²)² Unity URP 口径**，2026-11-01 实机拍板换装）+SPOT 锥——一批落全；数据面实例名保留字、函数名与 cam/pc 同类可自由使用；**ambient 纯黑拍板**（Unity 口径：无环境源即纯黑，原 0.15 灰占位作废——真值源归四期天空盒环境光））；**内置 Lit.shader**（+伴生 meta，首个消费 NORMAL/UV 顶点属性）+ **新建材质默认 shader = Lit 拍板**（default.shader 维持兜底专用）+ F3 行 9 cluster 读数 + `Material.fillMissingDefaults`（坏 stub 落盘/旧 .mat 属性缺补默认——盘上加载路径回填缺口随排障补）；单测 ClusterBuilderTest（覆盖手算投影/Y 翻转保号专项/截尾强度序/池前缀链/正交线性/近平面全范围/复用扩容）+ ShaderImporterTest Lit 端到端；**随验收四坑排障**（GLSL 块名限定/坏 stub 落盘 NPE/桥层 SpotLight range 漏分支/cos 读反——Pitfalls #29） | ✅（2026-11-01） | ✅ 用户实测全过（2026-11-01：三型灯明暗正确+光圈软化认可+**Scene-Game 双视口各自光照正确**——首视口挂账销账+**单测全绿**（ClusterBuilderTest/ShaderImporterTest）+**40 盏 HSL 彩色点光压力场景帧率稳、F3 行 9 读数正常**——压力场景随验生成进 test 项目 default.scene） |
+| **主光阴影 ShadowPass 单张硬影（三期批次④-A，2026-11-01 落地）**：RHI 三补（`SamplerDesc` 深度比较重载（compareOp，VulkanSampler 填 compareEnable/compareOp）+ `GraphicsPipelineDesc` depthBias 三参重载（静态 PSO 级，动态态后置）与**空颜色格式 depth-only 新约**（VulkanGraphicsPipeline rendering 空颜色路径天然支持））+ `ShadowMath` 纯逻辑视锥构造（JOML lookAt 同式光空间基 + 行和投影半宽 + `ortho zZeroToOne=true` + up 稳定轴防退化；Y 不翻——shadowMap 自写自消费自洽）+ **着色器走资产导入链（2026-11-01 用户拍板，tool 内嵌 spv 路线同日推翻）**：`SpvShader` 资产类 + `SpvShaderImporter`（.vert/.frag 扩展名即 stage，shaderc 编译，ClassUtil 自动注册）+ 内置源 `builtin-asset-core/shadow/shadow.vert/.frag`（伴生 meta + builtin-asset.index 收新后缀 + FileType/glsl 图标/双语包键）+ `ShadowPass`（覆盖制不消费材质 Pass 声明——用户 shader 零阴影负担；depth-only 无色附件 PSO + 无描述符集 + **128B 专属 push 布局**（lightViewProj@0+model@64）；PSO 静态 bias 2.0/1.5（实测再调）；**per-view 幂等挂载**（帧号门控，恒挂载只清不画保写者存在+图结构稳定）；AssetManager 按路径装载内置产物（EditGridAppState 先例），缺失/坏 stub 显性报错不兜底）+ RenderingSystem（`computeShadow` 收集域（主光裁决同 LightCollector 口径/caster 世界 AABB 并集超集保守）+ shadowMap 2048² D32 DEPTH+SAMPLED + compare LESS 采样器常驻 + packLightingParams 扩 sunViewProj @336（块 400B/步长 512B 不变）+ **binding4 并入 set1 布局**（同 set 号单布局 Vulkan 约束；per-view set 各自指同图）+ shadowCasters 收集透明过滤（v0.x 透明不投影））+ RenderingSystem（`computeShadow` 收集域（主光裁决同 LightCollector 口径/caster 世界 AABB 并集超集保守）+ shadowMap 2048² D32 DEPTH+SAMPLED + compare LESS 采样器常驻 + packLightingParams 扩 sunViewProj @336（块 400B/步长 512B 不变）+ **binding4 并入 set1 布局**（同 set 号单布局 Vulkan 约束；per-view set 各自指同图）+ shadowCasters 收集透明过滤（v0.x 透明不投影））+ Opaque/Transparent `addTextureRead(shadowMap)` 依赖边 + ShaderInjector（**javelinLighting 签名扩第三参 worldPos**（vs 从 pc.model 直出，fs 零重建；签名变更=契约变更）+ binding4 `sampler2DShadow` 声明 + 保留字 shadowMap；主光槽 0 castShadow 门控 → NDC xy×0.5+0.5 采样 compare）+ Lit.shader 双镜像（builtin+test 资源）vs worldPos 插值/fs 三参调用；单测 ShadowMathTest（8 角覆盖/up 换轴/正交 w=1）+ ShaderImporterTest.litShaderEndToEnd 扩三参；**注入器改动须强制重导**（Pitfalls #29 口径）；Deferred 复用拆 ④-B 后批（2026-11-01 拍板） | ✅（2026-11-01） | ⏳ 待用户实机验收（口径：主光投影正确/调 castShadow 即时增减投影物/透明物不投影不接影/Scene-Game 双视口不掉影；PCF/CSM/bias 精调归四期） |
 | overlay 挂点（DebugText / RenderStats，buildFrameGraph） | ✅ | ✅ 用户实测（2026-09-27） |
 | 视锥剔除 | ⬜ 后置优化（Aabb/Mesh.bounds 已备） | — |
 
@@ -286,7 +287,17 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前挂账 0 项**（三期批次③ cluster 构建 + Forward 着色消费 2026-11-01 用户实测全项
+**当前挂账 1 项**：三期批次④-A 主光阴影 ShadowPass 单张硬影（2026-11-01 落地）——
+RHI 三补（深度比较采样器/depthBias 三参/空颜色格式 depth-only）+ ShadowMath 视锥
+构造 + ShadowPass（覆盖制 depth-only/per-view 幂等）+ binding4 并入 set1 +
+javelinLighting 三参签名（**注入器改动须强制重导**）+ Lit.shader 双镜像 worldPos
+插值；单测 ShadowMathTest + ShaderImporterTest.litShaderEndToEnd（三参）。验收
+口径：主光投影正确/调 castShadow 即时增减投影物/透明物不投影不接影/Scene-Game
+双视口不掉影/阴影图分辨率随主光组件参数（预设档下拉，无 Custom）即时重建。运行前置：**Lit.shader
+产物重导**（注入器改动强制重导，Pitfalls #29 口径；shadow.vert/.frag 内置资产随引擎
+启动释放导入，无手工步骤）。细则见 Roadmap 三期条目与光照档 §4.5.1/§9 批次④-A 行 v0.8。
+
+（三期批次③ cluster 构建 + Forward 着色消费 2026-11-01 用户实测全项
 销账——三型灯明暗正确/光圈软化认可（距离窗换 Unity URP 口径）/Scene-Game 双视口各自
 光照（批次②首视口挂账销账）/单测全绿（ClusterBuilderTest + ShaderImporterTest）/
 **40 盏 HSL 彩色点光压力场景帧率稳**（压力场景随验生成进 test 项目 default.scene，40 灯

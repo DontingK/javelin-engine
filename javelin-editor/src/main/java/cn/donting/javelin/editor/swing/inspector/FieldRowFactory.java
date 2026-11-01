@@ -52,6 +52,9 @@ public final class FieldRowFactory {
                 }
                 return input;
             }
+            case SHADOW_RESOLUTION:
+                // 阴影分辨率预设档下拉（Unity 口径，无 Custom）
+                return new ShadowResolutionField(vo.value, commit);
             case STRING:
                 return new JeTextInput(vo.value, commit);
             case BOOLEAN:

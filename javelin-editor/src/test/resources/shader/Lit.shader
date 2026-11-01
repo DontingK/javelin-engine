@@ -21,6 +21,7 @@ Shader "Lit"
             layout(location = 0) out vec3 vViewPos;
             layout(location = 1) out vec3 vNormal;
             layout(location = 2) out vec2 vUV;
+            layout(location = 3) out vec3 vWorldPos;
             void main() {
                 vec4 world = pc.model * vec4(aPos, 1.0);
                 gl_Position = cam.viewProj * world;
@@ -29,6 +30,8 @@ Shader "Lit"
                 // 法线世界→视空间；逆置矩阵吸收非均匀缩放
                 vNormal = mat3(cam.view) * (transpose(inverse(mat3(pc.model))) * aNormal);
                 vUV = aUV;
+                // 世界位置插值：主光阴影采样重建（javelinLighting 第三参）
+                vWorldPos = world.xyz;
             }
         }
         fs {
@@ -36,11 +39,13 @@ Shader "Lit"
             layout(location = 0) in vec3 vViewPos;
             layout(location = 1) in vec3 vNormal;
             layout(location = 2) in vec2 vUV;
+            layout(location = 3) in vec3 vWorldPos;
             layout(location = 0) out vec4 fragColor;
             void main() {
                 vec4 tex = texture(_MainTex, vUV);
-                // Lambert + 环境项 + 点/聚光衰减（引擎注入函数，参数=视空间法线/位置）
-                vec3 lit = javelinLighting(normalize(vNormal), vViewPos);
+                // Lambert + 环境项 + 点/聚光衰减 + 主光硬影（引擎注入函数，
+                // 参数=视空间法线/位置 + 世界位置）
+                vec3 lit = javelinLighting(normalize(vNormal), vViewPos, vWorldPos);
                 fragColor = vec4(material._Color.rgb * tex.rgb * lit, material._Color.a * tex.a);
             }
         }

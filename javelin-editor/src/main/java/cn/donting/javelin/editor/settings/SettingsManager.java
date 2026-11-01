@@ -48,12 +48,6 @@ public class SettingsManager {
     public SettingsManager(Project project) {
         this.project = project;
         loadSettings();
-//        EditorEventBus.getInstance().register(SceneLoadedEvent.class, event -> {
-//            File sceneFilePath = event.getSceneFilePath();
-//            String path = FileUtil.relativePath(project.getAssetsDir(), sceneFilePath);
-//            projectSettings.setDefaultOpenScene(path);
-//            saveProjectSettings();
-//        });
     }
 
     /**

@@ -63,7 +63,8 @@ task generateBuiltinAssetIndex {
             def assetDir = file("src/main/resources/${dirName}")
             if (assetDir.exists()) {
                 assetDir.eachFileRecurse { f ->
-                    if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader'))) {
+                    if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader')
+                            || f.name.endsWith('.vert') || f.name.endsWith('.frag'))) {
                         lines.add(dirName + '/' + assetDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
                     }
                 }

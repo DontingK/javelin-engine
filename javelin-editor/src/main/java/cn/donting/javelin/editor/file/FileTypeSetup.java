@@ -13,6 +13,8 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * .png/.jpg/.jpeg 随贴图导入管线批次注册（2026-10-25，纯图标）；
  * .texture 随创建纹理菜单批次注册（2026-10-25，纯图标——TextureImporter 自动扫描注册）；
  * .compute 随三期批次①注册（2026-10-31，计算着色器独立资产类型，纯图标）；
+ * .vert/.frag 随三期批次④-A 注册（2026-11-01，原生 GLSL 着色器资产 SpvShader，
+ * 纯图标——引擎覆盖制 Pass 装载链，shadow.spv 内嵌路线同日推翻）；
  * .smesh 等要用时再补注册。</p>
  *
  * @author javelin
@@ -41,6 +43,7 @@ public final class FileTypeSetup {
         context.registerFileType(new IconFileType("material", ".mat"));
         context.registerFileType(new IconFileType("shader", ".shader"));
         context.registerFileType(new IconFileType("compute", ".compute"));
+        context.registerFileType(new IconFileType("glsl", ".vert", ".frag"));
         context.registerFileType(new IconFileType("image", ".png", ".jpg", ".jpeg"));
         context.registerFileType(new IconFileType("texture", ".texture"));
     }

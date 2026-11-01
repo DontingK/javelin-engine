@@ -15,6 +15,7 @@ import cn.donting.javelin.editor.menu.hierarchy.DeleteMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.UnimplementedMenuCommand;
 import cn.donting.javelin.editor.menu.project.CopyPathMenuCommand;
 import cn.donting.javelin.editor.menu.project.CreateMaterialMenuCommand;
+import cn.donting.javelin.editor.menu.project.CreateSceneMenuCommand;
 import cn.donting.javelin.editor.menu.project.CreateShaderMenuCommand;
 import cn.donting.javelin.editor.menu.project.CreateTextureMenuCommand;
 import cn.donting.javelin.editor.menu.project.OpenFileMenuCommand;
@@ -100,12 +101,12 @@ public final class EditorMenuSetup {
         context.registerCommand(new CopyPathMenuCommand());
         context.registerCommand(new ReimportMenuCommand());
         // project 域 Unity 壳占位（未实现置灰，落地时替换为实类注册行）：
-        // 创建族/粘贴阻塞于文件写管线；重命名/删除阻塞于
-        // guid/meta/引用联动拍板
+        // 创建族剩余项/粘贴阻塞于文件写管线；重命名/删除阻塞于
+        // guid/meta/引用联动拍板；创建场景已实装（2026-11-01，创建即切换）
         context.registerCommand(new OpenFileMenuCommand());
         context.registerCommand(new cn.donting.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.create.folder", null));
-        context.registerCommand(new cn.donting.javelin.editor.menu.project.UnimplementedMenuCommand(
+        context.registerCommand(new CreateSceneMenuCommand(
                 "project.create.scene", null));
         context.registerCommand(new cn.donting.javelin.editor.menu.project.UnimplementedMenuCommand(
                 "project.create.script", null));

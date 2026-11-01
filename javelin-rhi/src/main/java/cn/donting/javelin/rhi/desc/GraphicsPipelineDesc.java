@@ -33,6 +33,10 @@ public final class GraphicsPipelineDesc {
     private final boolean depthTestEnable;
     private final boolean depthWriteEnable;
     private final CompareOp depthCompareOp;
+    // 深度偏移（shadowMap 光栅化：抗 acne/彼得潘宁；depthBiasEnable=false 时忽略）
+    private final boolean depthBiasEnable;
+    private final float depthBiasConstant;
+    private final float depthBiasSlopeFactor;
 
     // 混合
     private final boolean blendEnable;
@@ -71,14 +75,44 @@ public final class GraphicsPipelineDesc {
             List<Format> colorAttachmentFormats, Format depthAttachmentFormat,
             List<DescriptorSetLayoutDesc> descriptorSetLayouts, int pushConstantSize,
             Set<DynamicState> dynamicStates, SampleCount sampleCount) {
+        this(vertexShader, fragmentShader, inputLayout, topology, cullMode, frontFace,
+                polygonMode, lineWidth, depthTestEnable, depthWriteEnable, depthCompareOp,
+                blendEnable, srcColorBlendFactor, dstColorBlendFactor, colorBlendOp,
+                srcAlphaBlendFactor, dstAlphaBlendFactor, alphaBlendOp, colorWriteMask,
+                colorAttachmentFormats, depthAttachmentFormat, descriptorSetLayouts,
+                pushConstantSize, dynamicStates, sampleCount,
+                false, 0.0f, 0.0f);
+    }
+
+    /**
+     * 带深度偏移（depthBias）的全参构造：shadowMap 等深度-only Pass 消费
+     * （静态 PSO 级偏移，拍板 2026-11-01；动态态/vkCmdSetDepthBias 后置）。
+     * colorAttachmentFormats 允许空列表 = depth-only Pass（无颜色附件渲染通道）。
+     */
+    public GraphicsPipelineDesc(
+            ShaderDesc vertexShader, ShaderDesc fragmentShader,
+            VertexLayout inputLayout, PrimitiveTopology topology,
+            CullMode cullMode, FrontFace frontFace, PolygonMode polygonMode, float lineWidth,
+            boolean depthTestEnable, boolean depthWriteEnable, CompareOp depthCompareOp,
+            boolean blendEnable,
+            BlendFactor srcColorBlendFactor, BlendFactor dstColorBlendFactor, BlendOp colorBlendOp,
+            BlendFactor srcAlphaBlendFactor, BlendFactor dstAlphaBlendFactor, BlendOp alphaBlendOp,
+            Set<ColorComponentFlags> colorWriteMask,
+            List<Format> colorAttachmentFormats, Format depthAttachmentFormat,
+            List<DescriptorSetLayoutDesc> descriptorSetLayouts, int pushConstantSize,
+            Set<DynamicState> dynamicStates, SampleCount sampleCount,
+            boolean depthBiasEnable, float depthBiasConstant, float depthBiasSlopeFactor) {
         if (vertexShader == null) {
             throw new IllegalArgumentException("vertexShader must not be null");
         }
         if (fragmentShader == null) {
             throw new IllegalArgumentException("fragmentShader must not be null");
         }
-        if (colorAttachmentFormats == null || colorAttachmentFormats.isEmpty()) {
-            throw new IllegalArgumentException("colorAttachmentFormats must not be empty");
+        if (colorAttachmentFormats == null) {
+            colorAttachmentFormats = List.of();
+        }
+        if (colorAttachmentFormats.isEmpty() && depthAttachmentFormat == null) {
+            throw new IllegalArgumentException("depth-only pipeline requires a depth format");
         }
         if (descriptorSetLayouts == null) {
             descriptorSetLayouts = List.of();
@@ -104,6 +138,9 @@ public final class GraphicsPipelineDesc {
         this.depthTestEnable = depthTestEnable;
         this.depthWriteEnable = depthWriteEnable;
         this.depthCompareOp = depthCompareOp;
+        this.depthBiasEnable = depthBiasEnable;
+        this.depthBiasConstant = depthBiasConstant;
+        this.depthBiasSlopeFactor = depthBiasSlopeFactor;
         this.blendEnable = blendEnable;
         this.srcColorBlendFactor = srcColorBlendFactor;
         this.dstColorBlendFactor = dstColorBlendFactor;
@@ -133,6 +170,9 @@ public final class GraphicsPipelineDesc {
     public boolean depthTestEnable() { return depthTestEnable; }
     public boolean depthWriteEnable() { return depthWriteEnable; }
     public CompareOp depthCompareOp() { return depthCompareOp; }
+    public boolean depthBiasEnable() { return depthBiasEnable; }
+    public float depthBiasConstant() { return depthBiasConstant; }
+    public float depthBiasSlopeFactor() { return depthBiasSlopeFactor; }
     public boolean blendEnable() { return blendEnable; }
     public BlendFactor srcColorBlendFactor() { return srcColorBlendFactor; }
     public BlendFactor dstColorBlendFactor() { return dstColorBlendFactor; }
@@ -163,6 +203,9 @@ public final class GraphicsPipelineDesc {
                 && depthTestEnable == that.depthTestEnable
                 && depthWriteEnable == that.depthWriteEnable
                 && depthCompareOp == that.depthCompareOp
+                && depthBiasEnable == that.depthBiasEnable
+                && Float.compare(depthBiasConstant, that.depthBiasConstant) == 0
+                && Float.compare(depthBiasSlopeFactor, that.depthBiasSlopeFactor) == 0
                 && blendEnable == that.blendEnable
                 && srcColorBlendFactor == that.srcColorBlendFactor
                 && dstColorBlendFactor == that.dstColorBlendFactor
@@ -192,6 +235,9 @@ public final class GraphicsPipelineDesc {
         result = 31 * result + Boolean.hashCode(depthTestEnable);
         result = 31 * result + Boolean.hashCode(depthWriteEnable);
         result = 31 * result + depthCompareOp.hashCode();
+        result = 31 * result + Boolean.hashCode(depthBiasEnable);
+        result = 31 * result + Float.hashCode(depthBiasConstant);
+        result = 31 * result + Float.hashCode(depthBiasSlopeFactor);
         result = 31 * result + Boolean.hashCode(blendEnable);
         result = 31 * result + srcColorBlendFactor.hashCode();
         result = 31 * result + dstColorBlendFactor.hashCode();

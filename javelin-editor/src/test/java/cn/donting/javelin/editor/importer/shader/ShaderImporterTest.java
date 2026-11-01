@@ -84,8 +84,10 @@ public class ShaderImporterTest {
     }
 
     /**
-     * Lit.shader 端到端（批次③）：注入 javelinLighting 函数 + clusterGrid/clusterIndices
-     * 声明 + CameraBlock.view 扩展后全链编译通过；vs 三插值（视空间位置/法线/UV）。
+     * Lit.shader 端到端（批次③ + 批次④阴影段）：注入 javelinLighting 三参函数
+     * （viewNormal/viewPos/worldPos）+ clusterGrid/clusterIndices 声明 + binding4
+     * shadowMap（sampler2DShadow）+ sunViewProj 扩块后全链编译通过；vs 四插值
+     * （视空间位置/法线/UV + 世界位置）。
      */
     @Test
     public void litShaderEndToEnd() {

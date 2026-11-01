@@ -28,6 +28,8 @@ public class RenderLight {
     private float range;
     private float cosInner;
     private float cosOuter;
+    /** 阴影图分辨率（像素；v0.x 仅主光消费——点/聚光阴影归后置，值同步但不生效。基类预留位） */
+    private int shadowResolution = 2048;
 
     public RenderLight(Type type, boolean castShadow, float range,
                        float cosInner, float cosOuter) {
@@ -45,6 +47,16 @@ public class RenderLight {
         this.range = range;
         this.cosInner = cosInner;
         this.cosOuter = cosOuter;
+    }
+
+    /** 阴影图分辨率（桥层每帧同步全体灯；v0.x 仅主光消费——computeShadow 读主光） */
+    public void setShadowResolution(int shadowResolution) {
+        this.shadowResolution = Math.max(64, shadowResolution);
+    }
+
+    /** DIRECTIONAL：主光阴影图分辨率（像素） */
+    public int shadowResolution() {
+        return shadowResolution;
     }
 
     public Type type() {
