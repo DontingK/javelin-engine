@@ -6,6 +6,8 @@
 
 Javelin 把你熟悉的 Unity 工作流（层级、检查器、拖放资产、一键打包）带进现代 Java：Vulkan 渲染器 + GraalVM native-image 交付。**刻意只面向桌面 PC**：不受移动端约束、不做最低公约数渲染、不为弱硬件砍特性。项目处于早期（`0.1.0`，Windows 优先），但完整闭环已端到端可用：新建项目 → 搭建场景 → 保存重载 → 打包成可玩的游戏（JAR 或原生 `.exe`）。
 
+![Javelin 编辑器——层级 / 场景与游戏视口 / 检查器](resources/demo.png)
+
 ## 为什么选 Javelin
 
 ### 是完整的编辑器，不只是 SDK

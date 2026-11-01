@@ -6,6 +6,8 @@
 
 Javelin gives you the workflow you know from Unity (Hierarchy, Inspector, drag-and-drop assets, one-click build) in modern Java, on a Vulkan renderer, with games deploying through GraalVM native-image. It deliberately targets **desktop PC only**: no mobile constraints, no lowest-common-denominator rendering, no features cut for weak hardware. It is early stage (`0.1.0`, Windows-first), but the full loop already runs end-to-end: create a project, build a scene, save and reload, then package a playable build — as JAR or as a native `.exe`.
 
+![The Javelin editor — Hierarchy / Scene & Game viewports / Inspector](resources/demo.png)
+
 ## Why Javelin
 
 ### A complete editor, not just an SDK
