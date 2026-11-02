@@ -40,6 +40,8 @@ final class VulkanTexture implements Texture {
             // 创建图像
             VkImageCreateInfo imageInfo = VkImageCreateInfo.calloc(stack);
             imageInfo.sType$Default();
+            // cubemap 兼容位（批次⑤）：CUBE/CUBE_ARRAY 需此旗标，否则 CUBE 视图 validation 报错
+            imageInfo.flags(toVkImageCreateFlags(desc.type()));
             imageInfo.imageType(toVkImageType(desc.type()));
             imageInfo.format(toVkFormat(desc.format()));
             imageInfo.extent(VkExtent3D.calloc(stack)
@@ -242,6 +244,14 @@ final class VulkanTexture implements Texture {
             case TYPE_1D -> VK_IMAGE_TYPE_1D;
             case TYPE_2D, CUBE, CUBE_ARRAY -> VK_IMAGE_TYPE_2D;
             case TYPE_3D -> VK_IMAGE_TYPE_3D;
+        };
+    }
+
+    /** CUBE/CUBE_ARRAY 补 VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT（VkImageCreateInfo.flags） */
+    private static int toVkImageCreateFlags(TextureType type) {
+        return switch (type) {
+            case CUBE, CUBE_ARRAY -> VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+            default -> 0;
         };
     }
 

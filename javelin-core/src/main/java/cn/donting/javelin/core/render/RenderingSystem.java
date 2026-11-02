@@ -168,6 +168,11 @@ public final class RenderingSystem implements AutoCloseable {
     private final Aabb casterBoundsTmp = new Aabb();
     private final float[] sunViewProjTmp = new float[16];
 
+    // 视口天空盒（批次⑤步骤二，引擎侧测试形态）：RHI cubemap 纹理引用，调用方持有
+    // （Demo 内存构建 / 步骤三资产面上传）。场景级单引用——多视口共享，无 skybox
+    // 时 null（ClearFlags.SKYBOX 视口回退 SOLID_COLOR 清屏，正常域空状态不弹错）
+    private Texture skybox;
+
     // 灯注册表 + 收集打包（批次②；SceneRenderBridge pull 翻译 Light → RenderLight）
     private final List<RenderLight> lights = new ArrayList<>();
     private final LightCollector lightCollector = new LightCollector();
@@ -765,6 +770,16 @@ public final class RenderingSystem implements AutoCloseable {
     /** 全局单张 shadowMap（ShadowPass 深度输出 / Forward Pass 图声明采样读） */
     public Texture shadowMap() {
         return shadowMap;
+    }
+
+    /** 场景级天空盒 cubemap（批次⑤测试形态：RHI 纹理引用；null = 未挂） */
+    public Texture skybox() {
+        return skybox;
+    }
+
+    /** 设置天空盒（置 null 摘除）；纹理由调用方持有与释放，本系统只持引用 */
+    public void setSkybox(Texture skybox) {
+        this.skybox = skybox;
     }
 
     /**

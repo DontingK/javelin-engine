@@ -5,7 +5,7 @@
 > 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展机制）。
 > v0.2 变更（2026-09-25）：**钩子点枚举（PipelineHook）移除**——编排改为**有序 Pass 列表**（`RenderPass.addToGraph`），扩展 = 向列表指定位置插入自定义 Pass（6.2）；散点表述同步清扫。
 > v0.3 变更（2026-10-28）：**光照拍板 clustered Forward+（一步到位）**——ClusterBuildPass（compute）入 Pass 清单转正三期（2.2/3.1/3.2/4.3）、set1 改 cluster 套件多 binding（§7）、管线 4.5 两路光照一致性取舍**消解**（正透明同读一份 cluster，Engine_Lighting_Design v0.1 单点）；原「tiled/clustered 为 P2」口径作废。
-> v0.4 变更（2026-10-31）：**ShadowPass 补单张硬影拍板**（§4.1，明细归 Engine_Lighting_Design §4.5）；**SkyboxPass 入 Pass 清单**（§3.1/3.2，插 Opaque 后/Transparent 前，cubemap+纯视觉，设计归 Engine_Skybox_Design v0.1——三期批次⑤）；§9 待定表天空盒旧口径收口。
+> v0.4 变更（2026-10-31）：**ShadowPass 补单张硬影拍板**（§4.1，明细归 Engine_Lighting_Design §4.5）；**SkyboxPass 入 Pass 清单**（§3.1/3.2，插 Opaque 后/Transparent 前，cubemap+纯视觉，设计归 Engine_Skybox_Design v0.2（2026-11-02 实装拍板）——三期批次⑤）；§9 待定表天空盒旧口径收口。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
 > - RHI 文档管**「图怎么推导执行」**（依赖拓扑、屏障、图缓存——22 节「声明在引擎，推导执行在 RHI」）；
@@ -326,7 +326,7 @@ interface RenderPass {
 - ~~灯光数量上限与打包、shadowMap 描述符挂点~~（2026-10-28 拍板收口：clustered 多 binding 契约 + set1 binding4，§7/Engine_Lighting_Design）；
 - ~~tiled/clustered 计算光照~~（2026-10-28 转正三期主路线）；clustered 自身后置项（前缀和计算化/脏标记/Morton）归 Engine_Lighting_Design §10；SSR 等光照后扩展 Pass 示例（插入 Pass 列表）仍 P2；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；
-- UI Pass 组、环境（雾，Scene.environment）；~~天空盒~~ **已转正三期批次⑤**（cubemap+纯视觉，SkyboxPass 插 3.5 位——设计归 Engine_Skybox_Design v0.1，本档 §3 已同步）；天空盒环境光照（ambient 源）归 GI 探针期。
+- UI Pass 组、环境（雾，Scene.environment）；~~天空盒~~ **已转正三期批次⑤**（cubemap+纯视觉，SkyboxPass 插 3.5 位——设计归 Engine_Skybox_Design v0.2（2026-11-02 实装拍板落定），本档 §3 已同步）；天空盒环境光照（ambient 源）归 GI 探针期。
 - MSAA 后置项（5.3）：stacking 相机/预览视口/分屏区域清屏的 MSAA 路径、运行期切换
   档位（PSO/附件失效协议）、FXAA 档、区域清屏与 resolve 组合重载、末 pass storeOp
   DONT_CARE 带宽优化。

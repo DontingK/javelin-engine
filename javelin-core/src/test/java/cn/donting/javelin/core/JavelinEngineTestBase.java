@@ -2,10 +2,13 @@ package cn.donting.javelin.core;
 
 import cn.donting.javelin.core.JavelinEngine;
 import cn.donting.javelin.core.Time;
+import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
 
 public class JavelinEngineTestBase extends JavelinEngine {
     private static final Logger log = LoggerFactory.getLogger(JavelinEngineTestBase.class);
@@ -19,6 +22,16 @@ public class JavelinEngineTestBase extends JavelinEngine {
 
     public JavelinEngineTestBase(JavelinSetting setting) {
         super(setting);
+    }
+
+    /**
+     * 测试侧资产管理器：SpvShader 内置源 Library miss 时 tool 现编译返回——
+     * runTest 无编辑器导入链，ShadowPass/SkyboxPass 等覆盖制 Pass 的装载闭环
+     * （2026-11-02 拍板：测试类自行编译加载）。
+     */
+    @Override
+    protected AssetManager createAssetManager() {
+        return new TestAssetManager(new File("./Library"));
     }
 
     @Override

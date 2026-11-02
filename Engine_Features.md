@@ -64,7 +64,7 @@
 | ClearFlags（SOLID_COLOR / DEPTH_ONLY / DONT_CLEAR） | ✅ | ✅ 同上（Skybox 项后置） |
 | Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
 | 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，运行时） |
-| ClearFlags Skybox 项 | ⬜ 三期批次⑤（cubemap+纯视觉 2026-10-31 拍板，Engine_Skybox_Design v0.1——RHI cubemap 底座 + SkyboxPass 管线 3.5 位） | — |
+| ClearFlags Skybox 项 | 🔄 三期批次⑤（cubemap+纯视觉 2026-10-31 拍板、实装拍板 2026-11-02，Engine_Skybox_Design v0.2——**步骤一 RHI cubemap 底座 ✅ 验收关账 2026-11-02**：CUBE_COMPATIBLE 旗标 + textureCube 构造 + TextureRegion.layerCount/cubeFaces 六层整拷 + CubemapTest 读回比对通过；首验踩 layerCount 写死 1 坑 Pitfalls #30；步骤二 SkyboxPass ✅ 验收关账 2026-11-02：ClearFlags.SKYBOX 枚举+i18n、Opaque SKYBOX 分支（色LOAD深CLEAR/无资产回退）、SkyboxPass 覆盖制（skybox.vert/.frag 内置源+36顶点VB+z=w+set0帧布局复用+set1专属cubemap采样+深度LEqual/ZWrite Off）、管线 3.5 位插入、RenderingSystem.skybox 引用挂点、TestAssetManager（测试环境 SpvShader 现编译装载闭环）、SkyboxDemo；步骤三资产面未开始） | ✅ 步骤一+步骤二（2026-11-02 用户实机：CubemapTest 读回比对通过 + SkyboxDemo 五验收点全过——六向背景/不透明遮挡/透明叠加/F键摘挂回退） |
 | main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，GameSceneTest） |
 
 ### 2.4 渲染系统与管线（render）

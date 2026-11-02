@@ -6,7 +6,8 @@ import cn.donting.javelin.core.inspector.InsEnumLabel;
  * 相机清屏标志（对照 Unity Camera.clearFlags，用户拍板 2026-09-26 落地）。
  *
  * <p>决定本视口渲染前对颜色/深度附件的清屏策略（loadOp）。
- * Unity 的 Skybox 选项待天空盒系统落地后再入枚举（v0.1 无天空盒，不瞎猜行为）。</p>
+ * SKYBOX（批次⑤，2026-11-02 入列）：视口 Opaque 转颜色 LOAD+深度 CLEAR，
+ * SkyboxPass 3.5 位画天空盒；无 skybox 引用时回退 SOLID_COLOR 语义（正常域空状态不弹错）。</p>
  * 实现 {@link InsEnumLabel} 为 Inspector 下拉提供显示名——口径=自述清屏行为
  * （用户拍板 2026-10-11：SOLID_COLOR 不沿用 Unity 直译「纯色」，作为清屏策略
  * 名不自述行为；Skybox 入列后集合=天空盒/颜色+深度/仅深度/不清除）。
@@ -20,7 +21,9 @@ public enum ClearFlags implements InsEnumLabel {
     /** 只清深度，颜色保留已有画面——叠加相机合成（全屏 UI/Gizmo 层，配合 depth 排序） */
     DEPTH_ONLY("ins.enum.clearFlags.depthOnly"),
     /** 颜色与深度都保留（LOAD）——残影类特效；附件从未被清过时内容未定义，慎用 */
-    DONT_CLEAR("ins.enum.clearFlags.dontClear");
+    DONT_CLEAR("ins.enum.clearFlags.dontClear"),
+    /** 天空盒：颜色不清（SkyboxPass 3.5 位全屏覆盖）、深度照清——无天空盒资产时回退 SOLID_COLOR（批次⑤） */
+    SKYBOX("ins.enum.clearFlags.skybox");
 
     /** Inspector 下拉显示名（自述清屏行为，见类注释） */
     private final String label;

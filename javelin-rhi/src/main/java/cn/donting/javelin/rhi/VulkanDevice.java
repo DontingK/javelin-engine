@@ -7,6 +7,7 @@ import cn.donting.javelin.rhi.exception.VulkanException;
 import cn.donting.javelin.rhi.render.RenderSurface;
 import cn.donting.javelin.rhi.types.BufferUsage;
 import cn.donting.javelin.rhi.types.SampleCount;
+import cn.donting.javelin.rhi.types.TextureType;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -391,6 +392,10 @@ final class VulkanDevice implements Device {
     /**
      * 纹理上传（staging 路径，25 节）。
      * 创建 staging buffer → 拷贝数据 → 命令缓冲转换布局 + 拷贝 → fence 等待。
+     *
+     * <p>数据布局按纹理种类分流：TYPE_2D = 整段单拷贝（whole2D）；CUBE = 六面连续紧密
+     * 打包（每面 faceSize² 像素、layer 顺序 = Vulkan cubemap 面 +X/-X/+Y/-Y/+Z/-Z），
+     * staging 内逐面切片、逐层拷贝（批次⑤ Skybox_Design §3）。</p>
      */
     private void uploadTexture(VulkanTexture texture, UploadData data) {
         java.nio.ByteBuffer pixels = data.data();
@@ -409,8 +414,15 @@ final class VulkanDevice implements Device {
         cmd.pipelineBarrier(texture,
                 TextureLayout.UNDEFINED,
                 TextureLayout.TRANSFER_DST);
-        cmd.copyBufferToTexture(staging, texture,
-                TextureRegion.whole2D(texture.desc().width(), texture.desc().height()));
+        if (texture.desc().type() == TextureType.CUBE) {
+            // cubemap：单命令六层整拷（buffer 六面连续紧密打包、layer 顺序自动取址——
+            // VkBufferImageCopy 按 layerCount 逐层从 buffer 顺序取址，无需逐面循环）
+            cmd.copyBufferToTexture(staging, texture,
+                    TextureRegion.cubeFaces(texture.desc().width()));
+        } else {
+            cmd.copyBufferToTexture(staging, texture,
+                    TextureRegion.whole2D(texture.desc().width(), texture.desc().height()));
+        }
         cmd.end();
 
         // 提交并等待

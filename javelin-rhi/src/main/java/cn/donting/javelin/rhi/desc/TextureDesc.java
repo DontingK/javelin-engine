@@ -95,6 +95,19 @@ public final class TextureDesc {
         );
     }
 
+    /**
+     * 便捷构造：cubemap（六面正方形、单 mip、无 MSAA）。
+     *
+     * @param faceSize 单面边长（六面等尺寸，Vulkan cubemap 硬约束）
+     * @param usage    至少含 SAMPLED；上传走 createTexture 的 UploadData 分层路径时须含 TRANSFER_DST
+     */
+    public static TextureDesc textureCube(Format format, int faceSize, Set<TextureUsage> usage) {
+        return new TextureDesc(
+                TextureType.CUBE, format, faceSize, faceSize, 1,
+                1, 6, SampleCount.COUNT_1, usage, MemoryPreference.deviceLocal()
+        );
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

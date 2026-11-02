@@ -523,7 +523,7 @@ final class VulkanCommandBuffer implements CommandBuffer {
                             .aspectMask(aspectMaskOf(dst.desc().format()))
                             .mipLevel(region.mipLevel())
                             .baseArrayLayer(region.baseLayer())
-                            .layerCount(1))
+                            .layerCount(region.layerCount()))
                     .imageOffset(VkOffset3D.calloc(stack).set(region.x(), region.y(), region.z()))
                     .imageExtent(VkExtent3D.calloc(stack)
                             .set(region.width(), region.height(), region.depth()));
@@ -546,7 +546,7 @@ final class VulkanCommandBuffer implements CommandBuffer {
                             .aspectMask(aspectMaskOf(src.desc().format()))
                             .mipLevel(region.mipLevel())
                             .baseArrayLayer(region.baseLayer())
-                            .layerCount(1))
+                            .layerCount(region.layerCount()))
                     .imageOffset(VkOffset3D.calloc(stack).set(region.x(), region.y(), region.z()))
                     .imageExtent(VkExtent3D.calloc(stack)
                             .set(region.width(), region.height(), region.depth()));

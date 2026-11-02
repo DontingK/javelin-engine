@@ -4,6 +4,7 @@ import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.pipeline.pass.OpaqueForwardPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.pipeline.pass.ShadowPass;
+import cn.donting.javelin.core.render.pipeline.pass.SkyboxPass;
 import cn.donting.javelin.core.render.pipeline.pass.TransparentForwardPass;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
@@ -44,6 +45,10 @@ public class DefaultHybridRenderPipeline implements RenderPipeline {
         passes.add(new ShadowPass(device, assetManager));
         opaque = new OpaqueForwardPass();
         passes.add(opaque);
+        // Skybox 3.5 位（批次⑤步骤二）：Opaque 后 / Transparent 前——不透明几何深度
+        // 挡住被遮部分、透明物体画在天空盒之上；per-view SKYBOX 标志 + skybox 引用
+        // 双判定挂载（无 skybox 时 Opaque 回退 SOLID_COLOR 清屏，本 Pass 不挂）
+        passes.add(new SkyboxPass(device, assetManager));
         passes.add(new TransparentForwardPass());
     }
 

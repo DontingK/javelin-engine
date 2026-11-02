@@ -48,6 +48,8 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation project(':javelin-tool')  // 测试用 ShaderCompiler
+    // 测试资产管理器（TestAssetManager）现编译内置着色器要读 builtin-asset-core 源
+    testImplementation project(':javelin-editor')
     // 测试代码：也能看到注解 + 注册处理器
     testCompileOnly project(':javelin-ast')
     testAnnotationProcessor project(':javelin-ast')

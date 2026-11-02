@@ -397,6 +397,40 @@
   （#六-6 同族）；需手动 reimport 或源文件字节扰动触发；
 - **出处**：2026-11-01 批次③用户实机验收三连排障。
 
+### 30. `VkBufferImageCopy` 的 `layerCount` 写死 1 + `bufferOffset` 写死 0：cubemap 逐层循环上传每层都写入第 0 面数据 ★API 语义级
+
+- **症状**：批次⑤步骤一 CubemapTest 首验——读回比对 face 1~5 全部实得 face 0 的颜色
+  （(255,0,0)/(255,127,127)= 红面渐变），face 0 本身通过；画面六向颜色也全是红面；
+- **根因**：`copyBufferToTexture` 的 `VkBufferImageCopy` 硬编码 `layerCount(1)` +
+  `bufferOffset(0)`。上传侧逐面循环虽然把每面数据放进了 staging 的 `face*faceBytes`
+  偏移，但拷贝命令**永远从 staging 偏移 0 读、layerCount 恒 1** → 每层都写入 face 0 的
+  字节（后面覆盖前面，最终所有层 = face 0）；读回方向 `copyImageToBuffer` 同病；
+- **修法**：**不要逐层循环，用单命令 `layerCount=6` 整拷**——`VkBufferImageCopy` 紧密打包
+  （`bufferRowLength=0`）时按 layer 顺序自动从 buffer 连续取址，六面连续打包的数据一条
+  命令全进。`TextureRegion` 扩 `layerCount` 字段 + `cubeFaces(faceSize)` 工厂，两个 copy
+  方法 `layerCount(region.layerCount())` 直通；
+- **教训**：多层数组/cubemap 上传的 Vulkan 惯用法是 **layerCount 批量拷贝**而非逐层循环；
+  逐层循环要生效需要 `bufferOffset` 逐次递增——API 没暴露该参数时应第一时间想到
+  「layerCount 才是正路」，而不是给 API 加偏移参数硬凑循环；
+- **出处**：2026-11-02 批次⑤步骤一用户实机首验排障（CubemapTest 读回比对失败）。
+
+### 31. 覆盖制 Pass 的 PSO 深度三件套只对了比对模式：depthTestEnable 布尔填反 + depthAttachmentFormat 漏声明，深度态整个失效 ★实踩
+
+- **症状**：批次⑤步骤二 SkyboxDemo 首验+复验两连炸——**天空盒盖住不透明物体**
+  （板子被背景颜色整个覆盖，深度测试形同虚设）；修布尔位后复跑仍同症状；
+- **根因（两个独立笔误，同一症状）**：
+  - ① `GraphicsPipelineDesc` 参数序 `(depthTestEnable, depthWriteEnable, depthCompareOp,
+    blendEnable, …)`——构造时填成 `false, true, LESS_OR_EQUAL`：**深度测试关、深度写入开**
+    （本意 `true, false`），顺手替换修它时还把 `blendEnable` 位挤丢出编译错（IDEA lint 抓回）；
+  - ② PSO 的 `depthAttachmentFormat` 传 **null**——渲染通道明明带深度附件（addDepthOutput），
+    但 `VkPipelineRenderingCreateInfo.depthAttachmentFormat = UNDEFINED` 时驱动忽略深度态，
+    LEqual 白配。PickPass 先例是显式传 `Format.D32_SFLOAT`；
+- **修法**：①`true, false, CompareOp.LESS_OR_EQUAL, false(blend)`；②`Format.D32_SFLOAT`；
+- **教训**：手写长参构造器是高危区——**深度相关改动的自查清单 = ①深度三参布尔序
+  ②depthAttachmentFormat 是否声明 ③渲染通道附件与 PSO 声明一致**，三件一起核；
+  另「症状同、修了还犯」时先想**还有第二个独立根因**，别在已修处反复横跳；
+- **出处**：2026-11-02 批次⑤步骤二用户实机两轮排障（天空盒盖不透明物体）。
+
 ---
 
 ## 六、排障方法论（沉淀）
