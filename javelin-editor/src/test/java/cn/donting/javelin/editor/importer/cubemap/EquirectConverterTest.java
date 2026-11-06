@@ -114,6 +114,30 @@ public class EquirectConverterTest {
     }
 
     /**
+     * 面角方向必须归一化（2026-11-07 排障回归：faceCoordToDir 未归一化时
+     * asin(dir.y) 吃到 |dir|=√2 的非单位向量被 clamp 钳到 1，角附近纬度全堆
+     * ±90°——顶/底盖退化成极行、角部错边；faceSize=1 面心测试 |dir| 恰好=1
+     * 踩不到，此用例堵漏）。判别量=纬度（asin 尺度敏感）；经度 atan2 对整体
+     * 缩放不变（Pitfalls #32 口径），不能当归一化的判别量。
+     */
+    @Test
+    public void faceCornerDirectionsNormalized() {
+        float[] d = new float[3];
+        // +X 面角 (s,t)=(1,1)：未归一 (1,-1,-1)，归一后 y=-1/√3——纬度应 ≈-35.26°
+        //（未归一时 dir.y=-1 被钳、asin(-1)=-90°）
+        EquirectConverter.faceCoordToDir(0, 1, 1, d);
+        assertEquals(1.0f, Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), 1e-6f);
+        float lat = (float) Math.asin(d[1]);
+        assertEquals(-0.61548f, lat, 1e-4f);   // -35.264° = asin(-1/√3)
+        // +Y 面角 (s,t)=(1,1)：未归一 (1,1,1)，归一后 y=1/√3——纬度应 ≈35.26°
+        //（未归一时 dir.y=1 恒 1，asin(1)=90° 整面塌成极点——#32 症状本体）
+        EquirectConverter.faceCoordToDir(2, 1, 1, d);
+        assertEquals(1.0f, Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), 1e-6f);
+        float capLat = (float) Math.asin(d[1]);
+        assertEquals(0.61548f, capLat, 1e-4f); // +35.264° = asin(1/√3)；未归一 = π/2 整面错
+    }
+
+    /**
      * faceCoordToDir 非中心点必须返回**单位**方向向量（2026-11-07 排障回归）：
      * 纬度 asin(dir.y) 吃单位向量，未归一化时只有面心（|dir|=1）正确——极盖面退化成
      * 源图极行、侧面纵向从覆盖 ±45° 变成覆盖整球（视口症状：上下盖一圈 = 立方体

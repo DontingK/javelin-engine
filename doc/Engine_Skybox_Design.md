@@ -1,8 +1,8 @@
 # 引擎天空盒设计（Engine Skybox Design）
 
-> 版本：v0.3
-> 日期：2026-11-03
-> 说明：三期批次⑤专档——视口天空盒的 cubemap 底座、SkyboxPass、资产与场景接线。**步骤一/二已验收关账（2026-11-02）；步骤三（资产面）方案定稿（2026-11-03，§1.2/§5）待派发实装**。
+> 版本：v0.4
+> 日期：2026-11-07
+> 说明：三期批次⑤专档——视口天空盒的 cubemap 底座、SkyboxPass、资产与场景接线。**三步全部验收关账（一/二 2026-11-02、三 2026-11-07 用户实机全链）**。
 > 职责边界：
 > - 本文管**天空盒的视觉通路**（cubemap 资产 → 场景引用 → SkyboxPass 绘制 → ClearFlags 兑现）；
 > - 管线档管 Pass 编排（SkyboxPass 插入位置 3.5 位，RenderPipeline_Design §3）；
@@ -43,13 +43,24 @@
 - **编辑器 editorCamera 同设 SKYBOX**（Unity Scene 视图口径）：SCENE 视口也画天空盒；
 - **连带已知边界**（不新增）：`isMsaaPath` 对 SKYBOX 视口降级 1x（AbstractForwardPass，v0.x 边界）——MSAA 默认 OFF，开 MSAA + Skybox 相机才触发，设计已有记录。
 
+## 1.4 随验收四连排障（2026-11-05~06，步骤三实机验收揪出、全修全复验）
+
+- **拖影**（11-05）：§1.1 SKYBOX 清屏语义的「色 LOAD 赌全屏覆盖」作废改定（见 §1.1 划线段——swapchain 多图轮换 LOAD 读到两张前旧帧）；**教训：颜色 LOAD 的前提是数学上保证全覆盖**；
+- **偏暗**（11-06）：quantize 线性直存 RGBA8 缺伽马编码——.hdr 解出线性光而显示链是伽马字节直通（png/jpg 本就伽马域）；修复=线性→sRGB 编码后量化（§5 ④段已标修），只进 .hdr 路径、.pano 字节直通不受影响；**教训：往字节直通显示链灌线性光必须带伽马编码**；
+- **黑区**（11-06）：skybox.vert 矩阵复合 bug（§1.1 视图矩阵段已标修——`[R|t]·[R|0]=[R²|t]` 非去平移，相机离原点跑出立方体）；**教训：「去平移 view」的正确姿势是移物体到相机位置，不是把去平移矩阵叠进 view**；
+- **棱**（11-06~07，**双根因**）：①渲染侧=SkyboxPass 采样器 `linear()` 带 REPEAT 寻址——REPEAT 卷绕面边缘 texel 毁掉跨面插值，修复=新 `SamplerDesc.cubeLinear()`（LINEAR+CLAMP_TO_EDGE 三轴，Babylon thinEngine 同款强制口径——Babylon_Skybox_Reference §5）；②数据侧=§2 步骤三行 11-07 转换器未归一化（用户自修）；**教训：cubemap 采样器寻址必须 CLAMP_TO_EDGE；验收素材要面边缘高对比（纯渐变掩盖接缝 bug）**。
+
+## 1.5 相机文案对齐 HDRP（2026-11-06）
+
+用户以 HDRP 为参照（相机无 Clear Flags 字样）：架构本已同构（HDRP Clear Mode ↔ ClearFlags 一一对应；HDRP 天空盒=Volume HDRI Sky cubemap 槽独立于相机 ↔ Scene.skybox 场景级槽+相机只选模式），i18n 行改「清屏模式/Clear Mode」（键名不动零迁移，枚举名/序列化零改动）。
+
 ## 2. 实装分步（三步派发）
 
 | 步骤 | 内容 | 验收口径 |
 |------|------|----------|
 | 一 | RHI cubemap 底座（CUBE_COMPATIBLE 旗标 + `TextureDesc.textureCube()` 便捷构造 + `TextureRegion.layerCount/cubeFaces` 六层整拷 + `Device.uploadTexture` CUBE 分支）+ CubemapTest | 六面上传+采样读回（§7 第三条）——**✅ 验收关账（2026-11-02 用户实机：读回比对通过）**——首验踩 layerCount 写死 1 坑（Pitfalls #30）修毕 |
 | 二 | SkyboxPass + `ClearFlags.SKYBOX` + skybox 透传（RenderingSystem.skybox RHI 纹理引用，测试形态）+ SkyboxDemo | §7 前两条——**✅ 验收关账（2026-11-02 用户实机：SkyboxDemo 五验收点全过）**；随批两修：PSO 深度参数序填反 + depthAttachmentFormat 漏声明（Pitfalls #31）；测试装载链补 TestAssetManager（core 测试环境 SpvShader 现编译）；Scene.skybox 字段/序列化随步骤三资产类一并落 |
-| 三 | 资产面（equirect 导入器自动转六面 + CubemapImage 资产类型 + 检查器面板 + Scene.skybox 编辑行） | 导入链往返 + 编辑器实机（拍板 2026-11-03 §1.2/§5）——**3a 数据面落地待验收（2026-11-03：CubemapImage/EquirectConverter[RGBE+双线性转六面]/CubemapImporter[.hdr/.pano]/单测；u 公式与 RLE 规格均经原文核对——three.js EquirectUV + Cornell rgbe.c，见 §5；2026-11-07 排障修：纬度吃未归一化面坐标（面心 |dir|=1 恰对、越靠棱角越错）——±Y 面整面塌成源图极行、侧面纵向从 ±45° 变覆盖整球，实机症状=上下盖一圈（立方体棱/角）明显分界、竖直棱正常；`faceCoordToDir` 出口归一化 + 单测补非中心点/面边界断言，待用户复验）；3b 场景接线落地待验收（2026-11-03：GameScene.skybox 首个 Asset 引用字段 + Scene 接口/EditorScene 委托 + TextureUpload.uploadCubemap + RS 资产重载[懒上传+旧图两帧退役+所有权区分测试形态] + 桥 sync 身份门控推送/clear 复位 + SkyboxDemo 改资产形态）；3c 场景根行检查器落地待验收（2026-11-03：.scene 键 SceneInspectorProvider + skybox 编辑行[编辑载体=当前打开活实例直写+markDirty，非当前场景只读态] + AssetInput 收 CubemapImage）** |
+| 三 | 资产面（equirect 导入器自动转六面 + CubemapImage 资产类型 + 检查器面板 + Scene.skybox 编辑行） | 导入链往返 + 编辑器实机（拍板 2026-11-03 §1.2/§5）——**✅ 验收关账（2026-11-07 用户实机：.hdr 拖入导入/场景根行换绑/视口即时换背景/转动无痕全过）**。3a 数据面（CubemapImage/EquirectConverter[RGBE+双线性转六面]/CubemapImporter[.hdr/.pano]/单测；u 公式与 RLE 规格均经原文核对——three.js EquirectUV + Cornell rgbe.c，见 §5；2026-11-07 排障修：纬度吃未归一化面坐标（面心 \|dir\|=1 恰对、越靠棱角越错）——±Y 面整面塌成源图极行、侧面纵向从 ±45° 变覆盖整球，实机症状=上下盖一圈（立方体棱/角）明显分界、竖直棱正常；`faceCoordToDir` 出口归一化 + 单测补角点归一化断言，用户复验通过）；3b 场景接线（GameScene.skybox 首个 Asset 引用字段 + Scene 接口/EditorScene 委托 + TextureUpload.uploadCubemap + RS 资产重载[懒上传+旧图两帧退役+所有权区分测试形态] + 桥 sync 身份门控推送/clear 复位 + SkyboxDemo 改资产形态）；3c 场景根行检查器（.scene 键 SceneInspectorProvider + skybox 编辑行[编辑载体=当前打开活实例直写+markDirty，非当前场景只读态] + AssetInput 收 CubemapImage）；随验收六连排障全修（§1.3~§1.5） |
 
 ## 3. RHI cubemap 底座（步骤一）
 
