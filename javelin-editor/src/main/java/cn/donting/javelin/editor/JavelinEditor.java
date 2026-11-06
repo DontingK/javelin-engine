@@ -15,6 +15,7 @@ import cn.donting.javelin.editor.appstate.TransformWatchAppState;
 import cn.donting.javelin.editor.appstate.ViewportPickAppState;
 import cn.donting.javelin.editor.appstate.gizmo.TransformGizmoAppState;
 import cn.donting.javelin.editor.debug.DebugLineAppState;
+import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.picking.PickSystem;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.window.Window;
@@ -110,6 +111,9 @@ public class JavelinEditor extends JavelinEngine {
             Node node = new Node();
             node.setName(EDITOR_CAMERA_VIEW);
             editorCamera = node.addComponent(Camera.class);
+            // SCENE 视口也画天空盒（Unity Scene 视图口径，2026-11-04 随批次⑤步骤三拍板；
+            // 场景未挂 skybox 时 Opaque 回退纯色清屏，视觉不变）
+            editorCamera.setClearFlags(ClearFlags.SKYBOX);
             // 编辑器观察网格 ±4000（GRID_SIZE 8000）：默认 far=1000 会把远端地面裁掉
             //（用户高空实测"看到边界"的真凶——非着色器淡出），拉到 10000 覆盖俯瞰距离
             editorCamera.setFar(10000.0f);

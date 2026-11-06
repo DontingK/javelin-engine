@@ -15,6 +15,8 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * .compute 随三期批次①注册（2026-10-31，计算着色器独立资产类型，纯图标）；
  * .vert/.frag 随三期批次④-A 注册（2026-11-01，原生 GLSL 着色器资产 SpvShader，
  * 纯图标——引擎覆盖制 Pass 装载链，shadow.spv 内嵌路线同日推翻）；
+ * .hdr/.pano 随三期批次⑤步骤三注册（2026-11-03，cubemap 天空盒资产
+ * CubemapImage，纯图标——equirect 导入转六面）；
  * .smesh 等要用时再补注册。</p>
  *
  * @author javelin
@@ -46,5 +48,6 @@ public final class FileTypeSetup {
         context.registerFileType(new IconFileType("glsl", ".vert", ".frag"));
         context.registerFileType(new IconFileType("image", ".png", ".jpg", ".jpeg"));
         context.registerFileType(new IconFileType("texture", ".texture"));
+        context.registerFileType(new IconFileType("cubemap", ".hdr", ".pano"));
     }
 }

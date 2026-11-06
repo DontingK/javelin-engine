@@ -2,6 +2,7 @@ package cn.donting.javelin.core.scene;
 
 import cn.donting.javelin.core.assets.Asset;
 import cn.donting.javelin.core.render.Renderable;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
 import cn.donting.javelin.core.scene.component.Light;
@@ -13,6 +14,8 @@ import java.util.List;
 public interface Scene extends Serializable, Asset {
 
     String getName();
+    /** 场景级天空盒（多视口共享；null = 未挂，SKYBOX 视口回退纯色清屏） */
+    CubemapImage getSkybox();
     List<Renderable> getRenderables();
     List<Camera> getCameras();
     Camera getMainCamera();

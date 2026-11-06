@@ -52,9 +52,10 @@ public class Camera extends Component {
     /** 相机背景色（null = 跟随引擎全局背景色 JavelinSetting.backgroundColor；Inspector 编辑即物化显式值） */
     @InsField(label = "ins.camera.backgroundColor")
     private Color backgroundColor;
-    /** 清屏标志（SOLID_COLOR 才消费 backgroundColor；DEPTH_ONLY 供叠加相机） */
+    /** 清屏标志（默认 SKYBOX 对齐 Unity；场景无 skybox 资产时 Opaque 回退纯色清屏——
+     * backgroundColor 照旧消费；DEPTH_ONLY 供叠加相机；2026-11-04 随批次⑤步骤三翻默认） */
     @InsField(label = "ins.camera.clearFlags")
-    private ClearFlags clearFlags = ClearFlags.SOLID_COLOR;
+    private ClearFlags clearFlags = ClearFlags.SKYBOX;
     /**
      * 视口归一化矩形。[0, 1] 归一化，原点左下、y 向上（Unity normalizedViewPortRect
      * 口径，SceneRenderBridge 负责翻转为 Vulkan 视口像素坐标）。默认全屏 (0,0,1,1)

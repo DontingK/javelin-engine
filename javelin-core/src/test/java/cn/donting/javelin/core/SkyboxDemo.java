@@ -12,6 +12,7 @@ import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
 import cn.donting.javelin.core.render.mesh.Mesh;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureLoader;
 import cn.donting.javelin.core.scene.GameScene;
@@ -20,23 +21,17 @@ import cn.donting.javelin.core.scene.Node;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
 import cn.donting.javelin.core.settings.JavelinSetting;
-import cn.donting.javelin.rhi.Texture;
-import cn.donting.javelin.rhi.UploadData;
-import cn.donting.javelin.rhi.desc.TextureDesc;
 import cn.donting.javelin.rhi.types.Format;
-import cn.donting.javelin.rhi.types.TextureUsage;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.tool.shaderc.ShaderStage;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-import java.nio.ByteBuffer;
-import java.util.Set;
-
 /**
- * 三期批次⑤步骤二验收 Demo：SkyboxPass 管线 3.5 位 + ClearFlags.SKYBOX 兑现
- * （Engine_Skybox_Design §7 前两条；SceneRenderDemo 形态 + 内存构建 cubemap——
- * 资产导入链归步骤三）。
+ * 三期批次⑤步骤二+3b 验收 Demo：SkyboxPass 管线 3.5 位 + ClearFlags.SKYBOX 兑现
+ * + 资产路径挂载（Engine_Skybox_Design §7；SceneRenderDemo 形态 + 内存构建
+ * CubemapImage → 场景字段 → 桥 sync 懒上传——3b 后不再直灌 RHI 纹理，编辑器
+ * 检查器编辑走同一条 scene.setSkybox 链）。
  *
  * <p>验收点：
  * <ul>
@@ -69,7 +64,8 @@ public final class SkyboxDemo extends JavelinEngineTestBase {
     };
 
     private RenderingSystem rs;
-    private Texture cubemap;
+    private GameScene scene;
+    private CubemapImage cubemapAsset;
 
     public SkyboxDemo(JavelinSetting setting) {
         super(setting);
@@ -113,45 +109,42 @@ public final class SkyboxDemo extends JavelinEngineTestBase {
         addQuad(scene, quad, opaqueMaterial, -0.8f, 0.0f, -3.0f);
         addQuad(scene, quad, transparentMaterial, 0.9f, 0.4f, -2.0f);
         setScene(scene);
+        this.scene = scene;
 
-        // 内存构建 cubemap 挂进渲染系统（资产导入链归步骤三；纹理由本 Demo 持有）
-        Texture cubemap = createGradientCubemap();
-        rs.setSkybox(cubemap);
-        log.info("skybox 已挂载: {}", cubemap.desc());
+        // 资产路径挂载（3b：内存构建 CubemapImage → 场景字段 → 桥 sync 懒上传，不再直灌 RHI 纹理）
+        cubemapAsset = createGradientCubemap();
+        scene.setSkybox(cubemapAsset);
+        log.info("skybox 资产已挂入场景: faceSize={}", cubemapAsset.getFaceSize());
     }
 
-    /** F 键摘挂 skybox——验证无 skybox 时 SKYBOX 视口回退纯色清屏不报错 */
+    /** F 键摘挂 skybox（经场景字段——桥下帧推送，同 3b 检查器编辑链路） */
     @Override
     protected void update() {
         super.update();
         if (Input.wasPressed(KeyCode.F)) {
             boolean attached = rs.skybox() != null;
-            rs.setSkybox(attached ? null : cubemap);
+            scene.setSkybox(attached ? null : cubemapAsset);
             log.info("F 键切换：skybox {}", attached ? "摘除（应回退纯色清屏）" : "重挂");
         }
     }
 
-    /** 六面渐变 cubemap（同 CubemapTest 口径：base 色沿对角线渐变） */
-    private Texture createGradientCubemap() {
-        ByteBuffer pixels = ByteBuffer.allocateDirect(FACE_SIZE * FACE_SIZE * 6 * 4);
+    /** 六面渐变 cubemap 资产（同 CubemapTest 口径：base 色沿对角线渐变） */
+    private CubemapImage createGradientCubemap() {
+        byte[] pixels = new byte[FACE_SIZE * FACE_SIZE * 6 * 4];
+        int i = 0;
         for (int face = 0; face < 6; face++) {
             float[] base = FACE_COLORS[face];
             for (int y = 0; y < FACE_SIZE; y++) {
                 for (int x = 0; x < FACE_SIZE; x++) {
                     float t = (x + y) / (float) (2 * (FACE_SIZE - 1));
-                    pixels.put((byte) (clamp01(base[0] + t) * 255));
-                    pixels.put((byte) (clamp01(base[1] + t) * 255));
-                    pixels.put((byte) (clamp01(base[2] + t) * 255));
-                    pixels.put((byte) 0xFF);
+                    pixels[i++] = (byte) (clamp01(base[0] + t) * 255);
+                    pixels[i++] = (byte) (clamp01(base[1] + t) * 255);
+                    pixels[i++] = (byte) (clamp01(base[2] + t) * 255);
+                    pixels[i++] = (byte) 0xFF;
                 }
             }
         }
-        pixels.flip();
-        cubemap = device().createTexture(
-                TextureDesc.textureCube(Format.R8G8B8A8_UNORM, FACE_SIZE,
-                        Set.of(TextureUsage.TRANSFER_DST, TextureUsage.SAMPLED)),
-                UploadData.of(pixels));
-        return cubemap;
+        return new CubemapImage(FACE_SIZE, Format.R8G8B8A8_UNORM, pixels);
     }
 
     private static float clamp01(float v) {

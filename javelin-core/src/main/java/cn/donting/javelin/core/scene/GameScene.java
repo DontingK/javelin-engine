@@ -3,6 +3,7 @@ package cn.donting.javelin.core.scene;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.assets.AbsAsset;
 import cn.donting.javelin.core.render.Renderable;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
 import cn.donting.javelin.core.scene.component.Light;
@@ -49,6 +50,8 @@ public class GameScene extends AbsAsset implements Scene {
     private List<Renderable> renderables = new ArrayList<>();
     private List<Collider> colliders = new ArrayList<>();
     private List<Light> lights = new ArrayList<>();
+    /** 场景级天空盒（批次⑤步骤三 3b——GameScene 首个 Asset 引用字段，序列化走 @guid 分流） */
+    private CubemapImage skybox;
 
     public GameScene() {
     }
@@ -60,6 +63,16 @@ public class GameScene extends AbsAsset implements Scene {
     @Override
     public String getName() {
         return name;
+    }
+
+    /** 场景级天空盒（多视口共享；null = 未挂，SKYBOX 视口回退纯色清屏） */
+    @Override
+    public CubemapImage getSkybox() {
+        return skybox;
+    }
+
+    public void setSkybox(CubemapImage skybox) {
+        this.skybox = skybox;
     }
 
     /**
@@ -342,6 +355,8 @@ public class GameScene extends AbsAsset implements Scene {
         // instanceof 分流投影，read 时重建（renderables 元素接口未继承 Serializable
         // 走不了列表泛型通道，分流表本身也是派生数据）
         output.write("components", components);
+        // 天空盒 Asset 引用：框架对 Serializable 字段自动 @guid 分流（Texture2D.image 同款）
+        output.write("skybox", skybox);
     }
 
     @Override
@@ -353,6 +368,7 @@ public class GameScene extends AbsAsset implements Scene {
         // 注册表主表回写
         ArrayList<Component> componentList = input.readArrayList("components", Component.class);
         components = componentList != null ? componentList : new ArrayList<>();
+        skybox = input.readSerializable("skybox", CubemapImage.class);
         // cameras/renderables/colliders/lights 分流表重建（register 的 instanceof 口径——元素
         // 实例在导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套
         // populate，时序安全；红线 10 辨析见设计档 §9.3）

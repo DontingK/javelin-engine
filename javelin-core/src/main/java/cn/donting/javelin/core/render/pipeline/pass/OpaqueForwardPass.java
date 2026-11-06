@@ -64,13 +64,12 @@ public class OpaqueForwardPass extends AbstractForwardPass {
                 // 都保留（LOAD）：残影类特效；附件从未清过时内容未定义
                 pass.addColorOutput(target, RHILoadOp.LOAD, null);
                 pass.addDepthOutput(depth, RHILoadOp.LOAD, null);
-            } else if (flags == ClearFlags.SKYBOX && rs.skybox() != null) {
-                // SKYBOX（批次⑤）：颜色不清（SkyboxPass 3.5 位全屏覆盖）+ 深度照清；
-                // 无 skybox 引用走末分支 SOLID_COLOR 回退（正常域空状态，不弹错）
-                pass.addColorOutput(target, RHILoadOp.LOAD, null);
-                pass.addDepthOutput(depth, RHILoadOp.CLEAR, new RHIClearDepthStencil(1.0f, 0));
             } else {
-                // SOLID_COLOR / SKYBOX 无资产回退：相机背景色优先（per-camera clear），未指定退管线全局默认色
+                // SOLID_COLOR / SKYBOX（清屏→不透明→天空→透明，Unity 同序；2026-11-05
+                // 撤销「SKYBOX 色 LOAD 赌 SkyboxPass 全屏覆盖」——覆盖缺口像素保留
+                // 上上帧内容（swapchain 多图轮换 LOAD 读到两张前旧帧），相机一动即拖影；
+                // 天空盒画在不透明后靠 LEqual 被遮挡，清屏只影响无天空像素=背景色）：
+                // 相机背景色优先（per-camera clear），未指定退管线全局默认色
                 RHIClearColor clear = view.clearColor() != null ? view.clearColor() : clearColor;
                 if (isRegionClear(view, target)) {
                     // 分屏/预览视口：区域清屏（loadOp CLEAR 无视 scissor，矩形外保留原内容）

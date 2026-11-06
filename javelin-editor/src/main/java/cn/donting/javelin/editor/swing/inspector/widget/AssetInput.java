@@ -4,6 +4,7 @@ import cn.donting.javelin.core.assets.Asset;
 import cn.donting.javelin.core.render.material.Material;
 import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.mesh.Mesh;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Image;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.scene.GameScene;
@@ -65,7 +66,8 @@ public class AssetInput extends JPanel implements FieldEditor {
             Material.class, List.of(".mat"),
             GameScene.class, List.of(".scene"),
             Image.class, List.of(".png", ".jpg", ".jpeg"),
-            Texture2D.class, List.of(".texture"));
+            Texture2D.class, List.of(".texture"),
+            CubemapImage.class, List.of(".hdr", ".pano"));
 
     /** 资产类型 → 选择窗标题 i18n 键（EditorLang 解析） */
     private static final Map<Class<? extends Asset>, String> TYPE_LABEL = Map.of(
@@ -74,7 +76,8 @@ public class AssetInput extends JPanel implements FieldEditor {
             Material.class, "asset.picker.material",
             GameScene.class, "asset.picker.scene",
             Image.class, "asset.picker.image",
-            Texture2D.class, "asset.picker.texture");
+            Texture2D.class, "asset.picker.texture",
+            CubemapImage.class, "asset.picker.cubemap");
 
     private final List<String> suffixes;
     private final String dialogTitle;

@@ -1,6 +1,7 @@
 package cn.donting.javelin.editor.scene;
 
 import cn.donting.javelin.core.render.Renderable;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.component.Camera;
@@ -98,6 +99,12 @@ public class EditorScene implements Scene {
     @Override
     public String getName() {
         return gameScene.getName();
+    }
+
+    /** 天空盒 = 用户场景口径（背景视口共享，无编辑器辅助对象参与语义） */
+    @Override
+    public CubemapImage getSkybox() {
+        return gameScene.getSkybox();
     }
 
     @Override

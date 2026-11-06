@@ -111,6 +111,19 @@ public final class SamplerDesc {
         );
     }
 
+    /**
+     * cubemap 线性采样（批次⑤）：LINEAR 过滤 + CLAMP_TO_EDGE 寻址——cubemap 必须
+     * 钳制寻址（REPEAT 会把面边缘 texel 卷绕到对面，毁掉跨面双线性插值，天空盒
+     * 12 条棱显形；CLAMP_TO_EDGE 是跨面无缝采样的配套模式，Vulkan 规范口径）。
+     */
+    public static SamplerDesc cubeLinear() {
+        return new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                1.0f, 1000.0f
+        );
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

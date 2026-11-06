@@ -57,4 +57,25 @@ public final class TextureUpload {
         texture2D.setGpu(gpu);
         return gpu;
     }
+
+    /**
+     * 上传 cubemap 六面像素到 GPU（批次⑤步骤三：场景天空盒懒上传）。幂等归调用方
+     * （CubemapImage 不自记句柄——RenderingSystem 按资产引用身份判换代）。
+     *
+     * @param device  渲染设备
+     * @param cubemap cubemap 像素资产（pixels 必须已填充）
+     * @return GPU 句柄（调用方持有与释放）
+     */
+    public static Texture uploadCubemap(Device device, CubemapImage cubemap) {
+        if (device == null || cubemap == null) {
+            throw new IllegalArgumentException("device / cubemap must not be null");
+        }
+        byte[] pixels = cubemap.getPixels();
+        if (pixels == null) {
+            throw new IllegalStateException("cubemap 未含像素（导入产物缺失）");
+        }
+        TextureDesc desc = TextureDesc.textureCube(cubemap.getFormat(), cubemap.getFaceSize(),
+                Set.of(TextureUsage.TRANSFER_DST, TextureUsage.SAMPLED));
+        return device.createTexture(desc, UploadData.of(ByteBuffer.wrap(pixels)));
+    }
 }

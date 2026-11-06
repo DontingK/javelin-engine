@@ -576,6 +576,8 @@ public class MetaManager {
             return "Texture";
         } else if (name.endsWith(".texture")) {
             return "Texture";
+        } else if (name.endsWith(".hdr") || name.endsWith(".pano")) {
+            return "Cubemap";
         } else if (name.endsWith(".shader")) {
             return "Shader";
         } else if (name.endsWith(".compute")) {

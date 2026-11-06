@@ -8,6 +8,7 @@ import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.material.Material;
 import cn.donting.javelin.core.render.mesh.Mesh;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.scene.component.Camera;
@@ -66,6 +67,8 @@ public final class SceneRenderBridge {
     private final Map<MeshRenderer, List<RenderObject>> renderers = new IdentityHashMap<>();
     /** 灯组件 → 引擎侧灯（身份对应，每帧同步位姿；Engine_Lighting_Design §4） */
     private final Map<Light, RenderLight> lights = new IdentityHashMap<>();
+    /** 最近一次推送的天空盒资产（身份门控：变化才推，含 null↔非 null 翻转） */
+    private CubemapImage lastSkybox;
     private final Set<String> usedNames = new HashSet<>();
 
     /**
@@ -76,6 +79,14 @@ public final class SceneRenderBridge {
      * @param backbuffer 本帧终点（视口横向均分的尺寸来源）
      */
     public void sync(Scene scene, RenderingSystem rs, Texture backbuffer) {
+        // 天空盒资产推送（批次⑤步骤三 3b）：按引用身份门控——变化时经 rs 资产重载
+        // 懒上传/摘除（幂等，rs 内部判等）；场景未挂时不动 rs（测试形态直灌不遭清）
+        CubemapImage sceneSkybox = scene.getSkybox();
+        if (sceneSkybox != lastSkybox) {
+            lastSkybox = sceneSkybox;
+            rs.setSkybox(sceneSkybox);
+        }
+
         List<Camera> sceneCameras = scene.getCameras();
         List<Renderable> sceneRenderables = scene.getRenderables();
         List<Light> sceneLights = scene.getLights();
@@ -324,6 +335,8 @@ public final class SceneRenderBridge {
         renderers.clear();
         lights.clear();
         usedNames.clear();
+        lastSkybox = null;
+        rs.setSkybox((CubemapImage) null);
     }
 
     /** 相机位姿：position = 世界平移，target = position + 前向（局部 +Z），up = 局部 +Y（Unity 约定） */

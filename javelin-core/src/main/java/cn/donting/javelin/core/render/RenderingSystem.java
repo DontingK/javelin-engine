@@ -13,6 +13,7 @@ import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.mesh.MeshUpload;
+import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
 
@@ -168,10 +169,13 @@ public final class RenderingSystem implements AutoCloseable {
     private final Aabb casterBoundsTmp = new Aabb();
     private final float[] sunViewProjTmp = new float[16];
 
-    // 视口天空盒（批次⑤步骤二，引擎侧测试形态）：RHI cubemap 纹理引用，调用方持有
-    // （Demo 内存构建 / 步骤三资产面上传）。场景级单引用——多视口共享，无 skybox
+    // 视口天空盒（批次⑤）：RHI cubemap 纹理引用——skyboxAsset 非空时本系统持有
+    // （setSkybox(CubemapImage) 懒上传产物）并负责退役/关闭释放；为空时调用方持有
+    // （Demo 测试形态 setSkybox(Texture) 直灌）。场景级单引用——多视口共享，无 skybox
     // 时 null（ClearFlags.SKYBOX 视口回退 SOLID_COLOR 清屏，正常域空状态不弹错）
     private Texture skybox;
+    /** 当前天空盒资产（桥按引用身份推送；null = 场景未挂，资产路径幂等判据） */
+    private CubemapImage skyboxAsset;
 
     // 灯注册表 + 收集打包（批次②；SceneRenderBridge pull 翻译 Light → RenderLight）
     private final List<RenderLight> lights = new ArrayList<>();
@@ -783,6 +787,25 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
+     * 设置天空盒（资产路径，桥每帧按场景引用推送）：引用变化时懒上传六面
+     * （textureCube 单命令整拷）、旧图两帧退役（GPU in-flight 安全；仅退役资产
+     * 路径旧图——测试形态直灌纹理归调用方）；null 摘除。图句柄变化经 SkyboxPass
+     * 的 addTextureRead 进 structureHash 自动失效图缓存。
+     */
+    public void setSkybox(CubemapImage asset) {
+        if (asset == skyboxAsset) {
+            return;
+        }
+        Texture old = skybox;
+        boolean oldOwned = skyboxAsset != null;
+        skyboxAsset = asset;
+        skybox = asset != null ? TextureUpload.uploadCubemap(device, asset) : null;
+        if (old != null && oldOwned) {
+            retire(old);
+        }
+    }
+
+    /**
      * shadowMap 按需重建（分辨率变化时）：新图即时替换、旧图两帧退役（GPU in-flight
      * 安全）；已建视口的 set1 binding4 重指新图（新建视口走 viewLightsFor 常规链，
      * 读的已是新图）。图句柄变化经 Opaque/Transparent 的 addTextureRead 进
@@ -1355,6 +1378,11 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(pickDepthTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
+        // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）
+        if (skybox != null && skyboxAsset != null) {
+            skybox.dispose();
+            skybox = null;
+        }
         retiredResources.forEach(r -> r.disposeAction.run());
         retiredResources.clear();
         frameSet.dispose();

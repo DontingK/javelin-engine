@@ -62,8 +62,8 @@ import java.util.Set;
  * 挡掉，透明物体画在天空盒之后）。</p>
  *
  * <p><b>挂载判定</b>：本视口 ClearFlags.SKYBOX 且 RenderingSystem 挂有 skybox 才
- * addToGraph（无 skybox 时 Opaque 已回退 SOLID_COLOR 清屏——正常域空状态不弹错，
- * 红线 15 边界）。v0.x 边界：SKYBOX 视口 MSAA 降级 1x（isMsaaPath 判 SOLID_COLOR，
+ * addToGraph（无 skybox 时不挂——Opaque 正常清屏，正常域空状态不弹错，红线 15
+ * 边界）。v0.x 边界：SKYBOX 视口 MSAA 降级 1x（isMsaaPath 判 SOLID_COLOR，
  * 与 stacking/预览/分屏降级同口径）。MSAA 与 SkyboxPass 正交接线归后置。</p>
  *
  * <p><b>描述符</b>：set0 复用引擎帧布局（CameraBlock UBO 动态偏移，与材质 PSO 的
@@ -126,7 +126,9 @@ public class SkyboxPass implements RenderPass {
         this.cubeLayout = VertexLayout.of(List.of(
                 new VertexLayout.Attribute(0, Format.R32G32B32_SFLOAT, 0)), 12);
         this.vertexBuffer = createVertexBuffer();
-        this.skyboxSampler = device.createSampler(SamplerDesc.linear());
+        // CLAMP_TO_EDGE 寻址（cubeLinear）：REPEAT 会卷绕面边缘 texel 毁掉跨面插值，
+        // 天空盒 12 条棱显形（2026-11-06 实测排障）
+        this.skyboxSampler = device.createSampler(SamplerDesc.cubeLinear());
     }
 
     @Override
@@ -145,8 +147,8 @@ public class SkyboxPass implements RenderPass {
         RenderView view = ctx.view();
         RenderingSystem rs = ctx.renderingSystem();
         Texture skybox = rs.skybox();
-        // 挂载判定：本视口 SKYBOX 标志 + 场景挂有 skybox（无 skybox 时 Opaque 已回退
-        // SOLID_COLOR 清屏——本 Pass 不挂，图结构随挂载态变化 = structureHash 正常失效）
+        // 挂载判定：本视口 SKYBOX 标志 + 场景挂有 skybox（无 skybox 时不挂——Opaque
+        // 正常清屏兜住背景，图结构随挂载态变化 = structureHash 正常失效）
         if (view.clearFlags() != ClearFlags.SKYBOX || skybox == null) {
             return;
         }
