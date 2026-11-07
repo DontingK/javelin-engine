@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.14，2026-10-30 随多材质实机验收销账 + i18n 全量化随批）
+# 检查器（Inspector）设计（v0.15，2026-11-07 旋转行跳动根治落地待验收——欧拉口径切 Unity 同款 Z-X-Y + 自旋回声抑制）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -10,6 +10,18 @@
 > componentLabel/displayName/enumLabel 经 EditorLang 解析，core 零 i18n 依赖）；
 > 面板文案（材质/纹理/着色器/节点全件、字段行校验异常、「无检查器」空态等）随批迁
 > `EditorLang`（异常面收 I18nKey，见 Editor_Plugin_Design §9）。
+> v0.15（2026-11-07，落地待用户实机验收）：**旋转行跳动根治**——用户报「调整旋转时
+> 跳动、另外两个值也会变动」。根因（数值复刻实证）：原 XYZ 欧拉口径
+> （JOML rotationXYZ/getEulerAnglesXYZ 成对）的规范域只覆盖 Y∈(-90°,90°)——
+> 越界后引擎帧级回显的欧拉是等价翻转三元组（X+180°, 180°−Y, Z+180°），
+> `applyTransform` 原样回写覆盖用户显示值，下一次组包提交按翻转表示反向推进：
+> 拖动跨 90° 边界时显示在两侧逐帧振荡（X/Z 闪 0↔180、Y 在 89↔91 来回弹）、实际
+> 旋转在 90° 附近来回走。修法两层：①**欧拉口径切 Unity 同款 Z-X-Y 应用序**（JOML
+> YXZ 对 rotationYXZ/getEulerAnglesYXZ——偏航/翻滚 (-180°,180°] 不再翻转，俯仰
+> ±90° 越界为等价翻转表示=Unity 固有行为），换算收 `RotationMath` 单点（§4）；
+> ②**RotationRow 自旋回声抑制**（§6）——本行近期写入环（含初始显示值）中任一与本
+> 行同旋转（四元数双覆盖点积判定）的回显即跳过回写，保留用户输入真值；真外部变更
+> 照常刷新。回归断言=RotationMathTest（往返/翻转等价/双覆盖/各轴越界行为）。
 > （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
 > /inspector/* 桥已删、三 VO 迁 inspector 包；本文类型通道/序列化/回写规则继续有效，
 > v0.1~v0.3 落地与验收记录为 Web 期沿革。）
@@ -219,8 +231,9 @@ assetName（v0.3，GUID_ASSET 显示名，其他类型 null）——字段行 VO
 ## 4. 值类型（InspectorValueType）与序列化口径
 
 INT（Layer 字段=索引串，读写经 Layer.of/getValue 换算）/ FLOAT / BOOLEAN（"true"/"false"）/
-STRING / VEC3_F（"x,y,z"）/ ROTATION（欧拉角度数 "x,y,z"；四元数↔欧拉换算单点在 Java
-侧）/ ENUM（常量名；options 随 VO 下发，显示名走 InsEnumLabel）/ COLOR（"r,g,b,a"
+STRING / VEC3_F（"x,y,z"）/ ROTATION（欧拉角度数 "x,y,z"；四元数↔欧拉换算单点
+=`RotationMath`，v0.15 起口径=Unity 同款 Z-X-Y 应用序——偏航/翻滚 (-180°,180°]、
+俯仰限 ±90°，根因与沿革见档头 v0.15）/ ENUM（常量名；options 随 VO 下发，显示名走 InsEnumLabel）/ COLOR（"r,g,b,a"
 0-1 浮点，回写构造自动夹取 [0,1]）/ RECT（"x,y,width,height"）/ LAYER_MASK（位掩码
 int 串，前端勾选式多选按 Layer 名投影）/ **TAG（节点头专用通道，§5）**/
 **GUID_ASSET（v0.3 引入、v0.10 升可编辑：Asset 引用型字段三态 wire：value=null=无
@@ -274,9 +287,10 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   TipException → 状态栏提示；scene.changed → 重拉（编辑保护：任一控件编辑中
   （焦点内且文本已改）重建延后 pendingRefresh，提交收尾补拉——防重拉吞输入）；
   scene.nodeTransformChanged → **Transform 三行定点刷新**（字段名索引
-  localPosition/localRotation/localScale；载荷四元数→欧拉 getEulerAnglesXYZ 同收集
-  侧口径；控件值等价跳过防回声——较 Web 版防抖 150ms 重拉整面板精细，拖拽不闪不
-  打断）；组件折叠态按组件名跨重建记忆；
+  localPosition/localRotation/localScale；载荷四元数→欧拉 `RotationMath` 同收集侧
+  口径（v0.15 Unity 口径）；控件值等价跳过防回声 + **旋转行自旋回声抑制**（v0.15：
+  近期写入环同旋转判定跳过回写——规范翻转的等价表示不覆盖用户真值）——较 Web 版
+  防抖 150ms 重拉整面板精细，拖拽不闪不打断）；组件折叠态按组件名跨重建记忆；
 - **`NodeHeaderPanel`**（节点头 §5 四件套）：节点图标（box 36px 占左列两行垂直居中，
   2026-10-18 用户定尺寸）+ 右列两行——行 0 激活勾选+名称输入 JeTextInput、行 1
   「图层」「标签」两下拉**并排单行**（Web 版 entity-meta-row 单行双 meta-field 形态
@@ -287,15 +301,18 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   即组内最长显示名、控件列 fill HORIZONTAL）；组内按 fieldName 索引控件；
 - **`FieldRowFactory` + `FieldEditor` 契约**：valueType → 控件（INT/FLOAT→
   JeNumberInput、STRING→JeTextInput、BOOLEAN→勾选、ENUM/Layer/Tag→JeSelect、
-  VEC3_F/ROTATION→VectorRow(X/Y/Z)、RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
+  VEC3_F→VectorRow(X/Y/Z)、ROTATION→RotationRow（VectorRow+自旋回声抑制，v0.15）、
+  RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
   LAYER_MASK→LayerMaskField、GUID_ASSET→AssetInput（v0.10））；FieldEditor.setValue=
   外源刷新（编辑中/值等价跳过）、isEditing=重建保护判据；提交回调走 FieldCommit
   ｛owner 归属校验锚点 + host 回写宿主 + fieldName/valueType/wire 值｝；
-- **`widget` 控件七件**：JeNumberInput（4 位小数钳制+range 硬钳+非法 blur 回滚+
+- **`widget` 控件族**：JeNumberInput（4 位小数钳制+range 硬钳+非法 blur 回滚+
   **键入即提交（§12）**+值真变才回调）、JeSelect（value/label 分离、程序化置值抑制上报）、
   VectorRow（N 段数字行**等分自适应**——GridBag 等权列 fill HORIZONTAL，Flow 布局
   恒 preferred 挤左形态废弃；RECT 四段两行 X/Y+W/H，2026-10-18 用户拍板；任一段提交
-  整行组包——组包读各段 committedText（§12））、CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
+  整行组包——组包读各段 committedText（§12））、RotationRow（v0.15 ROTATION 通道：
+  内部 VectorRow + 自旋回声抑制——近期写入环同旋转判定跳过回写，档头 v0.15）、
+  CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
   槽+加粗标题；**视觉=灰头/亮内容分层**（头=Panel.background、内容提亮 Button.
   background——tabAreaBackground 在 FlatLightLaf 不存在取之落空实锤）+hover+
   整组四周 1px 边框；AWT 鼠标事件不冒泡——切换/hover 监听逐组件挂）、ColorField

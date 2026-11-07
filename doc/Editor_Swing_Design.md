@@ -406,9 +406,11 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
    （2026-10-18 运行实锤修正）——僵尸选中清面板、僵尸提交静默丢弃（引用化拍板
    的兜底口径，DeleteMenuCommand 先例）。
 4. **NodeTransformChangeEvent 首个消费方**：Gizmo 拖拽帧级推送 → Transform 三行
-   定点刷新（不再走 Web 版防抖 150ms 重拉整面板）；四元数→欧拉 getEulerAnglesXYZ
-   与收集侧 serialize 同口径；防回声=控件「值等价跳过」+「编辑中跳过」双重闸门
-   （面板自己写 TRS 引发的 Watch 事件回来值相同即静默）。
+   定点刷新（不再走 Web 版防抖 150ms 重拉整面板）；四元数→欧拉 `RotationMath`
+   与收集侧 serialize 同口径（v0.15 Unity Z-X-Y 口径）；防回声=控件「值等价跳过」
+   +「编辑中跳过」双重闸门（面板自己写 TRS 引发的 Watch 事件回来值相同即静默）
+   + 旋转行自旋回声抑制（v0.15——规范翻转的等价表示不覆盖用户真值，见
+   Inspector_Design v0.15）。
 5. **编辑保护**：重建（scene.changed 重拉）前查任一控件编辑中（焦点内且文本已
    改）→ pendingRefresh 挂起，提交收尾补拉——防 SceneWatch 检出自己回写的改名
    事件重拉吞掉正在输入的 name。组件折叠态按组件名跨重建记忆（重拉不丢折叠意图）。

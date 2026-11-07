@@ -14,10 +14,10 @@ import cn.donting.javelin.editor.inspector.ComponentInspectorVo;
 import cn.donting.javelin.editor.inspector.InspectorReflector;
 import cn.donting.javelin.editor.inspector.InspectorValueType;
 import cn.donting.javelin.editor.inspector.NodeInspectorVo;
+import cn.donting.javelin.editor.inspector.RotationMath;
 import cn.donting.javelin.editor.swing.inspector.widget.InsFormat;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.joml.Quaternionf;
-import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -281,15 +281,11 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
         return null;
     }
 
-    /** 四元数 → 欧拉角度数串（getEulerAnglesXYZ——收集侧 serialize 同口径） */
+    /** 四元数 → 欧拉角度数串（RotationMath——收集侧 serialize 同口径） */
     private static String eulerWire(float[] quaternion) {
-        Vector3f euler = new Vector3f();
-        new Quaternionf(quaternion[0], quaternion[1], quaternion[2], quaternion[3])
-                .getEulerAnglesXYZ(euler);
-        return InsFormat.join(
-                (float) Math.toDegrees(euler.x),
-                (float) Math.toDegrees(euler.y),
-                (float) Math.toDegrees(euler.z));
+        Quaternionf q = new Quaternionf(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+        float[] deg = RotationMath.toDegrees(q);
+        return InsFormat.join(deg[0], deg[1], deg[2]);
     }
 
     private boolean isAnyEditing() {

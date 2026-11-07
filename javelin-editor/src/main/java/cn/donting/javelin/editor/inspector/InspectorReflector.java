@@ -301,9 +301,8 @@ public final class InspectorReflector {
                 Vector3f v = (Vector3f) value;
                 return formatFloat(v.x) + "," + formatFloat(v.y) + "," + formatFloat(v.z);
             case ROTATION:
-                Vector3f euler = new Vector3f();
-                ((Quaternionf) value).getEulerAnglesXYZ(euler);
-                return toDegrees(euler.x) + "," + toDegrees(euler.y) + "," + toDegrees(euler.z);
+                float[] euler = RotationMath.toDegrees((Quaternionf) value);
+                return formatFloat(euler[0]) + "," + formatFloat(euler[1]) + "," + formatFloat(euler[2]);
             case ENUM:
                 return ((Enum<?>) value).name();
             case COLOR:
@@ -348,10 +347,6 @@ public final class InspectorReflector {
         String tail = path.substring(slash + 1);
         int dot = tail.lastIndexOf('.');
         return dot > 0 ? tail.substring(0, dot) : tail;
-    }
-
-    private static String toDegrees(float radians) {
-        return formatFloat((float) Math.toDegrees(radians));
     }
 
     /** 浮点显示串：四舍五入到 {@value #DISPLAY_DECIMALS} 位并去尾零（0.30000012 → "0.3"） */
@@ -735,10 +730,7 @@ public final class InspectorReflector {
                 return new Vector3f(xyz[0], xyz[1], xyz[2]);
             case ROTATION:
                 float[] deg = parseFloats(value, 3);
-                return new Quaternionf().rotationXYZ(
-                        (float) Math.toRadians(deg[0]),
-                        (float) Math.toRadians(deg[1]),
-                        (float) Math.toRadians(deg[2]));
+                return RotationMath.fromDegrees(deg[0], deg[1], deg[2]);
             case ENUM:
                 return enumConstant(prop, value);
             case COLOR:
