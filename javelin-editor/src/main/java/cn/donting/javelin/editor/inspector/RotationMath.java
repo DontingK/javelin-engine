@@ -36,12 +36,18 @@ public final class RotationMath {
     }
 
     /**
-     * 同一旋转判定（四元数双覆盖 q≡-q；双精度点积，阈值 1e-9 ≈ 0.005° 角差）。
-     * 自旋回声抑制判据：规范翻转的等价三元组判同，不回写覆盖显示值。
+     * 同一旋转判定（四元数双覆盖 q≡-q；双精度点积并按模长归一——rotationYXZ 产出的
+     * float32 四元数非严格单位化（|q|² 偏差可达 ~1e-7），不归一直接对 1 比较会误判；
+     * 阈值 1e-9 ≈ 0.005° 角差）。自旋回声抑制判据：事件旋转与近期写入同旋转即跳过回写。
      */
     public static boolean sameRotation(Quaternionf a, Quaternionf b) {
         double dot = (double) a.x * b.x + (double) a.y * b.y
                 + (double) a.z * b.z + (double) a.w * b.w;
-        return 1.0 - Math.abs(dot) < 1e-9;
+        double normA = (double) a.x * a.x + (double) a.y * a.y
+                + (double) a.z * a.z + (double) a.w * a.w;
+        double normB = (double) b.x * b.x + (double) b.y * b.y
+                + (double) b.z * b.z + (double) b.w * b.w;
+        double denom = Math.sqrt(normA * normB);
+        return denom > 0.0 && 1.0 - Math.abs(dot / denom) < 1e-9;
     }
 }

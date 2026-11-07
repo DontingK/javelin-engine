@@ -19,9 +19,15 @@
 > 旋转在 90° 附近来回走。修法两层：①**欧拉口径切 Unity 同款 Z-X-Y 应用序**（JOML
 > YXZ 对 rotationYXZ/getEulerAnglesYXZ——偏航/翻滚 (-180°,180°] 不再翻转，俯仰
 > ±90° 越界为等价翻转表示=Unity 固有行为），换算收 `RotationMath` 单点（§4）；
-> ②**RotationRow 自旋回声抑制**（§6）——本行近期写入环（含初始显示值）中任一与本
-> 行同旋转（四元数双覆盖点积判定）的回显即跳过回写，保留用户输入真值；真外部变更
-> 照常刷新。回归断言=RotationMathTest（往返/翻转等价/双覆盖/各轴越界行为）。
+> ②**自旋回声抑制**（§6）——近期写入环 + 同旋转判定：事件旋转与近期任一写入同
+> 旋转即跳过回写，保留用户输入真值；真外部变更照常刷新。
+> v0.15 追修（2026-11-07 用户实机复验「x 超过 -90 仍跳动」）：首版判定直接点积对 1
+> 比较（容差 1e-9）——rotationYXZ 产出的 float32 四元数非严格单位化（|q|² 偏差可达
+> ~1e-7 超容差），同一四元数自比较亦判否，抑制几乎不生效（跨 ±90° 翻转照旧）。修法
+> 两笔：①`sameRotation` 增双精度模长归一（免单位化假设）；②判定数据源改
+> `applyTransform` 层的**事件原始四元数**——自旋回声与写入逐位同一，判定精确且免欧拉
+> 往返在俯仰 ±90° 邻域的数值噪声；RotationRow 随之撤回（字段行工厂回退 VectorRow）。
+> 回归断言=RotationMathTest（往返/翻转等价/双覆盖/各轴越界 + 同四元数自比较）。
 > （2026-10-18 去 Web 化：原「经桥下发、Web 渲染、编辑回写」通道随 jcef 清退作废——
 > /inspector/* 桥已删、三 VO 迁 inspector 包；本文类型通道/序列化/回写规则继续有效，
 > v0.1~v0.3 落地与验收记录为 Web 期沿革。）
@@ -288,9 +294,10 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   （焦点内且文本已改）重建延后 pendingRefresh，提交收尾补拉——防重拉吞输入）；
   scene.nodeTransformChanged → **Transform 三行定点刷新**（字段名索引
   localPosition/localRotation/localScale；载荷四元数→欧拉 `RotationMath` 同收集侧
-  口径（v0.15 Unity 口径）；控件值等价跳过防回声 + **旋转行自旋回声抑制**（v0.15：
-  近期写入环同旋转判定跳过回写——规范翻转的等价表示不覆盖用户真值）——较 Web 版
-  防抖 150ms 重拉整面板精细，拖拽不闪不打断）；组件折叠态按组件名跨重建记忆；
+  口径（v0.15 Unity 口径）；控件值等价跳过防回声 + **旋转自旋回声抑制**（v0.15：
+  面板级近期写入环——事件**原始四元数**与近期写入同旋转即跳过回写，规范翻转的
+  等价表示不覆盖用户真值；选中切换清环）——较 Web 版防抖 150ms 重拉整面板精细，
+  拖拽不闪不打断）；组件折叠态按组件名跨重建记忆；
 - **`NodeHeaderPanel`**（节点头 §5 四件套）：节点图标（box 36px 占左列两行垂直居中，
   2026-10-18 用户定尺寸）+ 右列两行——行 0 激活勾选+名称输入 JeTextInput、行 1
   「图层」「标签」两下拉**并排单行**（Web 版 entity-meta-row 单行双 meta-field 形态
@@ -301,8 +308,7 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   即组内最长显示名、控件列 fill HORIZONTAL）；组内按 fieldName 索引控件；
 - **`FieldRowFactory` + `FieldEditor` 契约**：valueType → 控件（INT/FLOAT→
   JeNumberInput、STRING→JeTextInput、BOOLEAN→勾选、ENUM/Layer/Tag→JeSelect、
-  VEC3_F→VectorRow(X/Y/Z)、ROTATION→RotationRow（VectorRow+自旋回声抑制，v0.15）、
-  RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
+  VEC3_F/ROTATION→VectorRow(X/Y/Z)、RECT→VectorRow(X/Y/W/H)、COLOR→ColorField、
   LAYER_MASK→LayerMaskField、GUID_ASSET→AssetInput（v0.10））；FieldEditor.setValue=
   外源刷新（编辑中/值等价跳过）、isEditing=重建保护判据；提交回调走 FieldCommit
   ｛owner 归属校验锚点 + host 回写宿主 + fieldName/valueType/wire 值｝；
@@ -310,9 +316,7 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
   **键入即提交（§12）**+值真变才回调）、JeSelect（value/label 分离、程序化置值抑制上报）、
   VectorRow（N 段数字行**等分自适应**——GridBag 等权列 fill HORIZONTAL，Flow 布局
   恒 preferred 挤左形态废弃；RECT 四段两行 X/Y+W/H，2026-10-18 用户拍板；任一段提交
-  整行组包——组包读各段 committedText（§12））、RotationRow（v0.15 ROTATION 通道：
-  内部 VectorRow + 自旋回声抑制——近期写入环同旋转判定跳过回写，档头 v0.15）、
-  CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
+  整行组包——组包读各段 committedText（§12））、CollapsiblePanel（自绘头：▸/▾ 自绘三角+headerLeft
   槽+加粗标题；**视觉=灰头/亮内容分层**（头=Panel.background、内容提亮 Button.
   background——tabAreaBackground 在 FlatLightLaf 不存在取之落空实锤）+hover+
   整组四周 1px 边框；AWT 鼠标事件不冒泡——切换/hover 监听逐组件挂）、ColorField

@@ -9,7 +9,6 @@ import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
 import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
 import cn.donting.javelin.editor.swing.inspector.widget.JeTextInput;
 import cn.donting.javelin.editor.swing.inspector.widget.LayerMaskField;
-import cn.donting.javelin.editor.swing.inspector.widget.RotationRow;
 import cn.donting.javelin.editor.swing.inspector.widget.VectorRow;
 
 import javax.swing.JCheckBox;
@@ -65,7 +64,7 @@ public final class FieldRowFactory {
             case VEC3_F:
                 return new VectorRow(new String[]{"X", "Y", "Z"}, vo.value, false, vo.range, commit);
             case ROTATION:
-                return new RotationRow(vo.value, commit);
+                return new VectorRow(new String[]{"X", "Y", "Z"}, vo.value, false, null, commit);
             case RECT:
                 // 两行 X/Y + W/H（Web 版 v0.2 形态回归，2026-10-18 用户拍板）
                 return new VectorRow(new String[]{"X", "Y", "W", "H"}, vo.value, false, null, commit, 2);

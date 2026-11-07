@@ -70,6 +70,11 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
     private final Map<String, Boolean> collapsedByName = new HashMap<>();
     /** 编辑保护挂起重拉（任一控件编辑中时置位，提交收尾补拉） */
     private boolean pendingRefresh;
+    /** 旋转自旋回声抑制（v0.15）：近期写入环容量——覆盖 EDT 提交与引擎帧边界的滞后窗口 */
+    private static final int ROTATION_WRITE_HISTORY = 8;
+    /** 旋转自旋回声抑制：本面板近期写出的旋转（事件旋转与近期任一写入同旋转即跳过回写） */
+    private final Quaternionf[] rotationWrites = new Quaternionf[ROTATION_WRITE_HISTORY];
+    private int rotationWriteCursor;
 
     public NodeInspectorContent() {
         setLayout(new BorderLayout(0, 0));
@@ -110,6 +115,7 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
             return;
         }
         selectedNode = node;
+        clearRotationWrites();
         if (node == null) {
             // 兜底（空态归外壳，正常不达）
             showEmpty();
@@ -216,6 +222,10 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
             LOGGER.warn("编辑器实例未创建，丢弃检查器回写");
             return;
         }
+        if (InspectorValueType.ROTATION.name().equals(valueType)) {
+            // 自旋回声记账（记账解析须与引擎 apply 同式：同 wire → 同四元数，判定才成立）
+            recordRotationWrite(wireValue);
+        }
         editor.submitTask(() -> {
             try {
                 // 归属校验同 requestRefresh：比 getGameScene() 本体（GameScene）
@@ -263,7 +273,7 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
         if (position != null) {
             position.setValue(InsFormat.join(event.getPosition()));
         }
-        if (rotation != null) {
+        if (rotation != null && !isSelfRotationWrite(event.getRotation())) {
             rotation.setValue(eulerWire(event.getRotation()));
         }
         if (scale != null) {
@@ -286,6 +296,41 @@ public class NodeInspectorContent extends JComponent implements InspectorContent
         Quaternionf q = new Quaternionf(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
         float[] deg = RotationMath.toDegrees(q);
         return InsFormat.join(deg[0], deg[1], deg[2]);
+    }
+
+    // ------------------------------------------------------------------ 旋转自旋回声抑制（v0.15）
+
+    /** 近期写入入环（环满覆盖最旧；非法串不入环——防御兜底） */
+    private void recordRotationWrite(String wireValue) {
+        float[] deg = InsFormat.split(wireValue, 3);
+        if (deg == null) {
+            return;
+        }
+        rotationWrites[rotationWriteCursor] = RotationMath.fromDegrees(deg[0], deg[1], deg[2]);
+        rotationWriteCursor = (rotationWriteCursor + 1) % ROTATION_WRITE_HISTORY;
+    }
+
+    /**
+     * 事件旋转是否为本面板近期写入——是则跳过回写（保留用户输入真值，规范翻转的
+     * 等价表示不回灌显示；真外部变更照常刷新）。判定比事件原始四元数：与写入逐位
+     * 同一，免欧拉往返在俯仰 ±90° 邻域的数值噪声。
+     */
+    private boolean isSelfRotationWrite(float[] quaternion) {
+        Quaternionf q = new Quaternionf(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
+        for (Quaternionf write : rotationWrites) {
+            if (write != null && RotationMath.sameRotation(write, q)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 清空近期写入环（选中切换——上一节点的写入不得参与本节点判定） */
+    private void clearRotationWrites() {
+        for (int i = 0; i < rotationWrites.length; i++) {
+            rotationWrites[i] = null;
+        }
+        rotationWriteCursor = 0;
     }
 
     private boolean isAnyEditing() {

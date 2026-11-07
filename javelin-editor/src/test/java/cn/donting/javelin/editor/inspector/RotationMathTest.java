@@ -3,6 +3,8 @@ package cn.donting.javelin.editor.inspector;
 import org.joml.Quaternionf;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -64,6 +66,21 @@ public class RotationMathTest {
         Quaternionf q = RotationMath.fromDegrees(30, 45, 60);
         Quaternionf negated = new Quaternionf(-q.x, -q.y, -q.z, -q.w);
         assertTrue(RotationMath.sameRotation(q, negated));
+    }
+
+    /** 回归断言（2026-11-07 用户实机复验揪出）：同四元数自比较须判同——rotationYXZ
+     *  产出的 float32 四元数非严格单位化（|q|² 偏差可达 ~1e-7），sameRotation 不按
+     *  模长归一直接对 1 比较会误判否，自旋回声抑制失效（拖动跨 ±90° 翻转重现）。 */
+    @Test
+    void identicalQuaternionsCountAsSameRotation() {
+        float[][] cases = {
+                {-1, 0, 0}, {-90.1f, 0, 0}, {95, 0, 0}, {30, 45, 60},
+                {89.99f, -89.99f, 0}, {-89.9f, 0, 0}};
+        for (float[] c : cases) {
+            Quaternionf q = RotationMath.fromDegrees(c[0], c[1], c[2]);
+            assertTrue(RotationMath.sameRotation(q, RotationMath.fromDegrees(c[0], c[1], c[2])),
+                    Arrays.toString(c));
+        }
     }
 
     /** 不同旋转不判同 */
