@@ -1,5 +1,8 @@
 package cn.donting.javelin.core.debug;
 
+import cn.donting.javelin.core.assets.AssetManager;
+import cn.donting.javelin.core.assets.font.BitmapFont;
+import cn.donting.javelin.core.assets.shadow.SpvShader;
 import cn.donting.javelin.core.subsystem.Subsystem;
 import cn.donting.javelin.core.JavelinEngine;
 import cn.donting.javelin.core.subsystem.AbstractSubsystem;
@@ -42,9 +45,6 @@ import cn.donting.javelin.rhi.types.TextureUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
@@ -81,10 +81,10 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
     private static final int VERTEX_STRIDE = 24;
     /** 顶点帧槽（无 fence 防护下按帧轮转，UBO1 同款取舍） */
     private static final int FRAME_SLOTS = 2;
-    /** bin/spv 资源路径（javelin-tool DebugTextAssets 产物，提交进 core resources） */
-    private static final String FONT_RESOURCE = "/debug/debug_font16.bin";
-    private static final String VERT_SPV_RESOURCE = "/debug/debugtext.vert.spv";
-    private static final String FRAG_SPV_RESOURCE = "/debug/debugtext.frag.spv";
+    /** 内置字库/着色器资产 loadAsset 路径（builtin-asset-core/debug 释放到 .javelin/assets 后的相对路径） */
+    private static final String FONT_PATH = "core/debug/font.chars";
+    private static final String VERT_SHADER_PATH = "core/debug/debugtext.vert";
+    private static final String FRAG_SHADER_PATH = "core/debug/debugtext.frag";
 
     /** 顶点布局：loc0 pos(NDC) / loc1 uv / loc2 fg / loc3 bg */
     private static final VertexLayout VERTEX_LAYOUT = VertexLayout.of(List.of(
@@ -116,7 +116,8 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
         DebugText.bind(this);
 
         Device device = engine.device();
-        font = DebugFont16.load(FONT_RESOURCE);
+        AssetManager assetManager = engine.getAssetManager();
+        font = DebugFont16.parse(loadBitmapFont(assetManager, FONT_PATH).getData());
 
         // 字库图集：1bpp → R8 每像素一字节展开，一次上传
         byte[] atlas = font.atlasPixels();
@@ -137,8 +138,8 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
         // 自建 PSO：无深度、无混合（fs 内 mix），颜色附件 = 交换链格式（pipelineFor 同款取法）
         Format colorFormat = engine.frameLoop().swapChain().image(0).desc().format();
         pipeline = device.createGraphicsPipeline(new GraphicsPipelineDesc(
-                new ShaderDesc(ShaderStage.VERTEX, readSpv(VERT_SPV_RESOURCE)),
-                new ShaderDesc(ShaderStage.FRAGMENT, readSpv(FRAG_SPV_RESOURCE)),
+                new ShaderDesc(ShaderStage.VERTEX, loadSpv(assetManager, VERT_SHADER_PATH, "debugtext.vert")),
+                new ShaderDesc(ShaderStage.FRAGMENT, loadSpv(assetManager, FRAG_SHADER_PATH, "debugtext.frag")),
                 VERTEX_LAYOUT, PrimitiveTopology.TRIANGLE_LIST,
                 CullMode.NONE, FrontFace.COUNTER_CLOCKWISE, PolygonMode.FILL, 1.0f,
                 false, false, CompareOp.ALWAYS,
@@ -370,17 +371,39 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
         out.put(bg[0]).put(bg[1]).put(bg[2]).put(bg[3]);
     }
 
-    /** 读 classpath .spv 二进制资源 */
-    private static byte[] readSpv(String resource) {
-        try (InputStream stream = DebugDrawTextSubsystem.class.getResourceAsStream(resource)) {
-            if (stream == null) {
-                throw new IOException("SPIR-V 资源不存在: " + resource + "（先跑 javelin-tool DebugTextAssets 生成）");
-            }
-            try (InputStream in = new BufferedInputStream(stream)) {
-                return in.readAllBytes();
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("DebugText SPIR-V 加载失败: " + e.getMessage(), e);
+    /**
+     * 装载内置点阵字库资产（{@code .chars} 经导入链烘焙的 BitmapFont 产物；红线 15
+     * ——缺失/坏产物显性报错不静默兜底）。
+     */
+    private static BitmapFont loadBitmapFont(AssetManager assetManager, String path) {
+        BitmapFont font = assetManager.loadAsset(path, BitmapFont.class);
+        if (font == null) {
+            throw new IllegalStateException("DebugText 字库资产未找到: " + path
+                    + "（内置资产应随引擎启动释放进 .javelin/assets 并经导入链烘焙——"
+                    + "检查 builtin-asset-core/debug/font.chars 与伴生 .meta）");
         }
+        if (!font.isValid()) {
+            throw new IllegalStateException("DebugText 字库为坏产物（烘焙失败 stub）: " + path
+                    + "——请 reimport 修复");
+        }
+        return font;
+    }
+
+    /**
+     * 装载内置 SPIR-V 着色器资产（资产导入链产物；红线 15——缺失/坏产物显性报错
+     * 不静默兜底）。
+     */
+    private static byte[] loadSpv(AssetManager assetManager, String path, String label) {
+        SpvShader spv = assetManager.loadAsset(path, SpvShader.class);
+        if (spv == null) {
+            throw new IllegalStateException("DebugText 着色器资产未找到: " + path
+                    + "（内置资产应随引擎启动释放进 .javelin/assets 并经导入链编译——"
+                    + "检查 builtin-asset-core/debug/" + label + " 与伴生 .meta）");
+        }
+        if (!spv.isValid()) {
+            throw new IllegalStateException("DebugText 着色器为坏产物（编译失败 stub）: " + path
+                    + "——请 reimport 修复");
+        }
+        return spv.getSpvData();
     }
 }

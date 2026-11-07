@@ -53,8 +53,11 @@ javelin-editor
     └─ slf4j、joml
 ```
 
-构建附带 `generateBuiltinAssetIndex` 任务：扫描 `builtin-asset-core/editor` 资源目录，
-生成 `builtin-asset.index`（构建期生成进 resources），供内置资源释放器索引。
+构建附带 `generateBuiltinAssetIndex` 任务：扫描本模块 `builtin-asset-editor` 资源目录，
+生成 `builtin-asset.index`（构建期生成进 resources），供内置资源释放器索引。**索引
+分模块生成（2026-11-07）**：引擎级内置资产 `builtin-asset-core` 已迁回 `javelin-core`
+模块（`javelin-core/build.gradle` 同名任务产出自己的索引），释放器按
+`ClassLoader.getResources` 枚举全部 `builtin-asset.index` 合并释放、模块各扫各的。
 
 ## 3. 启动流程与窗口体系
 

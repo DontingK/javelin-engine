@@ -131,7 +131,7 @@
 | Subsystem / AppState 双层（底层冻结可暂停 / 控制层挂卸单心跳） | ✅ | ✅ 一期接线 Demo |
 | 窗口抽象 + GLFW 实现（Window 与 RenderSurface 分离、showWindow） | ✅ | ✅ 一期 |
 | 引擎静态实例 + 渲染表面访问口（JavelinEngine.getInstance()（构造赋值/shutdown 摘除）+ renderSurface()——相机 screenToRay 尺寸自取源，JavelinEditor.getInstance 同款先例） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，随 mouseRay 运行时） |
-| DebugText 点阵调试文本（含汉字、行级 printf / attr 调色 / clear） | ✅ | ✅ 用户实测（2026-09-27；AOT 资源路径 2026-10-13 复验） |
+| DebugText 点阵调试文本（含汉字、行级 printf / attr 调色 / clear；**内置资源 2026-11-07 迁 `builtin-asset-core/debug`**——字库源形态改新资产类型 `.chars` 字符集文本 + `BitmapFontImporter` 烘焙 `BitmapFont`，vs/fs 走 SpvShader 导入链，子系统经 `AssetManager` 装载） | ✅（2026-09-27；资源形态 2026-11-07 重构） | ✅ 用户实测（2026-09-27；AOT 资源路径 2026-10-13 复验；**资源形态重构 2026-11-07 复验销账**） |
 | RenderStats / GPUInfo（11 类存活计数 + draw call 快照双缓冲）+ F3 overlay | ✅ | ✅ 用户复跑（2026-09-27） |
 | vsync 语义（MAILBOX 防撕裂不限速）+ maxFps 限帧器（0=不限） | ✅ | ✅ 用户实测（2026-10-06/07） |
 
@@ -175,7 +175,7 @@
 | file.preferences 首选项命令（v0.18，文件域第二项——PreferencesDialog 语言设置首批，确定写回 EditorSettings.language 存盘 + 重启生效） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31，随 i18n 全量化批次验收） |
 | 语言设置全链（**语言包注册制**：I18n.registerLanguage 支持语言注册表 + registerPack「域+语言+路径」显式注册（PluginContext 收口，`lang/{lang}.properties` 固定路径规范废除——文件布局自定、一文件一域、集中式语言包可翻译其他插件域；editor.core 注册 en_US/zh_CN）+ EditorSettings.language 字段 + 启动链 main setLanguage——未设置按系统语言 tag 解析、**缺键逐键回退该域基线（该域第一个注册的语言包，英文不特殊）**） | ✅（2026-10-29） | ✅ 用户实测（2026-10-31，随 i18n 全量化批次验收） |
 | build.compile | 🔄 引擎侧 GradleProject.compile 已备、菜单先禁置灰 | — |
-| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §9） |
+| GPU ID-buffer 拾取（编辑器物体+轴全线统一；pass 落 core 运行时也可用；与射线检测共存；**着色器 2026-11-07 改走资产导入链**——`pick.vert/.frag` 源码落 `builtin-asset-core/pick`，`PickPass` 经 `AssetManager` 装载，原 tool 内嵌 spv 路线清退） | ✅（2026-10-23 拍板并实现，Engine_Picking_Design v0.1；shader 路线改向 2026-11-07） | ✅ 用户实测（2026-10-23，清单见该档 §9；**shader 换装 2026-11-07 复验销账**） |
 
 ### 3.3 层级树与场景管理（scene / event）
 
@@ -218,7 +218,7 @@
 | 变换 Gizmo 工具族（三轴视觉 / 轴拾取射线 / 拖拽三段式平面相交法 / hover 高亮+近平行变灰） | ✅ | ✅ 用户实测（2026-10-14） |
 | 场景视图工具栏（Tools 组：移动可用/旋转缩放置灰 + 局部/世界坐标切换；游戏视图同高占位空条） | ✅ | ✅ 用户实测（2026-10-14） |
 | 视口聚焦（层级双击节点行 / 视口 F 键 → 编辑器相机平滑滑到框住选中物；有网格走世界包围盒、无网格对准位置；姿态不变、手动输入即打断） | ✅（2026-10-24，Editor_Design §10） | ✅ 用户实测（2026-10-24） |
-| DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中） | ✅（2026-10-23，Editor_DebugLine_Design v0.1） | ✅ 用户实测（2026-10-23，清单见该档 §7） |
+| DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中；**着色器 2026-11-07 改走资产导入链**——`debugline.vert/.frag` 源码落 `builtin-asset-editor/debugline`，Pass 经 `AssetManager` 装载） | ✅（2026-10-23，Editor_DebugLine_Design v0.1；shader 路线改向 2026-11-07） | ✅ 用户实测（2026-10-23，清单见该档 §7；**shader 换装 2026-11-07 复验销账**） |
 | Gizmo 旋转 / 缩放工具 | ⬜ 待续 | — |
 
 ### 3.6 资产导入管线（importer / meta / asset）
@@ -275,6 +275,7 @@
 | JAR 形态产物（Builds/jar，双击可玩） | ✅ | ✅ 三端实测（2026-10-13）；lib 目录路径错位修复（2026-10-17） |
 | AOT 形态（native-image 原生 exe / 外置 DLL lib/ / AotGameMain / reflect-config / resource-config） | ✅ | ✅ 三端实测（2026-10-13，AOT/JAR/编辑器一致） |
 | javelin-ast ReflectiveProcessor（编译期生成 reflect-config.json，core/game 分目录） | ✅ | ✅ 随 AOT（2026-10-13） |
+| 内置资源索引分模块生成（core / editor 各一份 `builtin-asset.index`，释放器按 `ClassLoader.getResources` 枚举合并释放；引擎级内置资产 `builtin-asset-core` 2026-11-07 迁回 `javelin-core/src/main/resources`，core 测试侧 `testImplementation project(':javelin-editor')` 反向依赖随批摘除） | ✅（2026-11-07） | ✅ 用户实测（2026-11-07，编辑器释放+导入链与 core 测试装载全过） |
 
 ## 5. 支撑模块
 
@@ -289,6 +290,17 @@
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
 **当前无挂账。**
+
+（**内置资源归属迁移整批 2026-11-07 用户实测销账**——步骤一：`builtin-asset-core/`
+（mesh/shader/shadow/skybox）从 editor 模块整体迁回 `javelin-core/src/main/resources`，
+索引生成分模块（core / editor 各一份 `builtin-asset.index`），core 测试侧
+`testImplementation project(':javelin-editor')` 反向依赖摘除；步骤二：内嵌 spv 三件全迁
+源码导入链——pick（→`builtin-asset-core/pick`）、DebugText（→`builtin-asset-core/debug`，
+含**新资产类型 `.chars`** 字库字符集源 + `BitmapFont`/`BitmapFontImporter` 烘焙链）、
+DebugLine（→`builtin-asset-editor/debugline`），javelin-tool 三个生成 CLI 全清退、回归纯库。
+验收口径 = 编辑器开项目内置资产释放并经导入链出 Library 产物、视口拾取 / F3 调试文本
+（含汉字）/ 调试线实机正常、core 测试装载链通过。细则见 Skybox 档 §8 / Picking 档 §5 /
+DebugText 档 §4 v0.2 / DebugLine 档 §3.5 / Editor_Design §2。）
 
 （检查器旋转行跳动根治 2026-11-07 用户实机复验销账——俯仰越 ±90° 拖动/键入不再
 跳动、另两值不再变；两轮修法（欧拉口径切 Unity 同款 Z-X-Y + 面板级自旋回声抑制，

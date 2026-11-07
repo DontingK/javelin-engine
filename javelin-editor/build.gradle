@@ -48,23 +48,25 @@ test {
     useJUnitPlatform()
 }
 
-// 生成内置资源索引文件
+// 生成内置资源索引文件（编辑器自有内置资产）
+// 引擎级内置资产（builtin-asset-core）归 javelin-core 模块，由 core 侧同名任务
+// 生成自己的 builtin-asset.index——释放器枚举全部索引文件合并释放，互不越界。
 task generateBuiltinAssetIndex {
     def outputDir = file("${buildDir}/generated/resources")
     def indexFile = file("${outputDir}/builtin-asset.index")
-    inputs.dir 'src/main/resources/builtin-asset-core'
     inputs.dir 'src/main/resources/builtin-asset-editor'
     outputs.file indexFile
 
     doLast {
         outputDir.mkdirs()
         def lines = []
-        ['builtin-asset-core', 'builtin-asset-editor'].each { dirName ->
+        ['builtin-asset-editor'].each { dirName ->
             def assetDir = file("src/main/resources/${dirName}")
             if (assetDir.exists()) {
                 assetDir.eachFileRecurse { f ->
                     if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader')
-                            || f.name.endsWith('.vert') || f.name.endsWith('.frag'))) {
+                            || f.name.endsWith('.vert') || f.name.endsWith('.frag')
+                            || f.name.endsWith('.chars'))) {
                         lines.add(dirName + '/' + assetDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
                     }
                 }

@@ -424,6 +424,21 @@ RotationMathTest；详见 Inspector_Design v0.15。
 > （随三期批次⑤天空盒加载耗时暴露，非阶段能力变更）；状态 = **2026-11-07 用户实测销账
 > （天空盒 6.29MB 加载 5448ms→3ms）**，见 §2.4 修复批次段与 Vulkan_Pitfalls #33（材质档 §3.2 第 4 条）。
 
+> **2026-11-07 批映射注②**：内置资源归属迁移步骤一（`builtin-asset-core` 从 editor 模块整体迁回
+> `javelin-core/src/main/resources` + 索引生成分模块 + core 测试侧 editor 反向依赖摘除；用户拍板
+> 2026-11-02）+ **步骤二首项：拾取着色器源码化**（`pick.vert/.frag` 落 `builtin-asset-core/pick/`，
+> `PickPass` 改经 `AssetManager` 装载，tool 侧 PickAssets/GLSL 源/generatePickSpv 与
+> `core/resources/pick/*.spv` 全清退）+ **DebugText 内置资源迁移与字库资产面重构**
+> （新资产类型 `.chars` 字符集源码 + `BitmapFont`/`BitmapFontImporter`；`debugtext.vert/.frag`
+> 与字库源一并落 `builtin-asset-core/debug`，子系统经 AssetManager 装载；`DebugTextAssets`
+> CLI 与 `core/resources/debug/` 清退）+ **DebugLine 着色器源码化**（`debugline.vert/.frag` 落
+> `builtin-asset-editor/debugline`，`DebugLinePass` 经 AssetManager 装载；`DebugLineAssets`
+> CLI、`resources/debugline/`、`generateDebugLineSpv` 与 editor 侧 `.spv` 清退；javelin-tool
+> 至此无任何生成 CLI，回归纯库）→ **步骤二（内嵌 spv 迁源码）三件全迁收官** → 挂靠
+> **二期「资产格式层 + 资产管线」**（构建/资源归属基建，非阶段能力变更）；状态 = ✅ **2026-11-07
+> 用户实测销账**（编辑器释放链 + 拾取实机 + F3 调试文本 + 调试线 + core 测试装载全过），细则见
+> Skybox 档 §8 / Editor_Design §2 / Picking 档 §5 / DebugText 档 §4 v0.2 / DebugLine 档 §3.5。
+
 ## 6. 跨期遗留（不阻塞当期推进）
 
 - RHI 遗留：Buffer staging 上传（deviceLocal）、描述符池环形、backbuffer 句柄入 structureHash；

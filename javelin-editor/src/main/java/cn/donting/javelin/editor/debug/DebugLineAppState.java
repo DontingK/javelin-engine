@@ -57,8 +57,8 @@ public class DebugLineAppState extends AbsEditorAppState {
             return;
         }
         DebugLineBatch batch = new DebugLineBatch();
-        debugLinePass = new DebugLinePass(engine.device(), engine.renderingSystem(), batch,
-                editorCamera.getNode().getName());
+        debugLinePass = new DebugLinePass(engine.device(), engine.getAssetManager(),
+                engine.renderingSystem(), batch, editorCamera.getNode().getName());
         engine.renderPipeline().addPass(debugLinePass, INSERT_AFTER);
         DebugDrawLine.bind(batch);
 

@@ -1,5 +1,7 @@
 package cn.donting.javelin.editor.debug;
 
+import cn.donting.javelin.core.assets.AssetManager;
+import cn.donting.javelin.core.assets.shadow.SpvShader;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
@@ -31,9 +33,6 @@ import cn.donting.javelin.rhi.types.ShaderStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Set;
@@ -51,6 +50,11 @@ import java.util.Set;
  * ——onDetach 早于 waitIdle，断引用交 Cleaner 两帧规则 + 进程退出兜底
  * （编辑器进程级生命周期，设计档 §5）。</p>
  *
+ * <p><b>着色器装载走资产导入链</b>（2026-11-07 改向，ShadowPass/SkyboxPass/PickPass
+ * 同款）：源码 {@code builtin-asset-editor/debugline/debugline.vert/.frag} 经
+ * SpvShaderImporter 编译落 Library，本 Pass 经 {@link AssetManager#loadAsset} 按
+ * 路径装载（原「tool CLI 编 spv 内嵌 editor resources 直读 classpath」路线清退）。</p>
+ *
  * @author javelin
  * @create 2026/10/23
  */
@@ -58,8 +62,9 @@ public class DebugLinePass extends AbstractForwardPass {
 
     private static final Logger log = LoggerFactory.getLogger(DebugLinePass.class);
 
-    private static final String VERT_SPV_RESOURCE = "/debugline/debugline.vert.spv";
-    private static final String FRAG_SPV_RESOURCE = "/debugline/debugline.frag.spv";
+    /** 内置调试线着色器 loadAsset 路径（builtin-asset-editor/debugline 释放到 .javelin/assets 后的相对路径） */
+    private static final String VERT_SHADER_PATH = "editor/debugline/debugline.vert";
+    private static final String FRAG_SHADER_PATH = "editor/debugline/debugline.frag";
     private static final int FRAME_SLOTS = 2;
 
     /** 顶点布局：loc0 pos vec3（世界空间）/ loc1 RGBA8（UNORM 解包 vec4） */
@@ -78,14 +83,14 @@ public class DebugLinePass extends AbstractForwardPass {
     private final Buffer[] vertexSlots = new Buffer[FRAME_SLOTS];
     private boolean drawLogged;
 
-    public DebugLinePass(Device device, RenderingSystem renderingSystem, DebugLineBatch batch,
-                         String targetView) {
+    public DebugLinePass(Device device, AssetManager assetManager, RenderingSystem renderingSystem,
+                         DebugLineBatch batch, String targetView) {
         this.device = device;
         this.renderingSystem = renderingSystem;
         this.batch = batch;
         this.targetView = targetView;
-        this.vertSpv = readSpv(VERT_SPV_RESOURCE);
-        this.fragSpv = readSpv(FRAG_SPV_RESOURCE);
+        this.vertSpv = loadSpv(assetManager, VERT_SHADER_PATH);
+        this.fragSpv = loadSpv(assetManager, FRAG_SHADER_PATH);
         for (int i = 0; i < FRAME_SLOTS; i++) {
             vertexSlots[i] = device.createBuffer(
                     new BufferDesc((long) DebugLineBatch.MAX_LINES * 2 * DebugLineBatch.VERTEX_STRIDE,
@@ -99,7 +104,7 @@ public class DebugLinePass extends AbstractForwardPass {
         return "DebugLine";
     }
 
-    /** 覆盖制（不消费材质 shader Pass；调试线全走内嵌 spv） */
+    /** 覆盖制（不消费材质 shader Pass；调试线着色器走资产导入链） */
     @Override
     public String shaderPassName() {
         return "DebugLine";
@@ -178,17 +183,18 @@ public class DebugLinePass extends AbstractForwardPass {
         return created;
     }
 
-    /** 读 classpath .spv 二进制资源（PickPass 同法） */
-    private static byte[] readSpv(String resource) {
-        try (InputStream stream = DebugLinePass.class.getResourceAsStream(resource)) {
-            if (stream == null) {
-                throw new IOException(EditorLang.text("debugLine.spirvMissing", resource));
-            }
-            try (InputStream in = new BufferedInputStream(stream)) {
-                return in.readAllBytes();
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(EditorLang.text("debugLine.spirvLoadFailed", e.getMessage()), e);
+    /**
+     * 装载内置 SPIR-V 着色器资产（资产导入链产物；红线 15——缺失/坏产物显性报错
+     * 不静默兜底：导入链未跑（内置资产未释放/未导入）或编译失败 stub 都在此爆出）。
+     */
+    private static byte[] loadSpv(AssetManager assetManager, String path) {
+        SpvShader spv = assetManager.loadAsset(path, SpvShader.class);
+        if (spv == null) {
+            throw new IllegalStateException(EditorLang.text("debugLine.assetMissing", path));
         }
+        if (!spv.isValid()) {
+            throw new IllegalStateException(EditorLang.text("debugLine.assetInvalid", path));
+        }
+        return spv.getSpvData();
     }
 }

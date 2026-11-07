@@ -1,6 +1,5 @@
 plugins {
     id 'java'
-    id 'application'
 }
 
 group = 'cn.donting.javelin'
@@ -18,27 +17,10 @@ test {
     useJUnitPlatform()
 }
 
-// DebugText 调试文本资产生成 CLI（字库 bin + .spv）：
-// gradlew :javelin-tool:run --args="<TTF/OTF 路径> <输出目录>"
-application {
-    mainClass = 'cn.donting.javelin.tool.debugtext.DebugTextAssets'
-    // COMPAT=随系统控制台编码（GBK），避免 Java18+ 默认 UTF-8 在中文 Windows 控制台乱码；
-    // 若改在 IDEA Run 窗口跑出现乱码则删掉这一条（IDEA 控制台默认 UTF-8）
-    applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED', '-Djava.awt.headless=true', '-Dfile.encoding=COMPAT']
-}
-
-// GPU 拾取着色器资产生成 CLI（pick.spv，Engine_Picking_Design）：
-// gradlew :javelin-tool:generatePickSpv [--args="<输出目录>"]
-tasks.register('generatePickSpv', JavaExec) {
-    mainClass = 'cn.donting.javelin.tool.pick.PickAssets'
-    classpath = sourceSets.main.runtimeClasspath
-    jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
-}
-
-// 编辑器调试线着色器资产生成 CLI（debugline.spv，Editor_DebugLine_Design）：
-// gradlew :javelin-tool:generateDebugLineSpv [--args="<输出目录>"]
-tasks.register('generateDebugLineSpv', JavaExec) {
-    mainClass = 'cn.donting.javelin.tool.debugline.DebugLineAssets'
-    classpath = sourceSets.main.runtimeClasspath
-    jvmArgs '--enable-native-access=ALL-UNNAMED', '-Dfile.encoding=COMPAT'
-}
+// 本模块的内置资源生成 CLI 已全部清退（2026-11-07 内置资源迁移收官）：
+// - DebugText 字库：原 DebugTextAssets CLI → 编辑器 BitmapFontImporter 从 .chars
+//   字符集源码烘焙（光栅化器 DebugTextFontRasterizer 留驻本模块供导入链调用）；
+// - debugline 着色器：原 DebugLineAssets CLI + generateDebugLineSpv 任务 → 源码
+//   .vert/.frag 进 builtin-asset-editor/debugline 走 SpvShaderImporter 导入链。
+// 故 application 插件、run 任务与 JavaExec 生成任务一并移除；本模块现为纯库
+// （shaderc 编译封装 + 字库光栅化，供编辑器导入链与 core 测试调用）。

@@ -1,0 +1,14 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 字符集：点阵字形意象（.chars 字符集源 → BitmapFont 烘焙字库，资产条目图标） -->
+<rect x="2" y="3" width="12" height="10" rx="1.5" fill="#E8EAF6" stroke="#303F9F" stroke-width="1.2"/>
+<g fill="#3F51B5">
+<rect x="6.4" y="5" width="1.8" height="1.8"/>
+<rect x="8.9" y="5" width="1.8" height="1.8"/>
+<rect x="4.2" y="7.5" width="1.8" height="1.8"/>
+<rect x="11.4" y="7.5" width="1.8" height="1.8"/>
+<rect x="4.2" y="10" width="1.8" height="1.8"/>
+<rect x="6.4" y="10" width="1.8" height="1.8"/>
+<rect x="8.9" y="10" width="1.8" height="1.8"/>
+<rect x="11.4" y="10" width="1.8" height="1.8"/>
+</g>
+</svg>

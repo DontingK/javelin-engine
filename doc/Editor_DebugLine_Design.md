@@ -77,9 +77,15 @@ DebugLineRegistry（Class<T> → ComponentDebugLine<T> 精确类型匹配）
 - 双帧槽 hostVisible VERTEX buffer（8192 线 = 256KB × 2 槽）一次分配，CPU 侧 batch 内预分配 ByteBuffer 复用；
 - 容量超限截断 + 一次性 warn（运行期扩容后置）。
 
-### 3.5 shader（PickAssets 链路照抄）
+### 3.5 shader（资产导入链，2026-11-07 改向）
 
-javelin-tool `debugline/DebugLineAssets` CLI（GLSL → shaderc → `.spv`），产物提交 `javelin-editor/src/main/resources/debugline/`（GLSL 源不进编辑器主代码，PickAssets 同纪律）。vs：`set0 binding0 CameraBlock{mat4 viewProj}`（实例名 cam 与引擎注入模板一致）+ `loc0 vec3 aPos / loc1 vec4 aColor` → `gl_Position = viewProj * vec4(aPos,1.0)`；fs：直写顶点色。classpath 读取同 `PickPass.readSpv`。
+源码 `builtin-asset-editor/debugline/debugline.vert/.frag`（+ 伴生 .meta）经编辑器 `SpvShaderImporter` 编译 SPIR-V 落 Library，`DebugLinePass` 经 `AssetManager.loadAsset("editor/debugline/debugline.vert|.frag")` 装载（缺失/坏 stub 显性报错，文案 `debugLine.assetMissing`/`assetInvalid`）。vs：`set0 binding0 CameraBlock{mat4 viewProj}`（实例名 cam 与引擎注入模板一致）+ `loc0 vec3 aPos / loc1 vec4 aColor` → `gl_Position = viewProj * vec4(aPos,1.0)`；fs：直写顶点色。
+
+> **已迁移（2026-11-07）**：~~javelin-tool `debugline/DebugLineAssets` CLI（GLSL → shaderc → `.spv`），
+> 产物提交 `javelin-editor/src/main/resources/debugline/`，`DebugLinePass` 读 classpath `.spv`~~
+> ——该「tool 内嵌 spv」路线整体清退（与 pick/DebugText 同批）：`DebugLineAssets`/
+> `resources/debugline/`/`generateDebugLineSpv` 任务与 editor 侧 `.spv` 全部删除。
+> 至此**内置资源迁移步骤二收官**（Skybox 档 §8）。
 
 ## 4. 绘制器策略层
 

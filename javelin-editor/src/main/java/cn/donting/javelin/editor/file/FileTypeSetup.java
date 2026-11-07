@@ -17,6 +17,8 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * 纯图标——引擎覆盖制 Pass 装载链，shadow.spv 内嵌路线同日推翻）；
  * .hdr/.pano 随三期批次⑤步骤三注册（2026-11-03，cubemap 天空盒资产
  * CubemapImage，纯图标——equirect 导入转六面）；
+ * .chars 随 DebugText 内置资源迁移注册（2026-11-07，点阵字库字符集源 →
+ * BitmapFont 资产，纯图标——字库烘焙链，旧 tool CLI bin 路线同批清退）；
  * .smesh 等要用时再补注册。</p>
  *
  * @author javelin
@@ -49,5 +51,6 @@ public final class FileTypeSetup {
         context.registerFileType(new IconFileType("image", ".png", ".jpg", ".jpeg"));
         context.registerFileType(new IconFileType("texture", ".texture"));
         context.registerFileType(new IconFileType("cubemap", ".hdr", ".pano"));
+        context.registerFileType(new IconFileType("chars", ".chars"));
     }
 }

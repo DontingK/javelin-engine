@@ -48,8 +48,6 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation project(':javelin-tool')  // 测试用 ShaderCompiler
-    // 测试资产管理器（TestAssetManager）现编译内置着色器要读 builtin-asset-core 源
-    testImplementation project(':javelin-editor')
     // 测试代码：也能看到注解 + 注册处理器
     testCompileOnly project(':javelin-ast')
     testAnnotationProcessor project(':javelin-ast')
@@ -58,6 +56,35 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+// 生成内置资源索引文件（core 自有的引擎级内置资产：内置着色器/网格）
+// 与 javelin-editor 各出一份同名 builtin-asset.index——释放器按 ClassLoader
+// 枚举全部索引文件合并释放，模块各扫各的资源目录，互不越界。
+task generateBuiltinAssetIndex {
+    def outputDir = layout.buildDirectory.dir("generated/resources").get().asFile
+    def indexFile = file("${outputDir}/builtin-asset.index")
+    inputs.dir 'src/main/resources/builtin-asset-core'
+    outputs.file indexFile
+
+    doLast {
+        outputDir.mkdirs()
+        def lines = []
+        def assetDir = file('src/main/resources/builtin-asset-core')
+        if (assetDir.exists()) {
+            assetDir.eachFileRecurse { f ->
+                if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader')
+                        || f.name.endsWith('.vert') || f.name.endsWith('.frag')
+                        || f.name.endsWith('.chars'))) {
+                    lines.add('builtin-asset-core/' + assetDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
+                }
+            }
+        }
+        indexFile.text = lines.join('\n') + (lines ? '\n' : '')
+    }
+}
+
+sourceSets.main.resources.srcDir layout.buildDirectory.dir("generated/resources").get().asFile
+processResources.dependsOn generateBuiltinAssetIndex
 
 // 运行测试类（RHI 渲染验证等，通过 -DmainClass= 指定入口）
 tasks.register('runTest', JavaExec) {

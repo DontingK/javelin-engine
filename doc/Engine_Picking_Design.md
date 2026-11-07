@@ -9,7 +9,7 @@
 
 **编辑器拾取一律 GPU ID-buffer（用户拍板 2026-10-23）**：物体拾取 + Gizmo 轴拾取（含 hover/拖拽）全线统一——拾取 pass 把每个可拾取物体以帧内分配的 pick ID 写进离屏 R32_UINT 附件（0=背景/未命中），点击/悬停读回该像素 ID 查表得对象。不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体；原「过渡期先落 CPU 数学拾取」开放项关账不落。
 
-**覆盖制（用户拍板 2026-10-23）**：拾取 pass 不消费材质 shader 的 Pass 声明，用引擎内嵌 pick.spv 绘制——「看得见即拾得」，用户 shader 零声明负担（Unity 编辑器拾取同为换内部 shader 路线；声明制「忘声明即拾不到」被否）。
+**覆盖制（用户拍板 2026-10-23）**：拾取 pass 不消费材质 shader 的 Pass 声明，用引擎自有 pick 着色器绘制——「看得见即拾得」，用户 shader 零声明负担（Unity 编辑器拾取同为换内部 shader 路线；声明制「忘声明即拾不到」被否）。
 
 **落点 = pass 本体进 core（用户拍板 2026-10-23）**：`PickPass`/`PickSystem` 归 `javelin-core`，默认不挂、消费方 `PickSystem.enable()` 启用；编辑器与运行时游戏同为消费方。有意分歧 Unity（Unity 拾取为编辑器内部实现、运行时无对应 API——短板不抄）。
 
@@ -65,7 +65,7 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 ## 5. PickPass（覆盖制拾取 pass）
 
 - **挂载**：`PickSystem.enable()` 尾插管线（GizmoPass 同款 `addPass` 模式）；图声明 `view.name()+"_Pick"`，`addColorOutput(pickIdFor, CLEAR, RHIClearUintColor(0))` + 自有深度 CLEAR，viewport/scissor 同 view。
-- **shader**：引擎内嵌 `pick.vert/frag.spv`（`javelin-tool` `gradlew :javelin-tool:generatePickSpv` 产物提交 core resources——DebugText 同链路，core 主代码不出现 GLSL 拍板）。vs：location0 position + set0 UBO1 viewProj + push model；fs：push pickId → `out uint`。push 布局 = model@0(64B) + **pickId@64**（复用 80B 声明，tpf 槽位让渡——拾取无时间语义；ALL_GRAPHICS 可见）。
+- **shader**：**走资产导入链**（2026-11-07 改向，ShadowPass/SkyboxPass 同款）——源码 `builtin-asset-core/pick/pick.vert/.frag`（core 模块资源树）经 `SpvShaderImporter` 编译 SPIR-V 落 Library，`PickPass` 经 `AssetManager.loadAsset("core/pick/pick.vert|.frag")` 装载（缺失/坏 stub 显性报错不兜底，红线 15）。~~原「GLSL 源放 javelin-tool、`gradlew :javelin-tool:generatePickSpv` 离线编译成 spv 内嵌 core resources、PickPass 读 classpath」路线作废~~（2026-11-07 清退：`tool/pick/PickAssets.java`、`tool/resources/pick/`、`core/resources/pick/*.spv`、`generatePickSpv` 任务一并删除）。vs：location0 position + set0 UBO1 viewProj + push model；fs：push pickId → `out uint`。push 布局 = model@0(64B) + **pickId@64**（复用 80B 声明，tpf 槽位让渡——拾取无时间语义；ALL_GRAPHICS 可见）。
 - **绘制桶**：不透明桶 → 透明桶（同深度测试 LEqual/ZWrite On——近者胜；Unity 口径透明物可选中，拾取输出常量 ID 无 blend 语义；透明桶画序即主通道视图空间 z 序但深度测试使序无关）→ "Gizmo" 桶（**深度关**、置顶——轴压物体，与 GizmoPass 对外语义一致）。编辑器透明面（Grid）命中后由消费方按节点归属裁决为点空。声明了 `Pass Pick` 的用户物体会进同名自定义桶，本 pass 不消费（覆盖制）。
 - **PSO**：`GraphicsPipelineDesc` 色格式 `List.of(R32_UINT)`、set 布局仅 set0（`RenderingSystem.frameSetLayoutDesc()`，无材质 set2）、CullMode NONE（看见即拾得含背面）、Blend Off（UINT 附件必须）、pushConstantSize 80、COUNT_1；缓存键 = layout:topology:depthOn。
 - **ID 分配**：回调逐物体 `PickSystem.assignPickId(ro)`（帧内 1 起跨视口全局递增）→ `RenderObject.pickId` + 帧表登记 id→owner（owner = `SceneRenderBridge` 注册时赋的 MeshRenderer；Demo 直注册对象 owner=null 恒为背景）。
@@ -116,6 +116,6 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 | 层 | 文件 |
 |----|------|
 | rhi | `RHIClearUintColor.java`（新）/ `RHIClearValue.java` / `CommandBuffer.java` / `VulkanCommandBuffer.java` / `Buffer.java` / `VulkanBuffer.java` / `Fence.java` / `VulkanFence.java` / `types/Format.java` / `TextureReadbackRing.java`（新） |
-| tool | `pick/PickAssets.java`（新）+ `resources/pick/pick.vert|pick.frag`（新）+ `build.gradle` generatePickSpv 任务 |
-| core | `RenderingSystem.java`（pickIdFor/pickDepthFor/frameSetLayoutDesc） / `RenderObject.java`（owner/pickId） / `SceneRenderBridge.java`（owner 赋值） / `render/pipeline/pass/PickPass.java`（新） / `render/picking/PickSystem.java`（新） / `JavelinEngine.java`（挂点+注册+shutdown） / `resources/pick/pick.vert|frag.spv`（新产物） |
+| tool | ~~`pick/PickAssets.java`（新）+ `resources/pick/pick.vert|pick.frag`（新）+ `build.gradle` generatePickSpv 任务~~ **2026-11-07 整体清退**（源码迁 core builtin-asset-core/pick 走导入链，§5 shader 条） |
+| core | `RenderingSystem.java`（pickIdFor/pickDepthFor/frameSetLayoutDesc） / `RenderObject.java`（owner/pickId） / `SceneRenderBridge.java`（owner 赋值） / `render/pipeline/pass/PickPass.java`（新） / `render/picking/PickSystem.java`（新） / `JavelinEngine.java`（挂点+注册+shutdown） / ~~`resources/pick/pick.vert|frag.spv`（新产物）~~ **2026-11-07 删除**，改 `resources/builtin-asset-core/pick/pick.vert|pick.frag` + 伴生 .meta（源，经导入链编译） |
 | editor | `appstate/ViewportPickAppState.java`（新） / `appstate/gizmo/TransformGizmoAppState.java`（hover 迁移） / `appstate/gizmo/MoveTool.java`（摘 Collider） / `JavelinEditor.java`（挂载） |

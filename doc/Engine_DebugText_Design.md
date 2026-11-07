@@ -1,9 +1,16 @@
 # 引擎调试文本设计（Engine DebugText Design）
 
-> 版本：v0.1（2026-09-27）
+> 版本：v0.2（2026-11-07）
 > 范围：core 新模块 DebugDrawText——bgfx dbgText 式全屏调试文本，**含汉字**。
 > 验收样例：`javelin-core/src/test/java/com/javelin/core/DebugTextDemo.java`。
 > 配套：`doc/Engine_Roadmap.md` 二期功能域（路线档补录）；调度契约见 `Subsystem` 接口。
+>
+> v0.2 变更（2026-11-07）：**内置资源迁移 + 字库资产面重构**——DebugText 三件资源
+> （字库 + vs/fs）从「tool CLI 离线产物直读 classpath」改为「源码进 `builtin-asset-core/debug`
+> + 编辑器导入链 + AssetManager 装载」（与 shadow/skybox/pick 同款路线）。字库源码形态
+> 定为**新资产类型 `.chars`**（纯文本，内容即要烘焙的字符），导入器
+> `BitmapFontImporter` 用打包字体光栅化落 `BitmapFont` 产物；`DebugTextAssets` CLI 与
+> `javelin-core/src/main/resources/debug/` 整目录同批清退。细则见 §4。
 
 ---
 
@@ -12,10 +19,10 @@
 | 决策点 | 拍板 | 理由 |
 |--------|------|------|
 | 字形方案 | **内嵌静态 16x16 点阵**（用户否 AWT 运行时光栅化——不给 core 引 java.desktop；否 FreeType+TTF） | 调试文本要经典像素风 + 零运行时依赖；动态光栅化的灵活性对调试文本收益不抵依赖 |
-| 字库来源 | **javelin-tool `FontRasterizer`；字体默认 = tool resources 打包的思源黑体 Bold（SIL OFL，`front/` 目录），CLI 传参可换**（2026-09-27 二次拍板：推翻初版"TTF 不进仓"，OFL 字体直接入仓打包；选择与授权换字体时由使用者把关） | 零参 CLI 开箱即用，产物可随时复现 |
-| 字符覆盖 | **ASCII 32-126 + GB2312 符号区 01-09 + GB2312 一级 3755 + □(U+25A1 回退符)**（符号区为 2026-09-27 用户补拍板——全角标点/制表符是中文调试文本刚需；~158KB，否二级全收） | ，。：「」【】…—等与常用汉字全齐；二级生僻字回退 □ 是有意取舍 |
+| 字库来源 | **字符集源码 `.chars`（纯文本，内容 = 要烘焙的字符）+ 编辑器导入器 `BitmapFontImporter` 烘焙**；烘焙字体默认 = tool resources 打包的思源黑体 Bold（SIL OFL，`front/` 目录）（2026-09-27 二次拍板：推翻初版"TTF 不进仓"，OFL 字体直接入仓打包；**2026-11-07 改向**：源形态由 tool CLI 二进制产物改 `.chars` 文本，烘焙走导入链） | 字符集在仓库里是人可读可改的文本；产物由导入链复现，零手工 CLI |
+| 字符覆盖 | **UTF-8 全字符集（ASCII 32-126 + GB2312 符号区 01-09 + GB2312 一级 3755 + □ U+25A1 回退符，共 4532 字形）**（符号区为 2026-09-27 用户补拍板——全角标点/制表符是中文调试文本刚需）；**入集口径 = `.chars` 文件里出现的字符**（排版字符 CR/LF/TAB 不计），改文件即改覆盖 | ，。：「」【】…—等与常用汉字全齐；二级生僻字回退 □ 是有意取舍 |
 | 点阵样式 | **1bpp 纯黑白**（否 4bit 灰度抗锯齿） | 经典点阵风 + 体积最小 |
-| Shader 来源 | **core 内嵌 .spv** | GLSL 源归 javelin-tool 离线 shaderc 编译，SPIR-V 非源码、不踩"着色器源码不进 core"拍板。被否备选：正式化 installBuiltinShaders（= 恢复已删的内置程序路径）、editor 内置资产（core 依赖 editor 资产释放链，裸引擎没字） |
+| Shader 来源 | **资产导入链**（`.vert/.frag` 源码进 `builtin-asset-core/debug`，`SpvShaderImporter` 编译落 Library，`AssetManager` 装载）（2026-11-07 改向，原「core 内嵌 .spv + GLSL 归 tool 离线编译」作废——后者的理由「不踩着色器源码不进 core 拍板」已随内置资源归属迁移（2026-11-02 拍板）失效） | 与 shadow/skybox/pick 同一装载链，资源只有一套真值源 |
 | 颜色模型 | **attr 一字节：低 4 位前景 + 高 4 位背景，共用 16 色 EGA 调色板** | 超越 bgfx（bg 限黑）更实用，仍是紧凑单字节 API |
 | 行距 | **字高 16px + 行间 2px = 行距 18px**（用户拍板 2026-09-27，网格 rows=高/18） | 连续多行调试文本的呼吸感，字形资产与 fs 采样均不变（2px 空隙来自顶点几何） |
 | 清屏语义 | **持续到手动 `clear()`**（否每帧自动清） | bgfx 网格模型：写一次一直在、改哪刷哪；动态内容帧覆写即可 |
@@ -51,19 +58,22 @@ core `cn.donting.javelin.core.debug`（**预留空包，正好落位**）：
 | `DebugText` | 静态门面：`clear()`（行游标/自动行归 0）/ `clear(row)`（单行清+游标归位，自动行指针不动）/ `printf(row, txt, attr)`（固定行追加）/ `printf(txt)`（自动叠行，前景默认白）/ `printf(txt, attr)`（叠行带色，2026-09-27 拍板补）；未初始化抛 `IllegalStateException`；v0.1 仅主线程 |
 | `DebugTextColor` | 16 色索引常量（VGA 序：`BLACK..WHITE`，10=`LIGHT_GREEN`）+ `attr(fg, bg)` 组合 |
 | `DebugTextGrid` | 网格：尺寸按 framebuffer；resize 重建并**清空**；print 布字布色（双宽分类）、越界裁、缺字回退 □ |
-| `DebugFont16` | 字库 bin 加载：1bpp 解包成 R8、codepoint → 字形位图/图集坐标 |
-| `DebugDrawTextSubsystem` | 子系统：init 建全部 GPU 资源并绑定门面 / shutdown 解绑放 CPU 侧；**GPU 资源销毁走 `Subsystem.closeGpu()` 钩子**（引擎经 SubsystemManager.closeGpuAll 在 frameLoop.close()（waitIdle）之后统一遍历）；overlay 贡献=覆写 `appendOverlay(graph, backbuffer, frameIndex)`（`DebugTextOverlay` 独立小类已并入子系统） |
+| `DebugFont16` | 字库二进制解析（`BitmapFont.getData()` JDTF）：1bpp 解包成 R8、codepoint → 字形位图/图集坐标 |
+| `DebugDrawTextSubsystem` | 子系统：init 经 `AssetManager` 装载内置资源（`core/debug/font.chars` → BitmapFont、`core/debug/debugtext.vert/.frag` → SpvShader）并建全部 GPU 资源、绑定门面 / shutdown 解绑放 CPU 侧；**GPU 资源销毁走 `Subsystem.closeGpu()` 钩子**（引擎经 SubsystemManager.closeGpuAll 在 frameLoop.close()（waitIdle）之后统一遍历）；overlay 贡献=覆写 `appendOverlay(graph, backbuffer, frameIndex)`（`DebugTextOverlay` 独立小类已并入子系统） |
 
 javelin-tool：
 
 | 类 | 职责 |
 |----|------|
-| `FontRasterizer` | 用户提供 TTF 路径 → 16px 阈值二值化 1bpp → debug_font16.bin |
+| `DebugTextFontRasterizer` | 字符集 + 字体 → 16px 阈值二值化 1bpp → JDTF 字节（供编辑器导入器与 core 测试侧现烘焙调用；原 CLI `DebugTextAssets` 已于 2026-11-07 清退） |
 
-资源（core resources / tool 各归其位）：
+资源（2026-11-07 迁入 `builtin-asset-core/debug`，随引擎启动释放到 `.javelin/assets/core/debug/`）：
 
-- `debug/debug_font16.bin`（成品提交仓库；生成器代码备将来重生成，不进构建依赖链）
-- `debug/debugtext.vert.spv` / `debug/debugtext.frag.spv`（tool 内 GLSL 源离线编译，成品提交）
+- `font.chars`（**字符集源码，纯文本，提交仓库**）+ 伴生 `.meta`（assetType=BitmapFont）→ 导入器烘焙 `BitmapFont` 产物落 Library
+- `debugtext.vert` / `debugtext.frag`（GLSL 源码，提交仓库）+ 伴生 `.meta`（assetType=SpvShader）→ `SpvShaderImporter` 编译落 Library
+
+~~`javelin-core/src/main/resources/debug/`（bin + spv 成品直读 classpath）~~ 2026-11-07 整目录删除
+（该目录原在 `.gitignore` 中，属生成物；对应条目同批清理）。
 
 引擎侧改动（JavelinEngine 两处）：
 
@@ -116,15 +126,38 @@ javelin-tool：
   换行只走两个 printf 变体；
 - 无 wrap，越出右缘裁剪、游标贴住末列（继续追加空转直到 clear）；表外/缺字回退 □。
 
-## 4. 字库资产管线
+## 4. 字库资产管线（v0.2 重构，2026-11-07）
 
-- `FontRasterizer`（tool）：字体（默认 = tool resources 打包的思源黑体 Bold，可传参更换）→
-  16px 阈值二值化 → 1bpp：半角 ASCII 8x16（95 枚）+ 全角 16x16（GB2312 符号区 01-09 +
-  一级 3755 + □ 回退符）；
-- bin 产物：头部（"JDTF" magic/版本/字形数，大端）+ 升序 codepoint 索引表 +
+```
+font.chars（字符集源码，纯文本，提交仓库）
+   │  编辑器 BitmapFontImporter（扩展名 .chars）
+   ▼
+DebugTextFontRasterizer.parseCharset(text)          ← 排版字符 CR/LF/TAB 不计；□ U+25A1 无条件补入
+   │
+   ▼
+DebugTextFontRasterizer.rasterizeToBytes(打包思源黑体 Bold, 字符集)
+   │  16px 硬边渲染 + alpha ≥128 阈值二值化 → 1bpp：半角 ASCII 8x16 + 全角 16x16
+   ▼
+BitmapFont（Library 产物，字段 name + data=JDTF 字节）
+   │  运行期 AssetManager.loadAsset("core/debug/font.chars", BitmapFont.class)
+   ▼
+DebugFont16.parse(data) → 图集纹理（R8，1bpp 展开）
+```
+
+- **JDTF 二进制布局**（大端）：头部（"JDTF" magic / 版本 / 字形数）+ 升序 codepoint 索引表 +
   每字形 32 字节 1bpp 位图（16 行 × 2 字节，半角画左 8 列）——加载侧 `DebugFont16`
-  二分查找定位、解 1bpp 展开 R8；
-- ~158KB 二进制提交进 core resources，core 运行时自包含、不依赖编辑器资产。
+  二分查找定位、解 1bpp 展开 R8。格式契约单点在
+  `DebugTextFontRasterizer` javadoc（core 侧不依赖 tool，常量镜像一份）；
+- **`.chars` 是新资产类型**（2026-11-07 拍板）：扩展名 `.chars`，FileType 注册
+  `chars` 图标；`BitmapFontImportSettings.getType()` = `BitmapFont` 与 `.meta` 的
+  assetType 对齐；烘焙失败落 stub 产物（isValid=false，消费侧显性报错）；
+- **字符覆盖 = 文件里出现的字符**（改 `.chars` 即改覆盖，不再由代码内建字符集决定）；
+  当前文件由原 4532 字形字符集导出，内容与原字库逐字形等价（迁移零视觉变化）；
+- **测试侧**：`javelin-core` 测试/Demo 无编辑器导入链，`TestAssetManager` 对
+  `core/` 前缀的 `BitmapFont` 请求走现烘焙（读 classpath 内置 `.chars` → tool 光栅化器
+  + 打包字体 → JDTF 字节），按路径缓存；
+- ~~~158KB 二进制提交进 core resources，core 运行时自包含、不依赖编辑器资产~~
+  **2026-11-07 作废**：产物归 Library（随打包链复制），源码归 `builtin-asset-core/debug`。
 
 ## 5. 边界与已知取舍
 
@@ -167,7 +200,14 @@ javelin-tool：
 3. ✅ core.debug 六类落位（门面/网格/颜色/字库/子系统——overlay 并入子系统 appendOverlay）；
 4. ✅ JavelinEngine 三处接线（注册 + buildFrameGraph overlay 段 + shutdown 的 GPU close 钩子）；
 5. ✅ `DebugTextDemo` 验收样例落地（编译与实跑验证交给用户）；
-6. ~~设计档~~——**✅ 本文档（v0.1，2026-09-27）**。
+6. ~~设计档~~——**✅ 本文档（v0.1，2026-09-27）**；
+7. **内置资源迁移 + 字库资产面重构（v0.2，2026-11-07）**：`font.chars`（新资产类型）
+   + `debugtext.vert/.frag` 落 `builtin-asset-core/debug`；新增 `BitmapFont` 资产类与
+   `BitmapFontImporter`/`BitmapFontImportSettings`；`DebugFont16.load(resource)` 改
+   `parse(byte[])`；`DebugDrawTextSubsystem` 改经 `AssetManager` 装载；`DebugTextAssets`
+   CLI、`core resources/debug/` 整目录、`resource-config.json` 两条死条目、`.gitignore`
+   旧条目同批清退。**✅ 用户实测销账（2026-11-07）**——编辑器开项目释放+烘焙、F3 文本
+   正常（含汉字）、core 测试装载链全过。
 
 ---
 

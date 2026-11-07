@@ -1,21 +1,21 @@
 package cn.donting.javelin.core.debug;
 
-import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 
 /**
  * DebugText 16x16 点阵字库（运行时加载侧）。
  *
- * <p>加载 javelin-tool {@code DebugTextAssets} 生成的 {@code debug_font16.bin}
- * （classpath 资源 {@code /debug/debug_font16.bin}），格式契约见生成器
- * {@code cn.donting.javelin.tool.debugtext.DebugTextFontRasterizer} javadoc——大端：
- * "JDTF" magic / 版本 / 字形数 / 升序 codepoint 表 / 每字形 32 字节 1bpp 位图
- * （16 行 × 2 字节，MSB=最左列，半角画左 8 列）。</p>
+ * <p>解析 {@link cn.donting.javelin.core.assets.font.BitmapFont#getData()} 的 JDTF
+ * 二进制（{@code .chars} 字符集经编辑器导入器烘焙落 Library；2026-11-07 前为
+ * tool CLI 产物直读 classpath 资源 {@code /debug/debug_font16.bin}），格式契约见
+ * 烘焙器 {@code cn.donting.javelin.tool.debugtext.DebugTextFontRasterizer} javadoc
+ * ——大端："JDTF" magic / 版本 / 字形数 / 升序 codepoint 表 / 每字形 32 字节 1bpp
+ * 位图（16 行 × 2 字节，MSB=最左列，半角画左 8 列）。</p>
  *
  * <p>图集布局：每行 32 字形（512px 宽）纵向排布；µv 由字形索引换算。
- * 缺字（不在字库的字符）回退 □（U+25A1，生成器保证收录）。</p>
+ * 缺字（不在字库的字符）回退 □（U+25A1，烘焙侧保证收录）。</p>
  */
 public final class DebugFont16 {
 
@@ -49,38 +49,38 @@ public final class DebugFont16 {
         this.fallbackIndex = fallbackIndex;
     }
 
-    /** 从 classpath 加载并解析字库 bin */
-    public static DebugFont16 load(String resource) {
-        try (InputStream stream = DebugFont16.class.getResourceAsStream(resource)) {
-            if (stream == null) {
-                throw new IOException("字库资源不存在: " + resource + "（先跑 javelin-tool DebugTextAssets 生成）");
+    /**
+     * 解析 JDTF 字库字节（{@link cn.donting.javelin.core.assets.font.BitmapFont#getData()}）。
+     *
+     * @param data 字库二进制
+     * @throws IllegalStateException 头不合法或字形数为 0
+     */
+    public static DebugFont16 parse(byte[] data) {
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(data))) {
+            int magic = in.readInt();
+            int version = in.readInt();
+            if (magic != MAGIC || version != VERSION) {
+                throw new IOException("字库文件头不合法: magic=0x" + Integer.toHexString(magic)
+                        + " version=" + version + "（期望 JDTF/" + VERSION + "）");
             }
-            try (DataInputStream in = new DataInputStream(new BufferedInputStream(stream))) {
-                int magic = in.readInt();
-                int version = in.readInt();
-                if (magic != MAGIC || version != VERSION) {
-                    throw new IOException("字库文件头不合法: magic=0x" + Integer.toHexString(magic)
-                            + " version=" + version + "（期望 JDTF/" + VERSION + "）");
-                }
-                int count = in.readInt();
-                if (count <= 0) {
-                    throw new IOException("字库字形数为 0");
-                }
-                int[] codepoints = new int[count];
-                int fallback = -1;
-                for (int i = 0; i < count; i++) {
-                    int cp = in.readInt();
-                    codepoints[i] = cp;
-                    if (cp == FALLBACK_CODEPOINT) {
-                        fallback = i;
-                    }
-                }
-                byte[] bitmaps = new byte[count * GLYPH_HEIGHT * 2];
-                in.readFully(bitmaps);
-                return new DebugFont16(codepoints, bitmaps, Math.max(0, fallback));
+            int count = in.readInt();
+            if (count <= 0) {
+                throw new IOException("字库字形数为 0");
             }
+            int[] codepoints = new int[count];
+            int fallback = -1;
+            for (int i = 0; i < count; i++) {
+                int cp = in.readInt();
+                codepoints[i] = cp;
+                if (cp == FALLBACK_CODEPOINT) {
+                    fallback = i;
+                }
+            }
+            byte[] bitmaps = new byte[count * GLYPH_HEIGHT * 2];
+            in.readFully(bitmaps);
+            return new DebugFont16(codepoints, bitmaps, Math.max(0, fallback));
         } catch (IOException e) {
-            throw new IllegalStateException("DebugText 字库加载失败: " + e.getMessage(), e);
+            throw new IllegalStateException("DebugText 字库解析失败: " + e.getMessage(), e);
         }
     }
 

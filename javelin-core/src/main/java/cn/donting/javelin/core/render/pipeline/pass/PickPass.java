@@ -1,5 +1,7 @@
 package cn.donting.javelin.core.render.pipeline.pass;
 
+import cn.donting.javelin.core.assets.AssetManager;
+import cn.donting.javelin.core.assets.shadow.SpvShader;
 import cn.donting.javelin.core.render.RenderObject;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
@@ -29,9 +31,6 @@ import cn.donting.javelin.rhi.types.ShaderStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.HashMap;
@@ -42,9 +41,13 @@ import java.util.Set;
 /**
  * GPU ID-buffer 拾取 Pass（Engine_Picking_Design.md，2026-10-23 拍板落地）。
  *
- * <p><b>覆盖制</b>（拍板）：不消费材质 shader 的 Pass 声明，用引擎内嵌 pick.spv
- * （javelin-tool PickAssets 产物）绘制全部不透明物体 + "Gizmo" 桶——「看得见即
- * 拾得」，用户 shader 零声明负担。每个可拾取物体以帧内分配的 pick ID
+ * <p><b>覆盖制</b>（拍板）：不消费材质 shader 的 Pass 声明——「看得见即
+ * 拾得」，用户 shader 零声明负担。着色器装载走资产导入链（ShadowPass/SkyboxPass
+ * 同款）：内置 {@code builtin-asset-core/pick/pick.vert/.frag} 源码经
+ * SpvShaderImporter 编译 SPIR-V 落 Library，本 Pass 经
+ * {@link AssetManager#loadAsset} 按路径加载（2026-11-07 改向——原
+ * 「GLSL 放 javelin-tool、spv 内嵌 core resources」路线作废）。绘制全部不透明
+ * 物体 + "Gizmo" 桶。每个可拾取物体以帧内分配的 pick ID
  * （{@link PickSystem}，0 = 背景）写进 R32_UINT 附件，附件经 TextureReadbackRing
  * 点击/悬停读回。由 {@link PickSystem} 挂/摘管线（{@link RenderPipeline#addPass}），
  * 运行时游戏与编辑器同为消费方。</p>
@@ -58,8 +61,9 @@ public class PickPass implements RenderPass {
 
     private static final Logger log = LoggerFactory.getLogger(PickPass.class);
 
-    private static final String VERT_SPV_RESOURCE = "/pick/pick.vert.spv";
-    private static final String FRAG_SPV_RESOURCE = "/pick/pick.frag.spv";
+    /** 内置拾取着色器 loadAsset 路径（builtin-asset-core 释放到 .javelin/assets 后的相对路径） */
+    private static final String VERT_SHADER_PATH = "core/pick/pick.vert";
+    private static final String FRAG_SHADER_PATH = "core/pick/pick.frag";
     /** push 布局：model@0(64B) + pickId@64（tpf 槽位让渡——拾取无时间语义） */
     private static final int PICK_ID_OFFSET = RenderingSystem.PUSH_TPF_OFFSET;
 
@@ -75,11 +79,16 @@ public class PickPass implements RenderPass {
     private final float[] worldTmp = new float[16];
     private boolean pickLogged;
 
-    public PickPass(PickSystem picking, Device device) {
+    /**
+     * @param picking      拾取系统（帧表/pick ID 分配）
+     * @param device       RHI 设备（PSO 创建）
+     * @param assetManager 资产管理器（装载内置 pick.vert/.frag 的 SpvShader 产物）
+     */
+    public PickPass(PickSystem picking, Device device, AssetManager assetManager) {
         this.picking = picking;
         this.device = device;
-        this.vertSpv = readSpv(VERT_SPV_RESOURCE);
-        this.fragSpv = readSpv(FRAG_SPV_RESOURCE);
+        this.vertSpv = loadSpv(assetManager, VERT_SHADER_PATH, "pick.vert");
+        this.fragSpv = loadSpv(assetManager, FRAG_SHADER_PATH, "pick.frag");
     }
 
     @Override
@@ -196,17 +205,21 @@ public class PickPass implements RenderPass {
         return created;
     }
 
-    /** 读 classpath .spv 二进制资源（DebugDrawText 同法） */
-    private static byte[] readSpv(String resource) {
-        try (InputStream stream = PickPass.class.getResourceAsStream(resource)) {
-            if (stream == null) {
-                throw new IOException("SPIR-V 资源不存在: " + resource + "（先跑 gradlew :javelin-tool:generatePickSpv 生成）");
-            }
-            try (InputStream in = new BufferedInputStream(stream)) {
-                return in.readAllBytes();
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("Pick SPIR-V 加载失败: " + e.getMessage(), e);
+    /**
+     * 装载内置 SPIR-V 着色器资产（资产导入链产物；红线 15——缺失/坏产物显性报错
+     * 不静默兜底：导入链未跑（内置资产未释放/未导入）或编译失败 stub 都在此爆出）。
+     */
+    private static byte[] loadSpv(AssetManager assetManager, String path, String label) {
+        SpvShader spv = assetManager.loadAsset(path, SpvShader.class);
+        if (spv == null) {
+            throw new IllegalStateException("拾取着色器资产未找到: " + path
+                    + "（内置资产应随引擎启动释放进 .javelin/assets 并经导入链编译——"
+                    + "检查 builtin-asset-core/pick/" + label + " 与伴生 .meta）");
         }
+        if (!spv.isValid()) {
+            throw new IllegalStateException("拾取着色器为坏产物（编译失败 stub）: " + path
+                    + "——请 reimport 修复");
+        }
+        return spv.getSpvData();
     }
 }

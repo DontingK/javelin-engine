@@ -7,10 +7,15 @@ import java.awt.RenderingHints;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.SortedSet;
 import java.util.TreeSet;
 
 /**
@@ -30,6 +35,10 @@ import java.util.TreeSet;
  * </pre>
  * <p>字形宽度（半角 8 / 全角 16）不进 bin，由引擎侧 wcwidth 分类按 codepoint 区间推导。</p>
  *
+ * <p><b>调用方</b>：编辑器 {@code BitmapFontImporter}（.chars 字符集文本 → 导出
+ * {@code BitmapFont} 资产）与 core 测试侧 {@code TestAssetManager}（内置源现烘焙）；
+ * 产物不再以文件形式提交仓库，旧的独立 CLI（DebugTextAssets）已于 2026-11-07 清退。</p>
+ *
  * @since 1.0.0
  */
 public final class DebugTextFontRasterizer {
@@ -47,6 +56,15 @@ public final class DebugTextFontRasterizer {
     public static final int MAGIC = 0x4A445446;
     /** bin 格式版本。 */
     public static final int VERSION = 1;
+
+    /** □ 缺字回退符（加载侧 DebugFont16.glyphIndex 缺字回退目标，字符集解析时无条件补入）。 */
+    public static final int FALLBACK_CODEPOINT = 0x25A1;
+
+    /** 打包字体（思源黑体 Bold，SIL OFL）在 tool resources 下的路径。 */
+    public static final String BUNDLED_FONT_RESOURCE = "/front/SourceHanSansSC-Bold.otf";
+
+    /** 打包字体解出的临时文件（同一 JVM 只解一次）。 */
+    private static Path bundledFontCache;
 
     /** 二值化阈值：alpha ≥ 该值视为点亮。 */
     private static final int THRESHOLD = 128;
@@ -101,6 +119,68 @@ public final class DebugTextFontRasterizer {
             }
         } finally {
             g.dispose();
+        }
+    }
+
+    /**
+     * 字符集文本 → 升序去重 codepoint 集合。
+     *
+     * <p>排版字符（CR/LF/TAB）不算内容（换行/缩进是文件版式，不是要烘焙的字形）；
+     * 其余 code point 全部计入。□ 回退符（{@link #FALLBACK_CODEPOINT}）无条件补入
+     * ——加载侧 {@code DebugFont16.glyphIndex} 查不到字符时回退到它，缺席会把回退
+     * 错误地指向首字形。</p>
+     *
+     * @param text 字符集文本（{@code .chars} 内容）
+     * @return 升序去重 codepoint 集合
+     */
+    public static SortedSet<Integer> parseCharset(String text) {
+        SortedSet<Integer> set = new TreeSet<>();
+        text.codePoints().forEach(cp -> {
+            if (cp == '\r' || cp == '\n' || cp == '\t') {
+                return;
+            }
+            set.add(cp);
+        });
+        set.add(FALLBACK_CODEPOINT);
+        return set;
+    }
+
+    /**
+     * 光栅化字符集为 JDTF bin 字节（{@link #rasterize} 的内存态变体，导出资产用）。
+     *
+     * @param fontFile   TTF/OTF 字体文件
+     * @param codepoints 字符集（升序去重由 {@link #parseCharset} 保证，非空）
+     * @return JDTF bin 字节
+     * @throws IOException 字体读取失败
+     */
+    public static byte[] rasterizeToBytes(Path fontFile, Collection<Integer> codepoints) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(8192);
+        try (DataOutputStream out = new DataOutputStream(buffer)) {
+            rasterize(fontFile, List.copyOf(codepoints), out);
+        }
+        return buffer.toByteArray();
+    }
+
+    /**
+     * 解出打包字体到临时文件（{@link Font#createFont} 只收 {@link java.io.File}）。
+     * 同一 JVM 内只解一次；临时文件 JVM 退出时清理。
+     *
+     * @return 打包字体临时文件路径
+     * @throws IOException 资源缺失或写出失败
+     */
+    public static synchronized Path bundledFontPath() throws IOException {
+        if (bundledFontCache != null && Files.isRegularFile(bundledFontCache)) {
+            return bundledFontCache;
+        }
+        try (InputStream in = DebugTextFontRasterizer.class.getResourceAsStream(BUNDLED_FONT_RESOURCE)) {
+            if (in == null) {
+                throw new IOException("打包字体资源不存在: " + BUNDLED_FONT_RESOURCE);
+            }
+            Path temp = Files.createTempFile("debugtext-font", ".otf");
+            Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            temp.toFile().deleteOnExit();
+            bundledFontCache = temp;
+            return temp;
         }
     }
 

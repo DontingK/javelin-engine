@@ -101,7 +101,7 @@ public final class PickSystem implements AutoCloseable {
         if (enabled) {
             throw new IllegalStateException("PickSystem already enabled");
         }
-        pickPass = new PickPass(this, engine.device());
+        pickPass = new PickPass(this, engine.device(), engine.getAssetManager());
         engine.renderPipeline().addPass(pickPass);
         enabled = true;
         log.info("PickSystem enabled: view={}", targetView);

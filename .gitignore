@@ -53,5 +53,3 @@ logs/
 /test-project
 /test
 /.gradle-home
-
-/javelin-core/src/main/resources/debug
