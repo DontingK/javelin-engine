@@ -34,6 +34,17 @@ public class BinaryStreamInput implements Closeable {
     }
 
     /**
+     * 批量读取，填满整个数组（大 byte[] 走此入口——逐字节 readByte 是每字节一次底层读取）
+     */
+    public void readBytes(byte[] target) {
+        try {
+            dataInput.readFully(target);
+        } catch (IOException e) {
+            throw new RuntimeException("读取 byte[] 失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * 读取 short 值（大端序）
      */
     public short readShort() {

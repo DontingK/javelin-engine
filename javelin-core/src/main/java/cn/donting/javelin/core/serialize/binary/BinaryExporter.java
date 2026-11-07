@@ -3,6 +3,7 @@ package cn.donting.javelin.core.serialize.binary;
 import cn.donting.javelin.core.serialize.Exporter;
 import cn.donting.javelin.core.serialize.Serializable;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -62,8 +63,10 @@ public class BinaryExporter implements Exporter {
 
         try {
             FileOutputStream fileOutputStream = new FileOutputStream(tempFile);
+            // 必须带缓冲：DataOutputStream 自身无缓冲，裸 FileOutputStream 上每次 write 都是一次
+            // 底层写入，大数组资产（cubemap 像素 / SPIR-V）导出会掉到 MB/s 级
+            BinaryStreamOutput out = new BinaryStreamOutput(new BufferedOutputStream(fileOutputStream));
             try {
-                BinaryStreamOutput out = new BinaryStreamOutput(fileOutputStream);
 
                 // 文件头
                 writeHead(out);
@@ -98,7 +101,8 @@ public class BinaryExporter implements Exporter {
                 fileOutputStream.getFD().sync();
             } finally {
                 // 失败路径也必须关闭流，否则 Windows 下临时文件被占用无法清理
-                fileOutputStream.close();
+                // （关包装流而非底层文件流：缓冲数据先刷出再关）
+                out.close();
             }
 
             moveTempToTarget(tempFile, outputFile);

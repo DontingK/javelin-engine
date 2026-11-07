@@ -6,6 +6,7 @@ import cn.donting.javelin.core.reflective.ReflectiveFactory;
 import cn.donting.javelin.core.serialize.Importer;
 import cn.donting.javelin.core.serialize.Serializable;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -56,7 +57,10 @@ public class BinaryImporter implements Importer {
             objectCache.clear();
             arrayListElementClasses.clear();
 
-            binaryStreamInput = new BinaryStreamInput(new FileInputStream(inputFile));
+            // 必须带缓冲：DataInputStream 自身无缓冲，裸 FileInputStream 上每个 readByte/readInt
+            // 都是一次底层读取，大数组资产（cubemap 像素 / SPIR-V）会掉到 MB/s 级
+            binaryStreamInput = new BinaryStreamInput(
+                    new BufferedInputStream(new FileInputStream(inputFile)));
 
 
             readHead(binaryStreamInput);
@@ -208,10 +212,7 @@ public class BinaryImporter implements Importer {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void readDirectArrayValues(Object array, Class<?> componentType) {
         if (componentType == byte.class) {
-            byte[] arr = (byte[]) array;
-            for (int i = 0; i < arr.length; i++) {
-                arr[i] = binaryStreamInput.readByte();
-            }
+            binaryStreamInput.readBytes((byte[]) array);
         } else if (componentType == short.class) {
             short[] arr = (short[]) array;
             for (int i = 0; i < arr.length; i++) {

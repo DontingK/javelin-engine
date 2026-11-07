@@ -360,6 +360,15 @@ Vulkan_Pitfalls #26）——
 失灵「x 越 -90° 仍跳动」——修 = 归一化判据 + 判定数据源改事件原始四元数。回归断言
 RotationMathTest；详见 Inspector_Design v0.15。
 
+修复批次（2026-11-07，用户实机验收通过）：**二进制序列化大数组 IO 修复**——用户问「天空盒加载
+怎么这么耗时」（6.29MB cubemap 产物加载 5448ms）。根因 = BinaryImporter/BinaryExporter 直连
+裸 FileInputStream/FileOutputStream（DataInput/OutputStream 自身无内部缓冲），byte[] 数组逐字节
+读写 = 每字节一次系统调用（629 万次、实测 0.87µs/次 ≈1.15MB/s；旁证 = 同链 Lit.shader 17KB
+恰好 15ms）。修法 = 两侧外层流加缓冲（导出侧 `finally` 改关包装流）+ byte[] 走批量（读侧新增
+`BinaryStreamInput.readBytes`，写侧复用已有 `BinaryStreamOutput.write(byte[])`）——**字节布局
+零变化、Library 旧产物免重导**。效果 = 天空盒加载 5448ms→3ms（用户实测）；同族受益 = Image
+像素 / SPIR-V / .scene 内字节数组。坑点 Pitfalls #33、序列化坑点存档 = 材质档 §3.2 第 4 条。
+
 ---
 
 ## 3. 三期：光照
@@ -409,6 +418,11 @@ RotationMathTest；详见 Inspector_Design v0.15。
 > revision、Material.setShader 保参 + textureRevision、logback 文件输出 → 挂靠**二期「编辑器基本 + 资产管线」**；
 > Cleaner Registration 合一 → 挂靠**一期 RHI 底座（既有关账能力上的防御性重构）**。状态 = **2026-10-30
 > 用户验收销账（单测+实机全过，见 §2.4 本批进度段与各设计档版本沿革）**。
+
+> **2026-11-07 批映射注**：二进制序列化大数组 IO 修复（core serialize 基础设施——外层流加缓冲 +
+> `byte[]` 批量读写，覆盖 Importer/Exporter/ArrayOutput 三点）→ 挂靠**二期「资产格式层 + 资产管线」**
+> （随三期批次⑤天空盒加载耗时暴露，非阶段能力变更）；状态 = **2026-11-07 用户实测销账
+> （天空盒 6.29MB 加载 5448ms→3ms）**，见 §2.4 修复批次段与 Vulkan_Pitfalls #33（材质档 §3.2 第 4 条）。
 
 ## 6. 跨期遗留（不阻塞当期推进）
 

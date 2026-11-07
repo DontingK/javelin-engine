@@ -449,6 +449,28 @@
 - **出处**：2026-11-07 用户实机排障（HDR 天空盒「角和边有明显分界」）——「竖直棱正常」
   这一点直接把嫌疑锁在面内纵向映射，而不是接缝/采样器。
 
+### 33. 二进制序列化逐字节读写裸流：6.29MB cubemap 加载 5.4s、导出同速（≈1.15MB/s）★性能级
+
+- **症状**：打开带天空盒的场景，主线程报 `加载 GUID:17cf9a1c… 资源耗时:5448ms`；同一 `.hdr`
+  导入总耗时 8781ms 里约 5.4s 花在写产物。小资产（几 KB）只 1~5ms 看不出异常——
+  **耗时与文件字节数成正比、恒定落在 ≈1.15MB/s**；
+- **根因**：`BinaryImporter`/`BinaryExporter` 直连裸 `FileInputStream`/`FileOutputStream`——
+  `DataInputStream`/`DataOutputStream` **没有任何内部缓冲**，而 `readDirectArrayValues` /
+  `writeDirectValues` 的 `byte[]` 分支是**逐字节** `readByte()`/`write(v)` 循环：
+  6,291,456 字节 = 629 万次单字节系统调用（实测 0.87µs/次）；
+- **旁证**：同一条链上的 `Lit.shader`（17,169 字节 = 两条 SPIR-V `byte[]`）实测 15ms =
+  17169×0.87µs≈14.9ms——**速率由「每字节一次调用」决定**，与解码/像素处理无关；
+- **修法**：① 两侧外层流加缓冲（`BufferedInputStream`/`BufferedOutputStream`；导出侧 `finally`
+  必须关**包装流**而非底层文件流，否则缓冲数据被丢）；② `byte[]` 走批量——读侧新增
+  `BinaryStreamInput.readBytes(byte[])`（内部 `readFully`）、写侧复用已有的
+  `BinaryStreamOutput.write(byte[])`。**字节布局零变化，Library 旧产物免重导**；
+- **效果**：天空盒加载 5448ms → **3ms**（2026-11-07 用户实测）；同族受益 = `Image.pixels`
+  （PNG 像素）、`ShaderPass` 的 SPIR-V、`.scene` 内的字节数组；
+- **教训**：**「耗时 ∝ 文件字节数 ÷ 1MB/s」是逐字节系统调用的指纹**——6MB 顺序读正常应是
+  几十毫秒；出现 MB/s 级速率先查「每元素一次调用」的循环，再怀疑磁盘。同族待办 = `Mesh`
+  的 `float[]` 仍逐元素（加缓冲后约 20ns/次，10 万顶点量级 ≈60ms，暂不动）；
+- **出处**：2026-11-07 用户问「天空盒加载为什么这么耗时」（三期批次⑤步骤三实测日志）。
+
 ---
 
 ## 六、排障方法论（沉淀）

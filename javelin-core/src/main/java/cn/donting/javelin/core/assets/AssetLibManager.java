@@ -45,7 +45,7 @@ public class AssetLibManager implements AssetManager {
 
     protected final ReferenceQueue<Asset> refQueue = new ReferenceQueue<>();
     protected final Set<GuidAssetRef> trackedRefs = ConcurrentHashMap.newKeySet();
-    protected final Map<String,GuidAssetRef> guidAssetRefMap = new HashMap<>();
+    protected final Map<String, GuidAssetRef> guidAssetRefMap = new HashMap<>();
 
     public AssetLibManager(File libDir) {
         this.libDir = libDir;
@@ -86,7 +86,7 @@ public class AssetLibManager implements AssetManager {
         if (guidAssetRef != null) {
             Asset guidAsset = guidAssetRef.get();
             if (guidAsset != null) {
-                LOGGER.debug("GUID 缓存命中: {}=>{}", guid,guidAsset.getClass().getName());
+                LOGGER.debug("GUID 缓存命中: {}=>{}", guid, guidAsset.getClass().getName());
                 return guidAsset;
             }
         }
@@ -96,7 +96,7 @@ public class AssetLibManager implements AssetManager {
     @Override
     public <T extends Asset> T loadGuid(String guid, Class<T> assetClass) {
         Asset guidAsset = loadCache(guid);
-        if(guidAsset != null){
+        if (guidAsset != null) {
             return (T) guidAsset;
         }
         File file = guidMap.get(guid);
@@ -106,14 +106,14 @@ public class AssetLibManager implements AssetManager {
             loadIndex();
             file = guidMap.get(guid);
         }
-        if(file == null){
+        if (file == null) {
             LOGGER.warn("GUID {} 未找到", guid);
             return null;
         }
         //加锁
         synchronized (this) {
             guidAsset = loadCache(guid);
-            if(guidAsset != null){
+            if (guidAsset != null) {
                 return (T) guidAsset;
             }
             T t = loadGuidInstance(guid, assetClass);
@@ -125,8 +125,10 @@ public class AssetLibManager implements AssetManager {
 
     @Override
     public <T extends Asset> T loadGuidInstance(String guid, Class<T> assetClass) {
+        LOGGER.warn("加载 GUID:{} 资源", guid);
+        long time = System.currentTimeMillis();
         File file = guidMap.get(guid);
-        if(file==null){
+        if (file == null) {
             LOGGER.warn("GUID:{} 资源不存在", guid);
             throw new RuntimeException("GUID:" + guid + " 资源不存在");
         }
@@ -136,7 +138,8 @@ public class AssetLibManager implements AssetManager {
             T asset = binaryImporter.importData(assetClass);
             GuidAssetRef ref = new GuidAssetRef(asset, guid, refQueue);
             trackedRefs.add(ref);
-            guidAssetRefMap.put(guid,ref);
+            guidAssetRefMap.put(guid, ref);
+            LOGGER.warn("加载 GUID:{} 资源耗时:{}ms", guid, System.currentTimeMillis() - time);
             return asset;
         } catch (Exception e) {
             LOGGER.info("GUID {} 加载失败", guid, e);
@@ -157,7 +160,7 @@ public class AssetLibManager implements AssetManager {
     @Override
     public <T extends Asset> T loadAssetInstance(String path, Class<T> assetClass) {
         String guid = pathMap.get(path);
-        return loadGuidInstance(guid,assetClass);
+        return loadGuidInstance(guid, assetClass);
     }
 
     /**

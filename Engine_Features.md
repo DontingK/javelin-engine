@@ -36,7 +36,7 @@
 
 | 功能 | 完成状态 | 验收状态 |
 |------|---------|---------|
-| 二进制序列化（Capsule / BinaryImporter / write-read 契约、共享引用保真） | ✅ | ✅ 单测 + .scene 往返用户实测（2026-10-04） |
+| 二进制序列化（Capsule / BinaryImporter / write-read 契约、共享引用保真；**大数组 IO = 缓冲流 + byte[] 批量读写**） | ✅ | ✅ 单测 + .scene 往返用户实测（2026-10-04）；大数组 IO 修复用户实测（2026-11-07——天空盒 6.29MB 加载 5448ms→3ms，Pitfalls #33） |
 | 反射体系（@Reflective + 注册器，Class.forName 显式化、零注解扫描） | ✅ | — 随序列化 / AOT 链验收 |
 | 设置系统（JavelinSetting：vsync / maxFps / backgroundColor / antialiasing 落盘） | ✅ | ✅ 用户实测（2026-10-06/07 vsync/maxFps 关账） |
 | ObjectId / ObjectCache 对象身份与引用缓存 | ✅ | — 随序列化 / 桥链 |

@@ -79,10 +79,8 @@ class BinaryArrayOutput implements BinaryOutput {
     private void writeDirectValues(BinaryStreamOutput out) {
         Class<?> componentType = array.getClass().getComponentType();
         if (componentType == byte.class) {
-            byte[] arr = (byte[]) array;
-            for (byte v : arr) {
-                out.write(v);
-            }
+            // 整块写出：逐字节 write 在大数组上是每字节一次底层写入
+            out.write((byte[]) array);
         } else if (componentType == short.class) {
             short[] arr = (short[]) array;
             for (short v : arr) {

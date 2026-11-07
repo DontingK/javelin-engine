@@ -81,7 +81,7 @@
 | `RHI_Design_Shader.md` | 分卷四：Shader 多 Pass 与 Material 实例模型、着色器文件语法（.shader） |
 | `RHI_Implementation_Plan.md` | RHI 实现计划（v0.1）：六阶段路线、约束、验收标准 |
 | `Engine_Assets_Design.md` | 引擎资产设计（v0.3）：Mesh 类、VertexAttribute、VertexLayout、**Mesh 子网格（SubMesh 区间列表 + setSubmeshes/getSubmeshCount，Unity subMeshCount/SetTriangles 语义，§2.9，2026-10-29）** |
-| `Engine_Material_Design.md` | 引擎材质设计（v0.4）：Shader/Material 数据模型、渲染侧桥接（§4）、.scene 内嵌材质与 .mat 资产格式（§3.2）、坏 shader stub 产物与 DefaultMaterial 渲染回退（原 DefaultShader，2026-10-29 改名）、序列化坑点存档（§3） |
+| `Engine_Material_Design.md` | 引擎材质设计（v0.6）：Shader/Material 数据模型、渲染侧桥接（§4）、.scene 内嵌材质与 .mat 资产格式（§3.2）、坏 shader stub 产物与 DefaultMaterial 渲染回退（原 DefaultShader，2026-10-29 改名）、序列化坑点存档（§3） |
 | `Engine_Texture_Design.md` | 引擎贴图设计（v0.2）：三层资产模型（Image 像素资产 / Texture2D 引用+设置层 / 材质贴图槽——一图多设置免复制）、.png/.jpg/.jpeg 导入链（ImageImporter）、.texture 纹理资产（创建命令+导入器+检查器面板，编辑载体=文本私有实例）、alpha 修复、边界（mip/压缩/sRGB 后置） |
 | `Engine_Scene_Design.md` | 引擎场景设计（v0.5）：组件模型、Node/Component/Scene、RenderingSystem、生命周期帧驱动状态机（§4）、.scene 序列化（§9）、colliders 注册表分流投影（L1 物理查询遍历源，2026-10-28）、**MeshRenderer 多材质（materials[i] 对应子网格 i + 每 (renderer, 子网格) 一 RenderObject + 缺失位默认材质兜底，§5.1，2026-10-29）**——拍板细节与红线辨析见档内 |
 | `Engine_Rendering_Design.md` | 引擎渲染设计（v0.1）：RenderingSystem、帧描述交接契约、FrameLoop 调用关系、UBO1 收编 |
