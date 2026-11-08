@@ -334,7 +334,7 @@ Roadmap 三期条目与光照档 §4.5.1/§9 批次④-A 行 v0.8。）
 灯族子类化（不支持切换类型）、@InsHeader 子类显式贴法契约 + 图标彩色规则立定——细则见
 Roadmap 三期条目与光照档 v0.6。）
 
-**历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 Roadmap §6 构建链条目；三期批次① RHI SSBO/compute 底座 2026-10-31 当日用户实测销账（ComputeSsboTest 全环 + ComputeShaderImporterTest 绿；两坑入 Vulkan_Pitfalls #27/#28）。
+**历史注**：二期 ①~⑧ 2026-10-30 全清零；开源前置批 Ⓐ 包名迁移+版本 `0.1.0-SNAPSHOT` 定版 2026-10-31 用户实测销账——test 全绿 + mavenLocal 重发新坐标 + 编辑器新建项目/打包三端实机与改前一致，细则与坑点见 `doc/Engine_Roadmap_Progress.md` §6 构建链归档；三期批次① RHI SSBO/compute 底座 2026-10-31 当日用户实测销账（ComputeSsboTest 全环 + ComputeShaderImporterTest 绿；两坑入 Vulkan_Pitfalls #27/#28）。
 
 **二期挂账历史（①~⑧全销账，保留记录）**：
 
