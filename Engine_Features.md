@@ -158,6 +158,7 @@
 | JS↔Java 桥（方法桥协议 + 事件总线双向 + EDT hop / 引用计数退订） | 🪦 已清退 | 2026-10-18 jcef 包整包删除（桥方法/par/vo/EventBridgeForwarder 全量），jcefmaven、jackson 依赖移除；事件体系保留——BridgeEvent/JsEvent/PongEvent 删、五场景事件转纯 EditorEventBus 事件；Inspector 三 VO 迁 inspector 包（M4 数据模型） |
 | ~~通用 CEF 模态对话框 Dialog~~ | 🪦 已退役 | 2026-10-17 随去 Web 化删除（唯一消费方打包对话框迁 Swing；原待验收场景作废） |
 | 打包对话框 PackDialog（Swing 版：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流，构建链 Java 直调） | ✅ | ✅ 用户实测（2026-10-23） |
+| 耗时操作指示器 TimeConsumingDialog（`swing/dialog`：静态 `start()/end()/wrap()` 标记后台耗时操作，超 1 s 弹无边框非模态「处理中」指示器——线程名 + 已用时、标记清零自动关；EDT 标记跳过、监视线程按需存活、嵌套按最外层计时；双语键 `time.consuming.*` 随批，Editor_Swing_Design §4.3 v0.2） | ✅（2026-11-08） | ⏳ 待验收（调用点未接、未实测——§6 挂账） |
 
 ### 3.2 菜单与命令（menu / selection）
 
@@ -289,7 +290,10 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 
-**当前无挂账。**
+- **耗时操作指示器（TimeConsumingDialog，2026-11-08 落地）**：类与双语语言包已落，静态
+  `start()/end()/wrap()` 标记后台耗时操作、超 1 s 弹「处理中」指示器、标记清零自动关。
+  **待验收 = 接调用点（焦点扫描 / 工程加载链 / 打包构建线程三候选）+ 实机看弹/关时机与
+  阈值观感**——Editor_Swing_Design §4.3 v0.2。
 
 （**内置资源归属迁移整批 2026-11-07 用户实测销账**——步骤一：`builtin-asset-core/`
 （mesh/shader/shadow/skybox）从 editor 模块整体迁回 `javelin-core/src/main/resources`，

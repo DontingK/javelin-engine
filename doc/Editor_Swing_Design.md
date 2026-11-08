@@ -1,6 +1,8 @@
-# 编辑器 Swing UI 框架设计（v0.1）——去 Web 化重构总纲
+# 编辑器 Swing UI 框架设计（v0.2）——去 Web 化重构总纲
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
+> **v0.2（2026-11-08）**：新增 §4.3 耗时操作指示器——后台耗时操作「处理中」浮层（类与
+> 双语语言包已落，调用点未接、未实机验收）。
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
 > JVM、无 CEF 进程与 Vite dev server 依赖（2026-10-23 全链用户验收，见 §9 M6 行注）。
@@ -109,6 +111,26 @@ pollEvents/attachInputSink/renderSurface/isResized/acknowledgeResize/width/heigh
 - 关闭流程不变：`DO_NOTHING_ON_CLOSE` + `close` 标志 + 引擎轮询 `closeRequested()` 统一收尾。
 - 线程模型不变（Editor_Design §8）：EDT=UI，引擎主线程=帧循环，桥线程池随面板迁移逐步退役。
   新增口径：**Swing 面板 ↔ 引擎状态互访规则**（先例收口，见 §7.3）。
+
+### 4.3 耗时操作指示器（TimeConsumingDialog，2026-11-08 落地）
+
+后台耗时操作（资产扫描 / 工程加载 / 打包构建等）期间给用户一个「忙」的反馈——否则界面
+卡住与进程死掉难以分辨。`swing/dialog/TimeConsumingDialog`：调用侧以 `start()/end()`
+（或 `wrap(Runnable)`）标记，超 1 s 弹无边框、非模态、不抢焦点的指示器（线程名 + 已用时
+秒数，每 200 ms 刷新），标记全部清零即自动销毁。与导入进度框（ImportProgressDialog，
+按在途导入数关闭）是姊妹关系——那个绑导入管线，这个不绑业务。
+
+- **EDT 标记直接跳过**（2026-11-07 拍板）：弹框的 `invokeLater` 与耗时代码同排在 EDT 上，
+  EDT 卡住时框画不出来，监视 EDT 无意义；阻塞型操作不在本机制覆盖范围内。
+- **监视线程按需存活**：首个标记登记时起守护线程，标记表空即退出并置空引用；判空/置空/
+  登记/启动同锁，无「刚登记、监视线程已退」的丢唤醒窗口（§7.3 面板线程口径的延伸）。
+- **嵌套按最外层计时**：同线程多次 `start()` 只累加层数，`end()` 减到 0 才摘表；不配对会
+  一直被判为耗时，调用侧须 try/finally（`wrap()` 即免手写）；`end()` 对未登记线程静默忽略，
+  故 EDT 侧无脑配对调用安全。
+- **指示器形态**：单实例、不可手动关（留关闭按钮会「关掉又弹」循环）；文案走 EditorLang
+  双语包（`time.consuming.title/message`，2026-11-08 随批）。
+- **状态**：类与语言包已落（2026-11-08），**调用点未接**——首批候选 = `AssetReloadService`
+  焦点扫描、`ProjectLoadingFrame` 引擎引导链、`PackDialog` 构建线程。
 
 ## 5. Dock 框架设计
 
