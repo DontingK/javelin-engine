@@ -1,11 +1,11 @@
 package cn.donting.javelin.editor.scene;
 
 import cn.donting.javelin.core.render.Renderable;
-import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
+import cn.donting.javelin.core.scene.component.Environment;
 import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
@@ -101,10 +101,10 @@ public class EditorScene implements Scene {
         return gameScene.getName();
     }
 
-    /** 天空盒 = 用户场景口径（背景视口共享，无编辑器辅助对象参与语义） */
+    /** 环境设置 = 用户场景口径（背景视口共享，无编辑器辅助对象参与语义） */
     @Override
-    public CubemapImage getSkybox() {
-        return gameScene.getSkybox();
+    public Environment getEnvironment() {
+        return gameScene.getEnvironment();
     }
 
     @Override

@@ -19,6 +19,7 @@ import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Component;
 import cn.donting.javelin.core.scene.Node;
 import cn.donting.javelin.core.scene.component.Camera;
+import cn.donting.javelin.core.scene.component.Environment;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.rhi.types.Format;
@@ -30,8 +31,8 @@ import org.joml.Vector3f;
 /**
  * 三期批次⑤步骤二+3b 验收 Demo：SkyboxPass 管线 3.5 位 + ClearFlags.SKYBOX 兑现
  * + 资产路径挂载（Engine_Skybox_Design §7；SceneRenderDemo 形态 + 内存构建
- * CubemapImage → 场景字段 → 桥 sync 懒上传——3b 后不再直灌 RHI 纹理，编辑器
- * 检查器编辑走同一条 scene.setSkybox 链）。
+ * CubemapImage → 环境设置组件字段 → 桥 sync 懒上传——3b 后不再直灌 RHI 纹理，
+ * 编辑器检查器编辑走同一条 Environment.skybox 链）。
  *
  * <p>验收点：
  * <ul>
@@ -66,6 +67,8 @@ public final class SkyboxDemo extends JavelinEngineTestBase {
     private RenderingSystem rs;
     private GameScene scene;
     private CubemapImage cubemapAsset;
+    /** 环境设置组件（挂在 Environment 节点上；F 键摘挂 skybox 用） */
+    private Environment environment;
 
     public SkyboxDemo(JavelinSetting setting) {
         super(setting);
@@ -111,19 +114,25 @@ public final class SkyboxDemo extends JavelinEngineTestBase {
         setScene(scene);
         this.scene = scene;
 
-        // 资产路径挂载（3b：内存构建 CubemapImage → 场景字段 → 桥 sync 懒上传，不再直灌 RHI 纹理）
+        // 资产路径挂载（3b：内存构建 CubemapImage → 环境设置组件字段 → 桥 sync 懒上传，
+        // 不再直灌 RHI 纹理；2026-11-08 载体由 Scene.skybox 字段改为 Environment 组件，
+        // 挂在名为 Environment 的普通节点上——编辑器里就是层级树一个可选中节点）
         cubemapAsset = createGradientCubemap();
-        scene.setSkybox(cubemapAsset);
-        log.info("skybox 资产已挂入场景: faceSize={}", cubemapAsset.getFaceSize());
+        Node environmentNode = new Node();
+        environmentNode.setName("Environment");
+        environment = environmentNode.addComponent(Environment.class);
+        scene.add(environmentNode);
+        environment.setSkybox(cubemapAsset);
+        log.info("skybox 资产已挂入环境设置节点: faceSize={}", cubemapAsset.getFaceSize());
     }
 
-    /** F 键摘挂 skybox（经场景字段——桥下帧推送，同 3b 检查器编辑链路） */
+    /** F 键摘挂 skybox（经环境组件字段——桥下帧推送，同 3b 检查器编辑链路） */
     @Override
     protected void update() {
         super.update();
         if (Input.wasPressed(KeyCode.F)) {
             boolean attached = rs.skybox() != null;
-            scene.setSkybox(attached ? null : cubemapAsset);
+            environment.setSkybox(attached ? null : cubemapAsset);
             log.info("F 键切换：skybox {}", attached ? "摘除（应回退纯色清屏）" : "重挂");
         }
     }

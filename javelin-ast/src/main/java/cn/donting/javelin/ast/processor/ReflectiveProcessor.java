@@ -3,6 +3,9 @@ package cn.donting.javelin.ast.processor;
 import cn.donting.javelin.ast.annotation.Reflective;
 
 import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.element.AnnotationValue;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -32,7 +35,9 @@ import java.util.Set;
  *
  * <p>编译时扫描所有带 {@link Reflective} 注解的类，生成注册类 {@code ReflectiveRegistration}：
  * 类加载时自动调用 {@code ReflectiveFactory.register()} 将标记类注册到工厂，实现零反射
- * 的对象创建。</p>
+ * 的对象创建。同时把类上 RUNTIME 注解的<b>名字与简单属性值</b>生成进注册类
+ * （{@code registerAnnotation}/{@code registerAnnotationValue}）——native-image 不带
+ * 注解进镜像，core 侧一律经这两个通道读注解，禁止 {@code getAnnotation(...)}。</p>
  *
  * <p>同时生成 native-image 反射配置 {@code reflect-config.json}（注册类 + 全部注册类，
  * 构造器级，2026-10-13）：注册体系本身零反射（类字面量+构造器引用，静态可达），但
@@ -163,6 +168,21 @@ public class ReflectiveProcessor extends AbstractProcessor {
                             String annotationName = annotationElement.getQualifiedName().toString();
                             pw.println("        " + FACTORY_CLASS_NAME + ".registerAnnotation(\""
                                     + binaryName + "\", \"" + annotationName + "\");");
+                            // 属性值（含注解默认值）：native-image 不带注解进镜像，值改由
+                            // 注册代码字面量携带——core 侧经 ReflectiveFactory 零反射读取
+                            Map<? extends ExecutableElement, ? extends AnnotationValue> values =
+                                    processingEnv.getElementUtils().getElementValuesWithDefaults(mirror);
+                            for (Map.Entry<? extends ExecutableElement, ? extends AnnotationValue> entry
+                                    : values.entrySet()) {
+                                String attribute = entry.getKey().getSimpleName().toString();
+                                String literal = simpleValueLiteral(entry.getValue());
+                                if (literal == null) {
+                                    continue; // 数组/Class/嵌套注解不支持（边界见方法 javadoc）
+                                }
+                                pw.println("        " + FACTORY_CLASS_NAME + ".registerAnnotationValue(\""
+                                        + binaryName + "\", \"" + annotationName + "\", \""
+                                        + attribute + "\", " + literal + ");");
+                            }
                         }
                     }
                 }
@@ -218,5 +238,50 @@ public class ReflectiveProcessor extends AbstractProcessor {
             processingEnv.getMessager().printError(
                     "生成 " + configPath + " 失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 注解属性值的 Java 字符串字面量（统一按 String 形式携带，读取侧自行解析）。
+     *
+     * <p>支持 boolean/int/long/float/double/char/String 与枚举常量（取简单名）；
+     * 数组、Class、嵌套注解返回 {@code null}（调用方跳过，不生成条目）——核心侧
+     * 现有消费（{@code @UniqueComponent.scene()}）只需布尔，扩容时在此补类型分支。</p>
+     *
+     * @param value 注解属性值
+     * @return Java 源码中的字符串字面量；不支持的属性类型返回 null
+     */
+    private static String simpleValueLiteral(AnnotationValue value) {
+        Object v = value.getValue();
+        if (v instanceof String s) {
+            return "\"" + escapeJava(s) + "\"";
+        }
+        if (v instanceof Character c) {
+            return "\"" + escapeJava(String.valueOf(c)) + "\"";
+        }
+        if (v instanceof VariableElement enumConstant) {
+            return "\"" + enumConstant.getSimpleName() + "\"";
+        }
+        if (v instanceof Boolean || v instanceof Integer || v instanceof Long
+                || v instanceof Float || v instanceof Double) {
+            return "\"" + v + "\"";
+        }
+        return null;
+    }
+
+    /** Java 字符串字面量转义（生成的源码须能编译） */
+    private static String escapeJava(String raw) {
+        StringBuilder sb = new StringBuilder(raw.length() + 8);
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            switch (ch) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> sb.append(ch);
+            }
+        }
+        return sb.toString();
     }
 }

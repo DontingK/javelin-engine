@@ -3,16 +3,18 @@ package cn.donting.javelin.core.scene;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.assets.AbsAsset;
 import cn.donting.javelin.core.render.Renderable;
-import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.Collider;
+import cn.donting.javelin.core.scene.component.Environment;
 import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.scene.component.Transform;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 游戏场景（Scene 接口的默认实现，Unity 心智）。
@@ -22,6 +24,10 @@ import java.util.List;
  * 摘除（remove 或 setParent 摘到场景外）时递归整树 onDisable → onDestroy 退出场景，
  * 并维护组件注册表（components / cameras / renderables / colliders，增删 O(1)，
  * 不每帧遍历场景树，6.1 节）。</p>
+ *
+ * <p><b>唯一性作用域</b>：标 {@code @UniqueComponent(scene = true)} 的组件类型
+ * 全场景至多一个，入场景的三条路径都校验（{@link #checkSceneUnique} /
+ * {@link #hasSceneComponent}）——不因新增路径不同而漏判。</p>
  *
  * <p>渲染衔接（用户拍板 2026-09-25，接口组件视角）：getCameras/getRenderables
  * 返回组件列表，由引擎层每帧 pull 翻译成 RenderCamera/RenderObject 喂
@@ -50,8 +56,6 @@ public class GameScene extends AbsAsset implements Scene {
     private List<Renderable> renderables = new ArrayList<>();
     private List<Collider> colliders = new ArrayList<>();
     private List<Light> lights = new ArrayList<>();
-    /** 场景级天空盒（批次⑤步骤三 3b——GameScene 首个 Asset 引用字段，序列化走 @guid 分流） */
-    private CubemapImage skybox;
 
     public GameScene() {
     }
@@ -65,14 +69,35 @@ public class GameScene extends AbsAsset implements Scene {
         return name;
     }
 
-    /** 场景级天空盒（多视口共享；null = 未挂，SKYBOX 视口回退纯色清屏） */
-    @Override
-    public CubemapImage getSkybox() {
-        return skybox;
+    // ═══ 场景级查询 ═══
+
+    /**
+     * 场景内是否已有该类型组件——{@code @UniqueComponent(scene = true)} 唯一性的
+     * 前置判定，供 {@link Node#addComponent} 在真正落表前拒绝，避免「组件已进节点、
+     * 注册时才发现重复」的半挂态。
+     */
+    public boolean hasSceneComponent(Class<?> type) {
+        for (int i = 0; i < components.size(); i++) {
+            if (type.isInstance(components.get(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public void setSkybox(CubemapImage skybox) {
-        this.skybox = skybox;
+    /**
+     * 环境设置组件（场景级天空盒等环境参数的宿主；挂在节点上的普通组件，
+     * {@code @UniqueComponent(scene = true)} 全场景至多一个。未创建 = null——
+     * 渲染侧按「无环境」处理，SKYBOX 视口回退纯色清屏）。
+     */
+    @Override
+    public Environment getEnvironment() {
+        for (int i = 0; i < components.size(); i++) {
+            if (components.get(i) instanceof Environment environment) {
+                return environment;
+            }
+        }
+        return null;
     }
 
     /**
@@ -103,6 +128,9 @@ public class GameScene extends AbsAsset implements Scene {
      * 仅对本次新挂入的节点设置归属并注册组件。生命周期<b>不在此触发</b>——
      * 由 {@link #update} 帧驱动状态机统一驱动（挂入后下帧 awake/enable，
      * 2026-10-02 拍板）；已在本场景的节点跳过（幂等，不重复注册）。</p>
+     *
+     * <p>场景域唯一性在<b>改归属前</b>预检一遍（与已入场景组件比 + 本批新挂入组件互比）：
+     * 校验失败整棵拒绝，不留「已设归属、未注册」的半挂态。</p>
      */
     void attachSubtree(Node root) {
         List<Node> subtree = collectSubtree(root);
@@ -110,6 +138,24 @@ public class GameScene extends AbsAsset implements Scene {
             if (node.scene != null && node.scene != this) {
                 throw new IllegalStateException(
                         "节点已归属场景[" + node.scene.getName() + "]: " + node.getName());
+            }
+        }
+        // 场景域唯一性预检（改归属之前整棵判定，失败不留「已设归属未注册」的半挂态）：
+        // 既与已入场景的组件比，也与本批新挂入的组件互比（子树里两处同型也要拒）
+        Set<Class<?>> incomingUniqueTypes = new HashSet<>();
+        for (Node node : subtree) {
+            if (node.scene != null) {
+                continue;
+            }
+            for (Component component : node.components()) {
+                Class<?> type = component.getClass();
+                if (!Component.isSceneUniqueComponent(type)) {
+                    continue;
+                }
+                if (hasSceneComponent(type) || !incomingUniqueTypes.add(type)) {
+                    throw new IllegalStateException("@UniqueComponent(scene = true) 组件全场景至多一个，"
+                            + "已存在: " + type.getName());
+                }
             }
         }
         for (Node node : subtree) {
@@ -295,6 +341,7 @@ public class GameScene extends AbsAsset implements Scene {
     // ═══ 内部 ═══
 
     private void register(Component component) {
+        checkSceneUnique(component);
         components.add(component);
         if (component instanceof Camera) {
             cameras.add((Camera) component);
@@ -307,6 +354,29 @@ public class GameScene extends AbsAsset implements Scene {
         }
         if (component instanceof Light) {
             lights.add((Light) component);
+        }
+    }
+
+    /**
+     * 场景域唯一性校验（{@code @UniqueComponent(scene = true)}，全场景至多一个）。
+     *
+     * <p>末道防线：已挂节点上 addComponent 由 {@link Node#addComponent} 前置挡、
+     * 子树挂入由 {@link #attachSubtree} 预检挡，本方法兜住任何其它注册路径
+     * （显性抛错，不静默去重）。</p>
+     *
+     * @throws IllegalStateException 该类型场景唯一组件已存在
+     */
+    private void checkSceneUnique(Component component) {
+        Class<?> type = component.getClass();
+        if (!Component.isSceneUniqueComponent(type)) {
+            return;
+        }
+        for (int i = 0; i < components.size(); i++) {
+            Component other = components.get(i);
+            if (other != component && type.isInstance(other)) {
+                throw new IllegalStateException("@UniqueComponent(scene = true) 组件全场景至多一个，"
+                        + "已存在: " + type.getName());
+            }
         }
     }
 
@@ -355,8 +425,6 @@ public class GameScene extends AbsAsset implements Scene {
         // instanceof 分流投影，read 时重建（renderables 元素接口未继承 Serializable
         // 走不了列表泛型通道，分流表本身也是派生数据）
         output.write("components", components);
-        // 天空盒 Asset 引用：框架对 Serializable 字段自动 @guid 分流（Texture2D.image 同款）
-        output.write("skybox", skybox);
     }
 
     @Override
@@ -368,7 +436,6 @@ public class GameScene extends AbsAsset implements Scene {
         // 注册表主表回写
         ArrayList<Component> componentList = input.readArrayList("components", Component.class);
         components = componentList != null ? componentList : new ArrayList<>();
-        skybox = input.readSerializable("skybox", CubemapImage.class);
         // cameras/renderables/colliders/lights 分流表重建（register 的 instanceof 口径——元素
         // 实例在导入器列表填充阶段已存在，instanceof 不解引用元素字段、不依赖嵌套
         // populate，时序安全；红线 10 辨析见设计档 §9.3）

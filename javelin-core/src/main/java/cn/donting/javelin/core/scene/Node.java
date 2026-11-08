@@ -103,11 +103,26 @@ public class Node extends ObjectId implements Serializable {
      * <p>生命周期回调统一由 GameScene.update 状态机驱动（已挂入的下帧
      * awake/enable，帧驱动拍板 2026-10-02）。</p>
      *
-     * <p>Transform 由构造时自动持有，不允许重复添加。</p>
+     * <p>Transform 由构造时自动持有，不允许重复添加；标 {@code @UniqueComponent}
+     * 的组件类型每个节点至多一个（重复加即抛，作用域判据见
+     * {@link Component#isUniqueComponent}）。场景域唯一性（scene=true）在节点已入
+     * 场景时也<b>落表前</b>判掉（{@link GameScene#hasSceneComponent}，避免组件已进
+     * 节点、注册时才发现重复）；节点未入场景时由挂入场景的那次注册兜住。</p>
+     *
+     * @throws IllegalStateException Transform 重复添加 / 唯一组件本节点或本场景已存在
      */
     public <T extends Component> T addComponent(Class<T> type) {
         if (type == Transform.class && transform != null) {
             throw new IllegalStateException("Transform 由 Node 构造时自动持有，不可重复添加");
+        }
+        if (Component.isUniqueComponent(type) && getComponent(type) != null) {
+            throw new IllegalStateException("@UniqueComponent 组件每个节点至多一个，本节点已存在: "
+                    + type.getName());
+        }
+        if (scene != null && Component.isSceneUniqueComponent(type)
+                && ((GameScene) scene).hasSceneComponent(type)) {
+            throw new IllegalStateException("@UniqueComponent(scene = true) 组件全场景至多一个，"
+                    + "已存在: " + type.getName());
         }
         T component = ReflectiveFactory.newInstance(type);
         component.setNode(this);

@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；**2026-10-30 验收销账（SceneSerializationTest + 实机，随验收修复文本列表 guid 硬编码 Asset.class 崩——TextImporter 走对象头泛型类、TextExporter 写具体类名，§9 坑点存档）**；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
+> 版本：v0.6（2026-11-08：**唯一性作用域 `@UniqueComponent`**——§2.5 新增（不写参数=每节点至多一个、`scene=true`=全场景至多一个；拒绝在落表前、不留半挂态）；注解值走处理器生成的 AOT 安全通道；首例 `Environment`（**挂节点上的普通组件**，装天空盒——原 `GameScene.skybox` 字段与 `Scene.getSkybox()` 迁入退役）；同日曾落「场景域组件」一版后按用户拍板撤销，沿革见 §2.5；§2.1 草图与 §9.2 数据面随改）；v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；**2026-10-30 验收销账（SceneSerializationTest + 实机，随验收修复文本列表 guid 硬编码 Asset.class 崩——TextImporter 走对象头泛型类、TextExporter 写具体类名，§9 坑点存档）**；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -17,11 +17,12 @@
 ### 2.1 Scene（场景根）
 
 ```java
-class Scene {
+interface Scene {
     String name;
-    List<Node> rootNodes;        // Transform 树根（直接子节点）
-    Environment environment;     // 环境光 / 雾 / 天空盒（P2）
-    Light sun;                   // 主方向光（可空）
+    List<Node> rootNodes;              // Transform 树根（直接子节点）
+    Environment getEnvironment();      // 环境设置组件（节点上的普通组件，全场景唯一）
+    List<Camera> getCameras();         // ↑ 环境光/雾等参数 2026-11-08 起归该组件的字段
+    Light getSun();                    // 主方向光（可空）
 }
 ```
 
@@ -85,7 +86,33 @@ class Transform {
 - **节点层级 = Transform 树**：`node.transform.children` 即子节点的 Transform；
 - **脏标记**：仅当 local 变换变化时重算自身 world 矩阵并向下传播（子树级联更新，不每帧全量重算）。
 
+### 2.5 唯一性作用域 `@UniqueComponent`（2026-11-08 落地）
+
+- **唯一性作用域 = `@UniqueComponent`**：不写参数 = **每节点至多一个**；`scene = true` =
+  **全场景至多一个**（跨节点判，全场景只此一实例）。重复即抛 `IllegalStateException`，
+  **不静默去重**（红线 15）。
+- **拒绝时机 = 落表之前**：`Node.addComponent` 前置判（节点已入场景时查
+  `GameScene.hasSceneComponent`）/ `GameScene.attachSubtree` 对整棵新挂子树预检（与已入场景
+  组件比 + 本批新挂入组件互比，子树里两处同型同样拒）/ `register` 末道兜底——三条路径都覆盖，
+  失败整棵拒绝不留「已设归属未注册」的半挂态。
+- **注解读取走 AOT 安全通道**：native-image 默认不带注解进镜像，core 侧**禁止**
+  `clazz.getAnnotation(...)`；注解名与简单属性值由编译期生成的注册类经
+  `ReflectiveFactory.registerAnnotation` / `registerAnnotationValue` 携带（`ReflectiveProcessor`
+  2026-11-08 扩属性值通道：取自 `getElementValuesWithDefaults`（默认值也有条目），支持
+  boolean/int/long/float/double/char/String 与枚举常量，数组/Class/嵌套注解跳过）。
+  判据入口 `Component.isUniqueComponent` / `isSceneUniqueComponent`。
+- **首例 `Environment`（环境设置组件）**：**挂在节点上的普通组件**（`@UniqueComponent(scene = true)`，
+  v0.1 只装 `skybox`）——层级树可见可选中可删除、节点检查器直接出组件节，与相机/灯完全同构。
+  由编辑器菜单显式创建（hierarchy.create.environment：建名为 `Environment` 的节点挂在**场景根级**
+  ——环境是场景级设置，挂到任意物体下既无意义、父节点被删还会连带消失；已存在则菜单置灰）。
+  原 `GameScene.skybox` 字段 2026-11-08 迁入该组件并退役。
+- **不做**：无「场景域组件」（不挂节点的组件宿主）——环境改为普通节点组件后该类需求消失，
+  不为将来预留空机制（与 §2.1 原草图中的 `Scene.environment` 字段方案一并作废）。
+- **同日沿革**：曾先落一版「场景域组件」（`addSceneComponent` + `sceneComponents` 表 + `sceneOwned`），
+  用户拍板改回「挂节点、当一个普通组件」，该机制当批撤销；`@UniqueComponent` 的作用域语义不受影响。
+
 ## 3. 创建与挂入
+
 
 ### 3.1 两条路径
 
@@ -293,6 +320,7 @@ read 全量恢复，前两者移除——注册表 read 重建后幂等判据自
 | Node | name/active/components（含 Transform）/transform + scene（根 id 引用）+ layer/tags 投影 | ObjectId.id |
 | Camera | 全部用户字段（枚举走 name()；Color/Rect 直传） | — |
 | MeshRenderer | mesh + materials 列表（资产引用，i 位对应子网格 i；2026-10-29 多材质化，旧「material」单键 read 兼容包单元素）+ castShadow/receiveShadow | — |
+| Environment | skybox（cubemap 资产引用，@guid 分流；原 GameScene.skybox 字段 2026-11-08 迁入） | — |
 | GameScene | super（guid/lastModified 内嵌）+ name + rootNodes + components 主表 | cameras/renderables/colliders 分流投影（read 重建） |
 
 read 侧要点：Transform 直接回写 parent/children **不走 setParent**（不触发

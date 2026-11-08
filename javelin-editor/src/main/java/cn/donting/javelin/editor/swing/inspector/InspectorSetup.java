@@ -8,8 +8,8 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  *
  * <p>首批：node（节点组件清单，M4 面板逻辑平移）+ .mat（材质只读，
  * 2026-10-21）+ .shader（着色器只读诊断台，2026-10-25）+ .texture（纹理
- * 可编辑面板，2026-10-25）+ .scene（场景级字段 skybox 编辑，批次⑤步骤三
- * 3c，2026-11-03）。</p>
+ * 可编辑面板，2026-10-25）+ .scene（场景分组 + 环境设置组件节，2026-11-03
+ * 落地、2026-11-08 改组件化渲染）。</p>
  *
  * @author javelin
  * @create 2026/10/21

@@ -1,4 +1,4 @@
-# 编辑器菜单与命令系统设计（v0.19）
+# 编辑器菜单与命令系统设计（v0.20）
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -171,6 +171,15 @@
 > **主光无标志**（2026-10-31 拍板对齐 Unity：引擎自动裁决最强激活方向光，
 > Scene.getSun 单点——创建命令不做任何 isMain 预设，Lighting 档 v0.5）；
 > 菜单三项全解锁（v0.6 灯族子类化后 spot 收集侧已支持——着色消费批次③，菜单项先行）。
+> v0.20（2026-11-08）：**hierarchy.create.environment 环境设置命令落地**——
+> 建名为 `Environment` 的节点并挂 `Environment` 组件（`@UniqueComponent(scene = true)`
+> 全场景至多一个；Engine_Scene_Design §2.5）；**固定挂场景根级**（环境是场景级设置，
+> 挂到任意物体下无意义、父节点被删还会连带消失），创建后自动选中新节点
+> （Unity 语义，节点检查器随即出环境组件节）；只写不发通知（SceneWatchAppState 快照
+> diff 自动发现，CreateCameraMenuCommand 同口径）。
+> **菜单项恒可用**（用户拍板 2026-11-08）：环境已存在/场景未就绪不置灰，而是点击后弹
+> 警告说明原因——置灰会让用户不知道「为什么不让创建」；判定在引擎线程做、弹框 hop 回
+> EDT（i18n 键 hierarchy.create.environment.exists / .noScene）。
 
 ## 1. 背景与约束
 
@@ -442,6 +451,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `hierarchy.create.light.point` | 点光源 | 场景树右键 → 灯光 | 同上（PointLight 组件，节点名 Point Light）；着色消费归批次③——创建后 F3 行 8 可见在册灯数（2026-10-31 随三期批次②落地） |
 | `hierarchy.create.light.spot` | 聚光灯 | 场景树右键 → 灯光 | 同上（SpotLight 组件，节点名 Spot Light，默认 range 10 / 内 30° 外 45°）；收集侧已支持进 lightList，着色消费归批次③（2026-10-31 随灯族子类化一并解锁） |
 | `hierarchy.create.camera` | 摄像机 | 场景树右键 → 摄像机 | 选中节点下创建相机（无选中=根级），重名去重 Main Camera (n)，创建后选中新节点；Unity 口径=节点名 Main Camera、原点无旋转、参数全取 Camera 组件默认（fov 60°/near 0.1/far 1000/depth 0/SOLID_COLOR/全屏），main 标志不预设（引擎 main 消费未落地）；相机入用户 game scene——SCENE 模式编辑器视口不受影响（EditorScene 相机 SceneModel 双模式分流）、GAME 模式渲染用户相机，Camera 序列化已通保存可恢复（2026-10-11 落地，替换占位注册） |
+| `hierarchy.create.environment` | 环境设置 | 场景树右键 → 环境设置 | 建名为 `Environment` 的节点 + `Environment` 组件（场景级天空盒等环境参数宿主）；**固定挂场景根级**（不随选中节点下走——环境是场景级设置，挂物体下无意义且会随父节点删除消失），创建后自动选中新节点；`@UniqueComponent(scene = true)` 全场景唯一——**菜单项恒可用**，已存在/场景未就绪时点击弹警告说明原因（不置灰）；v0.1 只装天空盒，四期环境类参数随批加字段（2026-11-08 落地） |
 | `hierarchy.delete` | 删除 | 场景树右键 | 删除选中子树，无选中置灰，删后清空选中（2026-09-30 落地） |
 | `hierarchy.copy` | 复制 | 场景树右键 | 占位置灰——序列化数据面已通（Engine_Scene_Design §9），剩剪贴板子树导出机制（导出须置根 parent=null），随命令落地 |
 | `hierarchy.paste` | 粘贴 | 场景树右键 | 占位置灰——同上 |

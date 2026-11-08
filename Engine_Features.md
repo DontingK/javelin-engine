@@ -53,7 +53,8 @@
 | Node.userData 运行态挂载（不入序列化） | ✅ | — 随 Gizmo 轴判别 |
 | 场景级 raycast（Collider 注册表查询，L1——Physics 静态门面 + RaycastHit + Scene.getColliders 投影） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，PhysicsTest 14 用例；Engine_Collision_Design §10） |
 | **灯族组件（子类化拍板 2026-10-31）+ lights 注册表 + getSun 主光自动裁决**（三期批次②，2026-10-31 落地：`Light` 抽象基类（color/intensity/castShadow）+ `DirectionalLight`/`PointLight`(+range)/`SpotLight`(+range+锥角)——每型只显自己的字段、**不支持切换类型**（Collider 族同构）+ .scene 通则序列化（type 不落盘=子类身份）+ 双语包键/light 图标；GameScene lights 分流与 read 重建；**getSun=最强激活方向光自动裁决（对齐 Unity 拍板，isMain 标志推翻删除）**，EditorScene 用户场景口径透传；**菜单解锁**——hierarchy.create.light 三命令（directional/point/spot），Editor_Menu_Design v0.19） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31——菜单挂灯/检查器编辑/主光自动裁决/F3 灯数；单测全绿；随批排障:检查器 isX 字段命名撞闸门、@InsHeader 子类显式贴法契约立定） |
-| environment / sun | ⬜ 三期（sun 解析已落见上行；environment 环境光升级归 GI 期） | — |
+| **唯一性作用域 `@UniqueComponent`**（2026-11-08 落地：不写参数=每节点至多一个、`scene=true`=全场景至多一个（跨节点判）；拒绝在落表前——`Node.addComponent` 前置判 / `GameScene.attachSubtree` 整棵子树预检（含批内互比）/ `register` 末道兜底，失败不留半挂态、不静默去重；注解读取走处理器生成的 AOT 安全通道 `ReflectiveFactory.registerAnnotationValue`（core 禁 `getAnnotation`）；首例 `Environment`，Engine_Scene_Design §2.5） | ✅（2026-11-08） | ✅ 用户实机验收（2026-11-08——环境组件创建/节点检查器编辑/天空盒生效；随验 bug 修复：禁用环境组件即摘天空盒，Pitfalls #34）；单测 SceneComponentTest 未跑 |
+| environment / sun | ✅ 组件 v0.1（2026-11-08：`Environment` = 挂节点上的普通组件（场景唯一），装天空盒；环境光升级归四期 GI 期）/ sun 解析已落见上行 | ✅ 用户实机验收（2026-11-08，同上） |
 
 ### 2.3 相机（render.Camera）
 
@@ -64,7 +65,7 @@
 | ClearFlags（SOLID_COLOR / DEPTH_ONLY / DONT_CLEAR / SKYBOX——默认 SKYBOX 对齐 Unity，文案「清屏模式」对齐 HDRP） | ✅ | ✅ 同上 + 批次⑤实机 |
 | Camera.screenToRay（Unity ScreenPointToRay 口径、viewportRect 归一化；**简式尺寸自取=引擎静态实例渲染表面**，显式尺寸重载保留） | ✅（含 2026-10-28 简式） | ✅ CameraTest 单测（2026-10-06，显式重载；简式随运行验收） |
 | 引擎壳鼠标射线 mouseRay（Input 鼠标坐标 + screenToRay 尺寸自取 = Unity Camera.main.ScreenPointToRay(Input.mousePosition) 形态；相机→射线→Physics.raycast 一行链） | ✅（2026-10-28） | ✅ 用户实测（2026-10-31，运行时） |
-| ClearFlags Skybox 项（三期批次⑤，cubemap+纯视觉，Engine_Skybox_Design v0.4——**三步全部验收关账**：步骤一 RHI cubemap 底座 ✅ 2026-11-02（CUBE_COMPATIBLE 旗标 + textureCube 构造 + TextureRegion.layerCount/cubeFaces 六层整拷 + CubemapTest 读回比对通过；坑 Pitfalls #30）；步骤二 SkyboxPass ✅ 2026-11-02（ClearFlags.SKYBOX 枚举+i18n、SkyboxPass 覆盖制[skybox.vert/.frag 内置源+36顶点VB+z=w+LEqual/ZWrite Off]、管线 3.5 位、TestAssetManager、SkyboxDemo 五验收点；坑 Pitfalls #31）；步骤三资产面 ✅ 2026-11-07 用户实机全链——3a 数据面（CubemapImage 像素资产 + EquirectConverter[RGBE 解码 rgbe.c 原文口径 + 双线性转六面 u 公式 three.js 原文核对；纬度归一化排障修 Pitfalls #32] + CubemapImporter[.hdr/.pano] + 单测）+ 3b 场景接线（GameScene.skybox 场景级 Asset 引用首例 + RS 资产重载[所有权区分] + 桥身份门控推送）+ 3c 场景根行检查器（.scene 键 provider 首例 + skybox 行活实例直写）；**随验六连排障全修**（SKYBOX 默认值/清屏拖影撤 LOAD 赌注/sRGB 量化偏暗/vs 矩阵复合黑区/采样器 cubeLinear CLAMP_TO_EDGE 棱/转换器纬度归一化角部——Skybox 档 §1.3~§1.5）；cubemap 六面缩略面板后置 | ✅ 全部（2026-11-02 步骤一/二 + 2026-11-07 步骤三用户实机：.hdr 拖入导入/场景根行换绑/视口即时换背景/转动无痕） |
+| ClearFlags Skybox 项（三期批次⑤，cubemap+纯视觉，Engine_Skybox_Design v0.5——**三步全部验收关账**：步骤一 RHI cubemap 底座 ✅ 2026-11-02（CUBE_COMPATIBLE 旗标 + textureCube 构造 + TextureRegion.layerCount/cubeFaces 六层整拷 + CubemapTest 读回比对通过；坑 Pitfalls #30）；步骤二 SkyboxPass ✅ 2026-11-02（ClearFlags.SKYBOX 枚举+i18n、SkyboxPass 覆盖制[skybox.vert/.frag 内置源+36顶点VB+z=w+LEqual/ZWrite Off]、管线 3.5 位、TestAssetManager、SkyboxDemo 五验收点；坑 Pitfalls #31）；步骤三资产面 ✅ 2026-11-07 用户实机全链——3a 数据面（CubemapImage 像素资产 + EquirectConverter[RGBE 解码 rgbe.c 原文口径 + 双线性转六面 u 公式 three.js 原文核对；纬度归一化排障修 Pitfalls #32] + CubemapImporter[.hdr/.pano] + 单测）+ 3b 场景接线（GameScene.skybox 场景级 Asset 引用首例 + RS 资产重载[所有权区分] + 桥身份门控推送）+ 3c 场景根行检查器（.scene 键 provider 首例 + skybox 行活实例直写）；**随验六连排障全修**（SKYBOX 默认值/清屏拖影撤 LOAD 赌注/sRGB 量化偏暗/vs 矩阵复合黑区/采样器 cubeLinear CLAMP_TO_EDGE 棱/转换器纬度归一化角部——Skybox 档 §1.3~§1.5）；cubemap 六面缩略面板后置。**v0.5（2026-11-08）：载体迁入 `Environment.skybox`（挂节点上的普通组件、全场景唯一），原 `GameScene.skybox` 字段与 `Scene.getSkybox()` 退役，桥改读 `scene.getEnvironment()`，编辑入口=节点检查器（`.scene` 检查器撤出环境）——旧 .scene 的 skybox 键不再读取**） | ✅ 全部（2026-11-02 步骤一/二 + 2026-11-07 步骤三用户实机：.hdr 拖入导入/场景根行换绑/视口即时换背景/转动无痕）；✅ 2026-11-08 载体迁移用户实机验收（环境节点/检查器编辑/禁用即摘——随验 bug 修复 Pitfalls #34） |
 | main 相机语义消费（Scene.getMainCamera——Unity Camera.main 口径：首个激活 isMain，无则 null；mouseRay 首个消费方） | ✅（2026-10-28） | ✅ 单测全绿（2026-10-30，GameSceneTest） |
 
 ### 2.4 渲染系统与管线（render）
@@ -168,6 +169,7 @@
 | file.save / Ctrl+S | ✅ | ✅ 用户实测（2026-10-04） |
 | 层级右键域（empty / delete / plane / Unity 结构重排占位） | ✅ | ✅ 随场景树批次（2026-10-04） |
 | hierarchy.create.camera（v0.8） | ✅ | ✅ 用户实测（2026-10-23） |
+| hierarchy.create.environment 环境设置命令（v0.20，建 `Environment` 节点 + `Environment` 组件（场景唯一），固定挂场景根级、创建后选中；**菜单项恒可用**——已存在/场景未就绪点击弹警告说明原因，不置灰） | ✅（2026-11-08） | ✅ 用户实机验收（2026-11-08） |
 | hierarchy.create.cube（v0.14，内置 box.smesh + CreateBoxMenuCommand） | ✅ | ✅ 用户实测（2026-10-24） |
 | hierarchy.create.sphere/.capsule/.cylinder 原始体三件套（v0.15，内置三份 .smesh；生成脚本一次性工具不入库） | ✅ | ✅ 用户实测（2026-10-25） |
 | project.create.shader 着色器创建命令（v0.16，NewShader.shader 极简前向模板；用户文件不写 guid 头——guid 真值归伴生 .meta 随机分配，配套 MetaManager 缺头 .shader/.smesh 注入收窄为随机 guid） | ✅ 用户实测（2026-10-25） |
@@ -209,6 +211,7 @@
 | v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + 编辑载体=文本私有实例拍板；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | v0.13 GUID_ASSET_LIST 资产列表通道（MeshRenderer.materials 多材质行：行数跟随子网格数、fieldName 编码序号 materials[i] + applyAssetList 整列表 setter 回写 + 列表 setter 查找放宽 + 资产行提交后补拉重建行数；行控件/回显/回写全复用 GUID_ASSET 面） | ✅（2026-10-29） | ✅ 用户实测（2026-10-30，随多材质渲染实机） |
 | v0.15 旋转行跳动根治（用户报「调整旋转时跳动、另两个值也变动」；根因=原 XYZ 欧拉规范域 Y∈(-90°,90°) 越界后帧级回显的等价翻转三元组覆盖用户显示值、与提交互为驱动逐帧振荡）：欧拉口径切 Unity 同款 Z-X-Y（RotationMath 换算单点）+ 面板级自旋回声抑制（近期写入环 + 事件原始四元数同旋转判定；随用户实机复验追修判据归一化——首版点积直比 1 误判否致抑制失灵「x 越 -90」）；回归断言 RotationMathTest | ✅（2026-11-07） | ✅ 用户实测（2026-11-07 复验通过——俯仰越 ±90° 拖动/键入不再跳动、另两值不再变；随验两轮追修：口径切换+回声抑制、判定器归一化） |
+| v0.16 .scene 检查器收口（2026-11-08：环境设置改挂节点后，场景根行不再显示环境——原 skybox 行与随后的环境组件节均撤出，只留场景分组文件行 + 非当前场景只读态；编辑入口=节点检查器） | ✅（2026-11-08） | ✅ 用户实机验收（2026-11-08） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 

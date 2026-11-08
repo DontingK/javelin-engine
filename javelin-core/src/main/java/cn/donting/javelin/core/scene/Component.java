@@ -2,6 +2,8 @@ package cn.donting.javelin.core.scene;
 
 import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.obj.ObjectId;
+import cn.donting.javelin.core.reflective.ReflectiveFactory;
+import cn.donting.javelin.core.scene.component.annotation.UniqueComponent;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
@@ -12,6 +14,14 @@ import cn.donting.javelin.core.serialize.Serializable;
  * <p>{@link Node} 是容器，Component 是挂在节点上的行为/数据。用户组件继承本类
  * 覆写生命周期回调，且组件类必须标 {@code @Reflective}（公开无参构造），
  * 由 ReflectiveFactory 零反射创建（GraalVM AOT，禁反射）。</p>
+ *
+ * <p>组件挂载在 {@link Node} 上；组件类必须标 {@code @Reflective}（公开无参构造），
+ * 由 ReflectiveFactory 零反射创建（GraalVM AOT，禁反射）。</p>
+ *
+ * <p>唯一性作用域由 {@code @UniqueComponent} 声明——不写参数=每节点至多一个，
+ * {@code scene = true}=全场景至多一个（后者跨节点判，见
+ * {@link GameScene#hasSceneComponent}）。本类提供静态判据入口
+ * {@link #isUniqueComponent}/{@link #isSceneUniqueComponent}。</p>
  *
  * <p>生命周期回调由 GameScene.update 帧驱动状态机统一驱动（挂入/启停下帧
  * 生效，见场景设计文档第 4 节）；onDestroy 为摘出场景时的唯一即时触发点
@@ -47,6 +57,23 @@ public abstract class Component extends ObjectId implements Serializable {
      */
     void setNode(Node node) {
         this.node = node;
+    }
+
+    /**
+     * 是否标注 {@code @UniqueComponent}（唯一性判据入口，AOT 安全零反射——
+     * 注解名与属性值均由编译期生成的注册类携带）。
+     */
+    public static boolean isUniqueComponent(Class<?> type) {
+        return ReflectiveFactory.isAnnotation(type, UniqueComponent.class);
+    }
+
+    /**
+     * 唯一性作用域是否整场景（{@code @UniqueComponent(scene = true)}，全场景至多一个）；
+     * 否则为节点域（{@code @UniqueComponent}，每节点至多一个）。
+     */
+    public static boolean isSceneUniqueComponent(Class<?> type) {
+        return isUniqueComponent(type)
+                && ReflectiveFactory.getAnnotationBoolean(type, UniqueComponent.class, "scene");
     }
 
     public boolean isEnabled() {

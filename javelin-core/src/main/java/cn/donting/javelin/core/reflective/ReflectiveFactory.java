@@ -81,6 +81,18 @@ public class ReflectiveFactory {
      */
     private static final Map<String, Set<String>> ANNOTATION_MAP = new ConcurrentHashMap<>();
 
+    /**
+     * 运行时注解的简单属性值：类名 → 注解类名 → 属性名 → 属性值（字符串形式）。
+     *
+     * <p>同由生成的注册类填充，{@link #getAnnotationValue} 读取；属性值取自
+     * {@code getElementValuesWithDefaults}，注解未显式写的属性也有默认值条目。
+     * native-image 默认不把注解带进镜像，本表是 core 侧读注解值的唯一 AOT 安全
+     * 通道（禁止 {@code clazz.getAnnotation(...)}）。支持 boolean/int/long/float/
+     * double/char/String 与枚举常量，数组/Class/嵌套注解不入表。</p>
+     */
+    private static final Map<String, Map<String, Map<String, String>>> ANNOTATION_VALUE_MAP =
+            new ConcurrentHashMap<>();
+
     static {
         try {
             Class.forName("cn.donting.javelin.core.reflective.ReflectiveRegistration");
@@ -124,6 +136,24 @@ public class ReflectiveFactory {
     public static void registerAnnotation(String className, String annotationClassName) {
         ANNOTATION_MAP.computeIfAbsent(className, k -> ConcurrentHashMap.newKeySet())
                 .add(annotationClassName);
+    }
+
+    /**
+     * 注册运行时注解的简单属性值。
+     *
+     * <p>由编译时生成的 {@code ReflectiveRegistration} 自动调用，不建议手动调用。</p>
+     *
+     * @param className            类全限定名
+     * @param annotationClassName  注解类全限定名
+     * @param attribute            属性名
+     * @param value                属性值（字符串形式，读取侧自行解析）
+     */
+    public static void registerAnnotationValue(String className, String annotationClassName,
+                                               String attribute, String value) {
+        ANNOTATION_VALUE_MAP
+                .computeIfAbsent(className, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(annotationClassName, k -> new ConcurrentHashMap<>())
+                .put(attribute, value);
     }
 
     /**
@@ -214,5 +244,64 @@ public class ReflectiveFactory {
         }
         Set<String> annotations = ANNOTATION_MAP.get(clazz.getName());
         return annotations != null && annotations.contains(annotationClass.getName());
+    }
+
+    /**
+     * 读已注册类上指定 RUNTIME 注解的简单属性值（字符串形式）。
+     *
+     * <p>零反射、AOT 安全；类未注册、注解未注册或属性不在表内（含数组/Class/
+     * 嵌套注解这类不入表的类型）一律返回 {@code null}。</p>
+     *
+     * @param clazz            目标类
+     * @param annotationClass  注解类
+     * @param attribute        属性名
+     * @return 属性值字符串；无则 null
+     */
+    public static String getAnnotationValue(Class<?> clazz, Class<? extends Annotation> annotationClass,
+                                            String attribute) {
+        if (clazz == null || annotationClass == null || attribute == null) {
+            return null;
+        }
+        Map<String, Map<String, String>> byAnnotation = ANNOTATION_VALUE_MAP.get(clazz.getName());
+        if (byAnnotation == null) {
+            return null;
+        }
+        Map<String, String> values = byAnnotation.get(annotationClass.getName());
+        return values == null ? null : values.get(attribute);
+    }
+
+    /**
+     * 读布尔型注解属性（{@link #getAnnotationValue} 的解析快捷口）。
+     *
+     * @param clazz            目标类
+     * @param annotationClass  注解类
+     * @param attribute        属性名
+     * @return 属性值；缺失/不可解析 → false（口径同 {@link Boolean#parseBoolean}）
+     */
+    public static boolean getAnnotationBoolean(Class<?> clazz, Class<? extends Annotation> annotationClass,
+                                               String attribute) {
+        return Boolean.parseBoolean(getAnnotationValue(clazz, annotationClass, attribute));
+    }
+
+    /**
+     * 读整型注解属性（{@link #getAnnotationValue} 的解析快捷口）。
+     *
+     * @param clazz            目标类
+     * @param annotationClass  注解类
+     * @param attribute        属性名
+     * @param defaultValue     缺失/不可解析时的返回值
+     * @return 属性值；缺失/不可解析 → defaultValue
+     */
+    public static int getAnnotationInt(Class<?> clazz, Class<? extends Annotation> annotationClass,
+                                       String attribute, int defaultValue) {
+        String value = getAnnotationValue(clazz, annotationClass, attribute);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 }

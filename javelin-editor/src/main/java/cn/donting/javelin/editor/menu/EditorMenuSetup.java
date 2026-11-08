@@ -8,6 +8,7 @@ import cn.donting.javelin.editor.menu.hierarchy.CreateCapsuleMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateCameraMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateCylinderMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateEmptyMenuCommand;
+import cn.donting.javelin.editor.menu.hierarchy.CreateEnvironmentMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateLightMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreatePlaneMenuCommand;
 import cn.donting.javelin.editor.menu.hierarchy.CreateSphereMenuCommand;
@@ -81,6 +82,8 @@ public final class EditorMenuSetup {
         context.registerCommand(new CreateCapsuleMenuCommand());
         context.registerCommand(new CreateCylinderMenuCommand());
         context.registerCommand(new CreateCameraMenuCommand());
+        // 环境设置 = 普通节点 + Environment 组件（场景唯一；菜单恒可用，已存在弹警告，2026-11-08）
+        context.registerCommand(new CreateEnvironmentMenuCommand());
         context.registerCommand(new DeleteMenuCommand());
         // Unity 壳占位（未实现置灰，落地时替换为实类注册行）：剪贴板三项阻塞于
         // .scene 序列化（剪贴板格式）；3D 对象其余项/粒子阻塞于对应组件
@@ -159,7 +162,8 @@ public final class EditorMenuSetup {
                         .item("hierarchy.create.light.point")
                         .item("hierarchy.create.light.spot"))
                 .item("hierarchy.create.particle")
-                .item("hierarchy.create.camera");
+                .item("hierarchy.create.camera")
+                .item("hierarchy.create.environment");
 
         MenuRegistry.menu("ctx.project", EditorLang.key("ctx.project"))
                 .item("project.open")

@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- 环境设置：地平线球（天空+地面）+ 太阳——场景级环境参数（天空盒等）的记号 -->
+<circle cx="8" cy="8" r="6.5" fill="#BFE3FA"/>
+<path d="M1.612 9.2A6.5 6.5 0 0 0 14.388 9.2Z" fill="#A5D6A7"/>
+<circle cx="8" cy="8" r="6.5" stroke="#37474F"/>
+<circle cx="10.6" cy="5.6" r="1.7" fill="#FFD75E" stroke="#E0A32E"/>
+</svg>

@@ -1,8 +1,8 @@
 # 引擎天空盒设计（Engine Skybox Design）
 
-> 版本：v0.4
-> 日期：2026-11-07
-> 说明：三期批次⑤专档——视口天空盒的 cubemap 底座、SkyboxPass、资产与场景接线。**三步全部验收关账（一/二 2026-11-02、三 2026-11-07 用户实机全链）**。
+> 版本：v0.5
+> 日期：2026-11-08
+> 说明：三期批次⑤专档——视口天空盒的 cubemap 底座、SkyboxPass、资产与场景接线。**三步全部验收关账（一/二 2026-11-02、三 2026-11-07 用户实机全链）**。**v0.5（2026-11-08）：天空盒归属迁入环境设置组件（`Environment.skybox`，挂节点上的普通组件、全场景唯一）——原 `GameScene.skybox` 字段与 `Scene.getSkybox()` 退役，§5 接线/编辑器两段随改；编辑入口=节点检查器（`.scene` 检查器不再显示环境）；旧 .scene 的 skybox 键不再读取；随用户实测 bug 修复——**禁用环境组件（或停用其节点）即摘天空盒**（桥按 isActiveAndEnabled 过滤）**。
 > 职责边界：
 > - 本文管**天空盒的视觉通路**（cubemap 资产 → 场景引用 → SkyboxPass 绘制 → ClearFlags 兑现）；
 > - 管线档管 Pass 编排（SkyboxPass 插入位置 3.5 位，RenderPipeline_Design §3）；
@@ -84,8 +84,8 @@
 - **像素资产类 `CubemapImage extends AbsAsset`**（core render/texture 包，Image 同族单层像素资产）：`faceSize / format（R8G8B8A8_UNORM 起步）/ pixels`（byte[] 六面×faceSize²×4 紧密打包，layer 序 +X/-X/+Y/-Y/+Z/-Z 同 SkyboxDemo/CubemapTest）；Library 二进制产物（Image 同款，非文本协议）；红线 9 字段不 final；
 - **`EquirectConverter` 纯逻辑转换**（editor importer 包，`SpvShaderImporter.buildSpvShader` 先例同构——静态方法供单测共用）：每面每像素 → **单位**面方向向量（GL 立方图标准，**与 SkyboxPass fs 采样方向同一约定**；必须归一化——纬度 asin 吃单位向量、经度 atan2 尺度不变，2026-11-07 修）→ 球面 → equirect (u,v) → 源图手写双线性（四邻加权、边缘 clamp；**横向 u=0/1 未跨接缝回绕**，-X 面中线留亚像素断线，改 wrap 要动既有断言，随批待定，core 无现成 CPU 采样器需自写）。单测：轴向 u/v 渐变斜坡源 faceSize=1 精确回采 + RGBE 解码往返。**约定核对存档（2026-11-03 原文核对，均先于单测互验）**：① u 公式 = `atan2(dir.z, dir.x)/(2π)+0.5`（赤道中心 u=0.5 ↔ +X、+Z=0.75、-Z=0.25；v 顶行=+Y 天空）——three.js `EquirectUV.js` 原文（GitHub 浅克隆法），Poly Haven 预览同源，首版误写 `atan2(x,-z)` 差 90° 已修；② 面内方向表 = GL 规范 cubemap face 选择表（Table 8.19）反推；③ RGBE 解码 = Cornell `rgbe.c` 原文口径：RLE 标记 `02 02 宽度大端`、每通道独立 RLE（count>128=重复 count-128 次、count==128 归字面、0 非法）、flat 无标记、换算无偏移 `v·2^(e-136)`（[0,1] 往返精确，Ward +0.5 分叉不取）、`-Y +X`=行主序顶到底；④ v0.x 量化 = ~~线性 0..1 截断（>1 截白；HDR 源的天空漫射值线性入 8bit 会偏暗属已知取舍，视觉不适配归四期环境光批 float 产物一并解决）~~ **已修（2026-11-06 用户实测偏暗排障）：量化改线性→sRGB 编码（标准分段传递函数）后入 8bit——引擎显示链是伽马字节直通（swapchain 非 sRGB 格式、png/jpg 像素本就伽马域存储），线性直存 0.5→128 显示整体发暗，编码后 0.5→188 与 png 口径一致；>1 高亮仍截白、暗部线性段 12.92 保精度。HDR→LDR 本身有高亮截白信息损失（真解归四期 float 产物）不变**；⑤ bgfx 全库无 equirect 转换（IBL 示例用 cmft 预加工 lightprobe，09/18 的 skybox 着色器仅 textureCube 采样与本引擎 SkyboxPass 同形）——转换约定定锚只能取 three.js；
 - **`CubemapImporter`**（`.hdr`/`.pano` 双后缀）：RGBE 解码 / ImageIO 解码 → 转六面 faceSize=512 → guid 回写（meta 真值）→ BinaryExporter 落 Library；坏源显性报错（红线 15）；FileType/图标/双语包键随批；index 随 meta 自动收录零改装载链；
-- **场景接线**（3b 落地 2026-11-03，步骤二欠账兑现）：`GameScene.skybox: CubemapImage` 字段 + write/read 一行（@guid 分流通则，**场景级 Asset 引用首个先例**）+ `Scene.getSkybox()` 接口（EditorScene 委托用户场景口径）；渲染侧 = `TextureUpload.uploadCubemap`（Texture2D 懒上传同族）+ `RenderingSystem.setSkybox(CubemapImage)` 资产重载（引用身份幂等、变化即懒上传 textureCube 单命令整拷、旧图两帧退役走 SkyboxPass 既有纹理换代重建路径；**所有权区分**：资产产物归 RS 持有释放、测试形态直灌 Texture 归调用方——close/退役按 skyboxAsset 判）+ `SceneRenderBridge.sync` 每帧身份门控推送（场景未挂 null 不动 rs，测试直灌不遭清；clear 复位摘除）；资产热重载不入（范围仍只 shader）；
-- **编辑器**（3c 落地 2026-11-03）：Scene.skybox 编辑行挂**场景根行检查器**（新开 `.scene` 键 SceneInspectorProvider——**场景级字段编辑首个先例**，AssetInput 收 CubemapImage/.hdr+.pano）；**编辑载体 = 当前打开的 EditorScene.gameScene 活实例直写 + markDirty**（区别 .texture/.mat 文本私有实例——改活实例桥下帧推送即视口换背景零重导链；持久化走用户 file.save 既有保存链），非当前打开场景只读态；cubemap 资产六面缩略面板后置（v0.x 只读行够用，随需要再扩）；多相机统一读场景级引用（per-camera 天空盒后置照旧）。
+- **场景接线**（3b 落地 2026-11-03，步骤二欠账兑现；**2026-11-08 载体迁移**：字段从 `GameScene.skybox` 迁入**环境设置组件** `Environment.skybox`（挂在层级树节点上的普通组件，`@UniqueComponent(scene = true)` 全场景至多一个，见 Engine_Scene_Design §2.5），`Scene.getSkybox()` 接口退役改 `getEnvironment()`——引用语义不变，只是宿主从场景字段改为组件字段，桥侧改读 `scene.getEnvironment()?.getSkybox()`）：write/read（@guid 分流通则）+ 渲染侧 = `TextureUpload.uploadCubemap`（Texture2D 懒上传同族）+ `RenderingSystem.setSkybox(CubemapImage)` 资产重载（引用身份幂等、变化即懒上传 textureCube 单命令整拷、旧图两帧退役走 SkyboxPass 既有纹理换代重建路径；**所有权区分**：资产产物归 RS 持有释放、测试形态直灌 Texture 归调用方——close/退役按 skyboxAsset 判）+ `SceneRenderBridge.sync` 每帧身份门控推送（无环境组件/未挂 skybox 时 null 不动 rs，测试直灌不遭清；clear 复位摘除；**环境组件或所在节点未激活 = 视同无 skybox**——2026-11-08 随 bug 修复补：桥按 `isActiveAndEnabled` 过滤，与相机/可渲染/灯光同口径，禁用环境组件即摘天空盒、视口回退纯色清屏）；资产热重载不入（范围仍只 shader）；
+- **编辑器**（3c 落地 2026-11-03；**2026-11-08 改节点组件形态**）：环境设置由菜单显式创建（hierarchy.create.environment：建名为 `Environment` 的节点挂在**场景根级**并选中，层级树可见可删；已存在则菜单置灰）；编辑入口 = **节点检查器**（选中该节点即出环境组件节——`ComponentSection` 同一套字段行/回显/回写，与相机/灯完全同构，编辑载体=内存活实例直写）；`.scene` 检查器（场景根行）**不再显示环境**（2026-11-08 用户拍板「场景不显示」，原手写 skybox 行与其后的环境节均撤出，只留场景分组文件行）；cubemap 资产六面缩略面板后置（v0.x 只读行够用，随需要再扩）；多相机统一读环境组件的同一 skybox（per-camera 天空盒后置照旧）。**旧 .scene 影响**：原 `skybox` 键不再读取，旧档天空盒需在编辑器重建环境并重挂（字段退役的既定代价，2026-11-08 拍板）。
 
 ## 6. 与管线的咬合
 

@@ -13,6 +13,7 @@ import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.DirectionalLight;
+import cn.donting.javelin.core.scene.component.Environment;
 import cn.donting.javelin.core.scene.component.Light;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
 import cn.donting.javelin.core.scene.component.PointLight;
@@ -79,9 +80,15 @@ public final class SceneRenderBridge {
      * @param backbuffer 本帧终点（视口横向均分的尺寸来源）
      */
     public void sync(Scene scene, RenderingSystem rs, Texture backbuffer) {
-        // 天空盒资产推送（批次⑤步骤三 3b）：按引用身份门控——变化时经 rs 资产重载
-        // 懒上传/摘除（幂等，rs 内部判等）；场景未挂时不动 rs（测试形态直灌不遭清）
-        CubemapImage sceneSkybox = scene.getSkybox();
+        // 天空盒资产推送（批次⑤步骤三 3b；2026-11-08 载体改环境设置组件——原
+        // Scene.skybox 字段退役）：按引用身份门控——变化时经 rs 资产重载懒上传/摘除
+        // （幂等，rs 内部判等）；未创建环境组件/环境组件未激活 = 无 skybox（null 与初值
+        // 相同故不动 rs，测试形态直灌不遭清）。激活过滤与相机/可渲染/灯光同口径
+        // （isActiveAndEnabled：组件 enabled + 节点层级激活，Unity 口径）——禁用环境
+        // 组件即摘天空盒，视口回退纯色清屏
+        Environment environment = scene.getEnvironment();
+        CubemapImage sceneSkybox = environment != null && environment.isActiveAndEnabled()
+                ? environment.getSkybox() : null;
         if (sceneSkybox != lastSkybox) {
             lastSkybox = sceneSkybox;
             rs.setSkybox(sceneSkybox);
