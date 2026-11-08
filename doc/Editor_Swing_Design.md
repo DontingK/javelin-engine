@@ -2,7 +2,7 @@
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
 > **v0.2（2026-11-08）**：新增 §4.3 耗时操作指示器——后台耗时操作「处理中」浮层（类与
-> 双语语言包已落，调用点未接、未实机验收）。
+> 双语语言包已落；2026-11-08 用户确认验收，调用点接入为后续动作）。
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson
 > 2026-10-18 整体清退，engine-editor-web 前端工程一并删除——引擎-编辑器全链路纯
 > JVM、无 CEF 进程与 Vite dev server 依赖（2026-10-23 全链用户验收，见 §9 M6 行注）。
@@ -112,7 +112,7 @@ pollEvents/attachInputSink/renderSurface/isResized/acknowledgeResize/width/heigh
 - 线程模型不变（Editor_Design §8）：EDT=UI，引擎主线程=帧循环，桥线程池随面板迁移逐步退役。
   新增口径：**Swing 面板 ↔ 引擎状态互访规则**（先例收口，见 §7.3）。
 
-### 4.3 耗时操作指示器（TimeConsumingDialog，2026-11-08 落地）
+### 4.3 耗时操作指示器（TimeConsumingDialog，2026-11-08 落地并验收）
 
 后台耗时操作（资产扫描 / 工程加载 / 打包构建等）期间给用户一个「忙」的反馈——否则界面
 卡住与进程死掉难以分辨。`swing/dialog/TimeConsumingDialog`：调用侧以 `start()/end()`
@@ -129,8 +129,8 @@ pollEvents/attachInputSink/renderSurface/isResized/acknowledgeResize/width/heigh
   故 EDT 侧无脑配对调用安全。
 - **指示器形态**：单实例、不可手动关（留关闭按钮会「关掉又弹」循环）；文案走 EditorLang
   双语包（`time.consuming.title/message`，2026-11-08 随批）。
-- **状态**：类与语言包已落（2026-11-08），**调用点未接**——首批候选 = `AssetReloadService`
-  焦点扫描、`ProjectLoadingFrame` 引擎引导链、`PackDialog` 构建线程。
+- **状态**：类与语言包已落（2026-11-08），**2026-11-08 用户确认验收**；调用点接入为后续动作
+  ——首批候选 = `AssetReloadService` 焦点扫描、`ProjectLoadingFrame` 引擎引导链、`PackDialog` 构建线程。
 
 ## 5. Dock 框架设计
 

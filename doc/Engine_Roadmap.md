@@ -369,12 +369,12 @@ RotationMathTest；详见 Inspector_Design v0.15。
 零变化、Library 旧产物免重导**。效果 = 天空盒加载 5448ms→3ms（用户实测）；同族受益 = Image
 像素 / SPIR-V / .scene 内字节数组。坑点 Pitfalls #33、序列化坑点存档 = 材质档 §3.2 第 4 条。
 
-落地（2026-11-08，调用点未接）：**耗时操作指示器**（Editor_Swing_Design §4.3 v0.2）——
+落地（2026-11-08，用户确认验收）：**耗时操作指示器**（Editor_Swing_Design §4.3 v0.2）——
 `swing/dialog/TimeConsumingDialog` 静态 `start()/end()/wrap()` 标记后台耗时操作，超 1 s 弹
 无边框非模态「处理中」指示器（线程名 + 已用时，每 200 ms 刷新），标记清零自动关；**EDT 标记
 跳过**（弹框 invokeLater 与耗时代码同排在 EDT 上，卡住时框画不出来）、监视线程按需存活、同
-线程嵌套按最外层计时；双语键 `time.consuming.*` 随批。**待办 = 接调用点**（焦点扫描 / 工程
-加载链 / 打包构建线程三候选）+ 实机验收。
+线程嵌套按最外层计时；双语键 `time.consuming.*` 随批。**遗留 = 接调用点**（焦点扫描 / 工程
+加载链 / 打包构建线程三候选）为后续动作。
 
 修复批次（2026-11-08，用户实测验收通过）：**导入期引用解析壳管理器（ShellAssetManager）——首启
 依赖产物竞态修复**——用户报首启 `.texture` 导入必现 `FileNotFoundException: Library/<image guid>.asset`。
@@ -429,7 +429,7 @@ Editor_Design §6.3 / 贴图档 v0.4 / 材质档 v0.7。
 | 一期 | 阶段① 引擎接线 / 阶段② 场景系统 / 阶段③ 渲染系统 | ✅ 完成 |
 | 一期 | 阶段④ 材质系统——**桥接半边**（§4 渲染侧三环节 + Shader/Material 数据模型） | ✅ 完成 |
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
-| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** + **Mesh 子网格 + MeshRenderer 多材质 + 检查器 GUID_ASSET_LIST 多材质行✅（2026-10-29 落地、2026-10-30 用户验收，Engine_Assets_Design §2.9/Engine_Scene_Design §5.1 v0.5/Inspector_Design v0.13）** + **变换 Gizmo 旋转/缩放工具 + 几何程序化（`GizmoMeshes` 照搬 Babylon 规格、`axisY.smesh` 退役、缩放恒局部）+ 工具栏两钮解禁 + 柄拾取改 CPU 碰撞体射线（Engine_Picking_Design v0.2 范围收窄）（2026-11-08 落地、当日用户实测验收通过，Editor_Design §10）** |
+| 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统✅ 已验收关账（2026-09-27）；碰撞检查 v0.1✅ 全片单测验收关账（2026-10-06，§2.2，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay✅（2026-10-06，场景级 raycast 未做）；编辑器基本✅ 主体验收收官（2026-10-14）：窗口层 + .scene 序列化✅（2026-10-04）+ Gizmo 轴拾取✅/拖拽✅（2026-10-14）+ **编辑器骨架全链**（菜单/层级/Inspector/Scene-Game 切换/资产导入，2026-10-11）+ **打包 JAR/AOT 双形态✅（2026-10-13 三端验收——编辑→打包全流程闭环）**+ 项目面板/右键域首期（2026-10-17 落地、2026-10-23 用户验收）+ **UI 栈去 Web 化重构 M1✅（2026-10-17 用户验收——Swing+FlatLaf 主窗口/Dock/视口，M2~M6 见 Editor_Swing_Design）** + 三窗口迁 Swing + jcef 桥包/jcefmaven/jackson 清退（M6 全项提前完成，2026-10-17/18 落地、2026-10-23 用户验收——全链路纯 JVM）+ **M2 层级面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.5）** + **M3 项目面板 Swing 实装（2026-10-23 用户验收，Editor_Swing_Design §7.6）** + **M4 检查器面板 Swing 实装（2026-10-18 用户实测验收通过，Editor_Swing_Design §7.7 + Inspector_Design v0.4）+ 检查器注册器（Node+资产统一接管+材质只读，2026-10-21 用户实测验收通过，Inspector_Design v0.5）+ 层级根行选中（=场景文件 project 槽，2026-10-22 落地、2026-10-23 用户验收）+ 检查器输入交互增强（键入即提交+label 拖动调值，2026-10-22 用户实测验收通过，Inspector_Design v0.6）**；** + **插件体系 + editor.core 迁移 + i18n 基建 + 菜单 i18n 首批（2026-10-20 用户实测验收通过，Editor_Plugin_Design v0.1）+ **GPU ID-buffer 拾取✅（2026-10-23 用户实测验收，Engine_Picking_Design v0.1——物体+Gizmo 轴统一，CylinderCollider 过渡线退役）** + **hierarchy.create.cube 立方体命令✅（2026-10-24 用户实测验收，Editor_Menu_Design v0.14）** + **视口聚焦（层级双击 + F 键 → 相机平滑框住选中物，2026-10-24 用户实测验收，Editor_Design §10）** + **内置原始体三件套 sphere/capsule/cylinder✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.15）** + **着色器创建命令 project.create.shader✅（2026-10-25 用户实测验收，Editor_Menu_Design v0.16）** + **资产管线 meta 统一与重导检出✅（2026-10-25 用户实测验收——旧产物劫持坑根治，Editor_Design §6.3）** + **检查器 .shader 诊断台→.mat 材质编辑全链 v0.7~v0.11✅（2026-10-25 用户实测验收，Inspector_Design——诊断台/AssetInput+Shader 行换装/参数编辑/GUID_ASSET 升可编辑/编辑即时联动渲染）** + **贴图资产管线（Image 像素资产/Texture2D 引用层三层模型 + ImageImporter，2026-10-25 用户实测验收，Engine_Texture_Design v0.1）** + **纹理资产 v0.2（project.create.texture + TextureImporter + .texture 检查器面板 + 材质贴图行换装内联 + AssetInput 多后缀，2026-10-25 用户实测验收，Engine_Texture_Design v0.2/Editor_Menu_Design v0.17/Inspector_Design v0.12）** + **Mesh 子网格 + MeshRenderer 多材质 + 检查器 GUID_ASSET_LIST 多材质行✅（2026-10-29 落地、2026-10-30 用户验收，Engine_Assets_Design §2.9/Engine_Scene_Design §5.1 v0.5/Inspector_Design v0.13）** + **变换 Gizmo 旋转/缩放工具 + 几何程序化（`GizmoMeshes` 照搬 Babylon 规格、`axisY.smesh` 退役、缩放恒局部）+ 工具栏两钮解禁 + 柄拾取改 CPU 碰撞体射线（Engine_Picking_Design v0.2 范围收窄）（2026-11-08 落地、当日用户实测验收通过，Editor_Design §10）** + **检查器组件增删（底部「添加组件」v0.17 + 组件头右键删除 v0.18，core 补 Node.removeComponent）（2026-11-08 落地、当日用户实测验收通过，Inspector_Design §13/§14）** |
 | 三期 | 灯光 + ShadowPass + 天空盒（clustered Forward+ 拍板 2026-10-28——五批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass（**单张硬影 2026-10-31 拍板、④-A/④-B 拆分 2026-11-01**）+Deferred 复用→SkyboxPass（cubemap+纯视觉，2026-10-31 建档）；Engine_Lighting_Design v0.8 / Engine_Skybox_Design v0.4） | 🔄 **批次①②③④-A⑤已全部落地并验收关账**（④-A ShadowPass 单张硬影=2026-11-01 用户实机全项：主光投影正确/调 castShadow 即时增减投影物/透明物不投影不接影/双视口不掉影/分辨率切档即时重建——**随验拍板 LINEAR→NEAREST**（斜投影边缘块状锯齿），细则见 §5 阶段表与灯光档 §9；随批两散件同日验收：project.create.scene 创建场景命令 + 启动场景记忆写环（重启恢复上次场景））——④-A 实装面：RHI 三补（SamplerDesc 深度比较重载 + GraphicsPipelineDesc depthBias 三参/空颜色格式 depth-only 新约 + VulkanSampler/VulkanGraphicsPipeline 填参）+ `ShadowMath` 纯逻辑视锥构造（JOML lookAt 同式基 + 行和半宽 + zZeroToOne，8 角覆盖单测）+ **着色器走资产导入链（2026-11-01 用户拍板推翻 tool 内嵌 spv 形态）**：SpvShader 资产类 + SpvShaderImporter（.vert/.frag 扩展名即 stage）+ 内置源 builtin-asset-core/shadow/ 伴生 meta + index 收新后缀 + FileType/glsl 图标/双语包键 + `ShadowPass`（覆盖制 depth-only / 128B 专属 push / PSO 静态 bias 2.0/1.5 / per-view 幂等挂载 / AssetManager 按路径装载，ShadowAssets+generateShadowSpv 已删）+ RenderingSystem（computeShadow 收集域 + shadowMap/compare 采样器常驻 + packing sunViewProj 扩块 @336 块 400B + binding4 并入 set1 布局 + shadowCasters 透明过滤）+ Opaque/Transparent addTextureRead(shadowMap) 边 + ShaderInjector（javelinLighting **三参签名** + binding4 sampler2DShadow 保留字 shadowMap）+ Lit.shader 双镜像 vs/fs worldPos 插值；**批次④-B（GBuffer/Lighting 复用+两路切换）未开始；批次⑤天空盒三步全部验收关账（步骤一/二 2026-11-02、步骤三资产面 2026-11-07 用户实机全链：.hdr 拖入导入/场景根行换绑/视口即时换背景/转动无痕——equirect 导入转六面 + CubemapImage 资产 + 天空盒场景级引用（**2026-11-08 载体迁移：`Scene.skybox` 字段退役，改归 `Environment` 组件的 skybox 字段——挂节点上的普通组件、全场景唯一，编辑入口改节点检查器**）+ 场景根行检查器；随验六连排障全修 SKYBOX 默认值/清屏拖影/sRGB 量化/相机位置黑区/采样器 CLAMP_TO_EDGE/转换器纬度归一化，坑 Pitfalls #30/#31/#32（+ 载体迁移后禁用不生效 Pitfalls #34））**；三期剩余 = ④-B Deferred 复用 |
 | 四期 | 高质量渲染（2026-10-31 立项，§4 单点——后处理链/SSAO/阴影质量分级/天空盒环境光照/探针实时 GI（DDGI）/光追 rayQuery） | ⬜ 立项收口（排序为初步依赖序，各项开工前逐项拍板方案） |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
@@ -460,8 +460,8 @@ Editor_Design §6.3 / 贴图档 v0.4 / 材质档 v0.7。
 > Skybox 档 §8 / Editor_Design §2 / Picking 档 §5 / DebugText 档 §4 v0.2 / DebugLine 档 §3.5。
 
 > **2026-11-08 批映射注**：耗时操作指示器（编辑器侧「耗时反馈」基建——后台耗时操作期间给用户
-> 「忙」的反馈，与导入进度框同族但不绑业务）→ 挂靠**二期「编辑器基本」**；状态 = **落地、调用点
-> 未接、待实机验收**（Editor_Swing_Design §4.3 v0.2 / Engine_Features §3.1 + §6 挂账）。
+> 「忙」的反馈，与导入进度框同族但不绑业务）→ 挂靠**二期「编辑器基本」**；状态 = ✅ **2026-11-08
+> 用户确认验收**（调用点接入为后续动作）——Editor_Swing_Design §4.3 v0.2 / Engine_Features §3.1。
 
 > **2026-11-08 批映射注②**：导入期引用解析壳管理器（ShellAssetManager——导入期 `@guid` 引用不加载
 > Library 产物、按 meta 登记判引用存在 + 造壳 setGuid；`AssetImportPipeline` 构造改
@@ -476,9 +476,14 @@ Editor_Design §6.3 / 贴图档 v0.4 / 材质档 v0.7。
 > 口（AOT 下 native-image 不带注解进镜像，core 侧禁 `getAnnotation`）；编辑器菜单
 > `hierarchy.create.environment` 建节点（恒可用、已存在弹警告不置灰）+ 编辑入口改节点检查器）
 > → 挂靠 **一期「阶段② 场景系统」**（组件模型基建：唯一性作用域 + 注解值 AOT 通道）+ **三期批次⑤**
-> （天空盒载体迁移，收尾调整）+ **二期「编辑器基本」**（创建菜单与检查器入口）；状态 = **落地、待
-> 用户实机验收**（Scene 档 v0.6 / Skybox 档 v0.5 / Menu 档 v0.20 / Pitfalls #34；单测
-> SceneComponentTest 待跑）——细节见各设计档与 Engine_Features §2.2/§3.2/§3.4。
+> （天空盒载体迁移，收尾调整）+ **二期「编辑器基本」**（创建菜单与检查器入口）；状态 = ✅ **2026-11-08
+> 用户实机验收**（Scene 档 v0.6 / Skybox 档 v0.5 / Menu 档 v0.20 / Pitfalls #34）——细节见各设计档与
+> Engine_Features §2.2/§3.2/§3.4。
+
+> **2026-11-08 批映射注④**：**检查器组件增删**（节点面板底部「添加组件」v0.17 + 组件头右键删除
+> v0.18；core 补 `Node.removeComponent` / `GameScene.onComponentDetached`，唯一性槽位释放）→ 挂靠
+> **二期「编辑器基本」**；状态 = ✅ **2026-11-08 用户实测验收**（Inspector_Design §13/§14、
+> Engine_Scene_Design §2.2 v0.7）。
 
 ## 6. 跨期遗留（不阻塞当期推进）
 
