@@ -207,8 +207,11 @@ public final class PickSystem implements AutoCloseable {
                     clickListener.accept(null);
                 }
             }
-        } else if (pointerValid && (pointerX != lastSubmitX || pointerY != lastSubmitY)
+        } else if (hoverListener != null && pointerValid
+                && (pointerX != lastSubmitX || pointerY != lastSubmitY)
                 && inBounds(pickTex, pointerX, pointerY)) {
+            // 无 hover 监听者即不投递（编辑器 Gizmo 柄拾取 2026-11-08 改 CPU 碰撞体射线，
+            // hover 已无消费方——省一路逐帧读回；点击通道不受影响）
             if (ring.submit(pickTex, TextureLayout.COLOR_ATTACHMENT,
                     pointerX, pointerY, 1, 1, frameIndex)) {
                 lastSubmitX = pointerX;

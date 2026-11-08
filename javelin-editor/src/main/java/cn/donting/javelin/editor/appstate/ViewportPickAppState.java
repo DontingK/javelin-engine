@@ -16,14 +16,16 @@ import cn.donting.javelin.editor.selection.EditorSelection;
  * 视口拾取消费 AppState（Engine_Picking_Design.md，2026-10-23 全线统一拍板落地）。
  *
  * <p>职责 = PickSystem 的编辑器侧语义裁决：每帧把指针位置（逻辑坐标 × dpi 换算
- * 成拾取附件物理像素）喂给 PickSystem（hover 通道）；LMB 按下且非 Alt（归相机
- * 环绕）、SCENE 视图、gizmo 非拖拽且 hover 非轴（轴点击归 gizmo 拖拽）时发
+ * 成拾取附件物理像素）喂给 PickSystem（点击读回；<b>hover 通道 2026-11-08 起停用</b>
+ * ——Gizmo 柄拾取改 CPU 碰撞体射线，见 {@link TransformGizmoAppState}）；
+ * LMB 按下且非 Alt（归相机
+ * 环绕）、SCENE 视图、gizmo 非拖拽且 hover 非柄（柄点击归 gizmo 拖拽）时发
  * 点击请求；点击结果经 {@link EditorSelection#setSelectedNode} 收口——用户场景
  * 节点选中、背景/编辑器自有节点清空，层级树/Inspector 订阅零改动自动联动。</p>
  *
  * <p>挂载序在 TransformGizmoAppState 之后（点击门控消费其当帧 hover/拖拽态）；
- * hover/点击回调均在引擎线程（PickSystem.frameEnd → listener），选中收口线程
- * 安全、gizmo 直写同线程串行。</p>
+ * 点击回调在引擎线程（PickSystem.frameEnd → listener），选中收口线程
+ * 安全。</p>
  */
 public class ViewportPickAppState extends AbsEditorAppState {
 
@@ -41,9 +43,9 @@ public class ViewportPickAppState extends AbsEditorAppState {
         if (pickSystem == null) {
             return;   // 场景未就绪（onInitialize 跳过装配）——update 同口径安全跳过
         }
-        // hover：拾取结果 → 轴节点直写 gizmo（工具裁决在 gizmo update 消费侧）
-        pickSystem.setHoverListener(owner ->
-                gizmoState.setHoveredFromPick(owner instanceof MeshRenderer mr ? mr.getNode() : null));
+        // hover：无消费方——Gizmo 柄拾取 2026-11-08 改 CPU 碰撞体射线（不再吃 ID 附件
+        // 读回；PickSystem 侧无监听即不投递 hover 拷贝，省一路读回）。场景物体点击照常
+        pickSystem.setHoverListener(null);
         // 点击：用户场景节点选中、背景/编辑器自有节点（网格/轴线）清空（Unity 口径）
         pickSystem.setClickListener(owner -> {
             Node node = owner instanceof MeshRenderer mr ? mr.getNode() : null;

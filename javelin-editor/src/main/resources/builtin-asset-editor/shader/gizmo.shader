@@ -7,8 +7,8 @@ Shader "Gizmo"
 
     Pass Gizmo
     {
-        // Cull Off：变换 Gizmo 网格（axisY.smesh 箭头）来自外部工具导出，
-        // 绕序不保证一致（正反面混合），双面渲染绕开绕序约定
+        // Cull Back：几何由 GizmoMeshes 程序化生成（2026-11-08，原 axisY.smesh 退役），
+        // 绕序统一朝外（右手系 cross(v1-v0, v2-v0) 外向约定）
         Cull Back
         ZWrite On
         ZTest LEqual

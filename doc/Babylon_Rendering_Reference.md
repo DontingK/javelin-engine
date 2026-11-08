@@ -641,3 +641,102 @@ DepthOfField → Bloom → ImageProcessing → Sharpen → Grain → ChromaticAb
 ### 12.5 许可证
 
 `license.md` = **Apache License 2.0**（宽松）。逐行复制代码需保留版权与 NOTICE 署名；纯算法/公式本身不受版权保护，但整段照搬函数体时建议在文件头注明来源（`Babylon.js` + 文件名 + commit），既是合规也是溯源。
+
+---
+
+## 13. Gizmo 模块（附：编辑器辅助，超出前文渲染技术边界）
+
+> 本章是应「gizmo 源码」问题追加的附章——gizmo 属编辑器工具层，与本档渲染技术主线相邻但不同类；正因为本引擎已有自己的 TransformGizmo，对照价值高，故成章。
+
+### 13.1 有，且是独立模块
+
+`packages/dev/core/src/Gizmos/`，15 个文件、**约 6000 行**（`wc -l` = 6002）。不是散在别处的小组件，而是一套完整的基类 + 子类 + 管理器结构。
+
+### 13.2 基类 `Gizmo`（`Gizmos/gizmo.ts:125-691`）
+
+- 持有 `_rootMesh`（utilityLayerScene 里的根网格，`:316`）；所有子网格挂其下，**几何体按「约 0.3 单位」的小尺寸建模，真实世界尺寸由 `_rootMesh.scaling` 给出**（见 §13.3）——所以整套 gizmo 共享一个缩放。
+- 挂载：`attachedMesh` / `attachedNode`（`:183-201`）；两者并存时 mesh 优先（`:398-402`）。
+- 位姿对齐开关：`updateGizmoPositionToMatchAttachedMesh` / `updateGizmoRotationToMatchAttachedMesh`（`:248-261`）。
+- 选项：`anchorPoint`（`GizmoAnchorPoint.Origin` / `Pivot`，`:268`）、`coordinatesMode`（`Local` / `World`，`:280`）、`customRotationQuaternion`（`:328`）、`additionalTransformNode`（`:230`，用于把 gizmo 摆到父级坐标系）、`scaleRatio`（`:160`）。
+- 静态：`PreserveScaling` / `UseAbsoluteScaling`（`:148-155`），处理非均匀缩放父级的坑。
+- `setCustomMesh` 强制自定义网格必须属于 `gizmoLayer.utilityLayerScene`，否则抛异常（`:212-216`）。
+- **`_update()` 订阅 utilityLayerScene 的 `onBeforeRenderObservable`**（`:319-320`），每帧按 attachedNode 的世界矩阵刷新位置/旋转/缩放。
+
+### 13.3 距离自适应缩放（与本引擎同款能力）
+
+`_update()` 的缩放段（`gizmo.ts` 内 Scale 分支）：
+
+```
+scale = scaleRatio
+透视：scale *= dot(offsetToCamera, cameraForward)      // 与相机距离成正比 → 屏幕尺寸恒定
+正交：scale *= (orthoTop - orthoBottom)
+```
+另有 `additionalTransformNode` 的反向最大缩放补偿，以及 **handedness 处理**：附着实体的世界矩阵行列式 < 0 时 `scaling.y *= -1`（`:157` 附近的 `_getWorldMatrixDeterminant() < 0` 分支）。
+
+> **对照我方**：本引擎 `TransformGizmoAppState` 的距离自适应缩放与此同构。Babylon 多两条可借鉴的边角：**正交相机的 `orthoHeight` 换算**、**负行列式父级下的 y 翻转**——若我方将来支持正交编辑相机或镜像父级，这两处是现成公式。
+
+### 13.4 拾取：独立的「放大不可见 collider」
+
+`GizmoAxisCache`（`gizmo.ts:20-40`）每个轴缓存：`gizmoMeshes` / **`colliderMeshes`** / `material` / `hoverMaterial` / `disableMaterial` / `active` / `dragBehavior`。
+
+**关键手法**：每个轴同时建两份几何——可见的细箭头 + 一份**加粗（`thickness + 4`）且 `visibility = 0` 的 collider 副本**（`axisDragGizmo.ts:176`、`_CreateArrow` 的 `isCollider` 分支 `:87-124`）。拾取走引擎 picking 命中 collider，可见网格只负责显示。这比自写射线-几何相交省一大截代码，且拾取手感天然更宽容。
+
+> **对照我方**：~~本引擎走 `CylinderCollider` + 自写射线最近命中~~ → 2026-10-23 曾迁 GPU ID-buffer（PickPass 覆盖制画 `Gizmo` 桶、柄几何各写 pick ID，编辑器侧射线拾取退役）→ **2026-11-08 用户改判、本条思路被采纳**：ID 附件是「看得见即拾得」，细轴不好选、环只能加粗可见管径；改按本条——**可见几何与拾取体解耦**，拾取体更粗（轴 = 加粗圆柱 `CylinderCollider` 半径 `0.022`、环 = 解析式环带容差 `0.015`（= Babylon 粗环半径）、中心柄 = `0.07` 胖方块），走 `Collider.collideWithRay` 直调（不经场景注册表）；Gizmo 从此不进 GPU 拾取附件，场景物体拾取仍走 ID-buffer。环无对应 L0 碰撞形状，故用解析式环带表达「加粗圆环副本」。
+
+### 13.5 交互：`PointerDragBehavior`
+
+拖拽不由 gizmo 自己实现，而是每个轴挂一个 `PointerDragBehavior({ dragAxis })`（`axisDragGizmo.ts:190`），由行为负责拖拽平面、鼠标增量、`onDragObservable`。旋转 gizmo 另有 `sensitivity`、`useEulerRotation`（`rotationGizmo.ts:38/56/170-180`）。
+
+### 13.6 三态材质
+
+`material` / `hoverMaterial` / `disableMaterial` 三份 StandardMaterial，按 `dragBehavior.enabled` 与 hover/active 切换（`gizmo.ts:633-666`）；悬停/激活通常换黄（如 `scaleGizmo.ts:251` hover→`Color3.Yellow()`）。逐轴配色由父级传入：X=红/Y=绿/Z=蓝，各 `scale(0.5)`（`positionGizmo.ts:195-201`、`scaleGizmo.ts:211-213`）。
+
+> **对照我方**：我方 `updateVisuals` 三态（高亮黄 / 近平行 `|cos|>=0.985` 变灰 0.5）多了一条「近平行轴变灰」的几何可用性判定，**Babylon 没有这个**——它是按 `dragBehavior.enabled` 灰显（如 boundingBox 零轴方向），不是按视角夹角。这条是我方自己的设计，不要在对照时误以为可回退。
+
+### 13.7 子类清单
+
+| 类 | 文件 | 要点 |
+|----|------|------|
+| `AxisDragGizmo` | `axisDragGizmo.ts`（330） | 单轴箭头（锥 + 细圆柱，`_CreateArrow:87-124`） |
+| `PlaneDragGizmo` | `planeDragGizmo.ts`（269） | 平面拖动（双轴） |
+| `AxisScaleGizmo` | `axisScaleGizmo.ts`（415） | 单轴缩放（`CreateBox` + `CreateCylinder`，`:324-325`） |
+| `PlaneRotationGizmo` | `planeRotationGizmo.pure.ts`（529） | 单平面旋转环（`CreateTorus`，`:451/461`） |
+| `PositionGizmo` | `positionGizmo.ts`（413） | x/y/z 轴 + 三个平面 gizmo 组合 |
+| `RotationGizmo` | `rotationGizmo.ts`（412） | x/y/z 环组合，含 `useEulerRotation` / `sensitivity` |
+| `ScaleGizmo` | `scaleGizmo.ts`（469） | x/y/z 轴 + 中心均匀缩放（灰） |
+| `BoundingBoxGizmo` | `boundingBoxGizmo.ts`（1114） | 8 角缩放盒 + 旋转锚点 + 旋转球；`onDragStartObservable` 带 `DragOperation`（`:189`、`:659-660`） |
+| `CameraGizmo` / `LightGizmo` / `SpatialAudioGizmo` | 各文件 | 相机/灯/空间音源的图标式 gizmo |
+
+### 13.8 `GizmoManager`（`gizmoManager.ts:21-464`）
+
+统一管理 position/rotation/scale/boundingBox 四个 gizmo 的启用开关（`:307-318` 等），并负责**指针点选自动挂载**（`usePointerToAttachGizmos` / `enableAutoPicking`，`:206-246`）。
+
+### 13.9 渲染载体：utility layer（与我方 GizmoPass 的差异）
+
+Babylon gizmo 全部活在 `UtilityLayerRenderer` 的**独立虚拟 Scene** 里（`Rendering/utilityLayerRenderer.ts`）：`autoClear=false`、无后处理、在主场景相机渲染后叠加。本引擎则用**覆盖制 `GizmoPass`**（颜色 LOAD + 深度 CLEAR）实现「恒不被场景遮挡 + 内部自写自测层次」。
+
+两者对外表现等效，差别在附带能力：Babylon 的独立场景天然带**独立拾取优先级**（utility 场景先拣）与**独立光照**（gizmo 专用 hemispheric light）；我方 `GizmoPass` 更轻、无第二场景开销。**若无「编辑器临时对象 + 独立拾取序」的需求，维持 Pass 方案即可**；这与我方 `Editor_DebugLine_Design` 的覆盖制 Pass 选择同源。
+
+### 13.10 轴/部件网格参数表（全部程序化，**无任何资产文件**）
+
+全模块 grep 无 `SceneLoader` / `loadAssetContainer` / `.glb` / `.babylon`——所有几何都由 `Meshes/Builders/*` 现建。几何按「约 0.3 单位」建模，真实世界尺寸由 `_rootMesh.scaling`（距离自适应，§13.3）统一给出，所以各 gizmo 参数里没有物理尺寸概念。
+
+| 部件 | 生成 | 关键参数 | 出处 |
+|------|------|----------|------|
+| 移动箭头·头 | `CreateCylinder`（锥：`diameterTop=0`） | `height=0.075`、`diameterBottom=0.0375*(1+(thickness-1)/4)`、`tessellation=96`；`rot.x=π/2`、`z+=0.3` | `axisDragGizmo.ts:89-104` |
+| 移动箭头·杆 | `CreateCylinder` | `diameterTop/Bottom=0.005*thickness`、`height=0.275`、`tessellation=96`；`z+=0.1375` | `axisDragGizmo.ts:99-107` |
+| 缩放轴·头 | `CreateBox` | `size=0.4*(1+(thickness-1)/4)` 再 `scaling.scaleInPlace(0.1)`；`rot.x=π/2`、`z+=0.3` | `axisScaleGizmo.ts:324-331` |
+| 缩放轴·杆 | `CreateCylinder` | 同移动杆（`0.005*thickness` / `0.275` / 96） | `axisScaleGizmo.ts:325-335` |
+| 旋转环 | `CreateTorus` | `diameter=0.6`、`thickness=0.005*thickness`、`tessellation=32`（`RotationGizmo` 默认）；`rot.x=π/2` | `planeRotationGizmo.pure.ts:461-472`、`rotationGizmo.ts:219` |
+| 平面拖动·面 | `CreatePlane` | `width/height=0.1375`、`sideOrientation=2`（双面）；整体 `scaling ×1/3` 后 `lookAt` 轴法线 | `planeDragGizmo.ts:91`、`:131-132` |
+| 包围盒·角缩放块 | `_getCornerMesh` = `Mesh.MergeMeshes` | 3×`CreateBox`（长轴 `1.6` / 其余 `0.4`，正向偏移 `0.6`）合并成一个 L 形 | `boundingBoxGizmo.ts:742-752` |
+| 包围盒·旋转锚点 | `CreateBox` | 三向各 `1.6 / 0.4 / 0.4` | `boundingBoxGizmo.ts:388` |
+| 包围盒·单轴缩放块 | `CreateBox` | `size=1`（零轴方向时） | `boundingBoxGizmo.ts:523` |
+| 灯 gizmo | `CreateSphere` / `CreateCylinder` | `segments=10`、`diameter=1`（点光）；`1.2`（聚光）+ 锥形箭头 | `lightGizmo.ts:324-383` |
+| 相机 gizmo | `CreateBox` / `CreateCylinder` | 机身盒 + 镜筒圆柱 | `cameraGizmo.ts:10-11` |
+
+**collider 副本规律**（§13.4）：移动/缩放轴 = 同几何 **`thickness+4`** 再加粗；旋转环 = **`thickness=0.03*thickness`** 的粗环；两者 `visibility=0`。另 `AxisDragGizmo._CreateArrowInstance`（`:131-140`）用 `createInstance` 复用箭头网格，避免多轴重复建几何。
+
+> **对我方的直接可用性**：这套参数就是一份现成的「gizmo 造型规格」——箭头 = 锥(`0.075` 高 / `0.0375` 底径，96 边) + 细杆(`0.005` 径 / `0.275` 长)，环 = 环径 `0.6` / 管径 `0.005`，都是在 0.3 单位基准下的无量纲比例。本引擎若自建模网格（非资产），可直接照这组比例换算。
+>
+> **已落地（2026-11-08）**：本引擎即照此比例换算了——`javelin-editor/.../editor/mesh/GizmoMeshes` 运行期程序化生成箭头/缩放柄/环/方块（模型 +Y 本体、节点一次旋转指向轴；外向绕序），三工具共用「箭头全长 `0.3375` = gizmo 单位」的缩放基准，原 `axisY.smesh` 资产退役。**拾取体同样照 §13.4 的加粗规则取值**（轴圆柱半径 `0.022`、环带容差 `0.015`、中心方块 `0.07`），与可见几何解耦——可见环保持 Babylon 的 `0.005` 细管径。

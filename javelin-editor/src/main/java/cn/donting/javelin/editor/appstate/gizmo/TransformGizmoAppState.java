@@ -39,21 +39,24 @@ import java.util.ArrayList;
  * 选中，按目标是否仍属用户场景兜底判定）整体隐藏。</p>
  *
  * <p>尺度：距离自适应——工具世界尺度 = 相机距离 / {@value #TOOLS_SCALE} ×
- * {@code scaleFactor()}（屏幕恒定尺寸口径，mesh 原生全长约 9.9）；仅作用于
- * isActive 的工具节点（show/hide = 工具切换位，默认激活首个工具）。</p>
+ * {@code scaleFactor()}（屏幕恒定尺寸口径；几何由 GizmoMeshes 程序化生成、以箭头
+ * 全长为 gizmo 单位，三个工具屏幕尺寸一致）；仅作用于 isActive 的工具节点
+ * （show/hide = 工具切换位，默认激活首个工具）。</p>
  *
  * <p>置顶：{@link GizmoPass} 挂管线末尾（Opaque→Transparent→Gizmo）——颜色
  * LOAD 保画 + 深度 CLEAR，两层深度语义（用户拍板 2026-10-05）：gizmo 对外恒在
  * 场景之上不被遮挡（编辑操作对象始终可见）、内部箭头互有层次（ZWrite On 自写
  * 自测）；绘制对象按 gizmo.shader 实例身份过滤（全部变换工具共用该 shader）。</p>
  *
- * <p>hover 拾取（2026-10-23 全线统一拍板，Engine_Picking_Design.md）：轴命中改
- * GPU ID-buffer——PickPass 把轴几何画进拾取附件（深度关置顶），PickSystem
- * hover 读回结果经 {@link #setHoveredFromPick} 帧末直写（1~2 帧延迟、静止指针
- * 零读回）；本类 update 消费时再经 {@link TransformTools#isSelectable} 工具
- * 裁决（2026-10-06：移动轴与视线趋于平行端视时不可选——屏幕上轴退化为点、
- * 拖拽投影病态）；{@link #getHoveredNode()} 暴露命中轴 Node（hover 变更打
- * 日志）、{@link #getHoveredAxis()} 经 userData 标判别轴——轴拖拽判定的地基。</p>
+ * <p>hover 拾取 = <b>CPU 射线打拾取体</b>（2026-11-08 用户拍板回撤 GPU ID-buffer 路线：
+ * ID 附件是「看得见即拾得」，轴细就不好选、环只能加粗；改按 Babylon colliderMeshes
+ * 口径——可见几何与拾取体解耦、拾取体更粗）：每帧鼠标世界射线交
+ * {@link TransformTools#pickHandle}（激活工具的拾取体最近命中），再经
+ * {@link TransformTools#isSelectable} 工具裁决（2026-10-06：轴与视线趋平行端视、
+ * 环与视线趋垂直侧视时不可选——屏幕上退化为点/线、拖拽数学病态，不可选视同未命中）；
+ * {@link #getHoveredNode()} 暴露命中柄 Node（hover 变更打日志）、
+ * {@link #getHoveredAxis()} 经 userData 标判别柄——柄拖拽判定的地基。场景物体拾取
+ * 仍走 GPU ID-buffer（Engine_Picking_Design.md；Gizmo 不再进拾取附件，故无读回延迟）。</p>
  *
  * <p>拖拽（2026-10-06）：LMB 输入状态机——按下命中柄（hover 当帧结果）交所属
  * 工具 {@link TransformTools#beginDrag}，按住每帧 {@link TransformTools#updateDrag}
@@ -68,13 +71,16 @@ import java.util.ArrayList;
  * viewDir = 相机→选中目标方向，与鼠标位置无关，供工具计算不可选轴变灰，判定
  * 与 isSelectable 同源）。gizmo 整体隐藏（无目标）时清 hover 并熄灭高亮防残留。</p>
  *
- * <p>工具切换与坐标空间（2026-10-14，场景视图工具栏消费口）：桥线程 /gizmo/setTool、
- * /gizmo/setSpace 只写本类 static volatile 意图镜像（跨线程镜像先例=GridMenuCommand，
- * AppStateManager 非并发勿跨线程 getState），update 帧内消费——切工具先强制收尾拖拽、
- * 旧工具 hide 新工具 show（TransformTools 契约预留的切换位）；坐标空间 Local = gizmoNode
- * 旋转跟随目标世界旋转（父链四元数自根向下组合，避开从含非均匀缩放的世界矩阵提旋转）、
- * World = 恒单位（现状语义）——仅影响 Gizmo 朝向与拖拽轴（Inspector 恒 local，Unity
- * Global/Local 口径），工具层轴方向走箭头世界矩阵零改动直通。</p>
+ * <p>工具切换与坐标空间（2026-10-14，场景视图工具栏消费口；2026-11-08 三工具齐备）：
+ * 桥线程 /gizmo/setTool、/gizmo/setSpace 只写本类 static volatile 意图镜像（跨线程镜像
+ * 先例=GridMenuCommand，AppStateManager 非并发勿跨线程 getState），update 帧内消费——
+ * 切工具先强制收尾拖拽；<b>显隐走每帧强制的可见性不变量</b>（只有 activeTool 的工具子树
+ * 亮，其余 hide——不依赖"切换时调一次 hide"的记忆性写法，装配期漏 hide 也会当帧收敛）；
+ * 坐标空间 Local = gizmoNode 旋转跟随目标世界旋转（父链四元数自根向下组合，避开从含
+ * 非均匀缩放的世界矩阵提旋转）、World = 恒单位（现状语义）——仅影响 Gizmo 朝向与拖拽
+ * 轴（Inspector 恒 local，Unity Global/Local 口径），工具层轴方向走柄节点世界矩阵零改动
+ * 直通。注册三工具：MoveTool / RotateTool / ScaleTool；<b>缩放工具恒局部</b>
+ * （{@link TransformTools#localAxesForced()}，Unity/Babylon 口径——工具栏切换对缩放无效）。</p>
  *
  * @author javelin
  * @create 2026/10/4
@@ -84,7 +90,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     private static final Logger log = LoggerFactory.getLogger(TransformGizmoAppState.class);
 
     /**
-     * 距离自适应分母：箭头世界长 ≈ 9.9 × 相机距离 / 本值；80 → 箭头约占视口 1/8（实测定稿可调）
+     * 距离自适应分母：工具世界尺度 = 相机距离 / 本值（× scaleFactor()）——5 即箭头世界长
+     * ≈ 相机距离 / 5（屏幕尺寸恒定；实测定稿可调）
      */
     private static final float TOOLS_SCALE = 5;
 
@@ -162,16 +169,17 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     /** 目标父链复用列表（Local 空间旋转组合：clear+逆序下标循环，热路径列表复用口径） */
     private final ArrayList<Transform> rotationChainBuf = new ArrayList<>();
 
-    /** 当前射线检测命中的轴 Node（null = 未命中；update 每帧刷新，拖拽中锁定不刷新） */
+    /** 当前拾取命中的柄 Node（null = 未命中；update 每帧刷新，拖拽中锁定不刷新） */
     private Node hoveredNode;
-    /** PickSystem hover 结果直写位（GPU ID-buffer 拾取，ViewportPickAppState 帧末转发；null = 离开轴/点空） */
-    private Node pickHoverNode;
 
     /** 拖拽中的工具（null = 未拖拽；LMB 边沿驱动 begin/end、持续态驱动 updateDrag） */
     private TransformTools dragTool;
 
     /** 拖拽绑定的目标（beginDrag 时锁定；拖拽中选中变更即强制结束防目标跳变） */
     private Node dragTarget;
+
+    /** 装配态诊断的「上次可见性」——只在可见性翻转那帧打一次各工具激活态（Gizmo 显隐排查口，常驻） */
+    private boolean lastLoggedVisible;
 
     @Override
     public void onAttach(AppStateManager stateManager, JavelinEngine engine) {
@@ -189,12 +197,16 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         editorGameScene.add(gizmoNode);
 
         tools.add(new MoveTool());
+        tools.add(new RotateTool());
+        tools.add(new ScaleTool());
         for (TransformTools tool : tools) {
             tool.init(javelinEditor.getAssetManager(), javelinEditor);
             Node toolNode = tool.getToolNode();
             if (toolNode != null) {
                 // setParent 自动入场景（gizmoNode 已在编辑子场景，工具子树随之注册）
                 toolNode.getTransform().setParent(gizmoNode.getTransform());
+                // 建时一律隐藏——三工具各自持一套柄几何，只有激活工具亮（切换 = hide/show）
+                tool.hide();
             }
         }
         activeTool = tools.getFirst();
@@ -202,7 +214,7 @@ public class TransformGizmoAppState extends AbsEditorAppState {
 
         // 置顶 Pass 挂管线末尾（Opaque→Transparent→Gizmo）：颜色 LOAD 保画 + 深度 CLEAR，
         // gizmo 恒最前；绘制对象 = RenderList 的 "Gizmo" Pass 桶（严格制，2026-10-17——
-        // shader 由 MoveTool.init 各自加载建材质，收集侧按 Pass 名分桶，无需在此过滤）
+        // shader 由各工具 init 自己加载建柄材质，收集侧按 Pass 名分桶，无需在此过滤）
         gizmoPass = new GizmoPass();
         engine.renderPipeline().addPass(gizmoPass);
 
@@ -257,10 +269,6 @@ public class TransformGizmoAppState extends AbsEditorAppState {
             if (dragTool != null) {
                 forceEndDrag(); // 拖拽中切工具——先按绑定目标收尾防跳变（点击工具栏时拖拽本应已松开，防御位）
             }
-            if (activeTool != null) {
-                activeTool.hide();
-            }
-            desiredTool.show();
             activeTool = desiredTool;
         }
 
@@ -268,6 +276,38 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         Node target = targetNode;
         GameScene userScene = userGameScene();
         boolean hasTarget = target != null && userScene != null && target.getScene() == userScene;
+
+        // 装配态诊断（可见性翻转那帧打一次各工具原始激活态——先于下面的不变量收敛，
+        // 故日志反映的是「谁把它留亮/留灭」的现场；Gizmo 显隐排查口，常驻）
+        if (lastLoggedVisible != hasTarget) {
+            lastLoggedVisible = hasTarget;
+            for (TransformTools tool : tools) {
+                Node toolNode = tool.getToolNode();
+                log.info("Gizmo 装配态：目标={} 激活工具={} | {} 节点激活={} 树内激活={}",
+                        hasTarget, activeTool != null ? activeTool.getName() : null, tool.getName(),
+                        toolNode != null && toolNode.isActive(),
+                        toolNode != null && toolNode.isActiveInHierarchy());
+            }
+        }
+
+        // ── 可见性不变量（每帧强制）：三工具各持一套柄几何，**只有激活工具的子树亮** ──
+        // 显隐落地 = 工具节点 setActive 翻转（渲染过滤见 SceneRenderBridge isActiveAndEnabled）。
+        // 这里是唯一闸门——不依赖「切换时调一次 hide」的记忆性写法：装配期漏 hide 或外部
+        // 误翻转都被本循环当帧收敛（曾出实锤：三工具建时节点默认激活 → 选中物体三套几何同屏）
+        for (TransformTools tool : tools) {
+            Node toolNode = tool.getToolNode();
+            if (toolNode == null) {
+                continue;   // init 失败（如 shader 缺失）——无几何可显隐
+            }
+            boolean shouldShow = tool == activeTool;
+            if (toolNode.isActive() != shouldShow) {
+                if (shouldShow) {
+                    tool.show();
+                } else {
+                    tool.hide();
+                }
+            }
+        }
 
         if (!hasTarget && dragTool != null) {
             forceEndDrag(); // 拖拽中目标失效（删除节点/场景卸载）——工具收尾防残留
@@ -303,8 +343,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
             viewDir.normalize();
         }
 
-        // 鼠标 → 世界射线（拖拽平面求交用；hover 命中已迁 GPU ID-buffer——
-        // screenToRay 方向归一化 → t 即世界距离）
+        // 鼠标 → 世界射线（hover 柄拾取与拖拽平面求交共用；screenToRay 方向归一化
+        // → t 即世界距离，跨柄可比）
         int viewportW = javelinEditor.viewportWidth();
         int viewportH = javelinEditor.viewportHeight();
         boolean viewportValid = viewportW > 0 && viewportH > 0;
@@ -319,54 +359,47 @@ public class TransformGizmoAppState extends AbsEditorAppState {
                 dragTool = null;
                 dragTarget = null;
             } else if (viewportValid) {
-                dragTool.updateDrag(target, pickRay); // hover 锁定拖拽轴，不重检测
+                dragTool.updateDrag(target, pickRay); // hover 锁定拖拽柄，不重检测
             }
         } else if (viewportValid) {
-            // hover 检测（GPU ID-buffer，Engine_Picking_Design.md）：PickSystem hover 结果
-            // （setHoveredFromPick 帧末直写，1~2 帧延迟）+ 工具裁决过滤——轴归属（toolOf）
-            // 与可选择性（isSelectable，视线近平行变灰）与原射线线同口径
-            Node detected = null;
-            if (pickHoverNode != null) {
-                TransformTools owner = toolOf(pickHoverNode);
-                if (owner != null && owner.isSelectable(pickHoverNode, viewDir)) {
-                    detected = pickHoverNode;
-                }
+            // hover 检测 = CPU 射线打激活工具的拾取体（TransformTools.pickHandle，
+            // 2026-11-08 拍板：Gizmo 不再走 GPU ID 附件——见类注释），再经工具裁决
+            // 过滤（isSelectable：轴近平行/环侧视变灰者视同未命中）
+            Node detected = activeTool != null ? activeTool.pickHandle(pickRay) : null;
+            if (detected != null && !activeTool.isSelectable(detected, viewDir)) {
+                detected = null;
             }
             if (detected != hoveredNode) {
                 hoveredNode = detected;
                 if (detected != null) {
-                    log.info("GPU 拾取命中轴节点：{}", detected.getName());
+                    log.info("拾取命中柄节点：{}", detected.getName());
                 } else {
-                    log.info("GPU 拾取离开轴节点");
+                    log.info("拾取离开柄节点");
                 }
             }
 
-            // LMB 按下命中柄 → 交所属工具开始拖拽（Alt 按下时左键归相机环绕不抢）
+            // LMB 按下命中柄 → 交激活工具开始拖拽（Alt 按下时左键归相机环绕不抢）
             if (Input.wasMousePressed(MouseButton.LEFT) && hoveredNode != null
                     && !Input.isDown(KeyCode.LEFT_ALT)) {
-                TransformTools owner = toolOf(hoveredNode);
-                if (owner != null) {
-                    // camWorldPos 本帧已在视线方向计算处取值
-                    if (owner.beginDrag(hoveredNode, target, pickRay, camWorldPos)) {
-                        dragTool = owner;
-                        dragTarget = target;
-                        if (Input.wasMouseReleased(MouseButton.LEFT)) {
-                            // 按下与释放同帧（极速点击）——立即收尾防拖拽态卡死
-                            dragTool.endDrag();
-                            dragTool = null;
-                            dragTarget = null;
-                        }
+                // camWorldPos 本帧已在视线方向计算处取值
+                if (activeTool.beginDrag(hoveredNode, target, pickRay, camWorldPos)) {
+                    dragTool = activeTool;
+                    dragTarget = target;
+                    if (Input.wasMouseReleased(MouseButton.LEFT)) {
+                        // 按下与释放同帧（极速点击）——立即收尾防拖拽态卡死
+                        dragTool.endDrag();
+                        dragTool = null;
+                        dragTarget = null;
                     }
                 }
             }
         }
 
-        // 视觉状态同步（hover 与拖拽共用一通道：拖拽中 hover 锁定=被拖轴、松开时鼠标仍
-        // 悬停则高亮自然保持；viewDir 供工具计算不可选轴变灰——与鼠标位置无关）。
-        // 节点归属哪个工具哪个亮，其余收 null——跨工具互不干扰
-        TransformTools highlightOwner = hoveredNode != null ? toolOf(hoveredNode) : null;
+        // 视觉状态同步（hover 与拖拽共用一通道：拖拽中 hover 锁定=被拖柄、松开时鼠标仍
+        // 悬停则高亮自然保持；viewDir 供工具计算不可选柄变灰——与鼠标位置无关）。
+        // hoveredNode 恒属激活工具（CPU 拾取源即激活工具），其余工具收 null
         for (TransformTools tool : tools) {
-            tool.updateVisuals(tool == highlightOwner ? hoveredNode : null, viewDir);
+            tool.updateVisuals(tool == activeTool ? hoveredNode : null, viewDir);
         }
 
         // 跟随目标：gizmoNode 一次写（工具无关；拖拽 apply 先于此——同帧跟手不滞后一帧；
@@ -377,8 +410,9 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         // 坐标空间跟随（/gizmo/setSpace）：Local = gizmoNode 旋转对齐目标世界旋转（父链
         // 四元数自根向下 mul 组合——避开从含非均匀缩放的世界矩阵提旋转；gizmoNode 根级
         // local==world，setLocalRotation 即世界朝向）；World = 恒单位（现状语义）。工具层
-        // 轴方向/hover/变灰走箭头世界矩阵，gizmoNode 旋转后同一代码直通（设计预留兑现）
-        if (localSpace) {
+        // 轴方向/hover/变灰走柄节点世界矩阵，gizmoNode 旋转后同一代码直通（设计预留兑现）。
+        // 缩放工具恒局部（localAxesForced——世界轴缩放无稳定语义，Unity/Babylon 同口径）
+        if (localSpace || activeTool.localAxesForced()) {
             applyTargetWorldRotation(target);
         } else {
             gizmoNode.getTransform().setLocalRotation(identityRot);
@@ -438,19 +472,12 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     }
 
     /**
-     * 当前 hover 命中的轴 Node（null = 未命中/未激活；update 每帧刷新）——
-     * 拖拽判定的消费口。命中源 = GPU ID-buffer 拾取（PickSystem hover 读回）。
+     * 当前 hover 命中的柄 Node（null = 未命中/未激活；update 每帧刷新）——
+     * 拖拽判定的消费口 + 场景拾取点击门控（ViewportPickAppState 查非 null 即不发
+     * 改选中）。命中源 = CPU 射线打拾取体（{@link TransformTools#pickHandle}）。
      */
     public Node getHoveredNode() {
         return hoveredNode;
-    }
-
-    /**
-     * PickSystem hover 结果直写（ViewportPickAppState 帧末转发，引擎线程；
-     * 本帧 update 消费——含工具裁决过滤，见 update 内 hover 检测段）。
-     */
-    public void setHoveredFromPick(Node node) {
-        this.pickHoverNode = node;
     }
 
     /** 拖拽进行中（ViewportPickAppState 点击门控：拖拽中不发改选中） */
@@ -459,9 +486,8 @@ public class TransformGizmoAppState extends AbsEditorAppState {
     }
 
     /**
-     * 当前射线检测命中的轴（轴节点 userData 标，key={@link Axis#USER_DATA_KEY}；
-     * null = 未命中或命中未打标的柄——旋转/缩放工具的柄将来可不打轴标只判节点）。
-     * 轴判别不解析节点名。
+     * 当前拾取命中的柄判别（柄节点 userData 标，key={@link Axis#USER_DATA_KEY}；
+     * null = 未命中或命中未打标的柄）。判别不解析节点名。
      */
     public Axis getHoveredAxis() {
         if (hoveredNode == null) {
@@ -469,21 +495,6 @@ public class TransformGizmoAppState extends AbsEditorAppState {
         }
         Object axis = hoveredNode.getUserData().get(Axis.USER_DATA_KEY);
         return axis instanceof Axis a ? a : null;
-    }
-
-    /**
-     * 拖拽/悬停节点所属工具（沿 Transform 父链找 toolNode 同一性；
-     * null = 不属任何工具——GPU 拾取命中用户物体等非工具节点时的过滤位）。
-     */
-    private TransformTools toolOf(Node node) {
-        for (TransformTools tool : tools) {
-            for (Transform t = node.getTransform(); t != null; t = t.getParent()) {
-                if (t.getNode() == tool.getToolNode()) {
-                    return tool;
-                }
-            }
-        }
-        return null;
     }
 
     /** 强制结束拖拽（目标失效/选中变更——工具收尾（恢复轴高亮等）+ 状态清空） */

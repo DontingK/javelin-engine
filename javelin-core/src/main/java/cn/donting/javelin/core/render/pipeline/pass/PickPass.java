@@ -47,15 +47,16 @@ import java.util.Set;
  * SpvShaderImporter 编译 SPIR-V 落 Library，本 Pass 经
  * {@link AssetManager#loadAsset} 按路径加载（2026-11-07 改向——原
  * 「GLSL 放 javelin-tool、spv 内嵌 core resources」路线作废）。绘制全部不透明
- * 物体 + "Gizmo" 桶。每个可拾取物体以帧内分配的 pick ID
+ * 物体 + 透明桶。<b>不含编辑器 Gizmo</b>（2026-11-08 用户拍板：Gizmo 柄拾取改
+ * CPU 碰撞体射线——ID 附件是「看得见即拾得」，细轴不好选、环只能加粗；场景物体
+ * 才走 GPU 方案。故 "Gizmo" 桶不进拾取附件）。每个可拾取物体以帧内分配的 pick ID
  * （{@link PickSystem}，0 = 背景）写进 R32_UINT 附件，附件经 TextureReadbackRing
- * 点击/悬停读回。由 {@link PickSystem} 挂/摘管线（{@link RenderPipeline#addPass}），
+ * 点击读回。由 {@link PickSystem} 挂/摘管线（{@link RenderPipeline#addPass}），
  * 运行时游戏与编辑器同为消费方。</p>
  *
  * <p>深度语义：不透明+透明物体深度测试照常（近者胜，Unity 口径透明物可选中——
  * 拾取输出常量 ID 无 blend 语义；编辑器透明面如 Grid 命中后由消费方按节点归属
- * 裁决）；gizmo 轴深度关（置顶，轴压物体——与 GizmoPass 两层语义一致）。恒 1x
- * （与主画面 MSAA 档解耦，附件像素与屏幕像素一一对应）。</p>
+ * 裁决）。恒 1x（与主画面 MSAA 档解耦，附件像素与屏幕像素一一对应）。</p>
  */
 public class PickPass implements RenderPass {
 
@@ -71,7 +72,7 @@ public class PickPass implements RenderPass {
     private final Device device;
     private final byte[] vertSpv;
     private final byte[] fragSpv;
-    /** 覆盖制 PSO 缓存：key = layoutIdentity:topology:depthOn（与材质无关，PSO 不每帧新建） */
+    /** 覆盖制 PSO 缓存：key = layoutIdentity:topology（与材质无关，PSO 不每帧新建） */
     private final Map<String, GraphicsPipeline> pipelines = new HashMap<>();
     /** 每帧复用的 push constants 打包缓冲（引擎线程录制串行，非线程共享） */
     private final ByteBuffer pushData = ByteBuffer.allocateDirect(RenderingSystem.PUSH_SIZE)
@@ -120,32 +121,26 @@ public class PickPass implements RenderPass {
             pass.setRenderCallback(cmd -> {
                 List<RenderObject> opaque = view.list().opaque();
                 List<RenderObject> transparent = view.list().transparent();
-                List<RenderObject> gizmo = view.list().passObjects("Gizmo");
-                if (opaque.isEmpty() && transparent.isEmpty() && gizmo.isEmpty()) {
+                if (opaque.isEmpty() && transparent.isEmpty()) {
                     return;
                 }
                 if (!pickLogged) {
                     pickLogged = true;
-                    log.info("首帧 Pick 回调执行: 视口[{}] 不透明={} 透明={} gizmo={}",
-                            view.name(), opaque.size(), transparent.size(), gizmo.size());
+                    log.info("首帧 Pick 回调执行: 视口[{}] 不透明={} 透明={}",
+                            view.name(), opaque.size(), transparent.size());
                 }
                 // set0 绑定需要已绑 PSO 提供布局：先用首个物体 PSO 建立
                 // （全部拾取 PSO 的 set0 同为帧布局，后续切 PSO 不影响已绑描述符）
-                RenderObject first = !opaque.isEmpty() ? opaque.get(0)
-                        : !transparent.isEmpty() ? transparent.get(0) : gizmo.get(0);
-                cmd.bindPipeline(pipelineFor(rs, first, true));
+                RenderObject first = !opaque.isEmpty() ? opaque.get(0) : transparent.get(0);
+                cmd.bindPipeline(pipelineFor(rs, first));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 for (RenderObject ro : opaque) {
-                    drawPick(cmd, rs, ro, true);
+                    drawPick(cmd, rs, ro);
                 }
                 // 透明桶同深度语义（Unity 口径：透明物可选中）——拾取输出常量 ID 无 blend，
                 // 近者胜规则成立；网格等编辑器透明面命中后由消费方按节点归属裁决（点空清空）
                 for (RenderObject ro : transparent) {
-                    drawPick(cmd, rs, ro, true);
-                }
-                // gizmo 轴置顶：深度关，轴压物体（与 GizmoPass 对外语义一致）
-                for (RenderObject ro : gizmo) {
-                    drawPick(cmd, rs, ro, false);
+                    drawPick(cmd, rs, ro);
                 }
             });
         });
@@ -157,10 +152,10 @@ public class PickPass implements RenderPass {
         pipelines.clear();
     }
 
-    private void drawPick(CommandBuffer cmd, RenderingSystem rs, RenderObject ro, boolean depthOn) {
+    private void drawPick(CommandBuffer cmd, RenderingSystem rs, RenderObject ro) {
         int pickId = picking.assignPickId(ro);
         ro.pickId(pickId);
-        cmd.bindPipeline(pipelineFor(rs, ro, depthOn));
+        cmd.bindPipeline(pipelineFor(rs, ro));
         MeshDraw.bindBuffers(cmd, ro.mesh());
         pushData.clear();
         for (float v : ro.world().get(worldTmp)) {
@@ -173,9 +168,9 @@ public class PickPass implements RenderPass {
         MeshDraw.drawIndexed(cmd, ro.mesh(), ro.submesh());
     }
 
-    private GraphicsPipeline pipelineFor(RenderingSystem rs, RenderObject ro, boolean depthOn) {
+    private GraphicsPipeline pipelineFor(RenderingSystem rs, RenderObject ro) {
         String key = System.identityHashCode(ro.mesh().layout()) + ":"
-                + ro.mesh().getTopology() + ":" + depthOn;
+                + ro.mesh().getTopology();
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
             return cached;
@@ -189,7 +184,7 @@ public class PickPass implements RenderPass {
                 FrontFace.COUNTER_CLOCKWISE,
                 PolygonMode.FILL,
                 1.0f,
-                depthOn, depthOn, CompareOp.LESS_OR_EQUAL,
+                true, true, CompareOp.LESS_OR_EQUAL,
                 false, BlendFactor.ONE, BlendFactor.ZERO, BlendOp.ADD,
                 BlendFactor.ONE, BlendFactor.ZERO, BlendOp.ADD,
                 null,
@@ -200,8 +195,8 @@ public class PickPass implements RenderPass {
                 SampleCount.COUNT_1);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
-        log.info("pick PSO created: layout={} topology={} depthOn={}",
-                ro.mesh().layout(), ro.mesh().getTopology(), depthOn);
+        log.info("pick PSO created: layout={} topology={}",
+                ro.mesh().layout(), ro.mesh().getTopology());
         return created;
     }
 

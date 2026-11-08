@@ -55,7 +55,7 @@ L0 纯数学（本档，现在做）：cn.donting.javelin.core.physics(.collisio
 | `CylinderShape` | 同上 | `radius`/`height`、轴向本地 Y；**已实现**（2026-10-05 用户提前派发，原片④后置）——无限圆柱二次方程根按 y∈[−h/2,h/2] 裁剪 + 上下端盖平面根按盘内判定，取 t≥0 最小边界穿越点（凸体统一入口/出射语义），自研（JOML 无此例程，§4.4） |
 | `Aabb` | `collision` | `min`/`max`；`setFromPoints(float[] xyz)`（Mesh.bounds 数据源）、`transform(Matrix4fc, Aabb out)`（**行和公式实现**——§5 勘误）、`rayIntersect(Ray, Vector2f nearFar)` 包 JOML（返回语义已核源码）。**不实现 CollisionShape**——语义=保守粗筛包围，非精确碰撞几何 |
 
-L1 契约：**Collider 组件族查询管线已实现**（片② 2026-10-05，`scene.component` 包：`Collider` 基类收 `center`（全碰撞体共有）+ `collideShape` 统一管线——逆矩阵变换射线（origin 扣 center、direction 不归一化 §4.2）→ 形状例程 → 命中点加 center 经 M 回换、法线经法线矩阵变换后归一化；`BoxCollider`/`SphereCollider`/`CylinderCollider`（2026-10-05 编辑器移动轴拾取需要）每查把组件参数同步进缓存形状实例（D7-B：组件字段即参数，免脏标记）后委托管线，write/read 数据面齐（center 基类 + 参数子类））；**场景级 raycast 查询面已落地**（2026-10-28 待验收，§10：`Physics` 静态门面 + `RaycastHit`，查询源 = Scene.getColliders 注册表投影——**运行时物理查询线**，游戏内射线检测与 GPU 拾取共存，2026-10-23 拍板；编辑器拾取已**全线**改道 GPU ID-buffer 不经射线：物体拾取 2026-10-06、轴拾取 2026-10-23 落地迁移（Engine_Picking_Design v0.1——MoveTool CylinderCollider 过渡线已摘除退役，Editor_Design §10））；**Rigidbody 组件**（拍板：独立组件、后置）仍归 L2。
+L1 契约：**Collider 组件族查询管线已实现**（片② 2026-10-05，`scene.component` 包：`Collider` 基类收 `center`（全碰撞体共有）+ `collideShape` 统一管线——逆矩阵变换射线（origin 扣 center、direction 不归一化 §4.2）→ 形状例程 → 命中点加 center 经 M 回换、法线经法线矩阵变换后归一化；`BoxCollider`/`SphereCollider`/`CylinderCollider`（2026-10-05 编辑器移动轴拾取需要）每查把组件参数同步进缓存形状实例（D7-B：组件字段即参数，免脏标记）后委托管线，write/read 数据面齐（center 基类 + 参数子类））；**场景级 raycast 查询面已落地**（2026-10-28 待验收，§10：`Physics` 静态门面 + `RaycastHit`，查询源 = Scene.getColliders 注册表投影——**运行时物理查询线**，游戏内射线检测与 GPU 拾取共存，2026-10-23 拍板；编辑器拾取已**全线**改道 GPU ID-buffer 不经射线：物体拾取 2026-10-06、轴拾取 2026-10-23 落地迁移（Engine_Picking_Design v0.1——MoveTool CylinderCollider 过渡线已摘除退役，Editor_Design §10）；**2026-11-08 修订**：该「全线」口径改为**只覆盖场景物体**——Gizmo 轴/环/柄拾取重回 `Collider.collideWithRay` 直调（不经 `Physics`/场景注册表，Collider 仅作「加粗拾取体」形状载体：移动/缩放轴 = 加粗 `CylinderCollider`、中心柄 = `BoxCollider`、旋转环 = 解析式环带），见 Editor_Design §10 / Engine_Picking_Design v0.2）；**Rigidbody 组件**（拍板：独立组件、后置）仍归 L2。
 
 ## 4. 射线契约与缩放数学（本档地基）
 
@@ -133,7 +133,7 @@ M·p_l = M·(M⁻¹·o_w) + t·(M·(M⁻¹·d̂_w)) = o_w + t·d̂_w
 | ④ | CylinderShape 自研数学 + 单测（**✅ 已验收 2026-10-05**，用户提前派发实现） |
 | ⑤ | L1 场景级 raycast：Physics 门面 + RaycastHit + Scene.getColliders 注册表投影 + 引擎接线 + PhysicsTest（**2026-10-28 落地，待用户运行验收**，§10） |
 
-三角网格拾取不设片——编辑器物体拾取已拍板终态走 **GPU ID-buffer**（2026-10-06 用户：离屏 ID 附件+点击读回，Editor_Design §10，原 D4「随 L1 编辑器拾取实测再定」就此定案）：三角网格（MeshCollider）不再为编辑器拾取服务，归运行时物理需求（L2 立项时再定）；2026-10-23 拾取全线统一落地后（Engine_Picking_Design v0.1），L1 射线线定位收窄为**运行时物理查询**（场景 raycast 归 Ray 期、与 GPU 拾取共存——游戏内射线检测照常），gizmo 轴拾取已迁 ID 附件、CylinderCollider 过渡线退役销账。
+三角网格拾取不设片——编辑器物体拾取已拍板终态走 **GPU ID-buffer**（2026-10-06 用户：离屏 ID 附件+点击读回，Editor_Design §10，原 D4「随 L1 编辑器拾取实测再定」就此定案）：三角网格（MeshCollider）不再为编辑器拾取服务，归运行时物理需求（L2 立项时再定）；2026-10-23 拾取全线统一落地后（Engine_Picking_Design v0.1），L1 射线线定位收窄为**运行时物理查询**（场景 raycast 归 Ray 期、与 GPU 拾取共存——游戏内射线检测照常），gizmo 轴拾取已迁 ID 附件、CylinderCollider 过渡线退役销账（**2026-11-08 再修订**：gizmo 拾取体以 `CylinderCollider`/`BoxCollider` 形态回归，但只作形状载体、走 `collideWithRay` 直调，不经 L1 场景级查询——L1 定位不变）。
 
 **片①②③④全片验收完毕（2026-10-06 用户运行单测）——碰撞 v0.1 实现关账**；片⑤（L1 raycast）2026-10-28 落地待验收。
 

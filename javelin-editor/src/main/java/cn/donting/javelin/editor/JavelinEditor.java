@@ -128,12 +128,13 @@ public class JavelinEditor extends JavelinEngine {
             stateManager.attach(gridState);
             // 编辑器相机控制（Unity Scene 视图导航口径，见 EditorCameraAppState 类注释）
             stateManager.attach(new EditorCameraAppState());
-            // 变换 Gizmo（移动工具三轴指示，跟随选中；缩放/旋转形态与拖拽后续扩展）
+            // 变换 Gizmo（移动/旋转/缩放三工具，跟随选中）
             TransformGizmoAppState transformGizmo = new TransformGizmoAppState();
             stateManager.attach(transformGizmo);
-            // GPU ID-buffer 拾取（Engine_Picking_Design.md，2026-10-23 全线统一拍板）：
+            // GPU ID-buffer 拾取（Engine_Picking_Design.md，2026-10-23 拍板；2026-11-08 收窄为
+            // 「场景物体才走 ID 附件」——Gizmo 柄拾取改 CPU 碰撞体射线，故进附件者只有场景物）：
             // pass 本体在 core（PickSystem 挂管线，目标=编辑器相机视口）；编辑器消费
-            // 挂在 gizmo 之后——点击门控消费其当帧 hover/拖拽态，hover 轴节点直写 gizmo
+            // 挂在 gizmo 之后——点击门控消费 gizmo 当帧 hover/拖拽态
             pickSystem = new PickSystem(this, EDITOR_CAMERA_VIEW);
             pickSystem.enable();
             stateManager.attach(new ViewportPickAppState(transformGizmo));

@@ -19,6 +19,10 @@
 > 2026-11-08 §6.3 增补导入期引用解析壳管理器（`ShellAssetManager`）——首次导入依赖产物竞态
 > 修复（FileNotFoundException 根治：导入解析与依赖产物生成解耦；Material 残档拒绝口径不变，
 > 当日用户实测验收）。
+> 2026-11-08 §10 变换 Gizmo 三工具齐备：旋转/缩放工具落地 + 几何改程序化生成（`GizmoMeshes`
+> 照搬 Babylon 规格，`axisY.smesh` 退役）+ 缩放恒局部；**同批柄拾取改 CPU 碰撞体射线**
+> （可见几何与拾取体解耦——「轴太细/环太粗」根治，Gizmo 不再进 GPU 拾取附件）；
+> 2026-11-08 用户实测全项通过验收（含三工具同屏修正）。
 
 ## 1. 定位与边界
 
@@ -318,7 +322,8 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   `appstate.gizmo` 包三件套——`TransformGizmoAppState`（驱动面）+ `TransformTools`
   基类（init/update/getName/show/hide/scaleFactor 契约）+ `MoveTool`（axisY.smesh
   +Y 箭头复用旋转出 X/Z：X 绕 Z -90°、Z 绕 X +90°；gizmo.shader unlit 纯色
-  `_Color` 按轴红/绿/蓝，Cull Off 容忍外部工具导出混合绕序）。`gizmoNode`
+  `_Color` 按轴红/绿/蓝，Cull Off 容忍外部工具导出混合绕序——**2026-11-08 起几何改
+  程序化、`Cull Back` 是真依赖，见本 § 下一新增条**）。`gizmoNode`
   常驻编辑子场景（不入用户树、不落盘），工具子树挂其下；选中**事件驱动**——
   `SceneSelectEvent`（scene.select，payload nodeId）经 EditorSelection
   setSelectedNodeId 收口发布（桥上报/创建命令自动选中一处全覆盖）；位置跟随写
@@ -365,12 +370,56 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   超阈值（0.985 ≈ 10°，实测可调）时不可选并变灰（0.5 灰，实测可调）——屏幕上
   轴端视退化为点、拖拽投影被 1/sin 放大病态（俯视场景时 Y 轴让位 XZ 拖拽不被
   误抓）；射线检测按此过滤命中候选（不可选视同未命中、更远可选候选仍可胜出）。
-  位置跟随后于拖拽 apply——同帧跟手不滞后一帧。缩放/旋转工具形态待续；拾取
-  判定半径抓取舒适度加粗为实测后调项。
+  位置跟随后于拖拽 apply——同帧跟手不滞后一帧。
+- **变换 Gizmo 三工具齐备 + 几何程序化 + 柄拾取改道（2026-11-08 落地，当日用户实测全项通过）**：几何改由
+  编辑器内 `editor/mesh/GizmoMeshes` **运行期程序化生成**（原 `axisY.smesh` 资产退役）——
+  规格照搬 Babylon `Gizmos/`（`axisDragGizmo.ts:87-124` 箭头 = 锥 `0.075` 高 / 底径
+  `0.0375` + 细杆 `0.005`/`0.275`；`axisScaleGizmo.ts:316-345` 缩放柄 = 同杆 + `0.04` 方块头；
+  `planeRotationGizmo.pure.ts:451-472` 环 = 直径 `0.6`），几何按约 0.3 单位建模、真实尺寸
+  由工具节点缩放统一给出（模型约定 = 柄本体朝 +Y、环躺 XZ 平面，节点一次旋转把 +Y 转到
+  目标轴——与移动轴既有写法一致）。**绕序**统一朝外（右手系 `cross(v1-v0, v2-v0)`
+  外向约定，与内置 plane/box.smesh 同源）→ `gizmo.shader` 的 `Cull Back` 是真依赖（原
+  注释「Cull Off 容忍外部混合绕序」随资产退役一并纠正）。**拾取 = CPU 射线打「拾取体」**
+  （2026-11-08 用户实机反馈后改判，回撤 10-23 的「轴拾取统一进 ID 附件」：ID 附件是
+  「看得见即拾得」，轴细就不好选、环只能加粗可见管径换宽容度；改按 Babylon
+  `colliderMeshes` 口径——**可见几何与拾取体解耦**）：移动/缩放轴挂加粗
+  `CylinderCollider`（`AXIS_PICK_RADIUS = 0.022`，比可见杆粗约 9 倍且包住可见锥头）、
+  中心均匀柄挂加粗 `BoxCollider`（`0.07`）、旋转环无对应 L0 形状 → **解析式环带**
+  （射线 ∩ 环平面 → 交点离环心距离落在 `[R±0.015]`，`0.015` 即 Babylon 粗环管径
+  `0.03` 的半径）；拾取体尺寸与可见几何并列在 `GizmoMeshes`（模型单位随工具缩放 →
+  屏幕恒定宽容度），驱动侧 `pickHandle` 取最近命中再过 `isSelectable` 视线裁决。
+  可见几何回到 Babylon 原比例（**环管径 0.012 → 0.005**）；Gizmo 几何不再进拾取附件
+  （PickPass 只画不透明+透明桶，`depthOn`/Gizmo 桶分支一并删除），hover 顺带零读回延迟
+  （PickSystem 无 hover 监听者即不投递）。缩放基准 = 箭头全长
+  `0.3375` 为 gizmo 单位（三工具 `scaleFactor()` 同值，屏幕尺寸与旧 9.9 长箭头一致）。
+  **RotateTool**：三环（法线 = X/Y/Z = 各自旋转轴）；可选性闸门与移动轴**相反**——
+  环法线与视线夹角 < 81°（Babylon `MaxDragAngle = 9π/20`，`|cos| ≥ 0.156`）才可抓，环
+  侧视成线时变灰不可选。拖拽数学 = **环平面增量带符号夹角**：环平面即拖拽面（过枢轴、
+  法线 = 环世界法线），每帧射线求交、`atan2(cross(v0,v1)·axis, v0·v1)` 得绕轴转角，
+  构造四元数增量后经**父链世界旋转逆**换进父空间（`deltaLocal = R(parent⁻¹·axisWorld, angle)`），
+  回写 `newLocal = deltaLocal × local`（父空间轴上转 ⟺ 世界轴上转）——带符号夹角已含
+  相机侧信息，故**不需要** Babylon 的 `cameraFlipped`/`halfCircleSide` 翻符号补偿；Local
+  模式环随目标旋转（轴随动），World 恒世界轴，工具零分支。**ScaleTool**：三轴柄 + 原点
+  **中心均匀柄**（对等 Unity/Babylon）；拖拽沿用移动的平面相交法 + 世界位移按箭头世界长
+  归一（`factor = 1 + 投影差 / 箭头世界长`，即拖过一个箭头长度该分量 ×2），均匀柄同式乘
+  三轴；分量下限 `1e-3` 保号钳制（Babylon `MinimumAbsoluteScale` 口径）；**坐标轴恒局部**
+  （`TransformTools.localAxesForced()`，Unity/Babylon 口径——世界轴缩放与父级非均匀缩放
+  叠加无稳定语义，工具栏 Local/World 对缩放无效）。**驱动面改动**：注册三工具 +
+  坐标空间判定 `localSpace || activeTool.localAxesForced()` + `scaleFactor()` 基准上提基类；
+  公共视觉（三态写色/颜色表/shader 路径/材质构造）上提 `GizmoVisuals`（`sync` =
+  柄节点数组 + 状态数组 + 可选性闸门），公共轴闸门 `axisHandleSelectable` 上提
+  `TransformTools`；工具栏旋转/缩放两钮解禁（i18n 文案去「未实现」）。**显隐 = 每帧强制的
+  可见性不变量**（`update` 内先诊断后收敛：只有 `activeTool` 的工具子树亮，其余 hide）——
+  不依赖「切换时调一次 hide」的记忆性写法：三工具建时节点默认激活，装配期任何漏 hide /
+  外部误翻转都被当帧收敛（首验实锤「三套几何同屏」即此因，2026-11-08 修为不变量 + 可见性
+  翻转那帧打一行各工具激活态日志，排查口常驻）。**后置**：移动的
+  双轴平面手柄、环上角度扇形显示、拖拽中箭头变长动画、角度/位移吸附、pivot/center 切换、
+  环不可见 collider（拾取宽容度若实测不够再议）、W/E/R 快捷键；拾取判定半径抓取舒适度为
+  实测后调项。
 - **场景视图工具栏（2026-10-14 落地、当日用户实测验收通过）**：视口上方常驻条——SceneViewportPanel
   改列布局（工具栏 24px + 视口占位 flex:1），视口 rect 上报仍只测视口占位 div，
   Canvas 挖洞矩形自动让位（ResizeObserver 重报兜底）。内容：Tools 组（移动可用；
-  旋转/缩放置灰占位——工具本体未落地）+ 竖分隔 + 局部/世界二段切换；新组件
+  旋转/缩放置灰占位——工具本体未落地；**2026-11-08 两钮解禁**）+ 竖分隔 + 局部/世界二段切换；新组件
   `JeToolButton`（icon/文本通用、active=accent 反色、disabled 置灰、间距≤2、色板
   var(--editor-*)）。前端本地态即点即亮（fire-and-forget 对齐 setModel 风格）、
   不持久化（重启回 移动+世界）。桥=新域 `/gizmo`（`GizmoMethod`：setTool/setSpace
@@ -384,8 +433,8 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
   含非均匀缩放的世界矩阵提旋转）、World = 恒单位（现状语义）；工具层轴方向/hover/
   变灰走箭头世界矩阵，gizmoNode 旋转后同一代码直通（设计预留兑现、MoveTool 零改动）。
   游戏视图同高占位空条（GameViewportPanel 同列布局、视觉规格一致；内容留待 Game
-  视图工具设计——Unity 口径为显示比例/缩放/Stats 一族）。快捷键（W/E/R）与
-  rotate/scale 工具本体留扩展位。
+  视图工具设计——Unity 口径为显示比例/缩放/Stats 一族）。快捷键（W/E/R）留扩展位
+  （rotate/scale 工具本体 2026-11-08 已落地，见上条）。
 - **编辑器物体拾取终态拍板（2026-10-06 用户）：GPU ID-buffer，后置实现**——拾取 pass
   渲染场景时每个可拾取物体把自己的 pick ID（帧内稳定分配，0=背景/未命中）写进离屏整数附件
   （R32Uint，深度测试照常——近者胜），点击帧读回该像素 ID 即得选中对象（Unity 编辑器同路线，
@@ -396,8 +445,11 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 - **拾取全线统一拍板（2026-10-23 用户）：编辑器拾取一律 ID-buffer，编辑器侧射线拾取退役**——
   原开放项「过渡期先落 CPU 数学拾取（screenToRay→世界 Aabb 粗筛→逆变换进本地→三角形 MT 精判
   比 t——碰撞 L0 零件已全验收齐备）」就此**关账不落**：射线拾取场景物体绕不开给物体挂碰撞体/
-  网格碰撞体，正违反本拍板初衷。Gizmo 轴拾取终态同样统一进 ID 附件（轴几何各写 pick ID），
-  现役 CylinderCollider 轴拾取为过渡实现，ID-buffer 落地时迁移。
+  网格碰撞体，正违反本拍板初衷。~~Gizmo 轴拾取终态同样统一进 ID 附件（轴几何各写 pick ID），
+  现役 CylinderCollider 轴拾取为过渡实现，ID-buffer 落地时迁移~~——**2026-11-08 用户改判：
+  该条只对场景物体成立**（Gizmo 柄拾取见本 § 变换 Gizmo 条：ID 附件是「看得见即拾得」，
+  轴细就不好选、环只能加粗可见管径；改按 Babylon `colliderMeshes` 口径走 CPU 碰撞体射线，
+  拾取体与可见几何解耦）。
 - **拾取落点拍板（2026-10-23 用户）：pass 本体进引擎 core，运行时也可用**——拾取 pass/ID 分配/
   读回调度归 core（默认不挂、按需启用），编辑器与运行时游戏同为消费方。**有意分歧 Unity**：
   Unity 拾取是编辑器内部实现（HandleUtility.PickGameObject 仅 UnityEditor 命名空间），运行时
@@ -410,8 +462,9 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 - **GPU 拾取落地记录（2026-10-23，当日用户实测验收——设计档=Engine_Picking_Design.md v0.1）**：
   RHI 读回环（TextureReadbackRing 2 槽非阻塞）+ 覆盖制 PickPass（内嵌 pick.spv，拾取 pass 不消费
   材质 Pass 声明）+ PickSystem 双通道（hover/click，帧表 3 环防串帧）+ ViewportPickAppState 消费
-  （点击门控/选中收口）+ **Gizmo 轴拾取同批迁移**（hover 源改 PickSystem 直写、拖拽 pickRay 保留
-  纯数学、MoveTool 摘 CylinderCollider——CPU 射线过渡线退役）；透明物体可拾取（Unity 口径同批
+  （点击门控/选中收口）+ ~~**Gizmo 轴拾取同批迁移**（hover 源改 PickSystem 直写、拖拽 pickRay 保留
+  纯数学、MoveTool 摘 CylinderCollider——CPU 射线过渡线退役）~~（**2026-11-08 回撤，见本 § 变换
+  Gizmo 三工具条**）；透明物体可拾取（Unity 口径同批
   确认）；已知边界（hover 1~2 帧延迟、多视口后置）见该档 §8，验收清单 §9。
 - **视口聚焦（Frame Selected）已落地（2026-10-24，当日用户验收通过）**：双击层级节点行 →
   编辑器视口相机平滑滑到框住该节点（Unity 同款语义）。三拍板（2026-10-24 用户）：

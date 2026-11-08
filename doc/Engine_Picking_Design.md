@@ -1,13 +1,19 @@
 # 引擎 GPU 拾取设计（Engine Picking Design）
 
-> 版本：v0.1（2026-10-23 拍板 + 首版实现 + 用户实测验收通过）
+> 版本：v0.2（2026-11-08 范围收窄并当日用户实测验收通过：**GPU ID-buffer 只服务场景物体
+> 拾取，Gizmo 柄拾取撤回 CPU 碰撞体射线**——用户实机反馈「轴太细不好选、环太粗」：ID 附件
+> 是「看得见即拾得」，细几何没有额外拾取宽容度，只能靠把可见几何做粗；改按 Babylon
+> `colliderMeshes` 口径「可见几何与拾取体解耦」。§1/§7/§8 相应改写）
+> 　　v0.1（2026-10-23 拍板 + 首版实现 + 用户实测验收通过）
 > 定位：GPU ID-buffer 拾取的全链设计——RHI 读回能力 / core 拾取 pass 与调度系统 / 编辑器消费。
-> 拍板出处：Editor_Design.md §10（2026-10-23 三增补：拾取全线统一 ID-buffer、pass 本体落 core 运行时可用、射线检测与 GPU 拾取共存）。
-> 配套：`doc/RHI_Design_Core.md`（读回 API）、`doc/Editor_Design.md` §10、`doc/Engine_Collision_Design.md`（轴拾取过渡线退役）。
+> 拍板出处：Editor_Design.md §10（2026-10-23 三增补：拾取全线统一 ID-buffer、pass 本体落 core 运行时可用、射线检测与 GPU 拾取共存；**2026-11-08 修订：Gizmo 柄不进 ID 附件**）。
+> 配套：`doc/RHI_Design_Core.md`（读回 API）、`doc/Editor_Design.md` §10、`doc/Engine_Collision_Design.md`（碰撞体复用为拾取体）。
 
 ## 1. 定位与拍板
 
-**编辑器拾取一律 GPU ID-buffer（用户拍板 2026-10-23）**：物体拾取 + Gizmo 轴拾取（含 hover/拖拽）全线统一——拾取 pass 把每个可拾取物体以帧内分配的 pick ID 写进离屏 R32_UINT 附件（0=背景/未命中），点击/悬停读回该像素 ID 查表得对象。不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体；原「过渡期先落 CPU 数学拾取」开放项关账不落。
+**场景物体拾取走 GPU ID-buffer（2026-10-23 拍板；2026-11-08 收窄适用范围）**：~~物体拾取 + Gizmo 轴拾取（含 hover/拖拽）全线统一~~ → **只有场景物体**：拾取 pass 把每个可拾取物体以帧内分配的 pick ID 写进离屏 R32_UINT 附件（0=背景/未命中），点击读回该像素 ID 查表得对象。不依赖用户物体挂 Collider、不给物体隐藏挂网格碰撞体；原「过渡期先落 CPU 数学拾取」开放项关账不落。
+
+**Gizmo 柄拾取撤回 CPU 碰撞体射线（用户拍板 2026-11-08，理由「轴太细不好选、环太粗」）**：ID 附件「看得见即拾得」——细轴就难选、环只能靠加粗可见管径换宽容度（v0.1 期内曾把可见环管径从 0.005 加到 0.012）。改按 Babylon `colliderMeshes` 口径：**可见几何与拾取体解耦**，拾取体更粗（移动/缩放轴 = 加粗圆柱 Collider、旋转环 = 解析式环带、中心均匀柄 = 胖方块），可见几何回到 Babylon 原比例（细杆箭头 / 细环）。Gizmo 几何不再画进拾取附件（PickPass 只画不透明+透明桶），`Gizmo` 桶仍归 GizmoPass 绘制；hover 无读回延迟（顺带把 PickSystem 无监听者的 hover 投递整条关掉）。
 
 **覆盖制（用户拍板 2026-10-23）**：拾取 pass 不消费材质 shader 的 Pass 声明，用引擎自有 pick 着色器绘制——「看得见即拾得」，用户 shader 零声明负担（Unity 编辑器拾取同为换内部 shader 路线；声明制「忘声明即拾不到」被否）。
 
@@ -15,7 +21,7 @@
 
 **射线检测与 GPU 拾取共存（用户拍板 2026-10-23）**：射线**拾取**退役≠射线退役——运行时游戏内射线检测（Physics.Raycast 语义）照常归 Ray 期，两 API 并存：射线=物理查询（有 Collider 才打得中），ID-buffer=渲染拾取（看得见即拾得）。
 
-**批次范围（用户拍板 2026-10-23）**：物体+Gizmo 轴一并迁移（hover 每帧读回代价在本批设计——见 §6 异步环形读回）；轴的现役 CylinderCollider CPU 射线过渡线退役销账。
+**批次范围（用户拍板 2026-10-23）**：物体+Gizmo 轴一并迁移（hover 每帧读回代价在本批设计——见 §6 异步环形读回）；轴的现役 CylinderCollider CPU 射线过渡线退役销账。**2026-11-08 修订**：Gizmo 一侧回撤（轴拾取重回碰撞体射线，形态见 §1 第二条与 §7）——CylinderCollider 过渡线以「加粗拾取体」形态回归；场景物体一路不变。
 
 ## 2. 架构总览
 
@@ -29,7 +35,7 @@ javelin-core  RenderingSystem.pickIdFor/pickDepthFor（附件生命周期，dept
               PickSystem（调度：帧表 3 环 + hover/click 双通道 + ID 分配，JavelinEngine 帧末驱动）
               RenderObject.owner/pickId + SceneRenderBridge 赋 owner（ID→对象数据面）
 javelin-editor ViewportPickAppState（指针喂入 + 点击门控 + 选中收口）
-              TransformGizmoAppState（hover 源迁 PickSystem 直写；拖拽 pickRay 保留纯数学）
+              TransformGizmoAppState（柄 hover = CPU 射线打拾取体；拖拽 pickRay 仍是纯数学）
               JavelinEditor.onInitialize（构造 PickSystem + enable + 挂消费 AppState）
 ```
 
@@ -38,10 +44,10 @@ javelin-editor ViewportPickAppState（指针喂入 + 点击门控 + 选中收口
 ```
 earlyUpdate   ViewportPickAppState.update：pointer(px,py)（dpi 换算后附件像素）
               + LMB 门控通过时 requestClick(px,py)
-              TransformGizmoAppState.update：消费 pickHoverNode（工具裁决）→ hoveredNode/拖拽
+              TransformGizmoAppState.update：pickHandle(pickRay)（CPU 拾取体）→ hoveredNode/拖拽
 renderFrame   buildFrameGraph：PickPass.addToGraph（帧表重建 + 附件声明 + 回调录制）
               execute：回调逐物体 assignPickId + push constants + draw（R32_UINT 附件）
-mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → hover/click listener）
+mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → click listener；hover 无监听即不投递）
               → 投递本帧像素 copy（点击优先；hover 仅指针移动时）
 ```
 
@@ -66,7 +72,7 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 
 - **挂载**：`PickSystem.enable()` 尾插管线（GizmoPass 同款 `addPass` 模式）；图声明 `view.name()+"_Pick"`，`addColorOutput(pickIdFor, CLEAR, RHIClearUintColor(0))` + 自有深度 CLEAR，viewport/scissor 同 view。
 - **shader**：**走资产导入链**（2026-11-07 改向，ShadowPass/SkyboxPass 同款）——源码 `builtin-asset-core/pick/pick.vert/.frag`（core 模块资源树）经 `SpvShaderImporter` 编译 SPIR-V 落 Library，`PickPass` 经 `AssetManager.loadAsset("core/pick/pick.vert|.frag")` 装载（缺失/坏 stub 显性报错不兜底，红线 15）。~~原「GLSL 源放 javelin-tool、`gradlew :javelin-tool:generatePickSpv` 离线编译成 spv 内嵌 core resources、PickPass 读 classpath」路线作废~~（2026-11-07 清退：`tool/pick/PickAssets.java`、`tool/resources/pick/`、`core/resources/pick/*.spv`、`generatePickSpv` 任务一并删除）。vs：location0 position + set0 UBO1 viewProj + push model；fs：push pickId → `out uint`。push 布局 = model@0(64B) + **pickId@64**（复用 80B 声明，tpf 槽位让渡——拾取无时间语义；ALL_GRAPHICS 可见）。
-- **绘制桶**：不透明桶 → 透明桶（同深度测试 LEqual/ZWrite On——近者胜；Unity 口径透明物可选中，拾取输出常量 ID 无 blend 语义；透明桶画序即主通道视图空间 z 序但深度测试使序无关）→ "Gizmo" 桶（**深度关**、置顶——轴压物体，与 GizmoPass 对外语义一致）。编辑器透明面（Grid）命中后由消费方按节点归属裁决为点空。声明了 `Pass Pick` 的用户物体会进同名自定义桶，本 pass 不消费（覆盖制）。
+- **绘制桶**：不透明桶 → 透明桶（同深度测试 LEqual/ZWrite On——近者胜；Unity 口径透明物可选中，拾取输出常量 ID 无 blend 语义；透明桶画序即主通道视图空间 z 序但深度测试使序无关）。~~"Gizmo" 桶（深度关、置顶）~~ → **2026-11-08 起不进拾取附件**（Gizmo 柄拾取改 CPU 碰撞体射线，见 §7）。编辑器透明面（Grid）命中后由消费方按节点归属裁决为点空。声明了 `Pass Pick` 的用户物体会进同名自定义桶，本 pass 不消费（覆盖制）。
 - **PSO**：`GraphicsPipelineDesc` 色格式 `List.of(R32_UINT)`、set 布局仅 set0（`RenderingSystem.frameSetLayoutDesc()`，无材质 set2）、CullMode NONE（看见即拾得含背面）、Blend Off（UINT 附件必须）、pushConstantSize 80、COUNT_1；缓存键 = layout:topology:depthOn。
 - **ID 分配**：回调逐物体 `PickSystem.assignPickId(ro)`（帧内 1 起跨视口全局递增）→ `RenderObject.pickId` + 帧表登记 id→owner（owner = `SceneRenderBridge` 注册时赋的 MeshRenderer；Demo 直注册对象 owner=null 恒为背景）。
 
@@ -82,16 +88,16 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 ## 7. 编辑器消费（javelin-editor）
 
 - **JavelinEditor.onInitialize**：`new PickSystem(this, "Editor Camera Node")`（相机先注册拿基名，名字稳定）+ `enable()`；挂 `ViewportPickAppState(transformGizmo)`（挂载序在 gizmo 之后——点击门控消费其当帧 hover/拖拽态）。
-- **ViewportPickAppState**：每帧 `pointer`（Input.mouseX/Y 逻辑坐标 × swapchain/canvas 换算附件物理像素）；点击门控 = LMB 按下 && !Alt（归相机环绕）&& SCENE 模型 && !gizmo 拖拽中 && hover 非轴（轴点击归 gizmo 拖拽）。hover listener → owner 节点直写 `gizmo.setHoveredFromPick`；click listener → 用户场景节点 `EditorSelection.setSelectedNode(node)`、背景/编辑器自有节点（网格/轴线）`setSelectedNode(null)`（Unity 点空清空口径；层级树/Inspector 订阅零改动自动联动）。
-- **TransformGizmoAppState 轴迁移**：hover 源从 `raycastToolNodes()` CPU 射线改 PickSystem 直写位（update 消费时过 `toolOf` + `isSelectable` 视线裁决——近平行变灰逻辑不变）；拖拽 beginDrag/updateDrag 的 pickRay 仍由 screenToRay 现算（**纯拖拽数学，非命中测试**）；`raycastToolNodes` 与 Collider 依赖删除。
-- **MoveTool 摘除 CylinderCollider**：collideWithRay 命中线退役（Engine_Collision_Design 过渡实现销账）。
+- **ViewportPickAppState**：每帧 `pointer`（Input.mouseX/Y 逻辑坐标 × swapchain/canvas 换算附件物理像素）；点击门控 = LMB 按下 && !Alt（归相机环绕）&& SCENE 模型 && !gizmo 拖拽中 && hover 非柄（柄点击归 gizmo 拖拽）。click listener → 用户场景节点 `EditorSelection.setSelectedNode(node)`、背景/编辑器自有节点（网格/轴线）`setSelectedNode(null)`（Unity 点空清空口径；层级树/Inspector 订阅零改动自动联动）。~~hover listener → owner 节点直写 `gizmo.setHoveredFromPick`~~ → **2026-11-08 起 `setHoverListener(null)`**：gizmo 柄 hover 改 CPU 射线（见下条），PickSystem 无监听者即不投递 hover 拷贝（省一路逐帧读回）。
+- **Gizmo 柄拾取 = CPU 射线打拾取体（2026-11-08 回撤，形态照 Babylon `colliderMeshes`）**：`TransformTools.pickHandle(ray)` 默认遍历工具子树里的 `Collider` 组件取最近命中（移动/缩放轴 = 加粗 `CylinderCollider`；中心均匀柄 = 加粗 `BoxCollider`），旋转环无对应 L0 形状 → `RotateTool` 覆写为**解析式环带**（射线 ∩ 环平面 → 交点离环心距离落在 `[R−tol, R+tol]`，tol = Babylon 粗环半径 0.015）。拾取体尺寸在 `GizmoMeshes` 里与可见几何并列（模型单位随工具缩放 → 屏幕恒定宽容度）；驱动侧再经 `isSelectable` 视线裁决（不可选视同未命中）。拖拽 beginDrag/updateDrag 的 pickRay 仍由 `screenToRay` 现算（纯拖拽数学，非命中测试）。
+- **MoveTool/ScaleTool 挂回 CylinderCollider**：`collideWithRay` 命中线以「加粗拾取体」形态回归（2026-10-23 退役销账 → 2026-11-08 复用，尺寸不再 fitFromMesh 而按 Babylon 加粗规则显式给）。
 
 ## 8. 已知边界与后置
 
 | 项 | 现状 | 后置方向 |
 |----|------|---------|
-| hover 延迟 | 1~2 帧（GPU 管线深度固有） | 接受（高亮非关键路径；静止指针零读回） |
-| 拖拽起手依赖 settled hover | 按下时 hover 未到位则本轮不抓（人手先 hover 后按，常态无感） | 极端快击再点一次即可 |
+| ~~hover 延迟 1~2 帧（GPU 管线深度固有）~~ | **2026-11-08 起 Gizmo 柄 hover 零延迟**（CPU 射线同帧出结果）；ID 附件 hover 通道已无消费方（PickSystem 无监听即不投递） | — |
+| ~~拖拽起手依赖 settled hover~~ | 同上：CPU 射线同帧命中，按下即抓 | — |
 | 透明物体 | **可拾取**（Unity 口径，2026-10-23 用户确认）——同深度测试近者胜；Grid 等编辑器透明面命中=点空清空 | 水平视角下网格平面之下（y<0）被挡物体的拾取为已知边缘 |
 | 多视口 | 单目标视口（编辑器相机）；点击换算全屏口径 | 分屏 viewport 偏移换算后置 |
 | hover 刷新 | 仅指针移动时重拾（场景动、鼠标不动 → hover 不刷新） | 变更驱动的 hover 失效后置 |
@@ -99,17 +105,17 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 | 读回环 | 每帧最多 2 枚 4B 拷贝、槽池化 | 无优化需求 |
 | GAME 视图 | 拾取停发（编辑器相机摘除、pointer 停喂） | — |
 
-**视锥剔除零成本继承（设计性质，非拾取侧待办）**：PickPass 消费 `view.list()` 收集后的 RenderList——剔除落地在 `RenderingSystem.collectList` 收集侧（现状全量进列表、2026-09-25 拍板后置，Aabb/Mesh.bounds 地基已备），落地当天主通道与拾取 pass 同享已剔除列表，拾取侧零改动（覆盖制共用收集管线的红利；屏幕外 Gizmo 轴同享收敛）。
+**视锥剔除零成本继承（设计性质，非拾取侧待办）**：PickPass 消费 `view.list()` 收集后的 RenderList——剔除落地在 `RenderingSystem.collectList` 收集侧（现状全量进列表、2026-09-25 拍板后置，Aabb/Mesh.bounds 地基已备），落地当天主通道与拾取 pass 同享已剔除列表，拾取侧零改动（覆盖制共用收集管线的红利）。
 
-## 9. 验收清单（用户实测）
+## 9. 验收清单（用户实测；2026-10-23 v0.1 全项已过）
 
 1. 点击物体选中（层级树高亮 + Inspector 面板联动）；点空白清空选中。
-2. hover 移动轴高亮、近平行轴变灰不可选（GPU 拾取源，行为与射线时代一致）；点轴直接拖拽。
+2. hover 轴高亮、近平行轴变灰不可选、点轴直接拖拽（**2026-11-08 起 hover 源 = CPU 拾取体，行为不变；另验拾取宽容度：轴好抓、环细但好抓**）。
 3. 拖拽中不误触发改选中；Alt+LMB 环绕不误选中。
 4. MSAA_8 开启下拾取正确（拾取 pass 恒 1x 与主画面解耦）。
 5. resize 窗口后拾取正确（附件换绑）。
-6. 遮挡关系：近者胜（深度测试）；轴恒压物体（置顶）；**透明物体可选中**（前透明物遮后物，前者优先）。
-7. 运行日志：`PickSystem enabled` / `pick PSO created` / `首帧 Pick 回调执行` / hover 命中离开日志正常。
+6. 遮挡关系：近者胜（深度测试）；**透明物体可选中**（前透明物遮后物，前者优先）。~~轴恒压物体（置顶）~~ → 2026-11-08 起 Gizmo 不进附件，轴上点击由 gizmo hover 门控拦住（不落到被遮物体）。
+7. 运行日志：`PickSystem enabled` / `pick PSO created` / `首帧 Pick 回调执行` / gizmo `拾取命中柄节点` 正常。
 
 ## 10. 文件清单
 
@@ -117,5 +123,5 @@ mainLoop 末   PickSystem.frameEnd：收割读回环（帧号校验查表 → ho
 |----|------|
 | rhi | `RHIClearUintColor.java`（新）/ `RHIClearValue.java` / `CommandBuffer.java` / `VulkanCommandBuffer.java` / `Buffer.java` / `VulkanBuffer.java` / `Fence.java` / `VulkanFence.java` / `types/Format.java` / `TextureReadbackRing.java`（新） |
 | tool | ~~`pick/PickAssets.java`（新）+ `resources/pick/pick.vert|pick.frag`（新）+ `build.gradle` generatePickSpv 任务~~ **2026-11-07 整体清退**（源码迁 core builtin-asset-core/pick 走导入链，§5 shader 条） |
-| core | `RenderingSystem.java`（pickIdFor/pickDepthFor/frameSetLayoutDesc） / `RenderObject.java`（owner/pickId） / `SceneRenderBridge.java`（owner 赋值） / `render/pipeline/pass/PickPass.java`（新） / `render/picking/PickSystem.java`（新） / `JavelinEngine.java`（挂点+注册+shutdown） / ~~`resources/pick/pick.vert|frag.spv`（新产物）~~ **2026-11-07 删除**，改 `resources/builtin-asset-core/pick/pick.vert|pick.frag` + 伴生 .meta（源，经导入链编译） |
-| editor | `appstate/ViewportPickAppState.java`（新） / `appstate/gizmo/TransformGizmoAppState.java`（hover 迁移） / `appstate/gizmo/MoveTool.java`（摘 Collider） / `JavelinEditor.java`（挂载） |
+| core | `RenderingSystem.java`（pickIdFor/pickDepthFor/frameSetLayoutDesc） / `RenderObject.java`（owner/pickId） / `SceneRenderBridge.java`（owner 赋值） / `render/pipeline/pass/PickPass.java`（新；**2026-11-08 去掉 Gizmo 桶绘制与 depthOn 分档**） / `render/picking/PickSystem.java`（新；**2026-11-08 hover 无监听即不投递**） / `JavelinEngine.java`（挂点+注册+shutdown） / ~~`resources/pick/pick.vert|frag.spv`（新产物）~~ **2026-11-07 删除**，改 `resources/builtin-asset-core/pick/pick.vert|pick.frag` + 伴生 .meta（源，经导入链编译） |
+| editor | `appstate/ViewportPickAppState.java`（新；hover listener 已摘） / `appstate/gizmo/*`（**2026-11-08 柄拾取改 CPU 拾取体：`TransformTools.pickHandle` + Move/ScaleTool 挂 Collider + RotateTool 环带**） / `JavelinEditor.java`（挂载） |

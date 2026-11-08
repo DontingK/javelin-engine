@@ -20,11 +20,11 @@ import java.awt.Insets;
  * 场景视图工具栏（Editor_Swing_Design §6——web 版 SceneViewportPanel 工具栏
  * 的 Swing 化，语义不变）。
  *
- * <p>Tools 组：移动可用、旋转/缩放置灰占位（工具本体未落地）；竖分隔 + 局部/
- * 世界二段切换。本地态即点即亮、不持久化（重启回 移动+世界，对齐 web 版）。
- * 写通道 = {@link TransformGizmoAppState} 的 static volatile 意图镜像（EDT
- * 直写安全，先例=GizmoMethod/GridMenuCommand；引擎线程 update 帧内消费，
- * 未知工具名由 AppState 侧查名落空维持现状）。</p>
+ * <p>Tools 组：移动/旋转/缩放三工具齐备（2026-11-08 解禁后两者）；竖分隔 + 局部/
+ * 世界二段切换（缩放工具恒局部，坐标空间对它无效——Unity/Babylon 口径）。本地态
+ * 即点即亮、不持久化（重启回 移动+世界）。写通道 = {@link TransformGizmoAppState}
+ * 的 static volatile 意图镜像（EDT 直写安全，先例=GizmoMethod/GridMenuCommand；
+ * 引擎线程 update 帧内消费，未知工具名由 AppState 侧查名落空维持现状）。</p>
  *
  * @author javelin
  * @create 2026/10/17
@@ -39,14 +39,16 @@ public final class SceneViewToolbar extends JComponent {
         setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor()));
 
         JToggleButton move = toolButton("move", EditorLang.text("toolbar.moveTool"), true);
-        JToggleButton rotate = toolButton("rotate", EditorLang.text("toolbar.rotateTool"), false);
-        JToggleButton scale = toolButton("scale", EditorLang.text("toolbar.scaleTool"), false);
+        JToggleButton rotate = toolButton("rotate", EditorLang.text("toolbar.rotateTool"), true);
+        JToggleButton scale = toolButton("scale", EditorLang.text("toolbar.scaleTool"), true);
         ButtonGroup tools = new ButtonGroup();
         tools.add(move);
         tools.add(rotate);
         tools.add(scale);
         move.setSelected(true);
         move.addActionListener(e -> TransformGizmoAppState.setDesiredToolName("move"));
+        rotate.addActionListener(e -> TransformGizmoAppState.setDesiredToolName("rotate"));
+        scale.addActionListener(e -> TransformGizmoAppState.setDesiredToolName("scale"));
         add(move);
         add(rotate);
         add(scale);
