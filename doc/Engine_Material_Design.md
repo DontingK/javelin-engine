@@ -1,6 +1,6 @@
 # 引擎材质设计（Engine Material Design）
 
-> 版本：v0.6（2026-11-07 **序列化大数组 IO 修复**——core serialize 层（非材质面）+ §3.2 坑点存档增第 4 条；实测 = 天空盒 6.29MB 加载 5448ms→3ms，Pitfalls #33）
+> 版本：v0.7（2026-11-08 **导入期引用解析壳管理器**——`shader=@guid` 解析不再要求 Shader 产物已生成（首启多 worker 竞态 FileNotFoundException 修复；§3.2 已知边界口径改写；Editor_Design §6.3），同日用户实测验收；v0.6 沿革见下）
 > 说明：引擎侧材质/着色器数据模型与加载链路设计。着色器文件语法（.shader）、多 Pass 与材质实例模型的概念定义在 RHI 分卷四（20/21 节），本文只管引擎侧落地：包结构、编译产物形态、加载链路、渲染侧桥接。
 > 拍板（2026-09-25）：**Shader = .shader 源码文件编译后的结构**；**离线二进制资产**（着色器源码不进 core）；**RHI 资源渲染侧懒创建**（Shader/Material 纯数据、device 无关）。
 > v0.6（2026-11-07）：**序列化大数组 IO 修复**——BinaryImporter/BinaryExporter 外层流加缓冲（导出侧 `finally` 改关包装流）+ `byte[]` 改批量读写（读侧新增 `BinaryStreamInput.readBytes`）；Material/Shader 产物加载同族受益（Lit.shader 17KB 15ms→毫秒级）；实测 = 天空盒 6.29MB 5448ms→3ms（Pitfalls #33）。
@@ -58,10 +58,10 @@ xxx.shader（Unity ShaderLab 简化版，RHI 21 节语法）
 **拍板：.mat 就是 Material 的序列化**——源文件即 Material 经文本序列化协议落盘（`javelin-text-serialization`，与 .scene 源同款；Material.write/read 复用 2026-10-04 闭环，零改 core）。
 
 - **guid 口径 = 伴生 .meta**（同 .scene：首行是协议头不能走文件头自包含；MetaManager/管线两处既有 ".mat"→"Material" 类型标签直接生效，mtime 比对口径）；
-- **导入器** `editor/importer/material/MaterialImporter`（SceneImporter 同款）：TextImporter 解析即验证（`shader=@guid:` 经 task 携带 assetManager 解回）→ **shader 引用缺失显式拒绝**（残档=文件损坏口径，不落残产物，与 RenderObject null shader 报错同语义）→ `setGuid(meta.guid)` 产物自描述 → BinaryExporter 落 `Library/{guid}.asset`。消费侧 `loadGuid(guid, Material.class)` 直接可用；.scene 里 `material=@guid:{guid}` 引用经 TextInputCapsule 声明类型回解（通道 2026-10-04 已备）；
+- **导入器** `editor/importer/material/MaterialImporter`（SceneImporter 同款）：TextImporter 解析即验证（`shader=@guid:` 经 task 携带的壳管理器解回——2026-11-08 起不加载 Shader 产物，Editor_Design §6.3）→ **shader 引用缺失显式拒绝**（残档=文件损坏口径，不落残产物，与 RenderObject null shader 报错同语义）→ `setGuid(meta.guid)` 产物自描述 → BinaryExporter 落 `Library/{guid}.asset`。消费侧 `loadGuid(guid, Material.class)` 直接可用；.scene 里 `material=@guid:{guid}` 引用经 TextInputCapsule 声明类型回解（通道 2026-10-04 已备）；
 - **创建入口** `project.create.material`（ctx.project 右键「创建」域，创建族首项实做）：选中目录落 `material.mat`（重名 `material 1.mat` 编号去重），初始内容 = 内置 default.shader 的 `new Material(shader)` 文本序列化；**源文本 guid 与伴生 .meta 同源**（.scene 保存同口径，2026-10-19 用户纠偏：先 getOrCreateMeta 建 .meta 拿 guid、setGuid 后一次性落盘——源文本/伴生 .meta/Library 产物/index 四处一致；导入器仍以 meta 为真值源覆盖自述，防手改脱节）；落盘即 `submitImport`（产 Library 产物/更新 index，异步）；发 `project.changed` 事件驱动项目面板重拉树快照（刷新链随首个改盘命令接线，Editor_Design §10 遗留销账）；
 - **文件类型** `.mat` 注册 IconFileType（材质球图标，canOpen=false——材质编辑面板后置，双击暂无动作）；
-- **已知边界**：texture 条目引用 Texture2D 资产——纹理导入管线未落，槽可空（null=占位贴图），guid 解析通道框架已备；shader 引用未导入（首启多 worker 竞态）时导入失败、下次启动经 !isImportedInLibrary 重试（Scene 同语义）；
+- **已知边界**：texture 条目引用 Texture2D 资产，槽可空（null=占位贴图）；shader 引用解经壳管理器（导入期不加载 Shader 产物、按 meta 登记判引用存在，2026-11-08），guid 未登记=解 null（残档拒绝口径不变）；
 - **验收路径（用户实机待跑）**：①右键创建 → 文件+伴生 .meta+Library/{guid}.asset+index 收录齐全；②重启不重复导入；③手改 .scene MeshRenderer `material=@guid:{guid}` → 打开场景渲染差异可见；④project.reimport 强制重导生效。
 
 **坑点存档（AGENTS 红线 10 出处，2026-09-26 调试得出）**：

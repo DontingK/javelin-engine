@@ -78,7 +78,7 @@ public class ProjectLoadingFrame extends JFrame {
                 PluginManager.loadAll(new File(gradleProject.getRootDir(), "Plugins"));
                 MetaManager metaManager = new MetaManager(gradleProject);
                 ProjectAssetLibManager assetManager = new ProjectAssetLibManager(gradleProject.getLibrary());
-                AssetImportPipeline assetImportPipeline = new AssetImportPipeline(gradleProject, metaManager, assetManager);
+                AssetImportPipeline assetImportPipeline = new AssetImportPipeline(gradleProject, metaManager);
                 BuiltinAssetReleaser builtinAssetReleaser = new BuiltinAssetReleaser(gradleProject, metaManager, assetImportPipeline);
                 builtinAssetReleaser.releaseAll();
                 assetImportPipeline.refresh();

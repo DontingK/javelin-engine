@@ -236,6 +236,7 @@
 | 文件类型注册器（FileTypeRegistry：类型→图标 + 双击/命令打开分发） | ✅（2026-10-18） | ✅ 用户实测（2026-10-23） |
 | 贴图导入 ImageImporter（.png/.jpg/.jpeg → Image 像素资产；ImageIO 同入口；alpha 通道保留修复；image 文件类型/图标，贴图档 §2） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | 资产热重载基建（**编辑器对象注册表 Walker**——ObjectId 构造回调 registrar + EditorObjectRegistry 弱引用全量扫描 + setter 优先换指针 + 导入事件总线化（AssetImportPipeline 发 AssetImportEvent，AssetReload 档 v0.5）） | ✅（2026-10-30） | ✅ 用户实测（2026-10-30，改 .shader → reimport → 画面当帧变 + F3 计数不涨） |
+| **导入期壳管理器 ShellAssetManager**（首启依赖产物竞态修复——文本协议导入期 `@guid` 引用不加载 Library 产物：MetaManager 登记判引用存在 + ReflectiveFactory 造壳 setGuid；AssetImportPipeline 构造去 AssetManager 仅用壳；Editor_Design §6.3） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08，首启重导不再 FileNotFoundException） |
 | 自定义 Layer/Tag 设置管线（Settings 目录与 Game/ 接通） | ⬜ 待接（Layer 下拉空的根因） | — |
 
 ### 3.7 项目面板（project / Swing）

@@ -31,9 +31,10 @@ import java.util.List;
  * 口径，导入失败不落残产物——与 RenderObject 对 null shader 显式报错同语义，
  * 不静默降级。</p>
  *
- * <p>已知边界：texture 条目引用 Texture2D 资产——纹理导入管线未落，槽可空
- * （null = 占位贴图），guid 解析通道框架已备；shader 引用未导入（首启多 worker
- * 竞态）时解析失败，下次启动经 !isImportedInLibrary 重试（Scene 同语义）。</p>
+ * <p>已知边界：texture 条目引用 Texture2D 资产，槽可空（null = 占位贴图）；shader
+ * 引用解经 task 携带的壳管理器（导入期不加载 Shader 产物，见
+ * {@link cn.donting.javelin.editor.importer.ShellAssetManager}），guid 未登记时
+ * 解为 null（残档拒绝口径不变）。</p>
  *
  * @author javelin
  * @version 1.0
@@ -98,7 +99,7 @@ public class MaterialImporter implements AssetImporter {
 
         LOGGER.info("材质导入成功: {} -> {} (shader={})",
                 sourceFile.getName(), outputFile.getName(),
-                material.getShader().getShaderName());
+                material.getShader().getGuid());
         return true;
     }
 }

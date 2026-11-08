@@ -41,7 +41,8 @@ public class AssetImportPipeline {
     private final BlockingQueue<ImportTask> taskQueue = new LinkedBlockingQueue<>();
     private final ExecutorService executorService;
     private final GuidHeaderManager guidHeaderManager;
-    private final AssetManager assetManager;
+    /** 导入任务默认携带的壳管理器（引用解析不加载产物——见 {@link ShellAssetManager}） */
+    private final ShellAssetManager shellAssetManager;
 
     private final AtomicInteger importCount = new AtomicInteger();
     private volatile boolean running = false;
@@ -50,7 +51,7 @@ public class AssetImportPipeline {
      * 等待所有导入任务完成
      */
     public void waitImportFinished() {
-        while (importCount.get()>0) {
+        while (importCount.get() > 0) {
             logger.info("等待所有导入任务完成，正在执行中: {},", importCount.get());
             ThreadUtil.sleep(500);
         }
@@ -63,13 +64,12 @@ public class AssetImportPipeline {
      *
      * @param project      项目
      * @param metaManager  元数据管理器
-     * @param assetManager
      */
-    public AssetImportPipeline(Project project, MetaManager metaManager, AssetManager assetManager) {
+    public AssetImportPipeline(Project project, MetaManager metaManager) {
         this.project = project;
         this.metaManager = metaManager;
         this.guidHeaderManager = new GuidHeaderManager();
-        this.assetManager = assetManager;
+        this.shellAssetManager = new ShellAssetManager(metaManager);
 
         this.executorService = Executors.newFixedThreadPool(
                 Runtime.getRuntime().availableProcessors(),
@@ -205,7 +205,7 @@ public class AssetImportPipeline {
             task.markEnd(false);
             logger.error("导入异常: {}", task.getSourceFile().getName(), e);
             publishImportEvent(AssetImportEvent.Phase.FAILED, task);
-        }finally {
+        } finally {
             importCount.decrementAndGet();
         }
     }
@@ -227,12 +227,20 @@ public class AssetImportPipeline {
     }
 
     /**
-     * 提交导入任务
-     *
-     * @param file 源文件
-     * @return 导入任务
+     * 提交导入任务（任务默认携带壳管理器——导入期引用解析不加载产物）。
      */
     public ImportTask submitImport(File file) {
+        return submitImport(file, shellAssetManager);
+    }
+
+    /**
+     * 提交导入任务（显式指定任务携带的 AssetManager——需要真实装载的导入器走此口）。
+     *
+     * @param file 源文件
+     * @param assetManager 任务携带的资源管理器
+     * @return 导入任务
+     */
+    public ImportTask submitImport(File file, AssetManager assetManager) {
         importCount.incrementAndGet();
         AssetMeta meta;
         ImportSettings settings;
@@ -247,7 +255,7 @@ public class AssetImportPipeline {
             settings = getOrCreateSettings(file, meta);
         }
 
-        ImportTask task = new ImportTask(file, meta, settings,assetManager);
+        ImportTask task = new ImportTask(file, meta, settings, assetManager);
         taskQueue.offer(task);
         logger.debug("提交导入任务: {}", file.getName());
         return task;
@@ -487,7 +495,8 @@ public class AssetImportPipeline {
             return "Material";
         } else if (name.endsWith(".java")) {
             return "Script";
-        } if (name.endsWith(".smesh")) {
+        }
+        if (name.endsWith(".smesh")) {
             return "Mesh";
         } else if (name.endsWith(".json") || name.endsWith(".yaml") || name.endsWith(".xml")) {
             return "Data";
@@ -553,7 +562,7 @@ public class AssetImportPipeline {
         return libraryDir;
     }
 
-    public AssetImporter getAssetImporter(File file){
+    public AssetImporter getAssetImporter(File file) {
         return findImporter(file);
     }
 }

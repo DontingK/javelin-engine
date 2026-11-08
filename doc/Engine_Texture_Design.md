@@ -1,6 +1,7 @@
 # 引擎贴图资产设计（Engine Texture Design）
 
-> 版本：v0.3（2026-10-30 **Texture2D 运行期可变 + revision 版本号**——同日 Texture2DTest 改断言 + 运行期换图/采样实机验收销账）
+> 版本：v0.4（2026-11-08 **导入期引用解析壳管理器**——`image=@guid` 解析不再要求 Image 产物已生成，首次导入 FileNotFoundException 修复；Editor_Design §6.3，同日用户实测验收）
+> v0.3（2026-10-30）：**Texture2D 运行期可变 + revision 版本号**——同日 Texture2DTest 改断言 + 运行期换图/采样实机验收销账。
 > 范围：图片导入管线（.png/.jpg/.jpeg → Image 像素资产 → Library 产物）+ 三层资产模型拍板 + Texture2D 引用层改造 + **v0.2 增量：纹理资产（.texture 用户文件 + 创建命令 + 导入器 + 检查器面板）** + **v0.3 增量：上传冻结废除、运行期可变（setImage/setFilterMode/setWrapMode 即时生效）+ revision 驱动渲染侧描述符集重建**。
 > 消费链（Material 贴图槽 → RenderingSystem → TextureUpload 懒上传 → RHI Texture/Sampler）为既有已落地件，消费兼容性本批一并补齐（null-image 占位守卫）。
 
@@ -70,7 +71,7 @@
 | 环节 | 落点 | 说明 |
 |------|------|------|
 | 创建命令 | `CreateTextureMenuCommand`（project.create.texture，创建族第三项） | 选中目录落 `texture.texture`（重名编号去重）；`new Texture2D()`+meta guid → TextExporter 一次性落盘 → submitImport → project.changed |
-| 导入器 | `TextureImporter` + `TextureImportSettings`（importer/texture 包） | TextImporter 解析（image=@guid 解靠 assetManager；引用未导入=解析失败下次启动重试，Scene/Material 同语义）→ meta guid 覆盖自述 → BinaryExporter 产物 |
+| 导入器 | `TextureImporter` + `TextureImportSettings`（importer/texture 包） | TextImporter 解析（image=@guid 解经壳管理器 `ShellAssetManager`——不加载 Image 产物、按 meta 登记判引用存在，未登记=解 null；2026-11-08，Editor_Design §6.3）→ meta guid 覆盖自述 → BinaryExporter 产物 |
 | 检查器 | `TextureInspectorProvider`/`TextureInspectorContent`（.texture 键） | 「纹理」固定分组（文件/图 AssetInput/GUID）+「采样」分组（filter/wrap 下拉）；图换绑即时写回重导（None 合法/空串拒绝）、采样提交防抖 500ms（.mat 同款合并阀+flushPending 兜底） |
 | 通用件 | AssetInput/AssetPickerDialog 升多后缀 | TYPE_SUFFIX 值改列表——Image 三后缀 [.png/.jpg/.jpeg] 首个多扩展名类型；选择窗按后缀列表枚举、拖放按列表过滤 |
 | 渲染守卫 | RenderingSystem materialSet | 贴图槽实例非 null 但 image=null（纹理壳）→ 同未赋槽走占位贴图（上传路径对 null image 会抛） |

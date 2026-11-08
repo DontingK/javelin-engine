@@ -376,6 +376,19 @@ RotationMathTest；详见 Inspector_Design v0.15。
 线程嵌套按最外层计时；双语键 `time.consuming.*` 随批。**待办 = 接调用点**（焦点扫描 / 工程
 加载链 / 打包构建线程三候选）+ 实机验收。
 
+修复批次（2026-11-08，用户实测验收通过）：**导入期引用解析壳管理器（ShellAssetManager）——首启
+依赖产物竞态修复**——用户报首启 `.texture` 导入必现 `FileNotFoundException: Library/<image guid>.asset`。
+根因 = 文本协议导入期的 `@guid` 引用经真实 AssetManager 强加载 Library 产物（TextInputCapsule →
+AssetLibManager.loadGuid → 直接开文件），而索引登记以 .meta 为准、不检查产物
+（MetaManager.collectIndexEntries）+ 导入多 worker 并行无依赖序——`.texture` 可先于被引用 `.png`
+解析，撞「索引有 guid、产物未落盘」即抛；反向缺口 = guid 未入索引时解 null 静默成壳。修法 =
+独立壳管理器 `ShellAssetManager`（导入期不加载产物：引用存在性按 MetaManager.getMetaByGuid 判定、
+命中 `ReflectiveFactory` 造壳 + setGuid；其余接口面显性抛错，键 `text.shellUnsupportedMethod` 双语）
++ `AssetImportPipeline` 构造去 AssetManager（`(Project, MetaManager)`；默认 submitImport 携带壳，
+显式口重载留逃生）+ texture/material/scene 三导入器零改动（走 task.getAssetManager）。**语义边界**
+= 只去掉「依赖产物必须已生成」，引用存在性校验保留（Material 残档拒绝口径不变）。详见
+Editor_Design §6.3 / 贴图档 v0.4 / 材质档 v0.7。
+
 ---
 
 ## 3. 三期：光照
@@ -449,6 +462,12 @@ RotationMathTest；详见 Inspector_Design v0.15。
 > **2026-11-08 批映射注**：耗时操作指示器（编辑器侧「耗时反馈」基建——后台耗时操作期间给用户
 > 「忙」的反馈，与导入进度框同族但不绑业务）→ 挂靠**二期「编辑器基本」**；状态 = **落地、调用点
 > 未接、待实机验收**（Editor_Swing_Design §4.3 v0.2 / Engine_Features §3.1 + §6 挂账）。
+
+> **2026-11-08 批映射注②**：导入期引用解析壳管理器（ShellAssetManager——导入期 `@guid` 引用不加载
+> Library 产物、按 meta 登记判引用存在 + 造壳 setGuid；`AssetImportPipeline` 构造改
+> `(Project, MetaManager)` 仅用壳）→ 挂靠**二期「资产格式层 + 资产管线」**（资产基建修复，非阶段
+> 能力变更）；状态 = ✅ **2026-11-08 用户实测销账**（首启重导不再 FileNotFoundException），细则见
+> Editor_Design §6.3 / Engine_Features §3.6。
 
 ## 6. 跨期遗留（不阻塞当期推进）
 

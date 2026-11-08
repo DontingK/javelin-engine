@@ -16,6 +16,9 @@
 > + Gizmo 轴迁移（CylinderCollider 过渡线退役）——设计档=Engine_Picking_Design.md v0.1。
 > 2026-10-24 §10 增补视口聚焦（层级双击 + F 键 → 编辑器相机平滑框住选中物；拍板=双击一律聚焦、
 > 展开/折叠只认三角手柄、F 键同批、平滑过渡）。
+> 2026-11-08 §6.3 增补导入期引用解析壳管理器（`ShellAssetManager`）——首次导入依赖产物竞态
+> 修复（FileNotFoundException 根治：导入解析与依赖产物生成解耦；Material 残档拒绝口径不变，
+> 当日用户实测验收）。
 
 ## 1. 定位与边界
 
@@ -176,6 +179,19 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
   （清 Library 全量）；消费者为 CPU 核数个工作线程 + 无界 LinkedBlockingQueue；
   `ImportTask` 记录状态/耗时/错误；导入成功回写 meta（导入设置 + mtime 对齐源文件，
   含 .shader/.smesh——其导入设置自此真持久化）。
+- **导入期引用解析 = 壳管理器（`ShellAssetManager`，2026-11-08 落地并实测验收）**：`.texture`/
+  `.mat`/`.scene` 文本源里的 `@guid` 引用在导入期**不再加载 Library 产物**——任务携带的管理器
+  即壳：引用存在性按 `MetaManager.getMetaByGuid` 判定（meta 登记=资产存在），命中即
+  `ReflectiveFactory` 造壳 + `setGuid` 返回；其余接口面显性抛错（导入只走 loadGuid，键
+  `text.shellUnsupportedMethod`）。**根因（首启 FileNotFoundException 报障）**：索引登记以 .meta
+  为准、不检查产物（MetaManager.collectIndexEntries）+ 导入多 worker 并行无依赖序——`.texture`
+  可先于被引用 `.png` 解析，`loadGuid` 撞「索引有 guid、产物未落盘」直接开文件抛错（反向缺口=
+  guid 未入索引时解 null、空壳静默导入）。**语义边界**：仅去掉「依赖产物必须已生成」——产物只写
+  引用 guid（BinaryOutputCapsule 对 Asset 引用只写 TYPE_ASSET+guid），导出正确性与依赖导入完成
+  解耦；「引用须指向项目内存在的资产（meta 登记）」保留，MaterialImporter 残档拒绝
+  （shader=@null 或解不回→不落残产物）口径不变。接线 = `AssetImportPipeline` 构造改
+  `(Project, MetaManager)`（不再收 AssetManager）、默认 `submitImport(File)` 任务携带壳；
+  `submitImport(File, AssetManager)` 重载留作真实装载逃生口（当前无调用方）。
 - `BuiltinAssetReleaser`：按构建期 `builtin-asset.index` 把 classpath 内置资源释放到
   `.javelin/assets/{name}/`，**伴生 `.meta` 随包同释放**（2026-10-29：`builtin-asset-*`
   同目录 `.meta` 一并打进包里；首次释放拷包内 meta + 补默认导入设置，包缺 meta=

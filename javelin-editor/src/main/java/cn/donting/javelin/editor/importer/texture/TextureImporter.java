@@ -24,9 +24,10 @@ import java.util.List;
  * {@code loadGuid(guid, Texture2D.class)}、.mat 贴图槽 {@code texture=@guid:}
  * 引用经 TextInputCapsule 声明类型回解。</p>
  *
- * <p>guid 口径（与 MaterialImporter 同源）：伴生 .meta 为真值源；image 引用未
- * 导入（首启多 worker 竞态）时解析失败，下次启动经 !isImportedInLibrary 重试
- * （Scene/Material 同语义）。</p>
+ * <p>guid 口径（与 MaterialImporter 同源）：伴生 .meta 为真值源；image 引用解经
+ * task 携带的壳管理器（导入期不加载 Image 产物，见
+ * {@link cn.donting.javelin.editor.importer.ShellAssetManager}），引用 guid 未
+ * 登记时解为 null（=未选图纹理壳口径）。</p>
  *
  * @author javelin
  * @create 2026/10/25
