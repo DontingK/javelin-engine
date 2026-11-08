@@ -134,6 +134,35 @@ public class Node extends ObjectId implements Serializable {
     }
 
     /**
+     * 移除组件（Transform 由构造持有，不可移除）。
+     *
+     * <p>已挂入场景的组件即时收尾：onDisable（通知态）→ onDestroy → 退场景注册表
+     * （含相机/可渲染/碰撞/灯分流表与唯一性判据——场景唯一组件移除后槽位释放）→
+     * 清生命周期状态位，口径同节点摘出场景。移除后归属清空（{@link Component#getNode()}
+     * 为 null），实例不再可用，再加走 {@link #addComponent} 新建实例。</p>
+     *
+     * <p>列表变更不保证可重入：勿在 {@code GameScene.update} 遍历期调用（帧边界
+     * 任务队列是正常入口）。</p>
+     *
+     * @param component 本节点持有的组件
+     * @throws IllegalStateException 组件为 null / 不属于本节点（含已移除）/ 为 Transform
+     */
+    public void removeComponent(Component component) {
+        if (component == null || component.getNode() != this || !components.contains(component)) {
+            throw new IllegalStateException("组件不属于本节点，无法移除: "
+                    + (component == null ? "null" : component.getClass().getName()));
+        }
+        if (component instanceof Transform) {
+            throw new IllegalStateException("Transform 由 Node 构造时自动持有，不可移除");
+        }
+        components.remove(component);
+        if (scene != null) {
+            asGameScene().onComponentDetached(component);
+        }
+        component.setNode(null);
+    }
+
+    /**
      * 组件列表（package-private，GameScene 生命周期驱动用；外部经 getComponent 访问）。
      */
     List<Component> components() {

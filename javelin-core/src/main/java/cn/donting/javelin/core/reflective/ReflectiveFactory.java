@@ -3,6 +3,8 @@ package cn.donting.javelin.core.reflective;
 import cn.donting.javelin.ast.annotation.Reflective;
 
 import java.lang.annotation.Annotation;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -225,6 +227,22 @@ public class ReflectiveFactory {
      */
     public static boolean isRegistered(String className) {
         return CLASS_MAP.containsKey(className);
+    }
+
+    /**
+     * 已注册类对象的快照（无序；零反射、AOT 安全）。
+     *
+     * <p>供上层按类型筛选取用（编辑器「添加组件」列 Component 子类等），返回新
+     * 列表、修改不影响注册表。</p>
+     *
+     * @return 已注册类对象列表
+     */
+    public static List<Class<?>> registeredClasses() {
+        List<Class<?>> classes = new ArrayList<>(CLASS_MAP.size());
+        for (RegistryEntry entry : CLASS_MAP.values()) {
+            classes.add(entry.clazz);
+        }
+        return classes;
     }
 
 

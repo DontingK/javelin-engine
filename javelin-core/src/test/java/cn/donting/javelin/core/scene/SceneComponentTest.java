@@ -42,6 +42,7 @@ public class SceneComponentTest {
         int awakeCount;
         int enableCount;
         int disableCount;
+        int destroyCount;
         int startCount;
         int updateCount;
 
@@ -58,6 +59,11 @@ public class SceneComponentTest {
         @Override
         protected void onDisable() {
             disableCount++;
+        }
+
+        @Override
+        protected void onDestroy() {
+            destroyCount++;
         }
 
         @Override
@@ -195,6 +201,55 @@ public class SceneComponentTest {
 
         assertSame(environment, scene.getEnvironment());
         assertSame(node, environment.getNode());
+    }
+
+    // ── 移除组件（Node.removeComponent，2026-11-08） ──────────
+
+    @Test
+    void removeComponentDetachesAndReleasesUniqueSlot() {
+        GameScene scene = new GameScene("Remove Component");
+        Node node = new Node();
+        node.setName("probe-node");
+        scene.add(node);
+        ProbeSceneUniqueComponent probe = node.addComponent(ProbeSceneUniqueComponent.class);
+        scene.update(1.0f / 60.0f);
+        assertEquals(1, probe.enableCount);
+        assertEquals(1, probe.updateCount);
+
+        node.removeComponent(probe);
+
+        // 即时收尾（onDisable 通知态 → onDestroy）+ 退注册表 + 清归属
+        assertEquals(1, probe.disableCount);
+        assertEquals(1, probe.destroyCount);
+        assertNull(probe.getNode());
+        assertNull(node.getComponent(ProbeSceneUniqueComponent.class));
+        assertFalse(scene.hasSceneComponent(ProbeSceneUniqueComponent.class));
+
+        // 移除后不再随帧驱动；场景唯一槽位释放（同型可再挂）
+        scene.update(1.0f / 60.0f);
+        assertEquals(1, probe.updateCount);
+        assertNotNull(node.addComponent(ProbeSceneUniqueComponent.class));
+    }
+
+    @Test
+    void removeComponentRejectsTransformAndAlreadyRemoved() {
+        Node node = new Node();
+        node.setName("guard");
+        // Transform 构造自动持有：不可移除（不留静默去重）
+        assertThrows(IllegalStateException.class, () -> node.removeComponent(node.getTransform()));
+        assertNotNull(node.getTransform());
+
+        // 已移除的组件（归属已清空）二次移除拒绝
+        ProbeNodeUniqueComponent probe = node.addComponent(ProbeNodeUniqueComponent.class);
+        node.removeComponent(probe);
+        assertNull(probe.getNode());
+        assertThrows(IllegalStateException.class, () -> node.removeComponent(probe));
+
+        // 非本节点持有的组件拒绝
+        Node other = new Node();
+        other.setName("other");
+        ProbeNodeUniqueComponent otherProbe = other.addComponent(ProbeNodeUniqueComponent.class);
+        assertThrows(IllegalStateException.class, () -> node.removeComponent(otherProbe));
     }
 
     @Test

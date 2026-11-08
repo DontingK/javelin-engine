@@ -1,6 +1,6 @@
 # 引擎场景设计（Engine Scene Design）
 
-> 版本：v0.6（2026-11-08：**唯一性作用域 `@UniqueComponent`**——§2.5 新增（不写参数=每节点至多一个、`scene=true`=全场景至多一个；拒绝在落表前、不留半挂态）；注解值走处理器生成的 AOT 安全通道；首例 `Environment`（**挂节点上的普通组件**，装天空盒——原 `GameScene.skybox` 字段与 `Scene.getSkybox()` 迁入退役）；同日曾落「场景域组件」一版后按用户拍板撤销，沿革见 §2.5；§2.1 草图与 §9.2 数据面随改）；v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；**2026-10-30 验收销账（SceneSerializationTest + 实机，随验收修复文本列表 guid 硬编码 Asset.class 崩——TextImporter 走对象头泛型类、TextExporter 写具体类名，§9 坑点存档）**；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
+> 版本：v0.7（2026-11-08：**`Node.removeComponent` 落地**——组件移除的即时收尾（onDisable → onDestroy）与注册表释放（相机/可渲染/碰撞/灯分流表 + 唯一性槽位），口径同节点摘出场景，§2.2/§2.5）；v0.6（2026-11-08：**唯一性作用域 `@UniqueComponent`**——§2.5 新增（不写参数=每节点至多一个、`scene=true`=全场景至多一个；拒绝在落表前、不留半挂态）；注解值走处理器生成的 AOT 安全通道；首例 `Environment`（**挂节点上的普通组件**，装天空盒——原 `GameScene.skybox` 字段与 `Scene.getSkybox()` 迁入退役）；同日曾落「场景域组件」一版后按用户拍板撤销，沿革见 §2.5；§2.1 草图与 §9.2 数据面随改）；v0.5（2026-10-29：§5.1 **MeshRenderer 多材质**——materials 列表 i 位对应 Mesh 子网格 i，每 (renderer, 子网格) 一 RenderObject，缺失位 DefaultMaterial 默认材质兜底（原「material null 不渲染」口径作废）；**2026-10-30 验收销账（SceneSerializationTest + 实机，随验收修复文本列表 guid 硬编码 Asset.class 崩——TextImporter 走对象头泛型类、TextExporter 写具体类名，§9 坑点存档）**；v0.4 = 2026-10-28 colliders 注册表分流投影；v0.3 = 2026-10-01 §9 .scene 序列化落地，沿革在档）
 > 说明：引擎侧场景设计文档（组件模型，对齐 Unity 心智），与 RHI 设计文档（`RHI_Design.md` 系列）配套。
 > 职责边界：RHI 文档管"怎么渲染"（图、Pass、绑定、呈现、帧执行）；本文管"场景里有什么、每帧怎么变成渲染输入"。
 > 关联章节：RHI 第 9 节 RenderView、第 19 节多相机、第 20 节 Material、第 27 节线程模型（帧描述）。
@@ -38,13 +38,20 @@ class Node {
     <T extends Component> T getComponent(Class<T> type);       // 线性扫描（组件少，够用）
     <T extends Component> List<T> getComponents(Class<T> type);
     Component addComponent(Class<? extends Component> type);   // 经 ReflectiveFactory 零反射创建（组件类须 @Reflective + 公开无参构造，AOT 安全）
+    void removeComponent(Component component);                 // v0.7：已入场景则即时收尾 + 退注册表（Transform 不可移除）
     void setActive(boolean active);           // 级联子节点
     boolean isActiveInHierarchy();            // 自身 + 全部祖先 active
 }
 ```
 
 - `new Node()` 裸创建：**无场景归属**、不注册、不触发任何回调（纯数据构建）；
-- 构造时自动持有 `Transform`（Unity 式，必有且唯一）。
+- 构造时自动持有 `Transform`（Unity 式，必有且唯一）；
+- **组件移除（v0.7）**：`removeComponent` 只收本节点持有的实例（错宿主/已移除即抛
+  `IllegalStateException`，不静默去重）；已挂入场景的组件**即时收尾**——`onDisable`
+  （通知态）→ `onDestroy` → 退场景注册表（相机/可渲染/碰撞/灯分流）→ 清生命周期状态位，
+  口径同节点摘出场景；移除后归属清空（`getNode()` 为 null），实例不再可用，再加走
+  `addComponent` 新建。**列表变更不保证可重入**——勿在 `GameScene.update` 遍历期调用
+  （帧边界任务队列是正常入口）。
 
 ### 2.3 Component（抽象基类）
 
@@ -91,6 +98,8 @@ class Transform {
 - **唯一性作用域 = `@UniqueComponent`**：不写参数 = **每节点至多一个**；`scene = true` =
   **全场景至多一个**（跨节点判，全场景只此一实例）。重复即抛 `IllegalStateException`，
   **不静默去重**（红线 15）。
+- **移除即释放槽位**（v0.7）：`removeComponent` 退注册表后 `hasSceneComponent` 立即判否——
+  场景唯一组件（如 `Environment`）可在别处重挂；节点域唯一同理（`getComponent` 即空）。
 - **拒绝时机 = 落表之前**：`Node.addComponent` 前置判（节点已入场景时查
   `GameScene.hasSceneComponent`）/ `GameScene.attachSubtree` 对整棵新挂子树预检（与已入场景
   组件比 + 本批新挂入组件互比，子树里两处同型同样拒）/ `register` 末道兜底——三条路径都覆盖，

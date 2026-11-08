@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.15，2026-11-07 旋转行跳动根治验收通过——欧拉口径切 Unity 同款 Z-X-Y + 面板级自旋回声抑制）
+# 检查器（Inspector）设计（v0.18，2026-11-08 组件头右键菜单落地待验收——菜单当前项=删除组件，core 补 removeComponent）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -180,6 +180,17 @@
 > 「贴图槽」独立分组退役）；同批 .texture 面板「采样」两下拉并入固定「纹理」组（不值独立
 > 分组，用户拍板合组）。materialSet 按材质缓存烤死贴图绑定——live 换绑不重绑，生效=场景
 > 重载/热重载批次。
+> v0.16（2026-11-08，补记）：**.scene 检查器收口**——环境设置改挂节点后场景根行不再
+> 显示环境（原 skybox 行与随后的环境组件节均撤出，只留场景分组文件行 + 非当前场景
+> 只读态），编辑入口=节点检查器（状态行见 Engine_Features §3.4 v0.16）。
+> v0.17（2026-11-08）：**节点检查器「添加组件」（§13）**——底部常驻按钮 → 选择窗
+>（搜索 + 候选列表）→ 帧边界 addComponent + 置脏 + 面板自拉 + 新分组展开滚入可见；
+> 候选面 = core 新口 `ReflectiveFactory.registeredClasses()` 枚举里「Component 子类 +
+> 非抽象 + 贴 @InsHeader」者，`@UniqueComponent` 冲突项灰显不可选。
+> v0.18（2026-11-08）：**组件头右键菜单（§14）**——右键组件分组头（箭头/图标/标题/
+> headerLeft 勾选任一子件）弹菜单，当前一项「删除组件」（required 组件置灰）；删除走
+> 帧边界 core 新口 `Node.removeComponent`（即时 onDisable → onDestroy + 退注册表）
+> + 置脏 + 面板自拉。折叠切换改只认左键（原任何按下都切）。
 
 ## 1. 总则
 
@@ -496,3 +507,65 @@ file.save 写回 .mat——资产脏标与场景 dirty 不同源，需单独设�
 - **沿革（试做后移除，勿再当候选）**：悬停滚轮调值（步长同源、consume 防面板
   滚动）——用户要求去掉，悬停数字框滚轮恢复滚动面板；无限拖（Robot.mouseMove
   指针回绕 + 累计位移）——同批移除，恢复有限拖拽（拖到屏幕边即止）。
+
+## 13. 添加组件（v0.17，2026-11-08 落地待验收）
+
+> 起因（用户派发）：节点检查器最下方要一个「添加组件」按钮，弹出组件选择框。此前
+> 给节点补组件只能靠菜单创建带组件的新节点（hierarchy.create.* 族），现有节点补
+> 组件无路；Unity 的等价物是 Inspector 末项 Add Component。
+
+- **候选面（`AddComponentCatalog`，引擎线程）**：`ReflectiveFactory.registeredClasses()`
+  全量注册类里筛「Component 子类 + 非抽象 + 贴 `@InsHeader`」——**闸门与组件分组同源**
+  （不进检查器的组件，列出来也看不见字段），Transform 剔除（Node 构造自动持有、不可
+  重复添加）。零反射枚举注册表：**插件/游戏自定义组件只要注册进工厂且贴注即自动入列**，
+  无需在编辑器侧登记；按显示名排序。显示名/图标取 `@InsHeader`（label 经 EditorLang、
+  兜底类简单名——与分组头同源解析，头元数据扩容时两处一并抽取）。
+- **唯一性灰显**：`@UniqueComponent` 两级预判——本节点已有=节点域、本场景已有=场景域
+  （`GameScene.hasSceneComponent`）→ 条目灰显 + 原因后缀、**不可选中**（选择模型拒绝，
+  点击/方向键都跳过）；不隐藏（隐藏会让用户以为组件不存在）。列表只做灰显，落表拒绝
+  仍归 `Node.addComponent`（选中期间场景变化的竞态兜底——失败弹错误框，红线 15）。
+- **选择窗（`AddComponentDialog`，`widget` 包）**：模态、搜索框按显示名过滤（忽略
+  大小写）+ 候选列表（图标 + 显示名）、双击/「确定」提交、「取消」放弃——AssetPickerDialog
+  同构（选择窗只管选择，场景写入归调用方）。过滤后自动选中首个**可添加**项，全灰显时
+  不预选（防「确定」误提交）。
+- **添加链（`NodeInspectorContent`）**：按钮点击 → `submitTask` 帧边界收集候选（EDT 不读
+  节点组件表，同面板数据通道口径）→ invokeLater 弹窗 → 选中 → `submitTask` ｛归属校验 →
+  `node.addComponent` → `markDirty`｝→ invokeLater ｛登记 pendingReveal → 重拉面板｝。
+  **刷新触发**：组件增删不在 `SceneWatchAppState` 快照面内（快照=节点/层级/layer/tags），
+  故由本面板自拉一次；新组件分组**强制展开并滚入可见区**（pendingReveal 按组件实例身份
+  匹配，重建后清）。
+- **布局**：底栏常驻面板 SOUTH（BorderLayout）——**不随内容滚动**（2026-11-08 用户拍板：
+  添加按钮永远在最下面）；1px JSeparator 与滚动区分隔、按钮满宽；空态（无选中/僵尸选中）
+  随滚动区成对卸下，不摆「添加组件」。
+- **core 补口**：`ReflectiveFactory.registeredClasses()`（已注册类快照，零反射、AOT 安全；
+  编辑器筛类型用）。
+- **不做/后置**：候选分组/分类、按类名搜索、顶栏 Component 菜单（Unity 的另一入口）；
+  组件头菜单项扩容（复制/粘贴值、重置、上下移）。（组件移除已于 v0.18 落地，见 §14。）
+
+## 14. 组件头右键菜单（v0.18，2026-11-08 落地待验收）
+
+> 起因（用户派发）：「组件的头上需要右键，先给一个删除的项」——Unity 组件头上下文菜单的
+> 最小切片：先立机制（触发面 + core 移除能力），菜单项后续按需扩容。
+
+- **触发面（`CollapsiblePanel`）**：新增 `setHeaderPopupSupplier(Supplier<JPopupMenu>)`——
+  懒构建，每次右键取新菜单，置灰这类瞬态状态在弹出瞬间求值；右键落在头部任一子件（自绘
+  箭头 / `@InsHeader` 图标 / 标题 / headerLeft 勾选框）都弹（AWT 事件不冒泡，监听逐子件挂：
+  header/arrow/title 共用一个，勾选与图标单挂）。**折叠切换改为只认左键**——原先任何按下
+  都切折叠，右键会顺手把分组折起来（本批顺手修）。
+- **菜单组装（`ComponentHeaderMenus.menuSupplier(vo, onRemove)`）**：当前一项「删除组件」
+  （delete.svg 图标）；`required` 组件（Transform）置灰不可删。策略（enabled/动作）由面板
+  注入，本类只管装配。**不走 MenuRegistry 菜单域**：组件头菜单的目标是「本面板这个组件
+  实例」，无全局选中语义（`EditorSelection` 表达的是选中对象，不该塞菜单上下文），单项期
+  先按面板局部 JPopupMenu 组装（LayerMaskField 同款先例）；项多了要进域时再评估。
+- **移除链（`NodeInspectorContent`）**：菜单项 → `submitTask` 帧边界 ｛归属校验 →
+  `Node.removeComponent` → `markDirty`｝→ invokeLater 重拉面板；core 抛
+  `IllegalStateException`（错宿主/已移除）弹错误框（红线 15）。移除后该分组随重拉消失，
+  无需滚动定位；弹层打开使编辑中的字段失焦提交（任务先于删除入队，FIFO 不丢尾改）。
+- **core 新口**：`Node.removeComponent(Component)` + `GameScene.onComponentDetached`
+  （即时 onDisable → onDestroy → 退注册表 → 清生命周期状态位，口径同节点摘出场景；
+  Engine_Scene_Design §2.2/§2.5 v0.7）。`Transform` 不可移除——编辑器灰显 + core 抛错双挡；
+  场景唯一组件（`Environment`）移除即释放槽位，可别处重挂。
+- **已知边界**：无撤销（Unity 同）；渲染侧孤儿退役沿用既有 pull 机制（`SceneRenderBridge`
+  下一帧 sync 发现消失即注销），组件移除不需额外渲染侧动作。
+
+

@@ -5,6 +5,8 @@ import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -16,6 +18,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.function.Supplier;
 import java.awt.Polygon;
 
 /**
@@ -23,6 +26,9 @@ import java.awt.Polygon;
  * （enabled 勾选挂此，自消费点击不透传）+ 可选标题图标（组件头 @InsHeader）
  * + 加粗标题；点击头部空白切换折叠
  * （content 显隐 + revalidate）。
+ *
+ * <p>头右键菜单（v0.18）：宿主经 {@link #setHeaderPopupSupplier} 注入懒构建工厂，
+ * 右键头部任一子件（箭头/图标/标题/headerLeft 勾选）弹出；折叠切换只认左键。</p>
  *
  * <p>头为标题区语义（v0.2 视觉重做，2026-10-18 用户派发「头不好看」两轮）：固定高
  * 22、分层走 FlatLaf 自身色语言——面板底=灰（@background #f2f2f2）、控件浮色=
@@ -47,6 +53,8 @@ public class CollapsiblePanel extends JComponent {
     private boolean collapsed;
     /** 可折叠开关（false = 固定分组：点击不折叠、无 hover 反馈、无箭头指示） */
     private boolean collapsible = true;
+    /** 头部右键菜单工厂（宿主提供；null = 无菜单） */
+    private Supplier<JPopupMenu> headerPopupSupplier;
 
     public CollapsiblePanel(String title, JComponent headerLeft, Icon titleIcon, JComponent content) {
         setLayout(new BorderLayout(0, 0));
@@ -96,6 +104,40 @@ public class CollapsiblePanel extends JComponent {
         repaint();
     }
 
+    /**
+     * 组件头右键菜单（宿主提供；null = 无菜单）。懒构建口径——每次右键取新菜单，
+     * 置灰/勾选这类瞬态状态在弹出瞬间求值。
+     */
+    public void setHeaderPopupSupplier(Supplier<JPopupMenu> supplier) {
+        this.headerPopupSupplier = supplier;
+    }
+
+    /** 右键菜单触发（pressed/released 双侧判 popup trigger——平台差异）；返回是否已弹出 */
+    private boolean showHeaderPopup(MouseEvent e) {
+        if (!e.isPopupTrigger() || headerPopupSupplier == null) {
+            return false;
+        }
+        JPopupMenu popup = headerPopupSupplier.get();
+        if (popup == null) {
+            return false;
+        }
+        popup.show(e.getComponent(), e.getX(), e.getY());
+        return true;
+    }
+
+    /** 只挂 popup 的监听（自消费左键的子件用，如 headerLeft 勾选） */
+    private final MouseAdapter headerPopupListener = new MouseAdapter() {
+        @Override
+        public void mousePressed(MouseEvent e) {
+            showHeaderPopup(e);
+        }
+
+        @Override
+        public void mouseReleased(MouseEvent e) {
+            showHeaderPopup(e);
+        }
+    };
+
     private static Color uiColor(String key, Color fallback) {
         Color color = UIManager.getColor(key);
         return color != null ? color : fallback;
@@ -133,9 +175,18 @@ public class CollapsiblePanel extends JComponent {
             MouseAdapter headerListener = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    if (collapsible) {
+                    if (showHeaderPopup(e)) {
+                        return;
+                    }
+                    // 折叠切换只认左键（右键留给上下文菜单）
+                    if (collapsible && SwingUtilities.isLeftMouseButton(e)) {
                         setCollapsed(!collapsed);
                     }
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    showHeaderPopup(e);
                 }
 
                 @Override
@@ -157,6 +208,8 @@ public class CollapsiblePanel extends JComponent {
             titleLabel.addMouseListener(headerListener);
             add(arrow);
             if (headerLeft != null) {
+                // 勾选框自消费左键（不挂折叠/hover），右键菜单同排生效
+                headerLeft.addMouseListener(headerPopupListener);
                 add(headerLeft);
             }
             if (titleIcon != null) {

@@ -338,6 +338,21 @@ public class GameScene extends AbsAsset implements Scene {
         register(component);
     }
 
+    /**
+     * 已挂入节点上 removeComponent：即时收尾 onDisable（通知态）→ onDestroy → 退注册表
+     * → 清生命周期状态位——口径同 {@code detachSubtree}（摘出场景即即时收尾），
+     * 由 {@link Node#removeComponent} 调用。
+     */
+    void onComponentDetached(Component component) {
+        if (component.notifyEnabled) {
+            component.notifyEnabled = false;
+            component.onDisable();
+        }
+        component.onDestroy();
+        unregister(component);
+        resetLifecycle(component);
+    }
+
     // ═══ 内部 ═══
 
     private void register(Component component) {

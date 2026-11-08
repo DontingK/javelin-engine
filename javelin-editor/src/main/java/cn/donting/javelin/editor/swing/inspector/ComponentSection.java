@@ -13,12 +13,14 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * 组件分组（折叠头 + 字段行两列区，Inspector_Design §9 两列布局）。
@@ -28,7 +30,9 @@ import java.util.Map;
  * （@InsHeader.icon）居标题前。字段行 =
  * GridBagLayout 两列：label 列（gridx 0）宽自动=列内最宽（组内最长显示名）、
  * insets right=4px（label/控件列间隔拍板例外）；控件列 fill HORIZONTAL。
- * 组内字段按 fieldName 索引（面板 Transform 定点刷新用）。</p>
+ * 组内字段按 fieldName 索引（面板 Transform 定点刷新用）。头右键菜单由宿主注入
+ * （CollapsiblePanel.setHeaderPopupSupplier，懒构建；null = 无菜单——策略归宿主，
+ * 本件只管透传）。</p>
  *
  * @author javelin
  * @create 2026/10/18
@@ -42,12 +46,14 @@ public class ComponentSection extends JComponent {
     private final CollapsiblePanel collapse;
     private final ComponentInspectorVo vo;
 
-    public ComponentSection(Node owner, ComponentInspectorVo vo, FieldCommit commit, boolean initialCollapsed) {
+    public ComponentSection(Node owner, ComponentInspectorVo vo, FieldCommit commit, boolean initialCollapsed,
+                            Supplier<JPopupMenu> headerPopup) {
         this.vo = vo;
         setLayout(new BorderLayout(0, 0));
         JComponent headerLeft = vo.required ? null : enabledCheck(owner, vo, commit);
         collapse = new CollapsiblePanel(vo.name, headerLeft, headerIcon(), buildFields(owner, vo, commit));
         collapse.setCollapsed(initialCollapsed);
+        collapse.setHeaderPopupSupplier(headerPopup);
         add(collapse, BorderLayout.CENTER);
     }
 
