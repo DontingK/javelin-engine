@@ -491,6 +491,30 @@
 
 ---
 
+### 35. 描述符绑定的阶段可见性只声明单阶段：fs 读越权绑定为未定义行为，无校验层时读零 ★契约级
+
+- **症状**：批次④-B HYBRID 档首验——切混合档后光照全失效、物体全黑（G-Buffer 几何
+  轮廓在、背景 discard 正常，即几何链完好、光照链断）；FORWARD 档同场景正常；
+- **根因**：set0 相机块（CameraBlock）的布局阶段可见性自材质管线期就只声明
+  `ShaderStage.VERTEX`——材质 vs 读 cam 没问题，但 LightingPass 的新 PSO 沿用同一
+  布局，而 lighting.frag 在**片元阶段**读 `cam.view` 重建视空间量。fs 访问
+  VERTEX-only 绑定是 Vulkan 规范违约：无校验层时是未定义行为，实际表现为读零 →
+  `viewNormal=0` → 方向光 `dot≤0` 全灭 → 只剩 ambient，而 ambient 三期拍板纯黑
+  `{0,0,0,1}` → 全黑。**管线布局的阶段标志是「按管线声明」的静态契约——同一 set
+  布局换消费方（vs 读 → fs 也读）时必须重审 stageFlags 是否覆盖新读点**；
+- **修法**：`frameSetLayoutDesc()` 的 set0 binding0 stageFlags 改 `ALL_GRAPHICS`
+  超集（只用 vs 的既有消费方——材质管线/拾取——超集合法，零影响）；构造器里
+  重复的字面量布局同批收口为复用 `frameSetLayoutDesc()`；
+- **教训**：**引擎常驻 set 布局被新 Pass 复用时，阶段可见性是必须重审的契约项**
+  （与坑 #29 的「字段契约错位」同族——GLSL 里声明了 cam 不代表 fs 真有权限读）；
+  排查此类「读零不报错」的 UB，静态审查难定位（链路全对），首帧诊断日志 +
+  「同一数据 vs 能读 fs 读不到」的分界推演最快；校验层（坑 #19 缺失降级）开着
+  会当场报 `vkCmdDraw` 阶段越权，建议排障期常开；
+- **出处**：2026-11-10 用户实测（批次④-B HYBRID 档首验；RenderingSystem
+  `frameSetLayoutDesc` 已修）。
+
+---
+
 ## 六、排障方法论（沉淀）
 
 1. **隔离实验，一次只改一个变量**：本轮三角形排查的收敛路径——

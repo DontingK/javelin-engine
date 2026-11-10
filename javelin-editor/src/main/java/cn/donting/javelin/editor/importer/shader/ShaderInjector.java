@@ -37,12 +37,14 @@ import java.util.List;
  */
 public final class ShaderInjector {
 
-    private static final String ENGINE_BLOCKS = """
+    private static final String CAMERA_BLOCK = """
             layout(set = 0, binding = 0) uniform CameraBlock {
                 mat4 viewProj;
                 mat4 view;
-            } cam;
-            layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;""";
+            } cam;""";
+    private static final String PUSH_BLOCK =
+            "layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;";
+    private static final String ENGINE_BLOCKS = CAMERA_BLOCK + "\n" + PUSH_BLOCK;
 
     /**
      * set1 光照声明 + 光照段函数（只注入 fs，Engine_Lighting_Design §3.3/§3.4/§6/§7
@@ -163,6 +165,39 @@ public final class ShaderInjector {
                 return result;
             }""";
 
+    /**
+     * G-Buffer 三采样声明（批次④-B，HYBRID 档 set1 binding5/6/7——与
+     * {@code RenderingSystem.frameStorageLayoutDesc} 同源）。仅全屏光照 Pass 注入。
+     */
+    private static final String GBUFFER_BLOCKS = """
+            layout(set = 1, binding = 5) uniform sampler2D gbufferAlbedo;
+            layout(set = 1, binding = 6) uniform sampler2D gbufferNormal;
+            layout(set = 1, binding = 7) uniform sampler2D gbufferWorldPos;""";
+
+    /**
+     * 全屏光照 Pass 注入标记：{@code SpvShaderImporter} 见到即注入相机块 +
+     * 光照段函数 + G-Buffer 三采样（其余 .vert/.frag 保持零注入现状）。
+     */
+    public static final String LIGHTING_STAGE_MARKER = "//@javelinLighting";
+
+    /**
+     * 全屏光照 Pass 注入（批次④-B）：在 {@code #version} 行后拼入相机块、
+     * 光照段函数与 G-Buffer 三采样。光照公式与材质 fs 的 {@code javelinLighting}
+     * 是同一常量——「Forward / Deferred 两路一致」由单源保证，不做两处复制。
+     */
+    public static String injectLightingStage(String body, String sourceName) {
+        int versionEnd = findVersionLineEnd(body, sourceName, "fs");
+        StringBuilder injected = new StringBuilder(body.length() + 3072);
+        injected.append(body, 0, versionEnd);
+        injected.append("\n// ── engine injected lighting stage (auto-generated, do not write) ──\n");
+        injected.append(CAMERA_BLOCK).append('\n');
+        injected.append(LIGHTING_BLOCKS).append('\n');
+        injected.append(GBUFFER_BLOCKS).append('\n');
+        injected.append("// ── injection end ──\n");
+        injected.append(body, versionEnd, body.length());
+        return injected.toString();
+    }
+
     private ShaderInjector() {
     }
 
@@ -257,7 +292,7 @@ public final class ShaderInjector {
         for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock",
                 "LightingParamsBlock", "lighting", "lightList",
                 "clusterGridBuffer", "clusterIndicesBuffer", "clusterGrid", "clusterIndices",
-                "shadowMap"}) {
+                "shadowMap", "gbufferAlbedo", "gbufferNormal", "gbufferWorldPos"}) {
             if (body.contains(reserved)) {
                 found.add(reserved);
             }

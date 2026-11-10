@@ -1,6 +1,6 @@
 # 引擎材质设计（Engine Material Design）
 
-> 版本：v0.7（2026-11-08 **导入期引用解析壳管理器**——`shader=@guid` 解析不再要求 Shader 产物已生成（首启多 worker 竞态 FileNotFoundException 修复；§3.2 已知边界口径改写；Editor_Design §6.3），同日用户实测验收；v0.6 沿革见下）
+> 版本：v0.8（2026-11-08 **`Pass GBuffer` 几何通道契约**——HYBRID 档不透明几何走 G-Buffer，§4.2 补声明契约与 surfaceType 交互；同日随批次④-B 落地；v0.7 沿革见下）
 > 说明：引擎侧材质/着色器数据模型与加载链路设计。着色器文件语法（.shader）、多 Pass 与材质实例模型的概念定义在 RHI 分卷四（20/21 节），本文只管引擎侧落地：包结构、编译产物形态、加载链路、渲染侧桥接。
 > 拍板（2026-09-25）：**Shader = .shader 源码文件编译后的结构**；**离线二进制资产**（着色器源码不进 core）；**RHI 资源渲染侧懒创建**（Shader/Material 纯数据、device 无关）。
 > v0.6（2026-11-07）：**序列化大数组 IO 修复**——BinaryImporter/BinaryExporter 外层流加缓冲（导出侧 `finally` 改关包装流）+ `byte[]` 改批量读写（读侧新增 `BinaryStreamInput.readBytes`）；Material/Shader 产物加载同族受益（Lit.shader 17KB 15ms→毫秒级）；实测 = 天空盒 6.29MB 5448ms→3ms（Pitfalls #33）。
@@ -129,6 +129,7 @@ DEFAULT_SHADER_PATH 语义不变（默认材质的 shader 来源路径）。
 - **收集分发**（`RenderingSystem.collectList`）：遍历 shader 声明的全部 Pass——`Pass Forward` → 前向主通道（surfaceType 分 opaque/transparent）；**其他声明名 → `RenderList.passes[name]` 自定义桶**；无 Forward 声明不进主通道（不声明即不画，Unity LightMode 不匹配同口径）；
 - **消费**：管线 Pass 经 `RenderPass.shaderPassName()`（新接口方法，默认 "Forward"）声明自己消费的 Pass 名——`GizmoPass` 取 `passObjects("Gizmo")`，**身份过滤与双画一并废除**（gizmo.shader 无 Forward → 主通道不画它，GizmoPass 是唯一绘制）；
 - **PSO 取用**同键：`pipelineFor(..., passName)`，`Shader.pass(name)` 直查无回退，`forwardPass()` 已删除；
+- **HYBRID 档不透明几何 = `Pass GBuffer`（批次④-B，2026-11-08）**：内置 `Lit.shader`/`default.shader` 各增 `Pass GBuffer`（三张 MRT 输出：基色 / 世界法线 / 世界位置+w=1）；HYBRID 档 `GBufferPass` 消费 `passObjects("GBuffer")` 同名桶——**不透明材质须声明该 Pass**，未声明者不进桶、不绘制（收集期 WARN 显性化，红线 15）；`surfaceType=TRANSPARENT` 的物体即使声明也不写 G-Buffer（GBufferPass 剔透明），仍走 Forward 桶。同一 Shader 声明双 Pass（Forward + GBuffer）通吃两档与两种面型；
 - shadowCasters 桶暂保留（阴影后置），ShadowCaster 声明制落地时并入 passes；
 - 存量合规（当日核查）：default/editor-grid/demo 全 `Pass Forward`，gizmo `Pass Gizmo`，轴线诊断线复用 editor-grid（Forward，主通道可被遮挡——诊断语义正确）。
 

@@ -50,4 +50,49 @@ Shader "Lit"
             }
         }
     }
+
+    // G-Buffer 几何通道（HYBRID 档不透明几何，批次④-B）。写三张 MRT：
+    // albedo(location 0) / 世界法线(location 1) / 世界位置+w=1(location 2)。
+    // 光照不在本 Pass 算——由全屏 LightingPass 读 G-Buffer 直喂同一 cluster 着色。
+    Pass GBuffer
+    {
+        Cull Back
+        ZWrite On
+        ZTest LEqual
+        Blend Off
+
+        vs {
+            #version 450
+            layout(location = 0) in vec3 aPos;
+            layout(location = 1) in vec3 aNormal;
+            layout(location = 2) in vec2 aUV;
+            layout(location = 0) out vec3 vWorldNormal;
+            layout(location = 1) out vec3 vWorldPos;
+            layout(location = 2) out vec2 vUV;
+            void main() {
+                vec4 world = pc.model * vec4(aPos, 1.0);
+                gl_Position = cam.viewProj * world;
+                // 世界空间法线（逆置矩阵吸收非均匀缩放）；视空间换算归 LightingPass
+                vWorldNormal = normalize(transpose(inverse(mat3(pc.model))) * aNormal);
+                vWorldPos = world.xyz;
+                vUV = aUV;
+            }
+        }
+        fs {
+            #version 450
+            layout(location = 0) in vec3 vWorldNormal;
+            layout(location = 1) in vec3 vWorldPos;
+            layout(location = 2) in vec2 vUV;
+            layout(location = 0) out vec4 outAlbedo;
+            layout(location = 1) out vec4 outNormal;
+            layout(location = 2) out vec4 outWorldPos;
+            void main() {
+                vec4 tex = texture(_MainTex, vUV);
+                outAlbedo = vec4(material._Color.rgb * tex.rgb, 1.0);
+                outNormal = vec4(normalize(vWorldNormal), 0.0);
+                // w = 有效标志（几何 1.0 / 清屏 0.0）：LightingPass 据此跳过背景像素
+                outWorldPos = vec4(vWorldPos, 1.0);
+            }
+        }
+    }
 }

@@ -19,6 +19,7 @@ import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
+import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
@@ -426,6 +427,12 @@ public class JavelinEngine {
      */
     private SampleCount resolveAntialiasingSamples() {
         AntialiasingMode mode = setting.getAntialiasing();
+        // HYBRID 档强制 1x：G-Buffer MRT 多采样 + resolve 归四期（PipelineProfile javadoc）
+        if (setting.getRenderPipeline() == PipelineProfile.HYBRID && mode != AntialiasingMode.OFF) {
+            log.warn("HYBRID 渲染档不支持 MSAA（G-Buffer 多采样归四期），antialiasing={} 被钳为关闭",
+                    mode);
+            return SampleCount.COUNT_1;
+        }
         if (mode == AntialiasingMode.OFF) {
             return SampleCount.COUNT_1;
         }
@@ -465,7 +472,8 @@ public class JavelinEngine {
         if (renderingSystem == null) {
             return null;
         }
-        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline(device(), assetManager);
+        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline(
+                device(), assetManager, setting.getRenderPipeline());
         pipeline.setClearColor(clearColor());
         return pipeline;
     }

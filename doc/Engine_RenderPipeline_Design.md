@@ -1,11 +1,13 @@
 # 引擎渲染管线设计（Engine Render Pipeline Design）
 
-> 版本：v0.4
-> 日期：2026-09-24（v0.4 2026-10-31）
+> 版本：v0.6
+> 日期：2026-09-24（v0.5 2026-11-08；v0.6 2026-11-10）
 > 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展机制）。
 > v0.2 变更（2026-09-25）：**钩子点枚举（PipelineHook）移除**——编排改为**有序 Pass 列表**（`RenderPass.addToGraph`），扩展 = 向列表指定位置插入自定义 Pass（6.2）；散点表述同步清扫。
 > v0.3 变更（2026-10-28）：**光照拍板 clustered Forward+（一步到位）**——ClusterBuildPass（compute）入 Pass 清单转正三期（2.2/3.1/3.2/4.3）、set1 改 cluster 套件多 binding（§7）、管线 4.5 两路光照一致性取舍**消解**（正透明同读一份 cluster，Engine_Lighting_Design v0.1 单点）；原「tiled/clustered 为 P2」口径作废。
 > v0.4 变更（2026-10-31）：**ShadowPass 补单张硬影拍板**（§4.1，明细归 Engine_Lighting_Design §4.5）；**SkyboxPass 入 Pass 清单**（§3.1/3.2，插 Opaque 后/Transparent 前，cubemap+纯视觉，设计归 Engine_Skybox_Design v0.2（2026-11-02 实装拍板）——三期批次⑤）；§9 待定表天空盒旧口径收口。
+> v0.5 变更（2026-11-08）：**HYBRID 档（Deferred 复用）实装**（§4.2-实装/§4.3-实装、§8 步骤二）——GBufferPass + LightingPass 上线，管线按 `PipelineProfile` 双 Pass 列表分派、运行期可切；不透明几何走 `Pass GBuffer` 同名桶（严格制既有机制），透明与天空盒两档共用；**不引入 lightingRT/Composite**（LightingPass 直写既有颜色终点，HDR 切换点仍归四期第 1 项）；**HYBRID 强制 1x**（MSAA-GBuffer 归四期）。
+> v0.6 变更（2026-11-10）：**HYBRID 档验收关账**——用户实机两路光照一致确认；随验一坑（**Pitfalls #35**：set0 相机块 stageFlags VERTEX-only，LightingPass fs 读 `cam.view` 越权读零全黑——修=改 `ALL_GRAPHICS` 超集）。遗留口径：非光照材质（default.shader）HYBRID 档下 albedo 仍乘光照（无灯=黑，Deferred 物理正确），「直读 albedo」非光照语义契约归四期材质专档。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
 > - RHI 文档管**「图怎么推导执行」**（依赖拓扑、屏障、图缓存——22 节「声明在引擎，推导执行在 RHI」）；
@@ -70,14 +72,19 @@ CompositePass（写 backbuffer；多相机 LOAD 叠加） [v0.1 实现]
 
 | # | Pass | 类型 | 输入 | 输出 | v0.1 |
 |---|------|------|------|------|------|
-| 0 | ClusterBuildPass | 计算 | lightList（视空间灯列表）、相机参数 | clusterGrid（offset/count）+ clusterIndices（变长索引池） | ❌ 三期新增（Engine_Lighting_Design §6） |
-| 1 | ShadowPass | 图形（depth-only） | shadowCasters | shadowMap | ❌ 设计完成，后置 |
-| 2 | GBufferPass | 图形 | RenderList.opaque、UBO1 | albedo/normal/worldPos/depth | ❌ 设计完成，第二步 |
-| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 cluster 套件 | lightingRT | ❌ 设计完成，第二步 |
-| 3.5 | SkyboxPass | 图形（全屏/视口） | skybox cubemap、UBO1(camera)、depth（LEqual 读） | 现混合目标 LOAD 叠加 | ❌ 三期批次⑤新增（Engine_Skybox_Design） |
-| 4 | TransparentForwardPass | 图形 | RenderList.transparent、depth、UBO1 | lightingRT / backbuffer（叠加） | ✅ |
-| 5 | PostProcessChain | 链（0..n 个 Pass） | lightingRT / 链上游输出 | 链下游 | ⚠️ 空链直通 |
+| 0 | ClusterBuildPass | 计算 | lightList（视空间灯列表）、相机参数 | clusterGrid（offset/count）+ clusterIndices（变长索引池） | ➖ 不作 Pass——批次③ **CPU 构建**（collectFrame 收集域，Engine_Lighting_Design §6） |
+| 1 | ShadowPass | 图形（depth-only） | shadowCasters | shadowMap | ✅ 三期批次④-A（2026-11-01 实机验收） |
+| 2 | GBufferPass | 图形 | RenderList.passes["GBuffer"]（不透明）、UBO1 | albedo/normal/worldPos/depth | ✅ 批次④-B（2026-11-08 落地） |
+| 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 cluster 套件 | 颜色终点（与 Opaque 同址） | ✅ 批次④-B（2026-11-08 落地） |
+| 3.5 | SkyboxPass | 图形（全屏/视口） | skybox cubemap、UBO1(camera)、depth（LEqual 读） | 现混合目标 LOAD 叠加 | ✅ 三期批次⑤（2026-11-02 实机验收） |
+| 4 | TransparentForwardPass | 图形 | RenderList.transparent、depth、UBO1 | 颜色终点（叠加） | ✅ |
+| 5 | PostProcessChain | 链（0..n 个 Pass） | 颜色终点 / 链上游输出 | 链下游 | ⚠️ 空链直通 |
 | 6 | CompositePass | 图形（全屏） | 链输出 | backbuffer | ✅（单相机可省略） |
+
+> **两档实装（v0.5）**：`PipelineProfile.FORWARD` = Shadow → OpaqueForward → Skybox → Transparent；
+> `PipelineProfile.HYBRID` = Shadow → GBuffer → Lighting → Skybox → Transparent。两档共用同一套
+> set1 cluster/阴影数据与同一 `javelinLighting` 函数（光照一致由构造保证）。后处理恒空链，
+> 单相机全屏时终点即最后一个 Pass（无 Composite、无 lightingRT）。
 
 ### 3.3 v0.1 实现形态（先 Forward，已拍板）
 
@@ -87,10 +94,10 @@ OpaqueForwardPass   直写 backbuffer（CLEAR），深度写独立 depth RT（CL
 TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 ```
 
-- 无阴影、无 GBuffer、后处理为空链（直通）；
+- ~~无阴影、无 GBuffer~~ → 阴影（批次④-A）与 GBuffer/Lighting（批次④-B）已落地；后处理仍为空链（直通）；
 - **单相机全屏时省略 CompositePass**——TransparentForwardPass 已是管线终点，直写 backbuffer，少一次全屏拷贝；
 - 多相机时每视口一套上述 Pass 链，共享 backbuffer 的相机 LOAD 叠加（RHI 8/19 节）；
-- 引入 Deferred/后处理后，管线终点改为写 lightingRT → 链 → Composite 写 backbuffer（结构变化 → 图缓存正常失效，18.5）。
+- 引入 Deferred 后管线终点仍直写 backbuffer（未引入 lightingRT）；将来接后处理时终点改为 lightingRT → 链 → Composite（结构变化 → 图缓存正常失效，18.5）。
 
 ## 4. Pass 逐个设计
 
@@ -118,6 +125,14 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 - **绘制**：`RenderList.opaque`（已按材质排序）循环——每材质一次 PSO 切换，同材质内顺序无关；
 - **uniform**：set0 UBO1（camera）+ push（model/tpf）+ set2（材质；旧「set1=材质」编号已作废）。
 
+**实装形态（批次④-B，2026-11-08）**：
+
+- **对象来源** = `RenderList.passObjects("GBuffer")`（严格制同名桶，与 GizmoPass 同构）+ `!isTransparent()` 过滤——不透明材质须声明 `Pass GBuffer`；未声明者不进桶、不绘制，收集期一次性 WARN（红线 15）。`RenderList`/`collectList` 零改动。
+- **布局落定**：albedo `R8G8B8A8_UNORM`（`_Color × _MainTex`）/ normal `R16G16B16A16_SFLOAT`（世界空间，归一）/ worldPos `R32G32B32A32_SFLOAT`（**w = 有效标志**，几何 1.0 / 清屏 0.0）；depth 复用本视口既有 D32（不新增）。
+- **清屏**：G-Buffer 三张恒 CLEAR（视口私有暂存；分屏/预览走区域清屏四参重载），深度按 ClearFlags 分支（`DONT_CLEAR` LOAD，其余 CLEAR）。
+- **PSO 颜色格式按 shader Pass 名注册**（`RenderingSystem.registerPassColorFormats`，`"GBuffer"` = 三张 MRT；缓存键已含 passName）；采样档恒 `COUNT_1`（HYBRID 强制 1x）。
+- **不消费阴影**：本 Pass 不采样 shadowMap（光照统一在 LightingPass），故不声明其图依赖。
+
 ### 4.3 LightingPass
 
 - **职责**：全屏三角形（`cmd.draw(3,1)`，RHI 19.3 既定），读 GBuffer + shadowMap 算光照；
@@ -125,6 +140,16 @@ TransparentForwardPass  backbuffer LOAD 叠加，depth LOAD 复用
 - **输出**：lightingRT（R16G16B16A16_SFLOAT，HDR）；
 - **光源数据**：set 1 **cluster 套件**（2026-10-28 拍板改定，原「lights 数组块、预估 16 盏」口径作废）——LightingParamsBlock（方向光+元数据+环境）+ lightList / clusterGrid / clusterIndices 三 SSBO，契约归 `Engine_Lighting_Design.md` §3、key 单点 Uniform_Keys §4；
 - **计算化**：消费方为全屏图形 Pass；上游 ClusterBuildPass（compute 分簇）先行走图（RHI compute 节点，批次①）——本 Pass 自身的 tiled/clustered 化描述作废（已是 cluster 消费侧）；
+
+**实装形态（批次④-B，2026-11-08）**：
+
+- **覆盖制**（SkyboxPass/ShadowPass 同款）：引擎内置 shader 走资产导入链（`builtin-asset-core/lighting/lighting.vert/.frag` → SpvShaderImporter）；frag 带 `//@javelinLighting` 标记，导入期注入**相机块 + 光照段函数 + G-Buffer 三采样**（binding5/6/7）。
+- **着色单源**：frag 直接调 `javelinLighting(viewNormal, viewPos, worldPos)`——与材质 Forward fs 是**同一常量**（`ShaderInjector`），同一 set1（cluster + shadowMap），「两路光照一致」由构造保证。
+- **重建视空间量**：读 G-Buffer worldPos/worldNormal，用 `cam.view` 换算 `viewPos`/`viewNormal`（与材质 vs 同式）；背景像素按 `worldPos.w < 0.5` discard，保留清屏色（天空盒随后覆盖）。
+- **清屏职责**：HYBRID 档颜色终点由本 Pass 清屏（区域清屏与 ClearFlags 分支照搬 OpaqueForward；`DEPTH_ONLY`/`DONT_CLEAR` 走 LOAD）。
+- **无深度附件**：背景剔除靠 G-Buffer 有效标志而非深度测试（PSO `depthAttachmentFormat = null`，RHI 已支持颜色-only PSO）。
+- **描述符**：set0 = 帧相机布局、set1 = 光照套件布局（同一 `frameStorageLayoutDesc`，含 G-Buffer 与 shadowMap）；零 push、无 set2。
+- **未引入 lightingRT**：直接写既有颜色终点（与 OpaqueForward 同址），HDR/后处理切换点仍归四期第 1 项。
 
 ### 4.4 深度复用（决策记录）
 
@@ -184,9 +209,9 @@ pipeline.postProcess().remove("Bloom");
 | depth | D32_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ✅ |
 | msaaColor | 同 backbuffer 格式 | 交换链大小 | 每视口 | 随视口创建，resize 重建（AA 关恒不创建） | ✅（2026-10-06） |
 | msaaDepth | D32_SFLOAT | 交换链大小 | 每视口 | 随视口创建，resize 重建（AA 关恒不创建） | ✅（2026-10-06） |
-| shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ❌ |
-| GBuffer×3 | 见 4.2 | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ |
-| lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌（直写 backbuffer） |
+| shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ✅ 批次④-A |
+| GBuffer×3 | RGBA8 / RGBA16F / RGBA32F（见 4.2） | 视口大小（同 depth 尺码） | 每视口 | 随视口创建，resize 换绑，惰性建 | ✅ 批次④-B |
+| lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ 四期第 1 项（HDR 切换点，本批直写颜色终点） |
 | lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ✅ 批次②首视口单缓冲 → 批次③ per-view（2026-11-01 待验收） |
 | clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（**CPU 构建**——批次③拍板 2026-11-01，GPU Pass 化归四期；灯光档 §6 修订）；视口尺寸变化重建 | ✅ 三期批次③已实装（2026-11-01 待验收） |
 | 后处理中间 RT | 链内自定 | 链内自定 | 链持有 | 帧临时（RHI 17.4 别名，P1） | ⚠️ 空链无 |
@@ -285,7 +310,9 @@ interface RenderPass {
 
 ### 6.3 每视口管线选择
 
-- 主视口：HYBRID（v0.1 用 FORWARD 分支实现）；编辑器材质预览等：FORWARD_SIMPLE（直写目标、少 RT，RHI 14.5-5）；
+- **档位 = 全局单档**（v0.5 实装）：`DefaultHybridRenderPipeline` 持 FORWARD/HYBRID 两份 Pass 列表，
+  引擎启动按 `JavelinSetting.renderPipeline` 定档、编辑器工具域可运行期切换（两档同步持有外部
+  插入的覆盖制 Pass——Gizmo/拾取/调试线切档不丢）；按视口分档（预览视口 FORWARD_SIMPLE）仍未实现；
 - 每视口独立 `buildGraph` 调用；共享 backbuffer 的相机靠 LOAD 叠加自动串行（RHI 8 节依赖推导）。
 
 ### 6.4 与图缓存咬合
@@ -313,16 +340,16 @@ interface RenderPass {
 | 步 | 内容 | 验收 |
 |----|------|------|
 | 一 | Forward 两 Pass（OpaqueForward 直写 backbuffer + TransparentForward LOAD 叠加）+ 空后处理链 + 单相机省略 Composite；接 FrameLoop/renderFrame，多相机多物体 Demo（阶段⑥终验，Engine_Design 2.5） | 多相机分屏正确、透明排序正确、图缓存命中 |
-| 二 | +ShadowPass；+GBuffer/Lighting 切换混合（`PipelineProfile` 开关切换两套 buildGraph 分支，同场景验证两路光照一致——4.5 取舍的回填点） | 阴影正确；混合/纯 Forward 可配置切换 |
+| 二 | +ShadowPass（✅ 批次④-A 2026-11-01）；+GBuffer/Lighting 切换混合（`PipelineProfile` 开关切换两套 buildGraph 分支，同场景验证两路光照一致——4.5 取舍的回填点）（✅ 批次④-B 2026-11-08 落地） | 阴影正确✅；混合/纯 Forward 可配置切换 ✅（`JavelinSetting.renderPipeline` 持久化 + 工具域运行期切换） |
 | 三 | 后处理链具体化（Bloom 计算降采样链 + Tonemap；HDR 切换按 4.6） | 链插拔不破坏管线直通路径 |
 
 每步独立的约束：不改动 RHI 已发布 API；新增引擎 Pass 仍走「声明读写 + 回调录制」。
 
-**与光照批次（Engine_Lighting_Design §9 四批 + 天空盒批次⑤）的咬合（2026-10-28；2026-10-31 天空盒补入）**：光照批次①（RHI SSBO/compute 底座）先于本表一切后续步骤；批次②③（cluster 构建 + Forward 消费）在步骤一形态上落地 = Forward+ 成形；步骤二 = 光照批次④（ShadowPass + GBuffer/Lighting 复用同一 cluster）+ 混合/Forward 切换；步骤三（后处理链具体化）**归四期第 1 项**（Roadmap §4，2026-10-31 立项——四期第一候选）。
+**与光照批次（Engine_Lighting_Design §9 四批 + 天空盒批次⑤）的咬合（2026-10-28；2026-10-31 天空盒补入；2026-11-08 批次④-B 收口）**：光照批次①（RHI SSBO/compute 底座）先于本表一切后续步骤；批次②③（cluster 构建 + Forward 消费）在步骤一形态上落地 = Forward+ 成形；步骤二 = 光照批次④（④-A ShadowPass ✅ / **④-B GBuffer+Lighting 复用同一 cluster ✅ = 三期收官**）+ 混合/Forward 切换；步骤三（后处理链具体化）**归四期第 1 项**（Roadmap §4，2026-10-31 立项——四期第一候选）。
 
 ## 9. 待定（P2）
 
-- GBuffer 布局与材质/着色模型绑定（4.2 格式拍板，归材质/着色模型专档）；
+- ~~GBuffer 布局与材质/着色模型绑定~~ **已定并实装（批次④-B，2026-11-08）**：三张 MRT 格式 + `Pass GBuffer` 声明契约，见 §4.2 实装形态；
 - ~~灯光数量上限与打包、shadowMap 描述符挂点~~（2026-10-28 拍板收口：clustered 多 binding 契约 + set1 binding4，§7/Engine_Lighting_Design）；
 - ~~tiled/clustered 计算光照~~（2026-10-28 转正三期主路线）；clustered 自身后置项（前缀和计算化/脏标记/Morton）归 Engine_Lighting_Design §10；SSR 等光照后扩展 Pass 示例（插入 Pass 列表）仍 P2；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；

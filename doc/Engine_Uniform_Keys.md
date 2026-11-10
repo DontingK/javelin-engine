@@ -47,6 +47,9 @@
 | 2 | SSBO（批次③实装，按视口） | `clusterGrid` | 每 cell `{offset, count}`（uvec2，8B/cell；CPU 构建，批次③拍板，GPU 化后置 §10） |
 | 3 | SSBO（批次③实装，按视口） | `clusterIndices` | 变长光索引池（uint 定容 1M/视口；每 cell 上限 64，截尾=去最弱——CPU 列表序写入精确兑现） |
 | 4 | **COMBINED_IMAGE_SAMPLER**（批次④-A 实装；深度比较采样器） | `shadowMap` | 主光单张硬影深度图（2048² D32 全局唯一非视口归属；**LINEAR 比较采样=硬件双线性 PCF（2x2 免费软化，2026-11-01 实机锯齿反馈换装）** + CLAMP_TO_EDGE + compare LESS；GLSL 声明 `sampler2DShadow`）——per-view set 各自指同图同采样器（图+采样器引擎常驻） |
+| 5 | COMBINED_IMAGE_SAMPLER（批次④-B 实装；per-view，NEAREST/CLAMP） | `gbufferAlbedo` | G-Buffer 基色（R8G8B8A8_UNORM，`_Color × _MainTex`）——HYBRID 档 LightingPass 专属消费；材质 shader 不声明即不用 |
+| 6 | COMBINED_IMAGE_SAMPLER（批次④-B 实装；per-view） | `gbufferNormal` | G-Buffer 世界空间法线（R16G16B16A16_SFLOAT，归一）——LightingPass 用 `cam.view` 换算视空间 |
+| 7 | COMBINED_IMAGE_SAMPLER（批次④-B 实装；per-view） | `gbufferWorldPos` | G-Buffer 世界位置（R32G32B32A32_SFLOAT，**w=有效标志**：几何 1.0 / 清屏 0.0）——LightingPass 据此 discard 背景 |
 
 ### 4-1. LightingParamsBlock 字段表（批次④-A 版；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
 
@@ -64,6 +67,7 @@
 - lightList（binding1）：`vec4 lights[]`（std430，无名块）——16 float/灯布局语义归 `Engine_Lighting_Design.md` §3.1；**批次③起 per-view 缓冲**（首视口单缓冲口径作废——多视口挂账 BatchB 解除）；
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
 - shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
+- gbufferAlbedo/gbufferNormal/gbufferWorldPos（binding5/6/7，批次④-B）：LightingPass 全屏读 G-Buffer 三张（`RenderingSystem.frameStorageLayoutDesc` 与 `ShaderInjector` 的 G-Buffer 注入块同源）；G-Buffer 三张 per-view（与 depth 同尺码，resize 换绑并重建 set1 描述符集）；
 - **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光硬影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 Engine_Lighting_Design §7）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
@@ -83,7 +87,7 @@
 | 类别 | 保留字 | 拦截时机 |
 |------|--------|----------|
 | 块名 | `CameraBlock` / `PushBlock` / `MaterialBlock` / `LightingParamsBlock`（批次②生效）/ `clusterGridBuffer` / `clusterIndicesBuffer`（批次③生效） | 构建期（注释里出现也拦） |
-| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList`（批次②生效）；`clusterGrid` / `clusterIndices`（批次③生效）；`shadowMap`（批次④-A 生效） | GLSL 编译期（与注入声明重复定义） |
+| 实例名 | `cam` / `pc` / `material` / `lighting` / `lightList`（批次②生效）；`clusterGrid` / `clusterIndices`（批次③生效）；`shadowMap`（批次④-A 生效）；`gbufferAlbedo` / `gbufferNormal` / `gbufferWorldPos`（批次④-B 生效——G-Buffer 数据面，仅全屏光照 Pass 消费） | GLSL 编译期（与注入声明重复定义） |
 
 > 数据面实例名（lighting / lightList / clusterGrid / clusterIndices / shadowMap）用户不得直接消费——光照数据只经注入函数 `javelinLighting(viewNormal, viewPos, worldPos)` 访问；该函数与 cam / pc / material 同类（用户直接使用，重定义由 GLSL 编译期兜底，不进构建期拦截名单）。
 

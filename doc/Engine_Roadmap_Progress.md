@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.2（2026-11-08）
+> 版本：v0.3（2026-11-08）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -64,9 +64,10 @@
 
 ## 3. 三期：光照——散件台账
 
-> 批次①②③④-A⑤的目标、拍板与实装形态明细内联在总纲 §3（四批内容 + 着色器配套口径）与各专档（`Engine_Lighting_Design.md` §9 / `Engine_Skybox_Design.md`），故本节只收不属五批主线的随批散件。
+> 批次①②③④-A⑤的目标、拍板与实装形态明细内联在总纲 §3（四批内容 + 着色器配套口径）与各专档（`Engine_Lighting_Design.md` §9 / `Engine_Skybox_Design.md`），故本节只收不属五批主线的随批散件；**批次④-B（三期收官件）同步列此**。
 
 - **2026-11-01｜随批两散件**：project.create.scene 创建场景命令 + 启动场景记忆写环（重启恢复上次场景） → `Editor_Menu_Design.md` / `Editor_Design.md` ｜✅ 2026-11-01 同日用户实测
+- **2026-11-08｜三期批次④-B（Deferred 复用，三期收官件）**：GBufferPass（消费 `Pass GBuffer` 同名桶剔透明；三张 MRT = albedo RGBA8 / 世界法线 RGBA16F / 世界位置 RGBA32F+w 有效标志；复用本视口 depth）+ LightingPass（覆盖制全屏三角形；frag 带 `//@javelinLighting` 标记 → 导入期注入相机块+光照段函数+G-Buffer 三采样 = **与材质 Forward fs 同一 `javelinLighting` 常量**；背景按 worldPos.w<0.5 discard；无深度附件）+ set1 扩 binding5/6/7（G-Buffer 三采样 per-view，NEAREST/CLAMP）+ `pipelineFor` 按 shader Pass 名取颜色格式列表（`registerPassColorFormats`，"GBuffer" = 三张 MRT）+ 管线双 Pass 列表（`setProfile` 运行期切；`addPass/removePass` 两档同步——Gizmo/拾取/调试线切档不丢）+ `JavelinSetting.renderPipeline` 持久化 + 引擎启动消费 + **HYBRID 强制 1x**（MSAA-GBuffer 归四期）+ 编辑器 `tools.renderPipeline` 命令（运行期切换 + 写盘 Game/javelinSettings.settings）+ 内置 Lit.shader/default.shader 各补 `Pass GBuffer`（default 保 HYBRID 下紫色错误显性化）+ `ShaderImporterTest` 补 GBuffer pass 断言；**不引入 lightingRT/HDR/Composite**（四期第 1 项） → `Engine_RenderPipeline_Design.md`（§4.2/§4.3 实装形态、§5.1、§6.3、§8 步骤二）/ `Engine_Lighting_Design.md`（§9 批次④-B）/ `Engine_Material_Design.md` §4.2（`Pass GBuffer` 契约）/ `Engine_Uniform_Keys.md` §4（binding5/6/7 + 保留字）/ `Editor_Menu_Design.md` v0.21 ｜✅ 2026-11-10 用户实机验收（HYBRID 光照正常、两路一致；随验坑 Pitfalls #35——set0 阶段可见性 VERTEX-only 致 LightingPass fs 读 cam.view 读零全黑，修=ALL_GRAPHICS 超集）
 
 ---
 

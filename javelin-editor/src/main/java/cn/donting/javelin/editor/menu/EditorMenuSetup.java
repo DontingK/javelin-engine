@@ -25,6 +25,7 @@ import cn.donting.javelin.editor.menu.project.ShowInExplorerMenuCommand;
 import cn.donting.javelin.editor.menu.top.CompileMenuCommand;
 import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.menu.top.GridMenuCommand;
+import cn.donting.javelin.editor.menu.top.RenderPipelineMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
 import cn.donting.javelin.editor.menu.top.PreferencesMenuCommand;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -72,6 +73,8 @@ public final class EditorMenuSetup {
     public static void setup(PluginContext context) {
         context.registerCommand(new SaveSceneMenuCommand());
         context.registerCommand(new GridMenuCommand());
+        // 渲染管线档位（FORWARD ↔ HYBRID，批次④-B 2026-11-08）：运行期切换 + 写盘
+        context.registerCommand(new RenderPipelineMenuCommand());
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new PreferencesMenuCommand());
@@ -134,7 +137,8 @@ public final class EditorMenuSetup {
                 .item("file.preferences");
 
         MenuRegistry.menu("tools", EditorLang.key("tools"))
-                .item("tools.grid");
+                .item("tools.grid")
+                .item("tools.renderPipeline");
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）

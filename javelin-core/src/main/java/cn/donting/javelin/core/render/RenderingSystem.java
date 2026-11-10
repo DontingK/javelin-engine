@@ -160,6 +160,8 @@ public final class RenderingSystem implements AutoCloseable {
     private Texture shadowMap;
     private int shadowMapResolution;
     private final Sampler shadowSampler;
+    /** G-Buffer 采样器（HYBRID 档 LightingPass 消费；逐像素一一对应，NEAREST + CLAMP） */
+    private final Sampler gbufferSampler;
     /** 主光 世界→光裁剪 正交矩阵（帧首 collectFrame 重算；无主光/关阴影时值不消费——fs 侧 castShadow 标志门控） */
     private final Matrix4f sunViewProj = new Matrix4f();
     /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据 */
@@ -206,6 +208,9 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<SamplerDesc, Sampler> samplers = new HashMap<>();
 
     private Format colorAttachmentFormat;
+    /** shader Pass 名 → PSO 颜色附件格式列表（未登记 = 单张 colorAttachmentFormat；
+     *  HYBRID 的 "GBuffer" 登记三张 MRT——图缓存键已含 passName，无需扩键） */
+    private final Map<String, List<Format>> passColorFormats = new HashMap<>();
     private final Map<String, GraphicsPipeline> pipelines = new HashMap<>();
     // PSO 旁注（key 结构不动，对账判据用）：pipeline → 所属 Shader（资产热重载 reconcile 退役旧 Shader 的 PSO）
     private final Map<GraphicsPipeline, Shader> pipelineOwners = new HashMap<>();
@@ -218,6 +223,11 @@ public final class RenderingSystem implements AutoCloseable {
     // 每视口拾取附件（GPU ID-buffer 拾取，Engine_Picking_Design；PickSystem 启用时 PickPass 惰性创建）
     private final Map<String, Texture> pickIdTextures = new HashMap<>();
     private final Map<String, Texture> pickDepthTextures = new HashMap<>();
+    // 每视口 G-Buffer 三张（HYBRID 档，Engine_RenderPipeline_Design §4.2/5.1；
+    // 惰性创建于 GBufferPass 首次挂载，resize 同 depth 换绑）
+    private final Map<String, Texture> gbufferAlbedoTextures = new HashMap<>();
+    private final Map<String, Texture> gbufferNormalTextures = new HashMap<>();
+    private final Map<String, Texture> gbufferWorldPosTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
@@ -265,9 +275,7 @@ public final class RenderingSystem implements AutoCloseable {
                 new BufferDesc(frameSlots * SLOT_SIZE, Set.of(BufferUsage.UNIFORM),
                         MemoryPreference.hostVisibleCoherent()),
                 null);
-        this.frameSetLayout = device.createDescriptorSetLayout(new DescriptorSetLayoutDesc(List.of(
-                new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
-                        ShaderStage.VERTEX))));
+        this.frameSetLayout = device.createDescriptorSetLayout(frameSetLayoutDesc());
         this.frameSet = device.createDescriptorSet(frameSetLayout);
         // range = 相机块步长（viewProj 64B 实需；槽尾时间块不占描述符范围，
         // 否则末槽末相机 offset+range 会越出缓冲）
@@ -298,6 +306,12 @@ public final class RenderingSystem implements AutoCloseable {
                 Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
                 SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f, CompareOp.LESS));
+        // G-Buffer 采样器（HYBRID 档）：LightingPass 全屏逐像素读 G-Buffer——
+        // 无缩放无 mip，NEAREST + CLAMP 最省且与写入像素一一对应
+        this.gbufferSampler = device.createSampler(new SamplerDesc(
+                Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1.0f));
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -449,7 +463,8 @@ public final class RenderingSystem implements AutoCloseable {
                 s.getSrcAlpha(), s.getDstAlpha(),
                 s.getBlendOp(),
                 s.getColorMask(),
-                List.of(colorAttachmentFormat()), depthFormat(),
+                passColorFormats.getOrDefault(passName, List.of(colorAttachmentFormat())),
+                depthFormat(),
                 List.of(frameLayoutDesc(), frameStorageLayoutDesc(), materialLayoutDesc(shader)),
                 PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
@@ -566,6 +581,51 @@ public final class RenderingSystem implements AutoCloseable {
         return pickDepthTextures.computeIfAbsent(cameraName, n ->
                 device.createTexture(TextureDesc.depth2D(depthFormat(), depthWidth, depthHeight,
                         Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT)), null));
+    }
+
+    // ═══ 每视口 G-Buffer 附件（HYBRID 档；Engine_RenderPipeline_Design §4.2/5.1） ═══
+
+    /**
+     * 每视口 G-Buffer 基色附件（R8G8B8A8_UNORM：`_Color × _MainTex`）。
+     * 与 depthFor 同模式（视口独立、默认交换链尺寸、resize 换绑、惰性创建）。
+     */
+    public Texture gbufferAlbedoFor(String cameraName) {
+        return gbufferAlbedoTextures.computeIfAbsent(cameraName, n -> createGbufferTexture(
+                Format.R8G8B8A8_UNORM));
+    }
+
+    /** 每视口 G-Buffer 法线附件（R16G16B16A16_SFLOAT：世界空间法线，归一） */
+    public Texture gbufferNormalFor(String cameraName) {
+        return gbufferNormalTextures.computeIfAbsent(cameraName, n -> createGbufferTexture(
+                Format.R16G16B16A16_SFLOAT));
+    }
+
+    /** 每视口 G-Buffer 世界位置附件（R32G32B32A32_SFLOAT：xyz=世界位置、**w=有效标志**） */
+    public Texture gbufferWorldPosFor(String cameraName) {
+        return gbufferWorldPosTextures.computeIfAbsent(cameraName, n -> createGbufferTexture(
+                Format.R32G32B32A32_SFLOAT));
+    }
+
+    /** G-Buffer 采样器（LightingPass 全屏读，NEAREST/CLAMP） */
+    public Sampler gbufferSampler() {
+        return gbufferSampler;
+    }
+
+    private Texture createGbufferTexture(Format format) {
+        return device.createTexture(new TextureDesc(TextureType.TYPE_2D, format,
+                depthWidth, depthHeight, 1, 1, 1, SampleCount.COUNT_1,
+                Set.of(TextureUsage.COLOR_ATTACHMENT, TextureUsage.SAMPLED),
+                MemoryPreference.deviceLocal()), null);
+    }
+
+    /**
+     * 登记 shader Pass 名的 PSO 颜色附件格式列表（HYBRID 的 "GBuffer" = 三张 MRT）。
+     * 未登记的 Pass 名走单张 {@link #colorAttachmentFormat()}（Forward 族现状）。
+     */
+    public void registerPassColorFormats(String passName, List<Format> colors) {
+        if (passName != null && colors != null && !colors.isEmpty()) {
+            passColorFormats.put(passName, List.copyOf(colors));
+        }
     }
 
     // ═══ 每帧收集（逻辑侧帧首；单线程退化下由图声明回调驱动） ═══
@@ -1078,11 +1138,15 @@ public final class RenderingSystem implements AutoCloseable {
         return Format.D32_SFLOAT;
     }
 
-    /** set0（UBO1 相机）布局契约：覆盖制引擎 pass（拾取等）自建 PSO 复用，与材质管线 set0 同构 */
+    /**
+     * set0（UBO1 相机）布局契约：覆盖制引擎 pass（拾取/全屏光照等）自建 PSO 复用，与材质管线
+     * set0 同构。阶段可见性=ALL_GRAPHICS 超集：LightingPass 的 fs 读 cam.view 重建视空间量
+     * （VERTEX-only 会使片元读零，光照全黑——批次④-B 实锤）；只用 vs 的消费方超集合法。
+     */
     public DescriptorSetLayoutDesc frameSetLayoutDesc() {
         return new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
-                        ShaderStage.VERTEX)));
+                        ShaderStage.ALL_GRAPHICS)));
     }
 
     private DescriptorSetLayoutDesc frameLayoutDesc() {
@@ -1093,10 +1157,12 @@ public final class RenderingSystem implements AutoCloseable {
      * set1 帧级光照布局契约（材质 PSO 共用，Engine_Lighting_Design §3.4 终态槽位）：
      * binding0 = LightingParamsBlock UBO（DYNAMIC，每视口偏移，FRAGMENT）；
      * binding1 = lightList / binding2、3 = clusterGrid、clusterIndices SSBO
-     * （批次③起 per-view 缓冲；通用注册通道已清退——零外部用户；binding4 shadowMap 归批次④）。
+     * （批次③起 per-view 缓冲；通用注册通道已清退——零外部用户）；binding4 shadowMap
+     * 归批次④；binding5/6/7 = G-Buffer albedo/normal/worldPos（批次④-B，HYBRID 档
+     * LightingPass 消费；材质 shader 不声明即不用，超集合法）。
      * 声明 set1 的 shader 只须是自己所用 binding 的子集（布局超集合法）。
      */
-    private DescriptorSetLayoutDesc frameStorageLayoutDesc() {
+    public DescriptorSetLayoutDesc frameStorageLayoutDesc() {
         return new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
                         ShaderStage.FRAGMENT),
@@ -1109,6 +1175,13 @@ public final class RenderingSystem implements AutoCloseable {
                 // binding4 = shadowMap 深度比较采样（批次④，主光单张硬影；compare 采样器
                 // 引擎常驻，ShadowPass 每帧写图、Forward Pass addTextureRead 声明依赖）
                 new DescriptorSetLayoutDesc.Binding(4, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding5/6/7 = G-Buffer 三张（批次④-B，HYBRID 档 LightingPass 消费）
+                new DescriptorSetLayoutDesc.Binding(5, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(6, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(7, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -1144,13 +1217,22 @@ public final class RenderingSystem implements AutoCloseable {
                 (long) ClusterBuilder.MAX_POOL_UINTS * 4,
                 Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
         DescriptorSet set = device.createDescriptorSet(frameStorageSetLayout);
+        // G-Buffer 三张（批次④-B）：材质 shader 不用、HYBRID 档 LightingPass 消费——
+        // 同 set1 布局须给全 binding 有效描述符（Vulkan 绑定完整性），恒指向本视口附件
+        Texture gbufferAlbedo = gbufferAlbedoFor(cameraName);
+        Texture gbufferNormal = gbufferNormalFor(cameraName);
+        Texture gbufferWorldPos = gbufferWorldPosFor(cameraName);
         set.update(new DescriptorUpdate[]{
                 DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
                 DescriptorUpdate.storageBuffer(1, lightList),
                 DescriptorUpdate.storageBuffer(2, clusterGrid),
                 DescriptorUpdate.storageBuffer(3, clusterIndices),
-                DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler)});
+                DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler),
+                DescriptorUpdate.sampledTexture(5, gbufferAlbedo, gbufferSampler),
+                DescriptorUpdate.sampledTexture(6, gbufferNormal, gbufferSampler),
+                DescriptorUpdate.sampledTexture(7, gbufferWorldPos, gbufferSampler)});
         ViewLighting created = new ViewLighting(lightList, clusterGrid, clusterIndices,
+                gbufferAlbedo, gbufferNormal, gbufferWorldPos,
                 set, viewW, viewH, gridX, gridY);
         viewLights.put(cameraName, created);
         log.info("视口灯光资源创建: camera[{}] viewport {}x{} grid {}x{}x{} ({}B/{}B)",
@@ -1184,6 +1266,11 @@ public final class RenderingSystem implements AutoCloseable {
         final Buffer lightList;
         final Buffer clusterGrid;
         final Buffer clusterIndices;
+        /** 本视口 G-Buffer 三张（set1 binding5/6/7 指向；纹理归 RenderingSystem 每视口
+         *  表持有，此处仅留引用供调试/读数） */
+        final Texture gbufferAlbedo;
+        final Texture gbufferNormal;
+        final Texture gbufferWorldPos;
         final DescriptorSet set;
         final int viewW;
         final int viewH;
@@ -1191,10 +1278,14 @@ public final class RenderingSystem implements AutoCloseable {
         final int gridY;
 
         ViewLighting(Buffer lightList, Buffer clusterGrid, Buffer clusterIndices,
+                     Texture gbufferAlbedo, Texture gbufferNormal, Texture gbufferWorldPos,
                      DescriptorSet set, int viewW, int viewH, int gridX, int gridY) {
             this.lightList = lightList;
             this.clusterGrid = clusterGrid;
             this.clusterIndices = clusterIndices;
+            this.gbufferAlbedo = gbufferAlbedo;
+            this.gbufferNormal = gbufferNormal;
+            this.gbufferWorldPos = gbufferWorldPos;
             this.set = set;
             this.viewW = viewW;
             this.viewH = viewH;
@@ -1227,6 +1318,15 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(msaaDepthTextures);
             disposeAll(pickIdTextures);
             disposeAll(pickDepthTextures);
+            disposeAll(gbufferAlbedoTextures);
+            disposeAll(gbufferNormalTextures);
+            disposeAll(gbufferWorldPosTextures);
+            // set1 per-view 描述符集引用 G-Buffer 纹理（binding5/6/7）——纹理换绑即重建
+            // 描述符集（视口像素尺寸可能未变，不能只靠 viewLightsFor 的尺寸判据）
+            if (!viewLights.isEmpty()) {
+                viewLights.values().forEach(vl -> retireResource(vl::dispose));
+                viewLights.clear();
+            }
         }
         depthWidth = w;
         depthHeight = h;
@@ -1376,6 +1476,9 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(msaaDepthTextures);
         disposeAll(pickIdTextures);
         disposeAll(pickDepthTextures);
+        disposeAll(gbufferAlbedoTextures);
+        disposeAll(gbufferNormalTextures);
+        disposeAll(gbufferWorldPosTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）
@@ -1393,6 +1496,7 @@ public final class RenderingSystem implements AutoCloseable {
         lightingBuffer.dispose();
         shadowMap.dispose();
         shadowSampler.dispose();
+        gbufferSampler.dispose();
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

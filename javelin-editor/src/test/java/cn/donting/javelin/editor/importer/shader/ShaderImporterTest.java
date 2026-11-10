@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -84,10 +85,10 @@ public class ShaderImporterTest {
     }
 
     /**
-     * Lit.shader 端到端（批次③ + 批次④阴影段）：注入 javelinLighting 三参函数
-     * （viewNormal/viewPos/worldPos）+ clusterGrid/clusterIndices 声明 + binding4
-     * shadowMap（sampler2DShadow）+ sunViewProj 扩块后全链编译通过；vs 四插值
-     * （视空间位置/法线/UV + 世界位置）。
+     * Lit.shader 端到端（批次③ + 批次④阴影段 + 批次④-B G-Buffer 段）：注入
+     * javelinLighting 三参函数（viewNormal/viewPos/worldPos）+ clusterGrid/clusterIndices
+     * 声明 + binding4 shadowMap（sampler2DShadow）+ sunViewProj 扩块后全链编译通过；
+     * vs 四插值（视空间位置/法线/UV + 世界位置）；GBuffer 段三张 MRT 输出编译通过。
      */
     @Test
     public void litShaderEndToEnd() {
@@ -100,6 +101,12 @@ public class ShaderImporterTest {
         ShaderPass forward = shader.pass("Forward");
         assertValidSpirv(forward.getVertexSpirv());
         assertValidSpirv(forward.getFragmentSpirv());
+
+        // 批次④-B：HYBRID 档不透明几何通道（三张 MRT 输出，与 Forward 同 shader 双 Pass）
+        ShaderPass gbuffer = shader.pass("GBuffer");
+        assertNotNull(gbuffer, "Lit.shader 缺 Pass GBuffer（HYBRID 档不透明几何通道）");
+        assertValidSpirv(gbuffer.getVertexSpirv());
+        assertValidSpirv(gbuffer.getFragmentSpirv());
     }
 
     private static void assertValidSpirv(byte[] spirv) {

@@ -2,6 +2,7 @@ package cn.donting.javelin.core.settings;
 
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.math.Color;
+import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
@@ -39,6 +40,24 @@ public class JavelinSetting implements Serializable {
      * 旧帧重复显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
      */
     private int maxFps = 144;
+
+    /**
+     * 渲染管线档位（Engine_RenderPipeline_Design §8 步骤二）：FORWARD 纯前向 /
+     * HYBRID 混合（Deferred 不透明 + Forward 透明）。引擎启动期消费；HYBRID 强制
+     * 关 AA（MSAA-GBuffer 归四期）。运行期可经编辑器「工具」域命令切换。
+     */
+    private PipelineProfile renderPipeline = PipelineProfile.FORWARD;
+
+    public PipelineProfile getRenderPipeline() {
+        return renderPipeline;
+    }
+
+    public void setRenderPipeline(PipelineProfile renderPipeline) {
+        if (renderPipeline == null) {
+            throw new IllegalArgumentException("renderPipeline must not be null");
+        }
+        this.renderPipeline = renderPipeline;
+    }
 
     public int getWidth() {
         return width;
@@ -111,6 +130,7 @@ public class JavelinSetting implements Serializable {
         output.write("backgroundColor",backgroundColor);
         output.write("antialiasing",antialiasing);
         output.write("maxFps",maxFps);
+        output.write("renderPipeline",renderPipeline);
     }
 
     @Override
@@ -131,5 +151,10 @@ public class JavelinSetting implements Serializable {
         }
         // 旧设置文件缺键 readInt=0，恰为本字段默认语义（0=不限制）——无迁移坑
         maxFps = Math.max(0, input.readInt("maxFps"));
+        // 旧设置文件无此键时保留默认（readEnum 缺键返回 null）
+        PipelineProfile rp = input.readEnum("renderPipeline", PipelineProfile.class);
+        if (rp != null) {
+            renderPipeline = rp;
+        }
     }
 }

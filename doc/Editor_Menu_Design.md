@@ -1,4 +1,6 @@
-# 编辑器菜单与命令系统设计（v0.20）
+# 编辑器菜单与命令系统设计（v0.21）
+
+> v0.21（2026-11-08）：工具域补 `tools.renderPipeline`（渲染管线档位 FORWARD ↔ HYBRID 运行期切换 + 写盘，随三期批次④-B 落地；命令表 §… 已登记）。
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
 > + 菜单渲染统一 Swing 弹窗（Web 浮层菜单会被视口 Canvas 盖）。
@@ -440,6 +442,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `file.preferences` | 首选项 | 文件 | 弹 PreferencesDialog（模态挂 MainFrame）——语言设置首批（Lang 下拉），确定写回 EditorSettings.language 存盘 + 重启生效（2026-10-29 落地 v0.18，待验收） |
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
+| `tools.renderPipeline` | 混合渲染（Deferred） | 工具 | checked 勾选命令（勾选 = HYBRID 档）：运行期切 `DefaultHybridRenderPipeline` 档位（FORWARD ↔ HYBRID，列表组成变化即图缓存失效）+ 档位写盘 `Game/javelinSettings.settings`（load-改-save，PackDialog 同口径）供下次启动沿用；写盘失败弹错误框（红线 15）（2026-11-08 随批次④-B 落地） |
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |
 | `hierarchy.create.plane` | 创建 Plane | 场景树右键 → 创建 | 选中节点下创建 10×10 XZ 平面物体（无选中=根级），重名去重 Plane (n)，创建后选中新节点；mesh=内置 plane.smesh 共享加载（带 guid 落盘可恢复）、材质=default.shader 运行期实例（Material 序列化 2026-10-04 落地，内嵌数据面重载可恢复；.mat 资产格式仍待）；资产未就绪记 error 不建节点（2026-10-04 落地，Unity 3D Object → Plane 口径） |

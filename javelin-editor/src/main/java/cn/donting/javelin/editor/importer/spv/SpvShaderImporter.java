@@ -5,6 +5,7 @@ import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.editor.importer.AssetImporter;
 import cn.donting.javelin.editor.importer.ImportSettings;
 import cn.donting.javelin.editor.importer.ImportTask;
+import cn.donting.javelin.editor.importer.shader.ShaderInjector;
 import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.project.Project;
@@ -121,6 +122,12 @@ public class SpvShaderImporter implements AssetImporter {
             stage = ShaderStage.FRAGMENT;
         } else {
             throw new IllegalArgumentException("不支持的着色器扩展名: " + sourceName);
+        }
+        // 全屏光照 Pass 可选注入（批次④-B）：带标记的文件注入相机块 + 光照段函数 +
+        // G-Buffer 三采样（光照公式单源，Engine_RenderPipeline_Design §4.3 实装）
+        if (source.contains(ShaderInjector.LIGHTING_STAGE_MARKER)) {
+            source = ShaderInjector.injectLightingStage(
+                    source.replace(ShaderInjector.LIGHTING_STAGE_MARKER, ""), sourceName);
         }
         String assetName = sourceName.contains(".")
                 ? sourceName.substring(0, sourceName.lastIndexOf('.'))
