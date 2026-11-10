@@ -1,6 +1,6 @@
 # 引擎资产热重载设计（Engine_AssetReload_Design）
 
-> 版本：v0.5（2026-10-30 **Walker 改对象注册表全量扫描 + 导入事件总线化**——同日用户验收销账：改 .shader reimport 当帧变 + F3 计数不涨、运行期换图/采样即时生效、resize/热刷无显存增长、logs/ 生成）
+> 版本：v0.6（2026-11-10 **材质 shader 换绑改落共享实例**（用户实测验收通过）——检查器 `onShaderCommit` 引擎帧首原位 `setShader`（不再靠 `.mat` 进 reload 链换指针），收窄口径与 targetClass 不变）
 > 拍板（2026-10-24，用户）：**反射遍历流派（UE ReloadPackages 口径本地化）**——持有引用形态不动（Material.shader / MeshRenderer.material 继续死攥对象），重导后由重载协调器**反射遍历场景对象图**找到持有旧实例的 Asset 字段、换新实例指针。v0.1 令牌表方案（持有者钩子 + 依赖登记表）作废。
 > 拍板（2026-10-29，用户）：**热重载范围收窄只 shader**——判据 = 文件是真值源 + 渲染侧按实例身份烤死。Shader（文件源 + set2 布局/UBO 尺寸/PSO 缓存键按身份烤死）必须 reload；.mat（编辑=内存直改即时生效——数值参数 UBO 每绑重打包/面型活读，文件是镜像）、.texture/.smesh/像素源（GPU 侧上传烤死须重上传，材质/网格实例换代后 reconcile 重建的基建已在）**摘出 reload 链，后面再加**。walker 基建全保留（shader 换代的 Material.shader 换指针 + 补默认值联动照旧）。
 > 关联档：Engine_Material_Design.md §3/§4（材质桥与序列化）、Engine_Rendering_Design.md（RenderingSystem 职责）、Editor_Design.md §1（设计基准=完全参考 Unity）、Editor_Menu_Design.md（project.reimport）。
@@ -244,3 +244,4 @@ targetClass 仅 `.shader` 命中**——.mat/.texture/.smesh/像素源经「无�
   - 换指针改 **setter 优先**（`set + 字段名`、同类型单参；含缺席缓存；setter 异常不回退反射直写），§7 setter 旁路警示作废；Material 补默认值后处理删退，保参归 `Material.setShader` 单点（材质档 v0.5）；
   - **导入回调总线化**：`AssetImportPipeline` 删 `ImportListener` + `addListener/notifyListeners`，改发 `AssetImportEvent`（`Phase` + 源文件 + guid 快照）到 `EditorEventBus`；`AssetReloadService` 订阅总线消费（START 忽略，完成/失败转重映射）。
   - **动机**：注册表会话原型（旧 core `ObjectCache` 因 `update()` 无调用点而退役）的教训在案——本批把清理挂在 snapshot 入口，避免「依赖外部帧驱动」重蹈覆辙。
+- v0.6（2026-11-10）：**材质 shader 换绑改落共享实例（收窄口径不变；用户实测验收通过）**——用户报「材质检查器改 shader 后使用该材质的物体不变」：`onShaderCommit` 走盘面重解析私有实例、`.mat` 又被收窄挡在 reload 链外，场景持有的 Material 实例 shader 指针无人换（收窄时的「材质编辑=内存直改即时生效」假设只覆盖数值/面型/贴图槽）。修法=换绑落 `loadGuid` 缓存共享实例、**引擎帧首** `setShader` + `requestReconcile`（`MaterialResources.stale()` 的 builtFromShader 判据 + `pipelineFor` 的 shader 身份键已支持原位换代，批次①之前「按首绑烤死」的判据不再成立）；面板载体与共享实例分歧时按盘面值补齐再收回共享实例。**targetClass 仍仅 `.shader`**——外部手改 `.mat` 自动生效仍归批次③挂账（恢复时加回分支，另需自写导入抑制防面板逐次重建）。

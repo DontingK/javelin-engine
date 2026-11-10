@@ -205,7 +205,7 @@
 | v0.8 AssetInput 资产通用输入 + 材质检查器 Shader 行换装（Class 类型参数 + 选择窗 + 右区拖放 + guid 三态 wire + setShader 重置默认值 + .mat 即时写回重导；core 补 AssetManager.guidOfPath 反查口） | ✅ 用户实测（2026-10-25） |
 | v0.9 材质参数编辑（类型感知控件 COLOR/VECTOR/FLOAT·RANGE/面型 + 防抖写盘重导 + 材质信息分组固定不可折叠） | ✅ 用户实测（2026-10-25） |
 | v0.10 GUID_ASSET 通道升可编辑（MeshRenderer mesh/material 行换装 AssetInput：选择窗/右区拖放/None 清空；VO 新增 assetType 声明类型；回写 guid 经 loadGuid 解实例、未索引拒绝、空串=内存创建拒绝；只读前身 GuidAssetField 退役） | ✅ 用户实测（2026-10-25） |
-| v0.11 材质编辑即时联动渲染（编辑载体=loadGuid 缓存共享实例优先——命中且 shader 与盘面一致直接编辑场景同一实例、数值/面型即时联动；shader 分歧守卫防旧实例写盘导回旧 shader；Shader 换绑不走共享实例走盘面重解析（MaterialResources 按 shader 首绑烤死）；追修 GUID_ASSET 回显漏传/显示名去后缀、选择窗 editor 组内置资产过滤） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| v0.11 材质编辑即时联动渲染（编辑载体=loadGuid 缓存共享实例优先——命中且 shader 与盘面一致直接编辑场景同一实例、数值/面型即时联动；shader 分歧守卫防旧实例写盘导回旧 shader；~~Shader 换绑不走共享实例走盘面重解析（MaterialResources 按 shader 首绑烤死）~~→**2026-11-10 v0.19 作废，换绑改落共享实例**；追修 GUID_ASSET 回显漏传/显示名去后缀、选择窗 editor 组内置资产过滤） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
@@ -215,6 +215,7 @@
 | v0.16 .scene 检查器收口（2026-11-08：环境设置改挂节点后，场景根行不再显示环境——原 skybox 行与随后的环境组件节均撤出，只留场景分组文件行 + 非当前场景只读态；编辑入口=节点检查器） | ✅（2026-11-08） | ✅ 用户实机验收（2026-11-08） |
 | v0.17 节点检查器「添加组件」（面板底部常驻满宽按钮，不随内容滚动 + 选择窗：搜索过滤/候选列表/唯一冲突灰显不可选；候选面=ReflectiveFactory 注册类枚举「Component 子类 + 非抽象 + 贴 @InsHeader」，core 补 registeredClasses 口；添加链=帧边界 addComponent + 置脏 + 面板自拉 + 新分组展开并滚入可见；Inspector_Design §13） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08） |
 | v0.18 组件头右键菜单（右键组件分组头弹菜单，当前项=删除组件；required 组件（Transform）置灰、折叠切换改只认左键；core 补 `Node.removeComponent`+`GameScene.onComponentDetached`——即时 onDisable→onDestroy+退注册表（唯一性槽位释放），口径同节点摘出场景（Engine_Scene_Design §2.2/§2.5 v0.7）；移除链=帧边界删 + 置脏 + 面板自拉；测试 SceneComponentTest 两组断言；Inspector_Design §14） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08） |
+| v0.19 材质 Shader 换绑落共享实例（修用户报「材质检查器改 shader 后用该材质的物体不变」：`onShaderCommit` 不再走盘面重解析私有实例——换绑落 loadGuid 缓存共享实例、引擎帧首 `setShader` + `requestReconcile`，渲染侧按 builtFromShader 换代退役重建 set2/按新 shader 身份另建 PSO；面板载体与共享实例分歧时按盘面值补齐再收回共享实例；v0.11「换绑例外」口径作废。顺修 `materialSet` 注释陈旧（贴图槽 live 换绑早已随 textureRevision 即时生效）。外部手改 .mat 自动生效仍挂资产热重载批次） | ✅（2026-11-10） | ✅ 用户实测（2026-11-10，改 shader 场景物体即时换模板） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 

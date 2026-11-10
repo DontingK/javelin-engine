@@ -53,16 +53,14 @@ import java.util.List;
  * 材质检查器内容件（.mat 键）：TextImporter 后台线程读 .mat 文本源
  * （MaterialImporter 同款解析链）、EDT 组装。两段分组（「材质」固定不可折叠、
  * 参数可折叠——贴图行内联参数组）+ 两列字段网格（label 列自适应、控件列填满，节点检查器
- * 同口径）。**可编辑**（v0.8 增量，2026-10-25）：Shader 行 AssetInput 换绑
- * （setShader 重置参数默认值 + 即时写回重导）；参数行类型感知控件——COLOR=
- * ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput（RANGE 按
- * 声明区间硬钳）、面型=JeSelect；提交=写内存实例 + **防抖持久化**（键入即提交
- * ×写盘重导的合并阀，换选/摘除前 flushPending 兜底防丢尾改——Unity 资产即时
- * 保存口径）。编辑载体=缓存共享实例优先（loadGuid，场景同一对象——数值/面型
- * 编辑即时联动渲染；shader 换绑例外走盘面重解析，见 onShaderCommit）。贴图行
- * AssetInput 换装 Texture2D（Unity 口径：与其他参数同行内联不分组；None=占位
- * 贴图合法；materialSet 按材质缓存烤死贴图绑定，live 换绑不重绑——生效=场景
- * 重载/热重载批次）。
+ * 同口径）。**可编辑**（v0.8 增量，2026-10-25）：Shader 行 AssetInput 换绑（落场景
+ * 共享实例、setShader 保参裁剪 + 即时写回重导，见 onShaderCommit）；参数行类型感知
+ * 控件——COLOR=ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput（RANGE 按
+ * 声明区间硬钳）、面型=JeSelect；提交=写内存实例 + **防抖持久化**（键入即提交×写盘
+ * 重导的合并阀，换选/摘除前 flushPending 兜底防丢尾改——Unity 资产即时保存口径）。
+ * 编辑载体=缓存共享实例优先（loadGuid，场景同一对象——数值/面型/贴图槽编辑即时联动
+ * 渲染，渲染侧按 textureRevision/builtFromShader 换代自动重建 set2）。贴图行
+ * AssetInput 换装 Texture2D（Unity 口径：与其他参数同行内联不分组；None=占位贴图合法）。
  *
  * <p>线程契约：onSelection（EDT）起后台加载线程，代际守卫（点击前进即 +1，
  * 晚到的旧结果丢弃）；解析失败显示错误态不静默。</p>
@@ -202,9 +200,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     /**
-     * 缓存优先取共享实例（guid → loadGuid）：命中且 shader 与盘面一致（live 实例
-     * 未与盘面分歧——换绑后、外部改盘后）才作为编辑载体，否则走文本兜底防旧实例
-     * 写盘撤销换绑；加载失败同样回 null。
+     * 缓存优先取共享实例（guid → loadGuid）：命中且 shader 与盘面一致才作为编辑载体，
+     * 否则走文本兜底——外部改盘后 live 与盘面分歧，直接用 live 编辑会把盘面状态（含外部
+     * 新 shader）导回旧值；加载失败同样回 null。换绑提交会把分歧补齐并收回共享实例。
      */
     private static Material sharedInstanceOf(Material parsed, AssetManager assetManager) {
         String guid = parsed.getGuid();
@@ -319,9 +317,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
      * 贴图槽换绑提交（EDT，即时持久化——单发动作不走防抖，Shader 行同款）：
      * None 清空合法（渲染侧占位贴图）；guid 经 loadGuid 解 Texture2D 实例校验
      * 存在；空串=内存创建语义对贴图槽无意义拒绝。写内存实例（材质无冻结语义；
-     * materialSet 按材质缓存烤死贴图绑定，live 换绑不重绑——生效=场景重载/
-     * 热重载批次）→ TextExporter 即时写回 → submitImport 重导；拒绝/失败路径
-     * =整面板重刷（build/reload）回滚显示。
+     * setTexture 自增 textureRevision，materialSet 每帧比对即两帧退役重建——
+     * live 换绑即时生效）→ TextExporter 即时写回 → submitImport 重导；拒绝/失败
+     * 路径=整面板重刷（build/reload）回滚显示。
      */
     private void onTextureCommit(String name, String newGuid) {
         Material material = this.material;
@@ -473,11 +471,12 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     /**
-     * Shader 换绑提交（EDT，即时持久化——单发动作不走防抖）：材质必绑 Shader
-     * （Unity 口径，None 拒绝）；换绑不落共享实例（渲染侧 MaterialResources 按
-     * shader 首绑烤死，live 换绑 UBO 尺寸/贴图绑定数错配）——文本重解析实例上
-     * setShader（core 语义重置参数默认值）→ TextExporter 即时写回 → submitImport
-     * 重导 → 面板切到该实例（场景实例指针随场景重载/热重载批次换）。
+     * Shader 换绑提交（EDT，即时持久化——单发动作不走防抖）：材质必绑 Shader（Unity
+     * 口径，None 拒绝）。盘面走「文本重解析 + setShader 保参裁剪 + 写回」；换绑本体落
+     * <b>场景共享实例</b>（loadGuid 缓存实例，Scene MeshRenderer 持同一对象）——面板载体与
+     * 它分歧时（外部改盘后）再按盘面值补齐，面板随之收回顾共享实例。内存改动投<b>引擎帧首</b>
+     * 执行：换 shader 牵 PSO 缓存键/set2 布局/MaterialBlock 尺寸三处，帧首串行避免渲染回调
+     * 读到半新半旧；渲染侧按 builtFromShader 换代自动退役重建、按新 shader 身份另建 PSO。
      */
     private void onShaderCommit(String newGuid) {
         Material material = this.material;
@@ -499,13 +498,13 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             shaderInput.setValue(oldGuid);
             return;
         }
-        // 防抖尾改先落盘：换绑从盘面最新态出发（解析失败连同下方写回一并走重载兜底）
+        // 防抖尾改先落盘：换绑从盘面最新态出发
         flushPending();
-        Material rebound;
+        Material parsed;
         try {
-            rebound = new TextImporter(file, editor.getAssetManager()).importData(Material.class);
-            rebound.setShader(shader);
-            new TextExporter(file).export(rebound);
+            parsed = new TextImporter(file, editor.getAssetManager()).importData(Material.class);
+            parsed.setShader(shader);
+            new TextExporter(file).export(parsed);
         } catch (Exception e) {
             // 写回失败=盘面即权威，内存态作废直接从盘面重载（显示随 build 自正）
             LOGGER.error("材质写回失败，从盘面重载: {}", file, e);
@@ -513,7 +512,60 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             return;
         }
         editor.getAssetImportPipeline().submitImport(file);
-        build(rebound, file);
+        // 换绑落场景共享实例（loadGuid 缓存实例，Scene MeshRenderer 持同一对象）：引擎帧首
+        // setShader——换 shader 牵 PSO 缓存键/set2 布局/UBO 尺寸三处，帧首串行避渲染回调
+        // 读到半新半旧（渲染侧按 builtFromShader 换代退役重建、按新 shader 身份另建 PSO）
+        Material shared = liveInstance(material.getGuid(), editor);
+        Material target = shared != null ? shared : material;
+        int gen = generation;
+        editor.submitTask(() -> {
+            target.setShader(shader);
+            if (target != material) {
+                // 载体与共享实例分歧（历史换绑只写盘不换 live / 外部改盘）：按盘面值补齐，
+                // 两侧此刻同 shader，逐项覆写不撞 requireProperty/requireType 校验
+                copyState(parsed, target);
+            }
+            editor.renderingSystem().requestReconcile();
+            SwingUtilities.invokeLater(() -> {
+                if (gen == generation) {
+                    build(target, file);
+                }
+            });
+        });
+    }
+
+    /** 场景共享实例取用（loadGuid 缓存实例）；无 guid / 加载失败返回 null。
+     *  不带 shader 一致性判据——换绑正要以它为落点修正分歧。 */
+    private static Material liveInstance(String guid, JavelinEditor editor) {
+        if (guid == null || guid.isBlank()) {
+            return null;
+        }
+        try {
+            return editor.getAssetManager().loadGuid(guid, Material.class);
+        } catch (Exception e) {
+            LOGGER.warn("材质共享实例加载失败: guid={}", guid, e);
+            return null;
+        }
+    }
+
+    /** 编辑态逐项同步到目标实例（面型/数值/贴图）。前置：两侧 shader 已一致（换绑后），
+     *  否则目标侧 requireProperty/requireType 校验会拒；shader 本体的保参裁剪归 setShader。 */
+    private static void copyState(Material from, Material to) {
+        to.setSurfaceType(from.getSurfaceType());
+        for (MaterialValueEntry entry : from.getValues()) {
+            float[] data = entry.getData();
+            if (data == null) {
+                continue;
+            }
+            if (data.length >= 4) {
+                to.setColor(entry.getName(), data[0], data[1], data[2], data[3]);
+            } else if (data.length >= 1) {
+                to.setFloat(entry.getName(), data[0]);
+            }
+        }
+        for (MaterialTextureEntry entry : from.getTextures()) {
+            to.setTexture(entry.getName(), entry.getTexture());
+        }
     }
 
     // ------------------------------------------------------------------ 持久化

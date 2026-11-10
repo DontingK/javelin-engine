@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.18，2026-11-08 组件头右键菜单落地并验收——菜单当前项=删除组件，core 补 removeComponent）
+# 检查器（Inspector）设计（v0.19，2026-11-10 材质 Shader 换绑落共享实例并验收通过——修「换绑后场景物体不更新」，原「换绑例外不落共享实例」口径作废）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -191,6 +191,19 @@
 > headerLeft 勾选任一子件）弹菜单，当前一项「删除组件」（required 组件置灰）；删除走
 > 帧边界 core 新口 `Node.removeComponent`（即时 onDisable → onDestroy + 退注册表）
 > + 置脏 + 面板自拉。折叠切换改只认左键（原任何按下都切）。**2026-11-08 用户实测验收通过。**
+> v0.19（2026-11-10，**用户实测验收通过**）：**材质 Shader 换绑落共享实例（修「换绑后场景物体
+> 不更新」）**——用户报「材质检查器改 shader，用该材质的物体没变化」。根因两处叠加：
+> ①`onShaderCommit` 刻意走「盘面重解析私有实例」（理由=MaterialResources 按 shader 首绑
+> 烤死），②`.mat` 不在热重载链（`targetClass` 仅 `.shader`，2026-10-29 收窄）→ 盘面已改、
+> 场景持有的 Material 实例 shader 指针无人换；连带面板下次载入检测到「live 与盘面 shader
+> 分歧」长期退回文本源私有实例，数值/面型编辑也随之静默不联动视口。修法：换绑落
+> `loadGuid` 缓存共享实例（Scene MeshRenderer 持同一对象）——setShader + 写盘 + 重导 +
+> `requestReconcile` 投**引擎帧首**（换 shader 牵 PSO 缓存键/set2 布局/UBO 尺寸三处，
+> 帧首串行避渲染回调读到半新半旧；渲染侧 materialSet 按 builtFromShader 自动退役重建、
+> pipelineFor 按新 shader 身份另建 PSO）；面板载体与共享实例分歧时按盘面值补齐后收回共享
+> 实例。**原 v0.11「Shader 换绑例外不落共享实例」作废**——该判据出自批次① reconcile 落地
+> 之前，`MaterialResources.stale()` 已覆盖 shader 换代。外部手改 .mat 文件自动生效仍归
+> 资产热重载批次（挂账不变，targetClass 仍仅 `.shader`）。
 
 ## 1. 总则
 

@@ -59,6 +59,7 @@
 - **2026-11-08｜变换 Gizmo 旋转/缩放三件齐备**：旋转/缩放工具本体 + 几何改程序化生成（`GizmoMeshes` 照搬 Babylon 规格，`axisY.smesh` 退役）+ 缩放恒局部 + 工具栏两钮解禁 + **柄拾取改 CPU 碰撞体射线**（用户实机反馈「轴太细/环太粗」后改判：ID 附件只服务场景物体，Gizmo 按 Babylon `colliderMeshes` 口径「可见几何与拾取体解耦」） → `Editor_Design.md` §10 / `Engine_Picking_Design.md` v0.2 ｜✅ 2026-11-08 用户实测全项
 - **2026-11-08｜耗时操作指示器**：`swing/dialog/TimeConsumingDialog` 静态 start/end/wrap，超 1s 弹无边框非模态「处理中」（线程名 + 已用时，200ms 刷新），标记清零自动关；EDT 标记跳过 + 监视线程按需存活 + 同线程嵌套按最外层计时；双语键随批 → `Editor_Swing_Design.md` §4.3 v0.2 ｜✅ 2026-11-08 用户确认验收；遗留 = 接调用点（焦点扫描 / 工程加载链 / 打包构建线程）
 - **2026-11-08｜修复批次：导入期引用解析壳管理器 ShellAssetManager**：用户报首启 .texture 导入必现 `FileNotFoundException: Library/<image guid>.asset`——根因 = 文本协议导入期 `@guid` 引用经真实 AssetManager 强加载 Library 产物，而索引登记以 .meta 为准不检查产物 + 导入多 worker 无依赖序；修法 = 独立壳管理器（导入期不加载产物：引用存在性按 MetaManager.getMetaByGuid 判、命中造壳 + setGuid；其余接口面显性抛错）+ AssetImportPipeline 构造去 AssetManager（改 `(Project, MetaManager)`）；语义边界 = 只去掉「依赖产物必须已生成」，引用存在性校验保留 → `Editor_Design.md` §6.3 / `Engine_Texture_Design.md` v0.4 / `Engine_Material_Design.md` v0.7 ｜✅ 2026-11-08 用户实测
+- **2026-11-10｜修复批次：材质检查器 shader 换绑不生效**：用户报「改 shader 后使用该材质的物体不变」——根因 = `onShaderCommit` 走盘面重解析私有实例（注释「MaterialResources 按 shader 首绑烤死」在批次① reconcile 后已过期），`.mat` 又被收窄挡在热重载链外 → 场景 Material 实例 shader 指针无人换；修法 = 换绑落 `loadGuid` 共享实例、引擎帧首 `setShader` + `requestReconcile`（materialSet 按 builtFromShader 换代重建 set2、pipelineFor 按 shader 身份另建 PSO），载体与共享实例分歧时先换绑再按盘面值补齐后收回共享实例；收窄口径与 `targetClass` 不变（外部手改 .mat 仍挂账） → `Inspector_Design.md` v0.19 / `Engine_AssetReload_Design.md` v0.6 ｜✅ 2026-11-10 用户实测
 
 ---
 
