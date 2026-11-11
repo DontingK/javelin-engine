@@ -1,6 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
-> 版本：v0.5（2026-11-10）
+> 版本：v0.6（2026-11-11）
+> v0.6 变更（2026-11-11）：§6 跨期遗留收敛至新建 `Engine_Backlog.md`（「已计划、尚未完成」的唯一登记处），本节留指针；「插件域待拍板」更正为 2 项。
 > v0.5 变更（2026-11-10）：**三期批次④-B 验收关账**——HYBRID 档用户实机两路光照一致（随验坑 Pitfalls #35 set0 阶段可见性读零已修）；三期五批全部关账。§3/§5 状态同步。
 > v0.4 变更（2026-11-08）：**三期批次④-B（Deferred 复用）落地**——GBufferPass+LightingPass+`PipelineProfile` 双档可切（同场景两路光照一致待用户验收）；§3/§5 三期状态同步为「收官（除 ④-B 待验外无剩余项）」。
 > 说明：阶段路线**总纲**——各期目标、拍板、验收标准与**状态摘要**；一期关账总结、二期引擎功能、三期光照、四期高质量渲染立项。各期细节以对应专档为准；**批次索引**（每个批次一行：日期｜改动要点｜落点设计档｜验收）2026-11-08 拆分入分卷（见下方索引）。
@@ -140,12 +141,11 @@
 
 ## 6. 跨期遗留（不阻塞当期推进）
 
-- RHI 遗留：Buffer staging 上传（deviceLocal）、描述符池环形、backbuffer 句柄入 structureHash；
-- 场景：~~environment/sun（三期灯光一并定）~~ **已定并落地（2026-11-08：`Environment` 组件 v0.1 承接天空盒，环境类参数随四期各批加字段；sun 主光自动裁决三期批次②已落）**、.scene 序列化（二期编辑器前置）；
-- 资产：动态 Mesh/动态纹理专项（设计要点已记录，材质档 §6 / 资产档 §2.8）；
-- 渲染优化：视锥剔除（Aabb/Mesh.bounds 已随碰撞片③回归 2026-10-05，剔除本身仍后置）、遮挡剔除/GPU Instancing/LOD（P2）；
-- 构建链：groupId/包名迁移 + 版本定版——**✅ 已执行并验收**（2026-10-31 用户实测销账：test 全绿 + mavenLocal 重发新坐标 + 三端实机一致）；细则归档见 `Engine_Roadmap_Progress.md` §6。
-- 开源前置（2026-10-29 起步）：License = MIT ✅ / THIRD-PARTY-NOTICES + 思源黑体 OFL ✅ / README 双语 ✅（2026-10-31 落库）、默认语言 en_US ✅（2026-10-31 验收）、~~`javelin-engine5` 命名去 "5"~~ ✅（2026-10-31）——剩余 = 插件域待拍板 3 项（组件显示名 / 命令 id 前缀化 / FileType 冲突策略）；细则归档见 `Engine_Roadmap_Progress.md` §6。
+> **已收敛至 [`doc/Engine_Backlog.md`](Engine_Backlog.md)**（2026-11-11 建档——「已计划、尚未完成」的单一登记处：未开工 / 半成品 / 后置项 / 待拍板 / 已知问题按域一项一行）。本节不再逐条维护。
+
+- 原列于此的 RHI 遗留（Buffer staging / 描述符池环形 / backbuffer structureHash）、资产（动态 Mesh/纹理专项）、渲染优化（视锥剔除、遮挡剔除/Instancing/LOD）等 → `Engine_Backlog.md` §4~§6；
+- **已落定、本表不再追踪**：~~environment/sun~~（2026-11-08 `Environment` 组件承接天空盒、sun 主光自动裁决三期批次②已落）、~~.scene 序列化~~（二期编辑器前置已落地）、groupId/包名迁移 + 版本定版 + 开源前置批（2026-10-31 已验收）——细则归档见 `Engine_Roadmap_Progress.md` §6；
+- **插件域待拍板剩 2 项**（命令 id 前缀化 / FileType 冲突策略）→ `Engine_Backlog.md` PLG-01/PLG-02（原「3 项」中「组件显示名口径」已于 2026-10-30 拍板 key 化）。
 
 ---
 

@@ -436,13 +436,7 @@ _MainTex 属性、ShaderParser 2D 死分支、GuidHeaderManager 二进制读炸 
 
 ## 7. 已知问题（bug 类，非功能缺口）
 
-- ~~resize Cleaner 兜底只销毁 image 不释放内存~~ 已修并验收（A 项 resize 显式 dispose 2026-10-09 / B 项 `DestroyTask` 带 `memoryHandle` 成对 free 2026-10-23，均用户实测；坑点存档 Vulkan_Pitfalls #24）；
-- loadScene 失败路径 getEditorGameScene() NPE 未补；
-- 导入成功即全量 `updateIndex()` 热点（Editor_Design §9）；
-- Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘，后调）。
-- 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受，Editor_Design §9-11）；
-
-> 细节与修法归 `doc/Editor_Design.md` §9 / 各排查记忆档，本文只挂账。
+> **已并入 [`doc/Engine_Backlog.md`](doc/Engine_Backlog.md) §13「已知问题」**（2026-11-11 收口——「已计划但没做」的单一登记处，bug 类一并收敛，免两处维护）。本节不再逐条维护；历史修法归 `doc/Editor_Design.md` §9 / 各排查记忆档。
 
 ---
 

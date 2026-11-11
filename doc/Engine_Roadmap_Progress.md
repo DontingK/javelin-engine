@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.3（2026-11-08）
+> 版本：v0.4（2026-11-11 补「待办总账建档」归档一条）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -105,6 +105,8 @@
 - **开源前置批（2026-10-29 起步 → 2026-10-31 落库）**：**License = MIT**（个人开发者作品，与 LWJGL BSD-3 / JOML MIT 生态一致）；THIRD-PARTY-NOTICES.md 十一项清单 + 思源黑体 OFL.txt 随字体同目录，**许可倒挂纠错 = FlatLaf 实为 Apache-2.0（jar 内 META-INF/LICENSE 实证，此前记 MIT 错）、JSVG = MIT**；README 双语落库（README.md 英文主档 + README.zh-CN.md 互链；用户指正两处已修：AOT 部署为核心目标须在定位段突出、环境要求写 **GraalVM for JDK 25** 而非裸 JDK）；**默认语言 en_US**（`lang/en_US.properties` editor.core 全量 50 键 + `I18n.DEFAULT_LANGUAGE` 切 "en_US"，zh_CN 降为可选本地化包）+ 首选项菜单与语言设置全链（file.preferences + 语言包注册制 + EditorSettings.language + 启动链 setLanguage，确定写盘 + 重启生效）；命名收尾 = GitHub 远端与 `rootProject.name` 去 "5"（本地目录名不动——改目录会断 IDE 工程引用 / gradle 缓存 / AGENTS 路径）；剩余 = 插件域待拍板 3 项（组件显示名 / 命令 id 前缀化 / FileType 冲突策略）。已知遗留呼应 = `./gradlew` 对 Windows cmd/PowerShell 不可用（根缺 gradlew.bat）、distributionUrl 仍走腾讯镜像。
 
 - **文档结构治理（2026-11-08）**：`Engine_Roadmap.md` 涨到 72KB（单文件逼近不可读）——按「总纲 + 分卷」拆出本卷，并把逐字流水压成批次索引（54KB → 26KB）；同期立 AGENTS **红线 16**（进度 / 台账类文档单文件 ≤ 50KB，超限即分片，手法照本次：总纲留状态摘要 + 分卷索引表 + 指针，节号沿用原编号）。范围收窄 = 只约束随批次线性增长的进度文档，设计档 / 参考资料 / `Engine_Features.md` 功能清单不受此限（量由设计范围决定）。
+
+- **待办总账建档（2026-11-11）**：新建 `doc/Engine_Backlog.md`——**「已计划、尚未完成」的唯一登记处**；起因 = 待办散在 30 份文档的「后置项 / 挂账 / 遗留 / 待拍板 / 已知边界」段，无单点可查。手法 = 全量清点（`doc/*.md` + `Engine_Features.md` + `AGENTS.md`）去重后按域收敛，**106 条**（DBG 6 / P4 9 / RHI 9 / REND 13 / AST 15 / HOT 13 / ED 12 / PLG 8 / SYS 9 / PICK 3 / BLD 1 / BUG 8），一项一行「ID｜待办｜落点｜归类｜依赖」，ID 建档一次分配、永久稳定、完成后留空档不复用；归类 = 未开工 / 半成品 / 后置项 / 待拍板 / 已知问题。**落点收敛三处**：`Engine_Features.md` §7 已知问题并入本文 §13（原处留指针）、`Engine_Roadmap.md` §6 跨期遗留改指向本文（同步更正两处残留——`environment/sun` 与 `.scene 序列化` 实已落地、「插件域待拍板」实剩 2 项，总纲升 v0.6）、`AGENTS.md` 文档索引登记新档（Features/Roadmap 两行描述同步）。维护纪律四条写入档内（开工改状态 / 完成整行移出进本卷批次索引 + Features 验收状态 / 设计档新写后置段须同批登记 / 拍板后去 `待拍板` 归类）；体量 24KB 在红线 16 限内。
 
 ---
 
