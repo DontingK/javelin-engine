@@ -164,6 +164,8 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
 
 ### 6.3 导入管线（importer 包）
 
+> **读取契约（AGENTS 红线 17，2026-11-10）**：资产只有一条单循环——**源文件 = 导入器输入**（只有导入器解析它），**`Library/{guid}.asset` 产物 = 唯一读取面**（运行时与编辑器一律经 `AssetManager.loadGuid`，缓存优先、miss 落产物并注册）；**编辑 = 改内存实例**（内存即真值）→ 保存写回源文件 + `submitImport` 重导产物，读侧不回读任何文件取"最新"。绕过导入器读源 = 造出与资产缓存不一致的私有实例（编辑不生效 / 指针无人换代）。元数据 / 配置文本（`.meta`、settings、`index.asset`）不是资产、无产物，按各自协议读。
+
 - `AssetImporter` SPI：扩展名注册表驱动（扫描实例化所有实现）。产物统一命名
   `Library/{guid}.asset`。**产物 guid 一律取伴生 meta 的 guid**（2026-10-29 单源
   拍板，推翻 2026-09-26「文件头优先、meta 兜底」双源——文件头只剩 .java 例外）。当前实现：`SimpleMeshImporter`
