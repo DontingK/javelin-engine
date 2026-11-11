@@ -288,6 +288,22 @@ public class AssetImportPipeline {
         return false;
     }
 
+    /** 装载前产物新鲜度对齐的等待超时（毫秒；超时≠失败——任务仍在跑，只是不等了） */
+    private static final long ENSURE_IMPORT_TIMEOUT_MS = 5000;
+
+    /**
+     * 确保文件产物与源同步（AGENTS 红线 17：装载方只读 Library 产物，产物新鲜度由此对齐）：
+     * {@code needImport} 判据（源 mtime ≠ meta mtime）为假即零成本返回 true；为真则提交并等待重导。
+     *
+     * @return true = 产物可用（已新鲜或重导成功）；false = 导入失败 / 等待超时
+     */
+    public boolean ensureImported(File file) {
+        if (!needImport(file)) {
+            return true;
+        }
+        return awaitImport(submitImport(file), ENSURE_IMPORT_TIMEOUT_MS);
+    }
+
     /**
      * 获取或创建设置
      *

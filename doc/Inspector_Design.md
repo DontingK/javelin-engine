@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.19，2026-11-10 材质 Shader 换绑落共享实例并验收通过——修「换绑后场景物体不更新」，原「换绑例外不落共享实例」口径作废）
+# 检查器（Inspector）设计（v0.21，2026-11-10 材质/纹理面板装载统一「只走 Library 产物」——文本源只喂导入器，原「换绑/装载走文本源」口径作废）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -204,6 +204,24 @@
 > 实例。**原 v0.11「Shader 换绑例外不落共享实例」作废**——该判据出自批次① reconcile 落地
 > 之前，`MaterialResources.stale()` 已覆盖 shader 换代。外部手改 .mat 文件自动生效仍归
 > 资产热重载批次（挂账不变，targetClass 仍仅 `.shader`）。
+> v0.20（2026-11-10，待用户实机验收）：**材质面板装载只走 Library 产物（文本源只喂导入器）**——用户两轮
+> 纠偏：①「应该从缓存获取，而不是直接读文件」②「load 都不应该使用文本源，都应该走 lib；文本源只用于
+> 导入器，否则会出现缓存/内存不一致」。现装载链 = 文件 → 伴生 .meta 取 guid → `loadGuid` 取缓存/Library
+> 产物实例作编辑载体（场景 MeshRenderer 持同一对象，内存即真值）；**未导入/产物缺失/产物损坏 = 显性诊断
+> 态（新增 `material.inspector.missingProduct` 键），不再回退文本源解析**——文本解析会造出与资产缓存不
+> 一致的私有实例（正是 v0.11 分歧守卫要兜的坑，故该守卫与 `sameShaderGuid` 一并退役）。诊断态下重选同一
+> 文件可重试（`onSelection` 同文件跳过判据改「已持载体才跳过」，`reload` 起手清载体）。`onShaderCommit`
+> 不再重解析源文件做回写基线——直接改内存载体 → 导出源文件 → `submitImport` 重导产物；共享实例取用走
+> 新增的 `ProjectAssetLibManager.loadCache(guid, type)` 只查缓存口（不落产物加载、不打「加载 GUID」日志，
+> 未命中返回 null），避免 `loadGuid` 顺手加载产物造出无人共享的新实例。**已知代价（口径内接受）**：外部
+> 手改 `.mat` 不自动生效（挂账）时面板按内存显示，下一次面板编辑会把内存态写回源文件（外部改动不保留）。
+> v0.21（2026-11-10，待用户实机验收）：**.texture 纹理面板装载同改「只走 Library 产物」（AGENTS 红线 17
+> 清账）**——`load` 由「TextImporter 解析文本源」改「伴生 .meta 取 guid → `loadGuid` 取缓存/产物实例」，
+> 编辑载体=内存缓存共享实例（与 v0.12「文本私有实例」拍板相反；该拍板理由=Texture2D 冻结语义，冻结已于
+> 2026-10-30 废除）；产物缺失=显性诊断态（新增 `texture.inspector.missingProduct` 键）+ 重选同文件可重试。
+> 收益：采样两下拉即写即生效（`Texture2D.revision` 自增 → materialSet 两帧退役重建、sampler 随值重解）。
+> **已知边界**：图换绑只改内存 + 源文件，GPU 侧像素句柄缓存于实例（`TextureUpload` 幂等返回）——上屏换
+> 像素归贴图热重载批次。
 
 ## 1. 总则
 

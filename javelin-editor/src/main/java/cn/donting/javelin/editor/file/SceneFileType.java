@@ -5,11 +5,9 @@ import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.event.EditorEventBus;
 import cn.donting.javelin.editor.event.SceneChangedEvent;
 import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
-import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.scene.EditorScene;
 import cn.donting.javelin.editor.selection.EditorSelection;
-import cn.donting.javelin.editor.serializable.TextImporter;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
@@ -142,7 +140,8 @@ public class SceneFileType implements FileType {
     }
 
     /**
-     * 场景切换（引擎主线程帧边界执行）：save（可选）→ 文本导入新场景 → 换引用 →
+     * 场景切换（引擎主线程帧边界执行）：save（可选）→ **Library 产物装载**（红线 17：文本源只喂
+     * 导入器；{@link JavelinEditor#loadSceneAsset} 内含产物新鲜度对齐 + 回盘取新实例）→ 换引用 →
      * 清选中/清脏/发事件。失败记 error 并 tinyfd 弹窗（同 file.save 隔离口径）。
      */
     private static void swapScene(JavelinEditor editor, File file, boolean saveFirst) {
@@ -151,12 +150,9 @@ public class SceneFileType implements FileType {
             return; // 保存失败中止打开（错误信息已弹）
         }
         try {
-            GameScene gameScene = new TextImporter(file, editor.getAssetManager()).importData(GameScene.class);
-            // guid 同步（口径同 JavelinEditor.loadScene）：.meta 为管线真值源，
-            // 同步进 gameScene 供保存时内嵌自述；旧文件无内嵌字段 read 恢复 null
-            AssetMeta meta = editor.getMetaManager().getMeta(file);
-            if (meta != null && meta.getGuid() != null) {
-                gameScene.setGuid(meta.getGuid());
+            GameScene gameScene = editor.loadSceneAsset(file);
+            if (gameScene == null) {
+                throw new IllegalStateException(EditorLang.text("scene.open.productMissing"));
             }
             editorScene.setGameScene(gameScene, file);
             // 选中收口清空：Gizmo/TransformWatch/Inspector 旧场景引用经选中链复位

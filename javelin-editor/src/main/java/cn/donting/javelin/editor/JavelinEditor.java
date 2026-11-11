@@ -29,7 +29,6 @@ import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.meta.MetaManager;
 import cn.donting.javelin.editor.project.Project;
 import cn.donting.javelin.editor.scene.EditorScene;
-import cn.donting.javelin.editor.serializable.TextImporter;
 import cn.donting.javelin.editor.settings.EditorSettings;
 import cn.donting.javelin.editor.settings.ProjectSettings;
 import cn.donting.javelin.editor.settings.SettingsManager;
@@ -192,24 +191,46 @@ public class JavelinEditor extends JavelinEngine {
             return null;
         }
         File file = new File(project.getAssetsDir(), defaultOpenScene);
-
-        TextImporter textImporter = new TextImporter(file, assetManager);
-        try {
-            GameScene gameScene = textImporter.importData(GameScene.class);
-            // guid 同步（2026-10-01 拍板）：.meta 为管线真值源，同步进 gameScene
-            // 供保存时内嵌自述（GameScene.write super.write）；旧文件无内嵌字段，
-            // read 恢复 null——此处统一从伴生 .meta 补
-            AssetMeta meta = metaManager.getMeta(file);
-            if (meta != null && meta.getGuid() != null) {
-                gameScene.setGuid(meta.getGuid());
-            }
-            editorScene.setGameScene(gameScene, file);
-            editorScene.setEditorScene(new GameScene("editor"));
-            return editorScene;
-        } catch (Exception ex) {
-            log.warn(ex.getMessage(), ex);
+        GameScene gameScene = loadSceneAsset(file);
+        if (gameScene == null) {
+            // 未导入/产物缺失/导入失败：未就绪降级（清屏兜底，口径同「无场景记录」）
+            log.warn("启动场景装载失败，跳过场景恢复: {}", file);
             return null;
         }
+        editorScene.setGameScene(gameScene, file);
+        editorScene.setEditorScene(new GameScene("editor"));
+        return editorScene;
+    }
+
+    /**
+     * 场景资产装载（AGENTS 红线 17：文本源只喂导入器，装载只读 Library 产物）：
+     * {@code ensureImported} 对齐产物新鲜度（源 mtime ≠ meta mtime 才重导；**无 meta 的未导入
+     * .scene 由此补齐 meta + 产物**）→ 伴生 .meta 取 guid → <b>回盘读新实例</b>（{@code reload}
+     * 绕过缓存——重开场景必须回盘面，不复活未保存的内存改动；内嵌自述 guid 由导入器按 meta 真值源写入，
+     * 无需再同步）。产物不可用返回 null，交调用方走各自失败路径（启动未就绪降级 / 打开失败弹窗）。
+     */
+    public GameScene loadSceneAsset(File file) {
+        if (!assetImportPipeline.ensureImported(file)) {
+            log.warn("场景产物不可用（未导入/导入失败/等待超时），无法装载: {}", file);
+            return null;
+        }
+        AssetMeta meta = metaManager.getMeta(file);
+        String guid = meta != null ? meta.getGuid() : null;
+        if (guid == null || guid.isBlank()) {
+            log.warn("场景无 guid（伴生 meta 缺失），无法装载: {}", file);
+            return null;
+        }
+        ProjectAssetLibManager projectManager = getProjectAssetLibManager();
+        if (projectManager == null) {
+            log.warn("资产管理器非 ProjectAssetLibManager，无法回盘装载场景: {}", file);
+            return null;
+        }
+        return projectManager.reload(guid, GameScene.class).getNew();
+    }
+
+    /** 编辑器资产管理器（恒为 ProjectAssetLibManager；非该实现返回 null——热重载/回盘装载口用） */
+    public ProjectAssetLibManager getProjectAssetLibManager() {
+        return assetManager instanceof ProjectAssetLibManager projectManager ? projectManager : null;
     }
 
     public GameScene getEditorGameScene() {

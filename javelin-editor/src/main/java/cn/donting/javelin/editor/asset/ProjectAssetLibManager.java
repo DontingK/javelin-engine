@@ -31,6 +31,19 @@ public class ProjectAssetLibManager extends AssetLibManager {
     // ═══ 资产热重载（Engine_AssetReload_Design.md §4.1，批次①） ═══
 
     /**
+     * 仅查内存缓存（基类 {@code loadCache} 的公开面）：命中且类型相符返回实例，未命中/类型
+     * 不符返回 null——<b>不落盘加载、不重建、不打日志</b>（loadGuid 会加载 Library 产物并打
+     * 「加载 GUID」日志，故不适用）。供「换绑落点」等只想取已有共享实例的调用点用。
+     */
+    public <T extends Asset> T loadCache(String guid, Class<T> assetClass) {
+        if (guid == null || guid.isBlank() || assetClass == null) {
+            return null;
+        }
+        Asset cached = loadCache(guid);
+        return assetClass.isInstance(cached) ? assetClass.cast(cached) : null;
+    }
+
+    /**
      * 丢弃 guid 的弱缓存条目（cache/guidAssetRefMap/trackedRefs 同步清），
      * 下次 loadGuid 走盘读新产物。与持有形态解耦——场景强引用照旧，换指针归重载协调器。
      */

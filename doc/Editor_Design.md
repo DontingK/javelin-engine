@@ -175,7 +175,11 @@ UI 框架（Dock 二分布局树 / PanelRegistry 面板注册 / 视口单 Canvas
   产物，2026-10-11 落地、2026-10-23 用户验收）**——场景纳入管线：guid 真值源=伴生 .meta（.scene 首行是
   文本协议头不能走文件头自包含，与 loadScene 同口径；meta 缺 guid 拒绝导入）；解析即验证
   （坏档不落残产物）；保存联动=file.save 成功后 submitImport 异步重导（管线线程池，产物即时
-  新鲜）；loadScene 不动（仍读 Assets/ 文本源，产物供运行时/打包按 guid 消费）。已知边界：
+  新鲜）；**编辑器装载改走 Library 产物（2026-11-10，AGENTS 红线 17）**——`JavelinEditor.loadScene`
+  / `SceneFileType.swapScene` 统一走 `loadSceneAsset`：`ensureImported`（源 mtime ≠ meta mtime 才
+  重导，无 meta 的未导入 .scene 由此补齐）→ 伴生 meta 取 guid → `reload` 回盘取新实例（绕过缓存，
+  重开场景不复活未保存的内存改动）；**文本源只喂导入器**（原「loadScene 仍读文本源」口径作废）
+  ——已知边界：
   连续快速保存的同文件导入任务可能在多 worker 交叠写同一产物（极低概率、下次保存自愈），
   同文件任务去重归管线后续。
 - `AssetImportPipeline`：生产者 `refresh()`（扫监听目录，`needImport` 统一判

@@ -338,8 +338,9 @@ onParentChanged 场景联动）；read 全量恢复后**零收尾**（无 resolv
 ### 9.3 拍板记录（2026-10-01）
 
 - **guid 内嵌**：GameScene.write 调 super.write 内嵌 guid/lastModified（对齐 Shader
-  先例）；**真值源仍是伴生 .meta**——编辑器加载侧（JavelinEditor.loadScene）同步
-  meta.guid 进 gameScene，保存时内嵌自述、双源一致（Mesh 的"不内嵌"口径不采）。
+  先例）；**真值源仍是伴生 .meta**——打点 2026-11-10（AGENTS 红线 17）：编辑器装载改走 Library
+  产物（`JavelinEditor.loadSceneAsset`），内嵌 guid 由 `SceneImporter` 按 meta 真值源写入产物，
+  编辑器侧不再需要加载后同步；文本源只喂导入器。保存时仍内嵌自述、双源一致（Mesh 的"不内嵌"口径不采）。
 - **Tag/layer 投影存储**：tags 存名字符串列表（read 时 `Tag.of` 驻留恢复）、layer
   存 int 索引（read 时 `Layer.of` 查表 + 越界兜底 DEFAULT）。**红线 10 辨析**：
   Tag 是私有构造驻留值对象、Layer 是启动时从设置构建的静态注册表，都不是对象图

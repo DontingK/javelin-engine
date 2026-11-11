@@ -5,9 +5,9 @@ import cn.donting.javelin.core.render.texture.Image;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.inspector.InspectorFieldVo;
+import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.serializable.TextExporter;
-import cn.donting.javelin.editor.serializable.TextImporter;
 import cn.donting.javelin.editor.swing.SvgIcon;
 import cn.donting.javelin.editor.swing.inspector.widget.AssetInput;
 import cn.donting.javelin.editor.swing.inspector.widget.CollapsiblePanel;
@@ -36,20 +36,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 纹理检查器内容件（.texture 键）：TextImporter 后台线程读 .texture 文本源
- * （TextureImporter 同款解析链）、EDT 组装。「纹理」单分组（固定不可折叠：
+ * 纹理检查器内容件（.texture 键）：后台线程按「伴生 .meta 取 guid → loadGuid 取缓存/Library 产物
+ * 实例」装载、EDT 组装（**文本源只喂导入器**，AGENTS 红线 17——面板不解析文本源，免造出与资产
+ * 缓存不一致的私有实例；产物缺失=诊断态）。「纹理」单分组（固定不可折叠：
  * 文件/图/GUID/过滤模式/环绕模式——采样两下拉不值独立分组，合组拍板
  * 2026-10-25）。**可编辑**：图行
  * AssetInput 换绑（None 清空合法，即时写回重导）；采样两下拉提交=写内存实例
  * + 防抖持久化（.mat 同款合并阀，换选/摘除前 flushPending 兜底）。
  *
- * <p>编辑载体 = 文本解析实例（与 .mat v0.11 缓存共享实例分歧，拍板 2026-10-25）：
- * Texture2D 冻结语义（上传后 setImage/setFilterMode/setWrapMode 抛）使共享
- * 已上传实例不可编辑；渲染侧 materialSet 按材质缓存烤死贴图绑定与 sampler，
- * 写实例也非即时联动——即时联动统一归资产热重载批次（场景实例指针换绑）。</p>
+ * <p>编辑载体 = 内存缓存共享实例（场景同一对象，内存即真值、源文件是镜像）：采样两下拉
+ * 即写即生效（Texture2D.revision 自增 → materialSet 两帧退役重建描述符集，sampler 随值重解）；
+ * 图换绑同写内存+源文件，但 GPU 侧像素句柄缓存于实例（TextureUpload 幂等返回）——**上屏换像素
+ * 归贴图热重载批次**（重上传链），当前约等于重载场景后可见。</p>
  *
  * <p>线程契约：onSelection（EDT）起后台加载线程，代际守卫（点击前进即 +1，
- * 晚到的旧结果丢弃）；解析失败显示错误态不静默。</p>
+ * 晚到的旧结果丢弃）；产物不可得显示诊断态不静默。</p>
  *
  * @author javelin
  * @create 2026/10/25
@@ -93,7 +94,11 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
     @Override
     public void onSelection(InspectorSelection selection) {
         File file = selection.file();
-        if (file == null || file.equals(currentFile)) {
+        if (file == null) {
+            return;
+        }
+        // 同文件重选：已装载则跳过；停在诊断态（未导入/产物缺失/加载失败）时放行重试
+        if (file.equals(currentFile) && texture != null) {
             return;
         }
         flushPending();
@@ -105,9 +110,11 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
         flushPending();
     }
 
-    /** 加载/重载入口：代际前进 + 加载态 + 后台线程读源（EDT 调用） */
+    /** 加载/重载入口：代际前进 + 加载态 + 后台线程取产物（EDT 调用） */
     private void reload(File file) {
         currentFile = file;
+        // 诊断态/加载态一律不持载体（防把上一文件的实例当成本次载体；onSelection 重试判据也看它）
+        texture = null;
         int gen = ++generation;
         showStatus(LOADING_TEXT);
         JavelinEditor editor = JavelinEditor.getInstance();
@@ -121,16 +128,22 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
         loader.start();
     }
 
-    /** 后台线程加载：.texture 文本源解析（image=@guid 引用解靠 assetManager） */
+    /**
+     * 后台线程加载：文件 → 伴生 .meta 取 guid（2026-10-29 拍板：guid 真值=伴生 meta）→
+     * loadGuid 取缓存/Library 产物实例（场景同一对象）；**文本源只喂导入器**——本面板不解析
+     * 文本源（那会造出与资产缓存不一致的私有实例）；产物不可得显示诊断态，重导后重选本文件重试。
+     */
     private void load(File file, AssetManager assetManager, int gen) {
-        Texture2D texture;
+        Texture2D texture = null;
         try {
-            texture = new TextImporter(file, assetManager).importData(Texture2D.class);
+            texture = productInstance(file, assetManager);
         } catch (Exception e) {
-            LOGGER.warn("纹理文件解析失败: {}", file.getName(), e);
+            LOGGER.warn("纹理加载失败: {}", file.getName(), e);
+        }
+        if (texture == null) {
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
-                    showStatus(EditorLang.text("texture.inspector.parseFailed", e.getMessage()));
+                    showStatus(EditorLang.text("texture.inspector.missingProduct"));
                 }
             });
             return;
@@ -141,6 +154,17 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
                 build(loaded, file);
             }
         });
+    }
+
+    /**
+     * 文件 → 伴生 .meta 取 guid → loadGuid 取缓存/Library 产物实例；未导入（无 meta）/产物缺失/
+     * 加载异常一律交调用方诊断态兜（{@link #load} 的 try）。
+     */
+    private static Texture2D productInstance(File file, AssetManager assetManager) {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        AssetMeta meta = editor.getMetaManager().getMeta(file);
+        String guid = meta.getGuid();
+        return assetManager.loadGuid(guid, Texture2D.class);
     }
 
     /** 组装展示（EDT）：纹理信息（固定分组）+ 采样（可折叠分组） */
@@ -203,9 +227,8 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
     /**
      * 图换绑提交（EDT，即时持久化——单发动作不走防抖，.mat Shader 行同款）：
      * None 清空合法（纹理壳走渲染占位）；guid 经 loadGuid 解实例校验存在；
-     * 空串=内存创建语义对纹理无意义拒绝回滚。写编辑载体（文本私有实例未上传
-     * 不触冻结）→ TextExporter 即时写回 → submitImport 重导；场景实例指针随
-     * 热重载批次换。
+     * 空串=内存创建语义对纹理无意义拒绝回滚。写编辑载体（内存缓存共享实例，材质侧
+     * 按 revision 换代重建描述符集）→ TextExporter 即时写回 → submitImport 重导。
      */
     private void onImageCommit(String newGuid) {
         Texture2D texture = this.texture;
@@ -403,7 +426,7 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
         repaint();
     }
 
-    /** 状态文案（加载中/解析失败/空态） */
+    /** 状态文案（加载中/诊断态/空态） */
     private void showStatus(String text) {
         if (scrollPane != null) {
             remove(scrollPane);

@@ -10,12 +10,13 @@ import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.material.SurfaceType;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.editor.JavelinEditor;
+import cn.donting.javelin.editor.asset.ProjectAssetLibManager;
 import cn.donting.javelin.editor.event.AssetReloadedEvent;
 import cn.donting.javelin.editor.event.EditorEventBus;
 import cn.donting.javelin.editor.event.Subscription;
 import cn.donting.javelin.editor.inspector.InspectorFieldVo;
+import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
-import cn.donting.javelin.editor.serializable.TextImporter;
 import cn.donting.javelin.editor.serializable.TextExporter;
 import cn.donting.javelin.editor.swing.SvgIcon;
 import cn.donting.javelin.editor.swing.inspector.widget.AssetInput;
@@ -50,20 +51,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 材质检查器内容件（.mat 键）：TextImporter 后台线程读 .mat 文本源
- * （MaterialImporter 同款解析链）、EDT 组装。两段分组（「材质」固定不可折叠、
+ * 材质检查器内容件（.mat 键）：后台线程按「伴生 .meta 取 guid → loadGuid 取缓存/Library 产物实例」
+ * 装载、EDT 组装（**文本源只喂导入器**，面板不解析文本源——免造出与资产缓存不一致的私有实例；
+ * 产物缺失=诊断态）。两段分组（「材质」固定不可折叠、
  * 参数可折叠——贴图行内联参数组）+ 两列字段网格（label 列自适应、控件列填满，节点检查器
- * 同口径）。**可编辑**（v0.8 增量，2026-10-25）：Shader 行 AssetInput 换绑（落场景
- * 共享实例、setShader 保参裁剪 + 即时写回重导，见 onShaderCommit）；参数行类型感知
+ * 同口径）。**可编辑**（v0.8 增量，2026-10-25）：Shader 行 AssetInput 换绑（改内存载体、
+ * setShader 保参裁剪 + 即时写回重导，见 onShaderCommit）；参数行类型感知
  * 控件——COLOR=ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput（RANGE 按
  * 声明区间硬钳）、面型=JeSelect；提交=写内存实例 + **防抖持久化**（键入即提交×写盘
  * 重导的合并阀，换选/摘除前 flushPending 兜底防丢尾改——Unity 资产即时保存口径）。
- * 编辑载体=缓存共享实例优先（loadGuid，场景同一对象——数值/面型/贴图槽编辑即时联动
- * 渲染，渲染侧按 textureRevision/builtFromShader 换代自动重建 set2）。贴图行
+ * 编辑载体=内存缓存共享实例（场景同一对象，内存即真值、源文件是镜像——数值/面型/贴图槽
+ * 编辑即时联动渲染，渲染侧按 textureRevision/builtFromShader 换代自动重建 set2）。贴图行
  * AssetInput 换装 Texture2D（Unity 口径：与其他参数同行内联不分组；None=占位贴图合法）。
  *
  * <p>线程契约：onSelection（EDT）起后台加载线程，代际守卫（点击前进即 +1，
- * 晚到的旧结果丢弃）；解析失败显示错误态不静默。</p>
+ * 晚到的旧结果丢弃）；产物不可得显示诊断态不静默（原因入日志）。</p>
  *
  * @author javelin
  * @create 2026/10/21
@@ -74,24 +76,40 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     private static final String EMPTY_TEXT = EditorLang.text("material.inspector.empty");
     private static final String LOADING_TEXT = EditorLang.text("material.inspector.loading");
-    /** 未赋贴图槽显示（渲染侧按占位贴图约定解析） */
+    /**
+     * 未赋贴图槽显示（渲染侧按占位贴图约定解析）
+     */
     private static final String PLACEHOLDER_TEXT = EditorLang.text("material.inspector.placeholderTexture");
-    /** 值编辑持久化防抖间隔（毫秒——键入即提交的写盘合并阀） */
+    /**
+     * 值编辑持久化防抖间隔（毫秒——键入即提交的写盘合并阀）
+     */
     private static final int FLUSH_DELAY_MS = 500;
 
     private final JLabel statusLabel = new JLabel(EMPTY_TEXT, SwingConstants.CENTER);
     private JScrollPane scrollPane;
-    /** 当前展示文件（同文件重复 onSelection 跳过；代际守卫基准） */
+    /**
+     * 当前展示文件（同文件重复 onSelection 跳过；代际守卫基准）
+     */
     private File currentFile;
-    /** 加载代际（选中前进即 +1，晚到的旧结果丢弃） */
+    /**
+     * 加载代际（选中前进即 +1，晚到的旧结果丢弃）
+     */
     private int generation;
-    /** 当前编辑载体（commit 写参数/换绑 shader 的宿主实例） */
+    /**
+     * 当前编辑载体（commit 写参数/换绑 shader 的宿主实例）
+     */
     private Material material;
-    /** Shader 行输入（None 拒绝等回滚场景用） */
+    /**
+     * Shader 行输入（None 拒绝等回滚场景用）
+     */
     private AssetInput shaderInput;
-    /** 值编辑持久化防抖定时器（单发 restart 合并；懒建） */
+    /**
+     * 值编辑持久化防抖定时器（单发 restart 合并；懒建）
+     */
     private Timer flushTimer;
-    /** 热重载事件订阅（onAttach 订 / onDetach 退，InspectorContent 生命周期契约） */
+    /**
+     * 热重载事件订阅（onAttach 订 / onDetach 退，InspectorContent 生命周期契约）
+     */
     private Subscription reloadSubscription;
 
     public MaterialInspectorContent() {
@@ -111,7 +129,11 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     @Override
     public void onSelection(InspectorSelection selection) {
         File file = selection.file();
-        if (file == null || file.equals(currentFile)) {
+        if (file == null) {
+            return;
+        }
+        // 同文件重选：已装载则跳过；停在诊断态（未导入/产物缺失/加载失败）时放行重试
+        if (file.equals(currentFile) && material != null) {
             return;
         }
         flushPending();
@@ -151,9 +173,13 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         });
     }
 
-    /** 加载/重载入口：代际前进 + 加载态 + 后台线程读源（EDT 调用） */
+    /**
+     * 加载/重载入口：代际前进 + 加载态 + 后台线程取产物（EDT 调用）
+     */
     private void reload(File file) {
         currentFile = file;
+        // 诊断态/加载态一律不持载体（防把上一文件的实例当成本次载体；onSelection 的重试判据也看它）
+        material = null;
         int gen = ++generation;
         showStatus(LOADING_TEXT);
         JavelinEditor editor = JavelinEditor.getInstance();
@@ -168,25 +194,22 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     /**
-     * 后台线程加载：.mat 文本源解析 → 缓存查共享实例（loadGuid）命中且 shader 与
-     * 盘面一致即作为编辑载体——场景 MeshRenderer 持同一对象，数值/面型编辑即时
-     * 联动渲染（RenderingSystem.materialSet 每帧重打包、收集期逐帧分桶）；缓存
-     * 未命中由 Library 产物加载并注册，产物缺失/损坏或 live 实例与盘面 shader
-     * 分歧（换绑后）回退文本解析实例（盘面权威，编辑落盘重导、联动待热重载批次）。
+     * 后台线程加载：文件 → 伴生 .meta 取 guid（2026-10-29 拍板：guid 真值=伴生 meta）→
+     * loadGuid 取缓存/Library 产物实例（场景 MeshRenderer 持同一对象，内存即真值：提交写内存 →
+     * 落源文件 → 导入管线重导）。**文本源只喂导入器**——本面板不解析文本源（那会造出与资产缓存
+     * 不一致的私有实例）；未导入/产物缺失/产物损坏显示诊断态，重导后重选本文件重试。
      */
     private void load(File file, AssetManager assetManager, int gen) {
-        Material material;
+        Material material = null;
         try {
-            Material parsed = new TextImporter(file, assetManager).importData(Material.class);
-            material = sharedInstanceOf(parsed, assetManager);
-            if (material == null) {
-                material = parsed;
-            }
+            material = productInstance(file, assetManager);
         } catch (Exception e) {
-            LOGGER.warn("材质文件解析失败: {}", file.getName(), e);
+            LOGGER.warn("材质加载失败: {}", file.getName(), e);
+        }
+        if (material == null) {
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
-                    showStatus(EditorLang.text("material.inspector.parseFailed", e.getMessage()));
+                    showStatus(EditorLang.text("material.inspector.missingProduct"));
                 }
             });
             return;
@@ -200,37 +223,19 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
     }
 
     /**
-     * 缓存优先取共享实例（guid → loadGuid）：命中且 shader 与盘面一致才作为编辑载体，
-     * 否则走文本兜底——外部改盘后 live 与盘面分歧，直接用 live 编辑会把盘面状态（含外部
-     * 新 shader）导回旧值；加载失败同样回 null。换绑提交会把分歧补齐并收回共享实例。
+     * 文件 → 伴生 .meta 取 guid → loadGuid 取缓存/Library 产物实例；未导入（无 meta）/产物缺失/
+     * 加载异常一律交调用方诊断态兜（{@link #load} 的 try）。
      */
-    private static Material sharedInstanceOf(Material parsed, AssetManager assetManager) {
-        String guid = parsed.getGuid();
-        if (guid == null || guid.isBlank()) {
-            return null;
-        }
-        Material shared;
-        try {
-            shared = assetManager.loadGuid(guid, Material.class);
-        } catch (Exception e) {
-            LOGGER.warn("材质共享实例加载失败，回退文本源实例: guid={}", guid, e);
-            return null;
-        }
-        if (shared != null && !sameShaderGuid(parsed, shared)) {
-            LOGGER.info("live 材质实例与盘面 shader 分歧，走文本源实例: guid={}", guid);
-            return null;
-        }
-        return shared;
+    private static Material productInstance(File file, AssetManager assetManager) {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        AssetMeta meta = editor.getMetaManager().getMeta(file);
+        String guid = meta.getGuid();
+        return assetManager.loadGuid(guid, Material.class);
     }
 
-    /** 两实例 shader guid 一致判定（null-safe） */
-    private static boolean sameShaderGuid(Material a, Material b) {
-        String ga = a.getShader() != null ? a.getShader().getGuid() : null;
-        String gb = b.getShader() != null ? b.getShader().getGuid() : null;
-        return ga == null ? gb == null : ga.equals(gb);
-    }
-
-    /** 组装展示（EDT）：材质信息（固定分组）/ 参数（可折叠——贴图行内联 Unity 口径） */
+    /**
+     * 组装展示（EDT）：材质信息（固定分组）/ 参数（可折叠——贴图行内联 Unity 口径）
+     */
     private void build(Material material, File file) {
         this.material = material;
         InsScrollablePanel content = new InsScrollablePanel();
@@ -244,7 +249,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         mount(content);
     }
 
-    /** 参数分组行存在判定：shader 声明任一属性即有行；残档回退条目非空 */
+    /**
+     * 参数分组行存在判定：shader 声明任一属性即有行；残档回退条目非空
+     */
     private static boolean hasParamRows(Material material) {
         Shader shader = material.getShader();
         if (shader == null) {
@@ -253,7 +260,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return !shader.getProperties().isEmpty();
     }
 
-    /** 材质信息分组（固定不可折叠——Unity 材质头信息口径）：文件（暗）/ Shader / 面型 / GUID（暗） */
+    /**
+     * 材质信息分组（固定不可折叠——Unity 材质头信息口径）：文件（暗）/ Shader / 面型 / GUID（暗）
+     */
     private JComponent infoSection(Material material, File file) {
         FieldGrid grid = new FieldGrid();
         grid.addDim(EditorLang.text("material.inspector.file"), file.getName());
@@ -303,7 +312,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return grid;
     }
 
-    /** 贴图行输入（AssetInput 选择窗/拖放；当前值=Texture2D guid，None=占位贴图） */
+    /**
+     * 贴图行输入（AssetInput 选择窗/拖放；当前值=Texture2D guid，None=占位贴图）
+     */
     private JComponent textureInput(Material material, String name) {
         Texture2D texture = material.getTexture(name);
         String guid = texture != null ? texture.getGuid() : null;
@@ -361,7 +372,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         }
     }
 
-    /** 数值条目按名查找（面板侧行值回备用；材质 API 无按名取条目口） */
+    /**
+     * 数值条目按名查找（面板侧行值回备用；材质 API 无按名取条目口）
+     */
     private static MaterialValueEntry findValueEntry(Material material, String name) {
         for (MaterialValueEntry entry : material.getValues()) {
             if (entry.getName().equals(name)) {
@@ -371,7 +384,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return null;
     }
 
-    /** 行 label = shader Properties 显示名（Unity 口径）；shader 缺失/属性失配回退绑定名 */
+    /**
+     * 行 label = shader Properties 显示名（Unity 口径）；shader 缺失/属性失配回退绑定名
+     */
     private static String displayName(Material material, String name) {
         Shader shader = material.getShader();
         MaterialProperty property = shader != null ? shader.findProperty(name) : null;
@@ -381,7 +396,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return name;
     }
 
-    /** Shader 行输入（拖放/选择窗换绑；当前值=shader guid） */
+    /**
+     * Shader 行输入（拖放/选择窗换绑；当前值=shader guid）
+     */
     private AssetInput shaderInput() {
         AssetInput input = new AssetInput(Shader.class, this::onShaderCommit);
         Shader shader = material != null ? material.getShader() : null;
@@ -390,7 +407,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return input;
     }
 
-    /** 面型下拉（OPAQUE/TRANSPARENT——透明分桶裁决源） */
+    /**
+     * 面型下拉（OPAQUE/TRANSPARENT——透明分桶裁决源）
+     */
     private JComponent surfaceControl(Material material) {
         List<InspectorFieldVo.Option> options = new ArrayList<>(2);
         options.add(enumOption("OPAQUE", EditorLang.text("material.inspector.surface.opaque")));
@@ -398,7 +417,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return new JeSelect(options, String.valueOf(material.getSurfaceType()), this::applySurface);
     }
 
-    /** 参数值控件（类型感知，可编辑）：COLOR=ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput */
+    /**
+     * 参数值控件（类型感知，可编辑）：COLOR=ColorField、VECTOR=VectorRow 四段、FLOAT/RANGE=JeNumberInput
+     */
     private JComponent valueControl(Material material, String name, float[] data) {
         Shader shader = material.getShader();
         MaterialProperty property = shader != null ? shader.findProperty(name) : null;
@@ -421,7 +442,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return new JLabel(wire != null ? wire : "—");
     }
 
-    /** RANGE 声明区间硬钳（FLOAT 无约束 null） */
+    /**
+     * RANGE 声明区间硬钳（FLOAT 无约束 null）
+     */
     private static InspectorFieldVo.Range rangeOf(MaterialProperty property) {
         if (property == null || property.getType() != MaterialPropertyType.RANGE) {
             return null;
@@ -432,7 +455,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return range;
     }
 
-    /** 参数提交（EDT，控件键入即提交）：写内存实例 + 防抖持久化 */
+    /**
+     * 参数提交（EDT，控件键入即提交）：写内存实例 + 防抖持久化
+     */
     private void applyValue(String name, String wire, boolean vec4) {
         Material material = this.material;
         if (material == null || wire == null) {
@@ -455,7 +480,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         scheduleFlush();
     }
 
-    /** 面型提交（透明分桶裁决；收集期逐帧读面型，桶迁移即时生效） */
+    /**
+     * 面型提交（透明分桶裁决；收集期逐帧读面型，桶迁移即时生效）
+     */
     private void applySurface(String wire) {
         Material material = this.material;
         if (material == null || wire == null) {
@@ -472,11 +499,12 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     /**
      * Shader 换绑提交（EDT，即时持久化——单发动作不走防抖）：材质必绑 Shader（Unity
-     * 口径，None 拒绝）。盘面走「文本重解析 + setShader 保参裁剪 + 写回」；换绑本体落
-     * <b>场景共享实例</b>（loadGuid 缓存实例，Scene MeshRenderer 持同一对象）——面板载体与
-     * 它分歧时（外部改盘后）再按盘面值补齐，面板随之收回顾共享实例。内存改动投<b>引擎帧首</b>
-     * 执行：换 shader 牵 PSO 缓存键/set2 布局/MaterialBlock 尺寸三处，帧首串行避免渲染回调
-     * 读到半新半旧；渲染侧按 builtFromShader 换代自动退役重建、按新 shader 身份另建 PSO。
+     * 口径，None 拒绝）。源文件是内存的镜像——换绑直接改<b>编辑载体</b>（缓存共享实例 =
+     * Scene MeshRenderer 持同一对象），改动投<b>引擎帧首</b>执行：换 shader 牵 PSO 缓存键/
+     * set2 布局/MaterialBlock 尺寸三处，帧首串行避渲染回调读到半新半旧（渲染侧按
+     * builtFromShader 换代自动退役重建、按新 shader 身份另建 PSO）；随后导出源文件 +
+     * submitImport 重导产物。场景已持有共享实例而载体不是它时（载入时尚未加载）先换绑
+     * 再把载体态补齐过去。
      */
     private void onShaderCommit(String newGuid) {
         Material material = this.material;
@@ -498,33 +526,27 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             shaderInput.setValue(oldGuid);
             return;
         }
-        // 防抖尾改先落盘：换绑从盘面最新态出发
+        // 防抖尾改先落盘（尾改与换绑同在一份内存态，导出随其后）
         flushPending();
-        Material parsed;
-        try {
-            parsed = new TextImporter(file, editor.getAssetManager()).importData(Material.class);
-            parsed.setShader(shader);
-            new TextExporter(file).export(parsed);
-        } catch (Exception e) {
-            // 写回失败=盘面即权威，内存态作废直接从盘面重载（显示随 build 自正）
-            LOGGER.error("材质写回失败，从盘面重载: {}", file, e);
-            reload(file);
-            return;
-        }
-        editor.getAssetImportPipeline().submitImport(file);
-        // 换绑落场景共享实例（loadGuid 缓存实例，Scene MeshRenderer 持同一对象）：引擎帧首
-        // setShader——换 shader 牵 PSO 缓存键/set2 布局/UBO 尺寸三处，帧首串行避渲染回调
-        // 读到半新半旧（渲染侧按 builtFromShader 换代退役重建、按新 shader 身份另建 PSO）
-        Material shared = liveInstance(material.getGuid(), editor);
+        // 载体 = 内存缓存共享实例（无则=文本兜底实例）；场景已持有共享实例而载体不是它
+        // （载入时尚未加载）时换绑后把载体态补齐过去
+        Material shared = cachedMaterial(material.getGuid(), editor);
         Material target = shared != null ? shared : material;
         int gen = generation;
         editor.submitTask(() -> {
-            target.setShader(shader);
+            material.setShader(shader);
             if (target != material) {
-                // 载体与共享实例分歧（历史换绑只写盘不换 live / 外部改盘）：按盘面值补齐，
-                // 两侧此刻同 shader，逐项覆写不撞 requireProperty/requireType 校验
-                copyState(parsed, target);
+                // 载体先换到新 shader（保参裁剪+补默认），两侧同 shader 后逐项覆写不撞
+                // requireProperty/requireType 校验
+                target.setShader(shader);
+                copyState(material, target);
             }
+            try {
+                new TextExporter(file).export(target);
+            } catch (Exception e) {
+                LOGGER.error("材质写回失败（内存已换绑，源文件未更新）: {}", file, e);
+            }
+            editor.getAssetImportPipeline().submitImport(file);
             editor.renderingSystem().requestReconcile();
             SwingUtilities.invokeLater(() -> {
                 if (gen == generation) {
@@ -534,22 +556,23 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         });
     }
 
-    /** 场景共享实例取用（loadGuid 缓存实例）；无 guid / 加载失败返回 null。
-     *  不带 shader 一致性判据——换绑正要以它为落点修正分歧。 */
-    private static Material liveInstance(String guid, JavelinEditor editor) {
+    /**
+     * 内存缓存中的共享实例（只查缓存，无副作用）；未持有/无 guid 返回 null。
+     * 换绑落点用它，避免 loadGuid 顺手加载产物造出无人共享的新实例。
+     */
+    private static Material cachedMaterial(String guid, JavelinEditor editor) {
         if (guid == null || guid.isBlank()) {
             return null;
         }
-        try {
-            return editor.getAssetManager().loadGuid(guid, Material.class);
-        } catch (Exception e) {
-            LOGGER.warn("材质共享实例加载失败: guid={}", guid, e);
-            return null;
-        }
+        AssetManager manager = editor.getAssetManager();
+        return manager instanceof ProjectAssetLibManager projectManager
+                ? projectManager.loadCache(guid, Material.class) : null;
     }
 
-    /** 编辑态逐项同步到目标实例（面型/数值/贴图）。前置：两侧 shader 已一致（换绑后），
-     *  否则目标侧 requireProperty/requireType 校验会拒；shader 本体的保参裁剪归 setShader。 */
+    /**
+     * 编辑态逐项同步到目标实例（面型/数值/贴图）。前置：两侧 shader 已一致（换绑后），
+     * 否则目标侧 requireProperty/requireType 校验会拒；shader 本体的保参裁剪归 setShader。
+     */
     private static void copyState(Material from, Material to) {
         to.setSurfaceType(from.getSurfaceType());
         for (MaterialValueEntry entry : from.getValues()) {
@@ -570,7 +593,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     // ------------------------------------------------------------------ 持久化
 
-    /** 防抖触发（键入即提交的高频合并；单发定时器 restart 滚动续期） */
+    /**
+     * 防抖触发（键入即提交的高频合并；单发定时器 restart 滚动续期）
+     */
     private void scheduleFlush() {
         if (flushTimer == null) {
             flushTimer = new Timer(FLUSH_DELAY_MS, e -> flushNow());
@@ -579,7 +604,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         flushTimer.restart();
     }
 
-    /** 挂起写盘落定（换选/摘除前调用——防丢尾改） */
+    /**
+     * 挂起写盘落定（换选/摘除前调用——防丢尾改）
+     */
     private void flushPending() {
         if (flushTimer != null && flushTimer.isRunning()) {
             flushTimer.stop();
@@ -587,7 +614,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         }
     }
 
-    /** 写盘 + 重导（EDT 纯 IO 小体量先例；失败=盘面即权威从盘面重载） */
+    /**
+     * 写盘 + 重导（EDT 纯 IO 小体量先例；失败=盘面即权威从盘面重载）
+     */
     private void flushNow() {
         Material material = this.material;
         File file = this.currentFile;
@@ -609,7 +638,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     // ------------------------------------------------------------------ 布局件
 
-    /** 贴图显示名（guid 反查源路径尾名，未命中退 guid 原串） */
+    /**
+     * 贴图显示名（guid 反查源路径尾名，未命中退 guid 原串）
+     */
     private static String textureName(Texture2D texture) {
         String guid = texture.getGuid();
         if (guid == null || guid.isBlank()) {
@@ -624,12 +655,16 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return index >= 0 ? path.substring(index + 1) : path;
     }
 
-    /** 可折叠分组（CollapsiblePanel 灰头/亮内容；图标资源缺失不占位） */
+    /**
+     * 可折叠分组（CollapsiblePanel 灰头/亮内容；图标资源缺失不占位）
+     */
     private static JComponent section(String title, String iconName, JComponent grid) {
         return new CollapsiblePanel(title, null, titleIcon(iconName), grid);
     }
 
-    /** 分组头图标（16px，缺资源不占位——菜单域同口径） */
+    /**
+     * 分组头图标（16px，缺资源不占位——菜单域同口径）
+     */
     private static Icon titleIcon(String name) {
         if (name == null) {
             return null;
@@ -638,7 +673,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         return icon.isAvailable() ? icon : null;
     }
 
-    /** 枚举选项 VO（value=回写值、label=显示名） */
+    /**
+     * 枚举选项 VO（value=回写值、label=显示名）
+     */
     private static InspectorFieldVo.Option enumOption(String value, String label) {
         InspectorFieldVo.Option option = new InspectorFieldVo.Option();
         option.value = value;
@@ -659,12 +696,16 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
             setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         }
 
-        /** 常规行：label + 控件 */
+        /**
+         * 常规行：label + 控件
+         */
         private void add(String label, JComponent control) {
             place(new JLabel(label), control, false);
         }
 
-        /** 暗色行（诊断/占位：label 与值整体暗色） */
+        /**
+         * 暗色行（诊断/占位：label 与值整体暗色）
+         */
         private void addDim(String label, String value) {
             place(new JLabel(label), new JLabel(value), true);
         }
@@ -697,7 +738,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
 
     // ------------------------------------------------------------------ 壳件
 
-    /** 挂载内容（替换状态文案） */
+    /**
+     * 挂载内容（替换状态文案）
+     */
     private void mount(JComponent content) {
         if (scrollPane == null) {
             remove(statusLabel);
@@ -712,7 +755,9 @@ public class MaterialInspectorContent extends JComponent implements InspectorCon
         repaint();
     }
 
-    /** 状态文案（加载中/解析失败/空态） */
+    /**
+     * 状态文案（加载中/诊断态/空态）
+     */
     private void showStatus(String text) {
         if (scrollPane != null) {
             remove(scrollPane);

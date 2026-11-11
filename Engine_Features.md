@@ -209,13 +209,15 @@
 | v0.4 M4 Swing 实装（InspectorPanel——Web 期 v0.1~v0.3 通道面 Java 直调重现：swing.inspector 面板层 + widget 控件七件 + VO 引用化 + markDirty 收口 + NodeTransformChangeEvent 定点刷新 + 编辑保护） | ✅（2026-10-18） | ✅ 用户实测（2026-10-18）——含验收期修正：归属校验/Scrollable 容器/节点头 Web 布局回归/折叠头分层 |
 | v0.5 检查器注册器（InspectorRegistry——Node+资产统一接管 + 材质只读首期） | ✅（2026-10-21） | ✅ 用户实测（2026-10-21） |
 | v0.6 输入交互增强（数字键入即提交不动显示文本保光标 + 文本提交时机归使用方 onInputChanged + label 拖动调值/数字框滚轮调值步长三级） | ✅（2026-10-22） | ✅ 用户实测（2026-10-22） |
-| v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + 编辑载体=文本私有实例拍板；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
+| v0.12 .texture 纹理面板（图=AssetInput 换绑即时写回重导/None 合法 + 采样 filter/wrap 下拉防抖写盘 + ~~编辑载体=文本私有实例拍板~~→**2026-11-10 v0.21 作废，改缓存/产物实例**；AssetInput/AssetPickerDialog 升多后缀（Image=[.png/.jpg/.jpeg]））+ 材质贴图行换装内联（行单源=shader 声明） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | v0.13 GUID_ASSET_LIST 资产列表通道（MeshRenderer.materials 多材质行：行数跟随子网格数、fieldName 编码序号 materials[i] + applyAssetList 整列表 setter 回写 + 列表 setter 查找放宽 + 资产行提交后补拉重建行数；行控件/回显/回写全复用 GUID_ASSET 面） | ✅（2026-10-29） | ✅ 用户实测（2026-10-30，随多材质渲染实机） |
 | v0.15 旋转行跳动根治（用户报「调整旋转时跳动、另两个值也变动」；根因=原 XYZ 欧拉规范域 Y∈(-90°,90°) 越界后帧级回显的等价翻转三元组覆盖用户显示值、与提交互为驱动逐帧振荡）：欧拉口径切 Unity 同款 Z-X-Y（RotationMath 换算单点）+ 面板级自旋回声抑制（近期写入环 + 事件原始四元数同旋转判定；随用户实机复验追修判据归一化——首版点积直比 1 误判否致抑制失灵「x 越 -90」）；回归断言 RotationMathTest | ✅（2026-11-07） | ✅ 用户实测（2026-11-07 复验通过——俯仰越 ±90° 拖动/键入不再跳动、另两值不再变；随验两轮追修：口径切换+回声抑制、判定器归一化） |
 | v0.16 .scene 检查器收口（2026-11-08：环境设置改挂节点后，场景根行不再显示环境——原 skybox 行与随后的环境组件节均撤出，只留场景分组文件行 + 非当前场景只读态；编辑入口=节点检查器） | ✅（2026-11-08） | ✅ 用户实机验收（2026-11-08） |
 | v0.17 节点检查器「添加组件」（面板底部常驻满宽按钮，不随内容滚动 + 选择窗：搜索过滤/候选列表/唯一冲突灰显不可选；候选面=ReflectiveFactory 注册类枚举「Component 子类 + 非抽象 + 贴 @InsHeader」，core 补 registeredClasses 口；添加链=帧边界 addComponent + 置脏 + 面板自拉 + 新分组展开并滚入可见；Inspector_Design §13） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08） |
 | v0.18 组件头右键菜单（右键组件分组头弹菜单，当前项=删除组件；required 组件（Transform）置灰、折叠切换改只认左键；core 补 `Node.removeComponent`+`GameScene.onComponentDetached`——即时 onDisable→onDestroy+退注册表（唯一性槽位释放），口径同节点摘出场景（Engine_Scene_Design §2.2/§2.5 v0.7）；移除链=帧边界删 + 置脏 + 面板自拉；测试 SceneComponentTest 两组断言；Inspector_Design §14） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08） |
 | v0.19 材质 Shader 换绑落共享实例（修用户报「材质检查器改 shader 后用该材质的物体不变」：`onShaderCommit` 不再走盘面重解析私有实例——换绑落 loadGuid 缓存共享实例、引擎帧首 `setShader` + `requestReconcile`，渲染侧按 builtFromShader 换代退役重建 set2/按新 shader 身份另建 PSO；面板载体与共享实例分歧时按盘面值补齐再收回共享实例；v0.11「换绑例外」口径作废。顺修 `materialSet` 注释陈旧（贴图槽 live 换绑早已随 textureRevision 即时生效）。外部手改 .mat 自动生效仍挂资产热重载批次） | ✅（2026-11-10） | ✅ 用户实测（2026-11-10，改 shader 场景物体即时换模板） |
+| v0.20 材质面板装载只走 Library 产物（用户两轮纠偏「应该从缓存获取」「load 都不应该使用文本源，文本源只用于导入器，否则会出现缓存/内存不一致」：`load` 改「伴生 .meta 取 guid → `loadGuid` 取缓存/Library 产物实例」作载体，未导入/产物缺失/损坏=显性诊断态（新增 `material.inspector.missingProduct` 键）、不再回退文本源解析；诊断态重选同文件可重试（`onSelection` 同文件判据改「已持载体才跳过」）；**分歧守卫与 sameShaderGuid 退役**，`onShaderCommit` 不再重解析源文件做回写基线——直接改内存载体 → 导出源文件 → 重导产物，共享实例取用走新增 `ProjectAssetLibManager.loadCache(guid, type)` 只查缓存口） | ✅（2026-11-10） | ⬜ 待用户实机（选中材质不再解析文本源；数值/面型/换绑即时联动；未导入 .mat 显示诊断态且重选可重试） |
+| v0.21 纹理面板装载只走 Library 产物（AGENTS 红线 17 清账：`load` 由 TextImporter 文本源解析改「伴生 .meta 取 guid → `loadGuid` 取缓存/产物实例」；编辑载体=内存缓存共享实例（v0.12 文本私有实例作废——冻结语义已于 2026-10-30 废除）；产物缺失=诊断态（新增 `texture.inspector.missingProduct` 键）可重选重试；采样两下拉即写即生效（revision → materialSet 重建）；图换绑只改内存+源文件，上屏换像素归贴图热重载批次） | ✅（2026-11-10） | ⬜ 待用户实机（采样切档视口即时变；图换绑后内存/源文件一致；未导入 .texture 显示诊断态且重选可重试） |
 
 ### 3.5 视图工具（appstate.gizmo / 相机控制 / 网格）
 
@@ -235,7 +237,7 @@
 | .shader 导入（解析 / 注入 / SPIR-V 编译 / Capsule 产物 + 自包含文件头 GUID） | ✅ | ✅ 用户亲测（2026-09-26） |
 | .smesh 网格导入（拓扑 / 法线重算） | ✅ | ✅ 同上 |
 | .meta / GUID / Library 资产管线骨架 | ✅ | ✅ 随导入链（2026-09-26） |
-| SceneImporter（.scene→Library 二进制 + 保存即异步重导） | ✅ | ✅ 用户实测（2026-10-23） |
+| SceneImporter（.scene→Library 二进制 + 保存即异步重导；**编辑器装载改走产物——2026-11-10 `JavelinEditor.loadSceneAsset`：ensureImported 对齐新鲜度 → meta 取 guid → reload 回盘取新实例，文本源只喂导入器（AGENTS 红线 17）**） | ✅ | ✅ 用户实测（2026-10-23；**装载改造待复验**） |
 | 内置资源释放→索引收口（releaseAll 末 updateIndex——时序坑修复） | ✅ | ✅ 修复实测（2026-10-17） |
 | meta 统一与重导检出（.shader/.smesh 落伴生 .meta、guid=文件头镜像；releaser 内容字节比对；needImport 统一 mtime 判定——gizmo 被盒遮挡旧产物坑根治链） | ✅（2026-10-25） | ✅ 用户实测（2026-10-25） |
 | **guid 真值单源=伴生 .meta**（2026-10-29 拍板，推翻「文件头真值+meta 镜像」双源：guid 头只剩 src 下 .java 专属；9 内置资源剥头+伴生 .meta 随包释放（guid 沿用原头值零迁移）；BuiltinAssetReleaser 连 meta 一起释放；pipeline libraryFileFor 非脚本按 meta 解 guid——**焦点扫描无限导入循环根治**，Editor_Design §6.2 / AssetReload 档 §5.1 坑点） | ✅（2026-10-29） | ✅ 用户实测（2026-10-29，死循环根治——原场景改 .mat 颜色+切窗复测通过） |
