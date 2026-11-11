@@ -66,6 +66,20 @@
 
 ---
 
+## 渲染 / Shader 排障：RenderDoc 抓帧
+
+> 2026-11-11 用户指定：**RenderDoc 是重要工具**。
+
+渲染数据 / shader 问题**没有头绪、或静态排查定位不到时，不要在推演里硬猜**——请用户用 RenderDoc 抓帧，拿 GPU 侧真实状态断案。
+
+- **分工**：引擎与 RenderDoc 都由用户运行（红线 1）；我方只给**具体的抓帧请求**——抓哪一帧 / 哪个 Pass 的哪次 draw、要导出哪几张附件或哪些绑定（G-Buffer albedo / 法线 / 世界位置、set0 相机块、set1 各 binding）、要核对哪个管线阶段（descriptor 绑定、stageFlags、**vertex input 的 location / format**）。
+- **一次能看清**：各 attachment 的实际内容、描述符实际指向哪个资源、PSO 的顶点输入布局与固定态、每 draw 的管线状态、校验层消息。
+- **典型命中**：越权读零（坑 #35，descriptor stage 可见性）、声明与引擎契约错位（坑 #36，vertex input location）、清屏 / 依赖顺序（#30/#31 一族）——「链路看起来全对、结果就是不对」这类问题的分钟级断案手段。
+- **引擎内轻量替代面**：dbg-1 校验层回调接 logback（`JavelinSetting.engineDebug`）+ dbg-2 G-Buffer 可视化（`doc/Engine_DebugTools_Plan.md`）；校验层开着能把同批违规先在引擎日志里现形。
+- 坑例与方法论归档：`doc/Vulkan_Pitfalls.md` §六。
+
+---
+
 ## 文档索引
 
 ### 设计文档（doc/）

@@ -513,6 +513,31 @@
 - **出处**：2026-11-10 用户实测（批次④-B HYBRID 档首验；RenderingSystem
   `frameSetLayoutDesc` 已修）。
 
+### 36. 顶点输入 location 与引擎固定表错位：shader 用 location 2 读 UV 而引擎把 UV 放 3，缺属性读零 → 整块纯色 ★契约级
+
+- **症状**：**两个渲染路径（FORWARD / HYBRID）同时**「贴图失效」——带贴图的物体渲染成
+  一整块纯色（看不出贴图图案），几何与光照正常；
+- **根因**：引擎顶点 location 按**固定表**分配（`MeshUpload.builtinLocation`：
+  POSITION=0、NORMAL=1、**TANGENT=2**、**UV0=3**、COLOR=4；约定见 `Engine_Assets_Design.md`
+  §2.5）；而内置 `Lit.shader` 两个 Pass 的 vs 都写 `layout(location = 2) in vec2 aUV`
+  ——location 2 是 TANGENT，箱体/平面网格不含 TANGENT → 该属性无人喂，按 Vulkan 规范
+  取默认值 0 → `vUV=(0,0)` → `texture(_MainTex, vUV)` 整面反复采**同一个纹素** → 纯色。
+  两 Pass 共用同一错声明，故两档同时中招；
+- **潜伏与暴露**：错位自批次③（Lit.shader 诞生）起就在，只是此前场景装载（文本源解析）
+  给出 `_MainTex=占位`（1×1 白贴图）——**白贴图 × 任意 UV 恒白**，把错位完全遮住；
+  红线 17 装载改造（2026-11-11，改走 Library 产物）让真贴图首次接上，错位立刻显形。
+  即「新问题」实为潜伏 bug 被揭开，不是改造引入的回归；
+- **修法**：`Lit.shader` 两处 `aUV` **输入** location 2 → 3（**输出端 `vUV` 的 location
+  不受固定表约束，不动**）；只改核心资源，工程 `.javelin/assets` 副本由
+  `BuiltinAssetReleaser` **内容字节比对**驱动重拷重导——**切勿手改副本**（内容一相等
+  重导就不发生、Library 旧产物滞留）；
+- **教训**：**shader 顶点输入 location 是跨 shader/引擎的契约，不在 shader 内自洽**——
+  声明错位不报错、不崩，只静默退化（读零）；排查此类「链路全对但结果退化」，先核
+  mesh 实际布局（首帧 PSO 日志打印 `VertexLayout{...}`）与 shader 声明的 location 对不对
+  得上；且**占位/默认值（白贴图、单位向量）会掩盖底层错位**，验收样例应带**有图案**的真资源；
+- **出处**：2026-11-11 用户报障（两路同时贴图失效）+ 静态定位；
+  `javelin-core/.../builtin-asset-core/shader/Lit.shader` 已修（两处 2→3，测试夹具同步）；**2026-11-11 用户实测通过**（FORWARD / HYBRID 两路贴图均恢复）。
+
 ---
 
 ## 六、排障方法论（沉淀）
@@ -534,3 +559,10 @@
    时间戳 vs 相关源/内置资产的 git 改动日期一键判别"旧产物劫持"（产物早于源=嫌疑
    坐实）；配套观测信号=目标 Pass 桶恒空（其回调首帧日志从不打印）。根治链归
    Editor_Design §6.3（meta 统一+releaser 内容字节比对，2026-10-25 用户实测验收）。
+7. **GPU 侧卡住就抓帧，别只靠推演**（2026-11-11 用户指定 RenderDoc 为**重要工具**）：
+   引擎与 RenderDoc 都由用户运行，我方给**具体抓帧请求**（帧 / Pass / 哪个 draw /
+   导出哪些 attachment 或绑定 / 核对哪个管线阶段）。一次能看清：attachment 实际内容、
+   描述符实际指向哪个资源、PSO 顶点输入布局与固定态、draw 管线状态、VVL 消息——
+   #35（越权读零）与 #36（vertex input location 错位）这类「链路全对、结果不对」
+   的问题，抓帧是分钟级断案手段。引擎内轻量替代面 = dbg-2 G-Buffer 可视化
+   （`Engine_DebugTools_Plan.md`）；口径同见 `AGENTS.md`「渲染 / Shader 排障：RenderDoc 抓帧」。
