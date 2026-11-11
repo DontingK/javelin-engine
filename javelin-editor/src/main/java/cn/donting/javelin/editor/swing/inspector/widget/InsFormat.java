@@ -2,6 +2,7 @@ package cn.donting.javelin.editor.swing.inspector.widget;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Locale;
 
 /**
  * Inspector 控件值格式化工具：浮点显示 4 位小数（HALF_UP 去尾零）——与
@@ -58,5 +59,21 @@ public final class InsFormat {
             return null;
         }
         return result;
+    }
+
+    /** 字节数 → 人类可读串（B/KB/MB/GB，一位小数；纯展示用） */
+    public static String humanSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        double kb = bytes / 1024.0;
+        if (kb < 1024) {
+            return String.format(Locale.ROOT, "%.1f KB", kb);
+        }
+        double mb = kb / 1024.0;
+        if (mb < 1024) {
+            return String.format(Locale.ROOT, "%.1f MB", mb);
+        }
+        return String.format(Locale.ROOT, "%.2f GB", mb / 1024.0);
     }
 }

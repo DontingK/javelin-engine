@@ -1,4 +1,4 @@
-package cn.donting.javelin.editor.window;
+package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
@@ -11,6 +11,7 @@ import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.project.Project;
 import cn.donting.javelin.editor.util.ThreadUtil;
+import cn.donting.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

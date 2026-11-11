@@ -14,6 +14,7 @@ import cn.donting.javelin.editor.file.FileTypeRegistry;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.meta.AssetMeta;
 import cn.donting.javelin.editor.swing.SvgIcon;
+import cn.donting.javelin.editor.swing.dialog.AssetPickerDialog;
 import cn.donting.javelin.editor.swing.inspector.FieldEditor;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;

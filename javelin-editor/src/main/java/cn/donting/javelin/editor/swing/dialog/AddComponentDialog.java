@@ -1,4 +1,4 @@
-package cn.donting.javelin.editor.swing.inspector.widget;
+package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.core.scene.Component;
 import cn.donting.javelin.editor.inspector.AddComponentVo;

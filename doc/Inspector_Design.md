@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.21，2026-11-10 材质/纹理面板装载统一「只走 Library 产物」——文本源只喂导入器，原「换绑/装载走文本源」口径作废）
+# 检查器（Inspector）设计（v0.25，2026-11-11 预览加「查看」按钮 + 可缩放图片查看窗）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -204,7 +204,7 @@
 > 实例。**原 v0.11「Shader 换绑例外不落共享实例」作废**——该判据出自批次① reconcile 落地
 > 之前，`MaterialResources.stale()` 已覆盖 shader 换代。外部手改 .mat 文件自动生效仍归
 > 资产热重载批次（挂账不变，targetClass 仍仅 `.shader`）。
-> v0.20（2026-11-10，待用户实机验收）：**材质面板装载只走 Library 产物（文本源只喂导入器）**——用户两轮
+> v0.20（2026-11-10，用户实测验收通过）：**材质面板装载只走 Library 产物（文本源只喂导入器）**——用户两轮
 > 纠偏：①「应该从缓存获取，而不是直接读文件」②「load 都不应该使用文本源，都应该走 lib；文本源只用于
 > 导入器，否则会出现缓存/内存不一致」。现装载链 = 文件 → 伴生 .meta 取 guid → `loadGuid` 取缓存/Library
 > 产物实例作编辑载体（场景 MeshRenderer 持同一对象，内存即真值）；**未导入/产物缺失/产物损坏 = 显性诊断
@@ -215,13 +215,41 @@
 > 新增的 `ProjectAssetLibManager.loadCache(guid, type)` 只查缓存口（不落产物加载、不打「加载 GUID」日志，
 > 未命中返回 null），避免 `loadGuid` 顺手加载产物造出无人共享的新实例。**已知代价（口径内接受）**：外部
 > 手改 `.mat` 不自动生效（挂账）时面板按内存显示，下一次面板编辑会把内存态写回源文件（外部改动不保留）。
-> v0.21（2026-11-10，待用户实机验收）：**.texture 纹理面板装载同改「只走 Library 产物」（AGENTS 红线 17
+> v0.21（2026-11-10，用户实测验收通过）：**.texture 纹理面板装载同改「只走 Library 产物」（AGENTS 红线 17
 > 清账）**——`load` 由「TextImporter 解析文本源」改「伴生 .meta 取 guid → `loadGuid` 取缓存/产物实例」，
 > 编辑载体=内存缓存共享实例（与 v0.12「文本私有实例」拍板相反；该拍板理由=Texture2D 冻结语义，冻结已于
 > 2026-10-30 废除）；产物缺失=显性诊断态（新增 `texture.inspector.missingProduct` 键）+ 重选同文件可重试。
 > 收益：采样两下拉即写即生效（`Texture2D.revision` 自增 → materialSet 两帧退役重建、sampler 随值重解）。
 > **已知边界**：图换绑只改内存 + 源文件，GPU 侧像素句柄缓存于实例（`TextureUpload` 幂等返回）——上屏换
 > 像素归贴图热重载批次。
+> v0.22（2026-11-11，用户实测验收通过）：**.texture 面板加「预览」行**——引用的 `Image` 有像素时，按 8 位
+> RGBA/BGRA（导入链固定产 `R8G8B8A8_UNORM`，sRGB 同字节序）解码为 `BufferedImage`，等比缩放进 128px 方框
+> 显示（1px 描边分辨透明区，色值取 UIManager）；**未选图/无像素/非支持格式不出该行**（正常域空态，不报错
+> ——红线 15 区分）。缩略图在后台装载线程算（大图解码/缩放不进 EDT）；图换绑提交后重装面板刷新预览。
+> 缩略图逻辑 = `widget/ImagePreview`（v0.23 抽公用件，纹理面板与图片检查器共用）。
+> v0.23（2026-11-11，用户实测验收通过）：**新增图片检查器（.png/.jpg/.jpeg 公用，只读预览台）**——
+> `ImageInspectorProvider`（三后缀同一 provider，对齐 FileType「image」族）+ `ImageInspectorContent`：
+> 后台经伴生 .meta 取 guid → `loadGuid` 取 Library 产物实例（红线 17，不解析源文件），EDT 组装——
+> 预览缩略图 + 文件 / 尺寸（W × H）/ 格式（像素 `Format`）/ GUID / 文件大小（人类可读 B/KB/MB/GB）。
+> **只展示不编辑**（.png/.jpg 是导入源二进制，派生设置归 Texture2D 引用层）；产物缺失 / 未导入（无 meta）
+> = 诊断态不静默（红线 15）。缩略图实现抽 `widget/ImagePreview`——纹理面板（v0.22）与本检查器共用，
+> 原 TextureInspectorContent 私有实现迁入该件。`InspectorSetup` 注册；人类可读字节数抽 `InsFormat.humanSize`。
+> v0.24（2026-11-11，用户实测验收通过）：**新增 cubemap 检查器（.hdr/.pano 公用，只读十字预览台）**——
+> `CubemapInspectorProvider`（两后缀同一 provider，对齐 FileType「cubemap」族）+ `CubemapInspectorContent`：
+> 后台经伴生 .meta 取 guid → `loadGuid` 取 Library 产物 `CubemapImage`（红线 17：不解析源文件，.hdr RGBE
+> 解码归导入器 `EquirectConverter`），EDT 组装——**六面十字缩略图**（标准立方图布局 4 列 × 3 行：+Y 上 /
+> -X +Z +X -Z 横排 / -Y 下）+ 文件 / 面尺寸（512 × 512）/ 面数（6）/ 格式 / GUID / 文件大小。
+> **只展示不编辑**（源是 equirect 全景图，六面由导入器转换）；产物缺失 / 未导入（无 meta）= 诊断态不静默
+> （红线 15）。十字拼图归 `widget/ImagePreview.cubemapCross`（与图片预览同件）；跨检查器字节格式化归
+> `InsFormat.humanSize`。**未取源 equirect 全景条带预览**（那需解码源文件，违红线 17——全景直观预览若要做
+> 走「导入器在产物内存缩略图」路线，见档内批次讨论）。
+> v0.25（2026-11-11，用户实测验收通过）：**预览加「查看」按钮 + 可缩放图片查看窗**——三处预览（纹理面板 v0.22 /
+> 图片检查器 v0.23 / cubemap 检查器 v0.24）统一改走 `ImagePreview.viewable(preview, fullLoader, title)`：
+> 预览下加「查看」按钮，点击在后台算大图（`ImagePreview.full(Image)` 原尺寸、cubemap 十字重建 1024 宽）后弹
+> `ImageViewerDialog`（`swing/dialog` 包）——非模态、单实例（再点替换旧窗，防堆积）；滚轮或 +/− 缩放（1.25 步进、5%~3200%）、左键
+> 拖拽平移（屏幕坐标算增量防漂移）、适应窗口（不放大超 1:1）、1:1 复位，底部工具条实时显示百分比。放大用最近邻
+> 保持像素锐利、缩小用双线性。**零 core 改动、仍只读 Library 产物**（红线 17——大图由已装载的 Image /
+> CubemapImage 像素解码，不读源文件）。
 
 ## 1. 总则
 

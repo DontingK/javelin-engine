@@ -1,4 +1,4 @@
-package cn.donting.javelin.editor.window;
+package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.editor.importer.AssetImportPipeline;
 import cn.donting.javelin.editor.plugin.EditorLang;

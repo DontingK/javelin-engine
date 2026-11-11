@@ -1,6 +1,6 @@
 package cn.donting.javelin.editor.settings;
 
-import cn.donting.javelin.editor.window.PreferencesDialog;
+import cn.donting.javelin.editor.swing.dialog.PreferencesDialog;
 import cn.donting.javelin.core.serialize.Serializable;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;

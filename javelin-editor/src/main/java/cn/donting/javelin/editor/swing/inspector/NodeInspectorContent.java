@@ -19,7 +19,7 @@ import cn.donting.javelin.editor.inspector.InspectorValueType;
 import cn.donting.javelin.editor.inspector.NodeInspectorVo;
 import cn.donting.javelin.editor.inspector.RotationMath;
 import cn.donting.javelin.editor.swing.SvgIcon;
-import cn.donting.javelin.editor.swing.inspector.widget.AddComponentDialog;
+import cn.donting.javelin.editor.swing.dialog.AddComponentDialog;
 import cn.donting.javelin.editor.swing.inspector.widget.InsFormat;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.joml.Quaternionf;

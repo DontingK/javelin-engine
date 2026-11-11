@@ -1,6 +1,6 @@
 package cn.donting.javelin.editor.menu.top;
 
-import cn.donting.javelin.editor.window.PreferencesDialog;
+import cn.donting.javelin.editor.swing.dialog.PreferencesDialog;
 
 import javax.swing.SwingUtilities;
 

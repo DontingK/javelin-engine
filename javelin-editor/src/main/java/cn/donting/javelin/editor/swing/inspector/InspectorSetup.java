@@ -9,7 +9,8 @@ import cn.donting.javelin.editor.plugin.PluginContext;
  * <p>首批：node（节点组件清单，M4 面板逻辑平移）+ .mat（材质只读，
  * 2026-10-21）+ .shader（着色器只读诊断台，2026-10-25）+ .texture（纹理
  * 可编辑面板，2026-10-25）+ .scene（场景分组 + 环境设置组件节，2026-11-03
- * 落地、2026-11-08 改组件化渲染）。</p>
+ * 落地、2026-11-08 改组件化渲染）+ .png/.jpg/.jpeg（图片只读预览台，2026-11-11）
+ * + .hdr/.pano（cubemap 只读十字预览台，2026-11-11）。</p>
  *
  * @author javelin
  * @create 2026/10/21
@@ -35,6 +36,8 @@ public final class InspectorSetup {
         context.registerInspector(new MaterialInspectorProvider());
         context.registerInspector(new ShaderInspectorProvider());
         context.registerInspector(new TextureInspectorProvider());
+        context.registerInspector(new ImageInspectorProvider());
+        context.registerInspector(new CubemapInspectorProvider());
         context.registerInspector(new SceneInspectorProvider());
     }
 }

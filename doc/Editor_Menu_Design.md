@@ -150,7 +150,7 @@
 > （红线 15）；③AssetLibManager.loadGuid miss 先重载 index 再查（pathOfGuid/
 > listAssetPaths 同口径——表为 ConcurrentHashMap，结构安全）。
 > v0.18（2026-10-29，**待验收**）：**file.preferences 首选项命令（文件域第二项）**——
-> PreferencesMenuCommand 弹 `window/PreferencesDialog`（模态挂 MainFrame、
+> PreferencesMenuCommand 弹 `swing/dialog/PreferencesDialog`（模态挂 MainFrame、
 > invokeLater 弹窗对齐 PackDialog 线程契约），语言设置首批；**语言包注册制拍板**
 > （同日，否决 Lang 枚举）：支持语言由插件注册（`I18n.registerLanguage(fileName,
 > displayName)` 经 PluginContext 收口），语言包按 `registerLanguagePack(域, 语言,

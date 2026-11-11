@@ -1,9 +1,10 @@
-package cn.donting.javelin.editor.window;
+package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.i18n.I18n;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.settings.SettingsManager;
+import cn.donting.javelin.editor.window.MainFrame;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;

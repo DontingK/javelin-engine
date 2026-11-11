@@ -11,7 +11,7 @@ import cn.donting.javelin.editor.event.AssetReloadedEvent;
 import cn.donting.javelin.editor.event.EditorEventBus;
 import cn.donting.javelin.editor.event.EditorFocusGainedEvent;
 import cn.donting.javelin.editor.importer.AssetImportPipeline;
-import cn.donting.javelin.editor.window.ImportProgressDialog;
+import cn.donting.javelin.editor.swing.dialog.ImportProgressDialog;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

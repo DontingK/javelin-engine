@@ -1,6 +1,11 @@
-# 编辑器 Swing UI 框架设计（v0.2）——去 Web 化重构总纲
+# 编辑器 Swing UI 框架设计（v0.3）——去 Web 化重构总纲
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
+> **v0.3（2026-11-11）**：**编辑器对话框类统一收口 `swing/dialog` 包**——原散落
+> `swing/inspector/widget`（AddComponentDialog / AssetPickerDialog / ImageViewerDialog）与
+> `window`（ImportProgressDialog / PackDialog / PreferencesDialog）的六个对话框一并迁入，
+> 与该包既有的 TimeConsumingDialog 并列；仅改包声明与引用方 import（PackDialog /
+> PreferencesDialog 原同包用 MainFrame，补 `editor.window.MainFrame` import），零行为变化。
 > **v0.2（2026-11-08）**：新增 §4.3 耗时操作指示器——后台耗时操作「处理中」浮层（类与
 > 双语语言包已落；2026-11-08 用户确认验收，调用点接入为后续动作）。
 > **M6 全项提前完成**：三窗口 2026-10-17 迁 Swing；jcef 桥包 / jcefmaven / jackson

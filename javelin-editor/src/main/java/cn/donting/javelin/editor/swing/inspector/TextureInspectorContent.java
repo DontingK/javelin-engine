@@ -11,6 +11,7 @@ import cn.donting.javelin.editor.serializable.TextExporter;
 import cn.donting.javelin.editor.swing.SvgIcon;
 import cn.donting.javelin.editor.swing.inspector.widget.AssetInput;
 import cn.donting.javelin.editor.swing.inspector.widget.CollapsiblePanel;
+import cn.donting.javelin.editor.swing.inspector.widget.ImagePreview;
 import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +32,7 @@ import java.awt.Color;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,8 +41,8 @@ import java.util.List;
  * 纹理检查器内容件（.texture 键）：后台线程按「伴生 .meta 取 guid → loadGuid 取缓存/Library 产物
  * 实例」装载、EDT 组装（**文本源只喂导入器**，AGENTS 红线 17——面板不解析文本源，免造出与资产
  * 缓存不一致的私有实例；产物缺失=诊断态）。「纹理」单分组（固定不可折叠：
- * 文件/图/GUID/过滤模式/环绕模式——采样两下拉不值独立分组，合组拍板
- * 2026-10-25）。**可编辑**：图行
+ * 文件/图/预览缩略图/GUID/过滤模式/环绕模式——采样两下拉不值独立分组，合组拍板
+ * 2026-10-25；预览=引用图有像素时等比缩略，未选图不占位）。**可编辑**：图行
  * AssetInput 换绑（None 清空合法，即时写回重导）；采样两下拉提交=写内存实例
  * + 防抖持久化（.mat 同款合并阀，换选/摘除前 flushPending 兜底）。
  *
@@ -61,8 +63,11 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
 
     private static final String EMPTY_TEXT = EditorLang.text("texture.inspector.empty");
     private static final String LOADING_TEXT = EditorLang.text("texture.inspector.loading");
+    private static final String PREVIEW_LABEL = EditorLang.text("texture.inspector.preview");
     /** 采样编辑持久化防抖间隔（毫秒——下拉提交的写盘合并阀） */
     private static final int FLUSH_DELAY_MS = 500;
+    /** 预览缩略图上限边长（px；等比缩放进此方框，保持宽高比） */
+    private static final int PREVIEW_MAX = 128;
 
     private final JLabel statusLabel = new JLabel(EMPTY_TEXT, SwingConstants.CENTER);
     private JScrollPane scrollPane;
@@ -149,9 +154,11 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
             return;
         }
         Texture2D loaded = texture;
+        // 缩略图在后台线程算（大图解码/缩放不进 EDT）；格式不支持/无像素得 null，该行不出现
+        BufferedImage preview = ImagePreview.thumbnail(loaded.getImage(), PREVIEW_MAX);
         SwingUtilities.invokeLater(() -> {
             if (gen == generation) {
-                build(loaded, file);
+                build(loaded, file, preview);
             }
         });
     }
@@ -168,20 +175,27 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
     }
 
     /** 组装展示（EDT）：纹理信息（固定分组）+ 采样（可折叠分组） */
-    private void build(Texture2D texture, File file) {
+    private void build(Texture2D texture, File file, BufferedImage preview) {
         this.texture = texture;
         InsScrollablePanel content = new InsScrollablePanel();
         content.setLayout(new BoxLayout(content, BoxLayout.PAGE_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-        content.add(infoSection(texture, file));
+        content.add(infoSection(texture, file, preview));
         mount(content);
     }
 
-    /** 纹理分组（固定不可折叠——Unity 纹理头信息口径）：文件（暗）/ 图 / GUID（暗）/ 采样两下拉 */
-    private JComponent infoSection(Texture2D texture, File file) {
+    /**
+     * 纹理分组（固定不可折叠——Unity 纹理头信息口径）：文件（暗）/ 图 / 预览缩略图 /
+     * GUID（暗）/ 采样两下拉。预览行仅在引用了带像素的图时出现（未选图=正常域空态，不占位）。
+     */
+    private JComponent infoSection(Texture2D texture, File file, BufferedImage preview) {
         FieldGrid grid = new FieldGrid();
         grid.addDim(EditorLang.text("texture.inspector.file"), file.getName());
         grid.add(EditorLang.text("texture.inspector.image"), imageInput());
+        if (preview != null) {
+            grid.add(PREVIEW_LABEL, ImagePreview.viewable(preview,
+                    () -> ImagePreview.full(texture.getImage()), file.getName()));
+        }
         if (texture.getGuid() != null && !texture.getGuid().isBlank()) {
             grid.addDim("GUID", texture.getGuid());
         }
@@ -270,6 +284,8 @@ public class TextureInspectorContent extends JComponent implements InspectorCont
             return;
         }
         editor.getAssetImportPipeline().submitImport(file);
+        // 换绑后重装面板：预览缩略图随新图重算（复用装载链，缩略图在后台线程出）
+        reload(file);
     }
 
     /** 过滤模式提交（EDT）：写内存实例 + 防抖持久化 */

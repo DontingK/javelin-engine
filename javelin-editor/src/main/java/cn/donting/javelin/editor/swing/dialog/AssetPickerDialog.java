@@ -1,4 +1,4 @@
-package cn.donting.javelin.editor.swing.inspector.widget;
+package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.file.FileType;
