@@ -1,9 +1,11 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.1
-> 日期：2026-11-10
+> 版本：v0.2
+> 日期：2026-11-10（v0.2：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（F 系热键把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
+>
+> v0.2 变更（2026-11-12）：**步骤一（dbg-1）落地待验收**——`JavelinSetting.engineDebug` 设置字段（默认 true；序列化走既有协议、**不新增接口**；命令行 `--debug=true|false` 经 `LaunchArgs` 覆盖）+ 无校验层 **fail-fast** + `VulkanInstance` DebugUtilsMessenger 回调（WARNING/ERROR 路由 logback，`[VVL]` 前缀）+ 编辑器启动链异常弹错误框（红线 15）。实装落点见 §2.5；验收口径 §2.3 未变。
 
 ---
 
@@ -35,8 +37,9 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 - `JavelinSetting` 新增 `boolean engineDebug`，**默认 `true`**（开发者默认要听见校验层）；
 - **启动期消费、运行期不可切**：`JavelinEngine.createInstanceConfig()` 读设置传入 `RHI.RHIInstanceConfig.debug`（现状硬编码 `true` → 改读设置）。校验层/messenger 在实例创建时装载，运行期换装没有干净时机（实例级对象、全设备共享），不做热切；
-- **fail-fast：debug=true 且本机无校验层 → 直接报错不启动**（用户拍板，推翻现有静默降级）：`VulkanInstance` 检不到 `VK_LAYER_KHRONOS_validation` 时抛 `IllegalStateException`（消息含「安装 Vulkan SDK / 关闭引擎调试」两条出路），由上层启动链弹给用户——红线 15（错误显性化）与 Pitfalls #19（静默降级掩问题）的双收口。`debug=false` 时不请求校验层也不请求 debug_utils 扩展，照常启动；
-- 序列化：`readBoolean` 缺键返回 `false` 与默认 `true` 冲突——read 侧缺键**保留字段默认**（`values.containsKey` 式判别，与 `renderPipeline` 缺键保默认同法，`JavelinSetting.read` 既有先例），旧设置文件不迁移；
+- **fail-fast：debug=true 且本机无校验层 → 直接报错不启动**（用户拍板，推翻现有静默降级）：`VulkanInstance` 检不到 `VK_LAYER_KHRONOS_validation` 时抛 `IllegalStateException`（消息两条出路 = 装 Vulkan SDK / 启动加 `--debug=false`），由上层启动链弹给用户——红线 15（错误显性化）与 Pitfalls #19（静默降级掩问题）的双收口。`debug=false` 时不请求校验层也不请求 debug_utils 扩展，照常启动；
+- 序列化：`JavelinSetting.engineDebug` 为原生 `boolean`（默认 true），`output.write` / `input.readBoolean` 走既有协议，**不新增任何序列化接口**；缺键按协议既定行为读为 `false`（2026-11-12 拍板；原「`containsKey` 缺键保默认」与「包装类 + `Objects.equals`」两方案均作废）；
+- **命令行覆盖**（2026-11-12 用户指令）：各 `main(String[] args)` 首行 `LaunchArgs.parse(args)` 装入启动参数，`JavelinEngine.initialize()` 在实例创建前 `setting.setEngineDebug(LaunchArgs.getBoolean("debug", setting.isEngineDebug()))`——`--debug=true|false` 优先于设置文件；参数持有类落 `javelin-core`（`cn.donting.javelin.core.LaunchArgs`），编辑器 / 引擎 Demo / `GameMain` / `AotGameMain` 四入口同法；
 - 消费方：`RHI.RHIInstanceConfig.debug`（已有字段，语义不变——现状引擎恒传 true，此后由设置决定）。
 
 ### 2.2 messenger 落点与消息路由
@@ -60,6 +63,20 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 - 校验层开销（每次 API 调用校验，帧率掉 5~20%）属 debug 开关语义内，用户关 `engineDebug` 即恢复——不自动调档；
 - 编辑器「首选项」UI 不在本步（设置文件手改即可用；首选项面板接入随下次 i18n/设置批次走，避免本步混 UI）。
+
+### 2.5 实装落点（2026-11-12）
+
+| 落点 | 改动 |
+|------|------|
+| `JavelinSetting` | 新增 `boolean engineDebug = true`（`isEngineDebug()`/`setEngineDebug(boolean)`）+ `write`/`read`（`input.readBoolean`，缺键按协议= false，不改接口） |
+| `LaunchArgs`（新增，javelin-core） | 启动参数单点持有：`parse(String[] args)`（`--k=v` 取值、无值 `--k`=`true`、其余忽略）+ `get`/`getBoolean`/`has`；解析结果 volatile 整体替换（main 与引擎线程可见） |
+| `JavelinEngine.initialize` | 实例创建前 `setting.setEngineDebug(LaunchArgs.getBoolean("debug", setting.isEngineDebug()))`（命令行优先于设置文件） |
+| 四入口 main | `JavelinEngine` / `GameMain` / `AotGameMain` / `JavelinEditor` 的 `main(String[] args)` 首行 `LaunchArgs.parse(args)` |
+| `JavelinEngine.createInstanceConfig` | `RHIInstanceConfig.debug` 由恒 `true` 改读 `setting.isEngineDebug()` |
+| `VulkanInstance` | ① 无 `VK_LAYER_KHRONOS_validation` 即抛 `IllegalStateException`（消息含「安装 Vulkan SDK / 设 engineDebug=false」两条出路）；② 实例创建后注册 messenger（severity WARNING\|ERROR、type VALIDATION\|GENERAL\|PERFORMANCE），回调对象与 handle 存字段；③ `dispose` 先销毁 messenger、后毁实例、最后 `Callback.free()` |
+| `ProjectLoadingFrame` | 启动链 `catch` 由只打日志改弹错误框（红线 15），确认后 `System.exit(1)`——加载窗已 dispose，无其他可见窗口可回退 |
+
+> 注：`RhiTestBase` 仍以 `debug=true` 建实例（测试显式要校验），无 SDK 的机器上测试会按 fail-fast 报错——与 §2.3「debug=true 无 SDK 即抛错」口径一致。
 
 ---
 
@@ -95,7 +112,7 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 | 批次 | 内容 | 依赖 | 量级预估 |
 |------|------|------|---------|
-| **dbg-1** | 步骤一：`engineDebug` 设置 + fail-fast + messenger 回调路由（2.1~2.4 全部） | 无（先行） | 小（RHI `VulkanInstance` 主体 + `JavelinSetting` 两字段 + `JavelinEngine` 一行接线；改动集中、无渲染路径风险） |
+| **dbg-1** ✅ 落地待验收（2026-11-12） | 步骤一：`engineDebug` 设置 + fail-fast + messenger 回调路由（2.1~2.4 全部） | 无（先行） | 小（RHI `VulkanInstance` 主体 + `JavelinSetting` 两字段 + `JavelinEngine` 一行接线；改动集中、无渲染路径风险） |
 | **dbg-2** | 步骤二：G-Buffer 可视化（3.1~3.4 全部） | dbg-1 无硬依赖，可并行；建议在后（dbg-1 验收后顺手） | 中（新 AppState + 覆盖 Pass + 内置 shader 资产三件 + meta + 单测/手验清单） |
 | 后置挂账 | shadowMap 可视化（3.3）；VERBOSE 严重度；编辑器首选项 UI（2.4）；SPIR-V 静态自检（无 SDK 环境的引擎侧校验，立项另议） | dbg-1/2 | — |
 
@@ -109,3 +126,4 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | 2026-11-10 | `engineDebug` 默认 true（开发者默认听见校验层） | 用户 |
 | 2026-11-10 | debug=true 且无校验层 → **报错不启动**（推翻静默降级，红线 15 / Pitfalls #19 收口） | 用户 |
 | 2026-11-10 | 开关 = 启动期消费、运行期不切（校验层实例级装载无热切时机） | 用户（「需要一个启动时引擎 debug 开关」） |
+| 2026-11-12 | dbg-1 落地待验收（实装落点 §2.5） | 实施 |

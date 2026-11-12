@@ -453,6 +453,16 @@ pNext 必须挂 `VkPipelineRenderingCreateInfo`。修复从 `GraphicsPipelineDes
 - Buffer staging 上传（deviceLocal 顶点/索引缓冲的前置）
 - 描述符池按「布局 × 帧数」环形复用（15.8 正式方案，替代设备级单池）
 
+### 已知问题（2026-11-12 补，dbg-1 校验层首跑暴露）
+
+- **图依赖缺材质贴图读**：前向/光照 Pass 只声明 `shadowMap`，`_MainTex` 等走材质描述符集绑定
+  → 采样贴图无屏障可插（上传回迁修好后已不报错，跨帧布局仍是猜的）——待办总账 RHI-10；
+- **非 `VulkanTexture` 绑描述符走 `handle()` 当 imageView**（`VulkanDescriptorSet.update` else 分支
+  → `SwapChainTexture` 之类会把 VkImage 当 view 传）——RHI-11，当前无消费方；
+- **交换链 per-image `SwapChainTexture` 未释放**（`VulkanSwapChain.create` 覆盖 `images`、`dispose`
+  不遍历；view 须先于 `vkDestroySwapchainKHR` 销毁，Cleaner 两帧延迟不适用）——RHI-12；
+  退出期 46 对象泄漏的总账见待办总账 BUG-09。症状/根因/修法见 `Vulkan_Pitfalls.md` #37。
+
 ### 阶段⑥ 前置（已完成，2026-09-21）
 
 core 侧窗口接口：`cn.donting.javelin.core.window` 包——`Window` / `GLFWWindow` /
@@ -610,8 +620,9 @@ Cleaner 兜底会对同一句柄二次 vkDestroy」）有两条次生隐患（�
 ### 常见陷阱记录
 
 > 陷阱已集中迁移至 **`Vulkan_Pitfalls.md`**（含症状→根因→修法→出处与排障方法论），此处不再重复维护。
-| `VkPresentInfoKHR.waitSemaphoreCount(int)` | setter 不存在，由 `pWaitSemaphores.remaining()` 自动推断 |
-| `VkRenderingInfo.colorAttachmentCount(int)` | setter 不存在，由 `pColorAttachments.remaining()` 自动推断 |
+| `VkPresentInfoKHR.waitSemaphoreCount(int)` | 由 `pWaitSemaphores.remaining()` 自动推断（`npWaitSemaphores` 内含 count 赋值） |
+| `VkRenderingInfo.colorAttachmentCount(int)` | 由 `pColorAttachments.remaining()` 自动推断 |
+| **`VkSubmitInfo.waitSemaphoreCount(int)`** | **不自动推断，必须显式设**——`npWaitSemaphores` 只写地址（该 count 被 `pWaitDstStageMask` 共用，生成器无从推断）；同结构体的 `pCommandBuffers`/`pSignalSemaphores` 反而自动带。**别拿上面两行的"自动推断"类推**：`calloc` 后恒为 0 = 驱动整条忽略 wait 列表（2026-11-12 实踩，`Vulkan_Pitfalls.md` #38） |
 | `VK_INDEX_TYPE_UINT8_EXT` | 在 `VK14` 类（`VK14.VK_INDEX_TYPE_UINT8`），不在 `VK10` |
 | `vkEnumeratePhysicalDevices` | 三参数：`(VkInstance, IntBuffer, PointerBuffer)`，无单参数版本 |
 | `vkCmdSetViewport` / `vkCmdSetScissor` | 需要 `VkViewport.Buffer` / `VkRect2D.Buffer`；单元素用 `nvkCmdSetViewport(cmd, 0, 1, vp.address())` |

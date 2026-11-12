@@ -29,6 +29,7 @@
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
 | R32Uint 拾取附件 + 图像读回 | ✅（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ✅ 用户实测（2026-10-23，随拾取全链） |
 | **SSBO + compute 全链**（三期批次①，2026-10-31 落地：compute 管线布局装配补齐（原空壳——setLayouts+pushConstantRange，stage=COMPUTE）/ pushConstants stageFlags 按 bindPoint 分流 / **Buffer 进图同步**——PassDef addBufferRead/Write + 依赖推导 + structureHash + VkBufferMemoryBarrier 屏障计划（通用资源面，非光照特化）/ DescriptorUpdate.storageBuffer VK_WHOLE_SIZE 修正+offset/range 重载 / 删 VulkanPipelineLayout+createPipelineLayout 死代码；SSBO 描述符链/dispatch/compute 进图骨架为 RHI 实装期既有） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，ComputeSsboTest 全环——双段 compute 链+图形读+读回 65536 元素逐比对通过 + ComputeShaderImporterTest 绿；排障两条入 Vulkan_Pitfalls #27/#28） |
+| 校验层 + DebugUtilsMessenger 回调（dbg-1，2026-11-12 落地：`JavelinSetting.engineDebug` 默认 true、启动期消费、`--debug=true\|false` 经 `LaunchArgs` 命令行覆盖；`VulkanInstance` 无 `VK_LAYER_KHRONOS_validation` 即 fail-fast 不启动；消息 WARNING/ERROR × VALIDATION/GENERAL/PERFORMANCE 路由 logback `[VVL]` 前缀；Engine_DebugTools_Plan §2） | ✅（2026-11-12） | ⏳ 待用户实测 |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -303,7 +304,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 0 项**。
+> **当前挂账 1 项**：①**dbg-1 校验层消息回调**（§1 行）——`JavelinSetting.engineDebug` + 无校验层 fail-fast + DebugUtilsMessenger 路由 logback（`[VVL]` 前缀）。验收口径（Engine_DebugTools_Plan §2.3）：debug=true 无 SDK 环境启动即抛错（错误框含两条出路）；有 SDK 正常启动且无虚假 VVL 洗屏；故意造违约（如 set0 stageFlags 改回 VERTEX）→ draw 帧 VVL ERROR 现形含 set/binding/stage；debug=false 不请求层/扩展零 VVL 日志；engineDebug 两值落盘重启保持。
+>
+> （**2026-11-12 销账**：dbg-1 首跑排障产出两轮——第一轮坑 #37（backbuffer 起手布局 `PRESENT_SRC→UNDEFINED` + `uploadTexture` 回迁 `SHADER_READ_ONLY`），同日重跑两条 `vkCmdDraw-None-09600` 全消；第二轮坑 #38（`VkSubmitInfo.waitSemaphoreCount` 未设 → wait 列表被驱动整条忽略），用户实测 `logs/error/error.log` **零 ERROR**、acquire 三连环（`non-acquired-swapchain-image-used` / `MissingAcquireWait` / `01286`）全消。残留账（RHI-10/11/12、BUG-09 退出期泄漏）在待办总账。）
 >
 > （**2026-11-10 销账**：HYBRID 档 / Deferred 复用（三期批次④-B）——用户实机 HYBRID 光照正常、与 FORWARD 两路一致；随验坑 Pitfalls #35（set0 相机块 stageFlags VERTEX-only，LightingPass fs 读 cam.view 越权读零全黑——修=ALL_GRAPHICS 超集）；遗留口径=非光照材质（default.shader）HYBRID 档 albedo 仍乘光照（无灯=黑，Deferred 物理正确），「直读 albedo」契约归四期材质专档。§2.4 行已翻✅；设计=Engine_RenderPipeline_Design v0.6、Engine_Lighting_Design v0.10。）
 >

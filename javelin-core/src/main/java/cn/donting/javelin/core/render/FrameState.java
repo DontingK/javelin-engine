@@ -7,17 +7,20 @@ import cn.donting.javelin.rhi.FrameArena;
 import cn.donting.javelin.rhi.Semaphore;
 
 /**
- * 帧状态（设计文档第 24.1 节）：一个 in-flight 帧的全部同步原语。
+ * 帧状态（设计文档第 24.1 节）：一个 in-flight 帧的同步原语。
  *
- * 组成：fence（帧闸门，创建时置位使首帧直接通过）+ imageAvailable（acquire 信号）
- * + renderFinished（图完成信号）+ 命令缓冲 + 帧内存池（17.3）。
+ * <p>组成：fence（帧闸门，创建时置位使首帧直接通过）+ imageAvailable（acquire 信号）
+ * + 命令缓冲 + 帧内存池（17.3）。<b>renderFinished 不在此处</b>——它按交换链图像持有于
+ * {@link FrameLoop}：present 对其的等待不受帧 fence 约束，每帧复用会在一次 present
+ * 尚未完成时重复 signal（VVL 00067）；按图像持有则「该图像能再次 acquire」即证明上一次
+ * present 已完成，重签安全。</p>
+ *
  * 环形槽位由 {@link FrameLoop} 管理；槽位复用前必须 fence 闸门通过。
  */
 public final class FrameState {
 
     private final Fence fence;
     private final Semaphore imageAvailable;
-    private final Semaphore renderFinished;
     private final CommandBuffer cmd;
     private final FrameArena arena;
 
@@ -27,7 +30,6 @@ public final class FrameState {
         }
         this.fence = device.createFence(true);
         this.imageAvailable = device.createSemaphore();
-        this.renderFinished = device.createSemaphore();
         this.cmd = device.allocateCommandBuffer(false);
         // frameArena() 每次调用新建一块，必须长期持有（每帧复用、fence 闸门后 reset）
         this.arena = device.frameArena();
@@ -41,11 +43,6 @@ public final class FrameState {
     /** acquire 完成信号（等待于提交的 COLOR_ATTACHMENT_OUTPUT 阶段） */
     public Semaphore imageAvailable() {
         return imageAvailable;
-    }
-
-    /** 渲染完成信号（present 等待） */
-    public Semaphore renderFinished() {
-        return renderFinished;
     }
 
     /** 本槽位的命令缓冲（每帧重新录制，ONE_TIME_SUBMIT） */
@@ -62,7 +59,6 @@ public final class FrameState {
     void close() {
         fence.dispose();
         imageAvailable.dispose();
-        renderFinished.dispose();
         cmd.dispose();
     }
 }

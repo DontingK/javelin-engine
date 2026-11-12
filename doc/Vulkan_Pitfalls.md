@@ -538,6 +538,78 @@
 - **出处**：2026-11-11 用户报障（两路同时贴图失效）+ 静态定位；
   `javelin-core/.../builtin-asset-core/shader/Lit.shader` 已修（两处 2→3，测试夹具同步）；**2026-11-11 用户实测通过**（FORWARD / HYBRID 两路贴图均恢复）。
 
+### 37. 布局跟踪表谎报 backbuffer 起始布局 + 上传后不回迁 SHADER_READ_ONLY：VVL 两条 09600 ★契约级
+
+- **症状**：dbg-1 校验层 messenger 回调（`Engine_DebugTools_Plan` §2.2）刚接进 logback
+  后的首跑，启动头几帧刷出 `VUID-vkCmdDraw-None-09600` 两条——交换链图「期望
+  `PRESENT_SRC_KHR`、实际 `UNDEFINED`」与采样贴图「期望 `SHADER_READ_ONLY_OPTIMAL`、实际
+  `TRANSFER_DST_OPTIMAL`」；画面本身正常（校验层不开口时纯 UB，不报不崩）；
+- **根因（两条独立）**：
+  (a) **跟踪表撒谎**：`LayoutTracker` 每帧新建、backbuffer 硬编码起手 `PRESENT_SRC`，而
+  acquire 回来的交换链图真实布局是 `UNDEFINED`。于是图首屏障声明
+  `oldLayout=PRESENT_SRC`、`srcStage=COLOR_ATTACHMENT_OUTPUT` 且 `srcAccess=COLOR_ATTACHMENT_WRITE`
+  ——把一次「弃内容」转换谎报成「保留内容」的转换。**全工程只有屏障会把 `PRESENT_SRC`
+  送给驱动**（描述符只写 `SHADER_READ_ONLY`/`GENERAL`/`UNDEFINED`、附件只写
+  `COLOR_ATTACHMENT`）——故那句「期望 PRESENT_SRC」指的就是这道屏障；
+  (b) **上传后不回迁**：`VulkanDevice.uploadTexture` 转 `UNDEFINED → TRANSFER_DST`、拷完即提交，
+  没有转回 `SHADER_READ_ONLY`；而材质贴图又不进图依赖（`OpaqueForwardPass` 只
+  `addTextureRead(rs.shadowMap())`，`_MainTex` 走材质描述符集绑定、无人声明读），连屏障都不会插
+  ——采样侧描述符恒写 `SHADER_READ_ONLY_OPTIMAL`（`VulkanDescriptorSet`），于是「描述符声明的
+  布局」与「图像真实布局 TRANSFER_DST」错位；
+- **修法**：(a) `RenderGraphImpl.execute` 把 backbuffer 起手布局改 `UNDEFINED`（图尾
+  `COLOR_ATTACHMENT → PRESENT_SRC` 照旧）——首道屏障变成 `TOP_OF_PIPE/0 → COLOR_ATTACHMENT_OUTPUT/WRITE`，
+  即教科书式「acquire + 弃内容转换」形态；(b) `uploadTexture` 拷完补一道
+  `TRANSFER_DST → SHADER_READ_ONLY` 屏障（上传 fence 已担保拷贝可见，只需布局转换）；
+- **教训**：**布局跟踪表是「设备真实状态」的镜像，任何"为了保守/方便"的预设值都是撒谎**——
+  校验层会把谎话原样引给你（「期望 X 实际 Y」里的 X 往往是**你声明过的**值，不是它要求的值，
+  读的时候先问「这个 X 是我在哪声明的」）；另：**「没声明依赖」与「声明错布局」是两种坑**，
+  前者连屏障都不生成（(b)），后者生成了屏障但内容不实（(a)）——排障时先确认目标资源在命令
+  缓冲里到底有没有屏障；
+- **出处**：2026-11-12 用户报障（dbg-1 接入后首跑日志）；修法已落码，同日重跑确认**两条 09600 全消**
+  （同批残留的 acquire 信号量三连环与 46 对象泄漏**与本案无关**，前者=坑 #38，后者进待办总账 BUG-09）。
+
+### 38. LWJGL `VkSubmitInfo.pWaitSemaphores` 不写 `waitSemaphoreCount`：等待列表被驱动整条忽略（无校验层时静默丢同步）★API 语义级
+
+- **症状**：VVL 三连环、每帧各一条，且**改了布局相关的代码也不动**：
+  `UNASSIGNED-non-acquired-swapchain-image-used`（`vkQueueSubmit`：本次提交对
+  presentable image 做了布局转换，但 acquire 信号量没被等待）+
+  `UNASSIGNED-VkPresentInfoKHR-pImageIndices-MissingAcquireWait`（present：该图是带着一个
+  「至今未被等待过」的 acquire 信号量拿到的）+
+  `VUID-vkAcquireNextImageKHR-semaphore-01286`（下一次 acquire：信号量仍处 signaled）。
+  画面正常——IMMEDIATE 呈现下丢掉 acquire 等待不撕裂（presentation 引擎早已读完），
+  二进制信号量重复 signal 是 no-op，故功能掩盖了同步缺失；
+- **根因**：`VulkanQueue.submit` 只调了 `submitInfo.pWaitSemaphores(buf)` +
+  `pWaitDstStageMask(buf)`，**从没设 `waitSemaphoreCount`**。而 LWJGL 3.4.2 的
+  `VkSubmitInfo.npWaitSemaphores` **只写地址不写 count**：
+  ```java
+  public static void npWaitSemaphores(long struct, LongBuffer value) { memPutAddress(struct + PWAITSEMAPHORES, memAddressSafe(value)); }
+  ```
+  对比同结构体的 `npCommandBuffers` / `npSignalSemaphores`——**它们都自动带 count**
+  （`ncommandBufferCount(struct, value == null ? 0 : value.remaining())`）。原因是
+  `waitSemaphoreCount` 被 `pWaitSemaphores` 与 `pWaitDstStageMask` **两个数组共用**，
+  生成器无法从单个 Buffer 推断，遂留给调用方。`calloc` 后该字段恒为 0
+  → **驱动整条忽略 wait 列表**：acquire 信号量从未被消费（连环三个报错逐一对应），
+  而命令缓冲/信号量 count 自动带，所以帧照常渲染 —— 症状与「代码看起来传了 wait」正相反；
+- **修法**：`submitInfo.waitSemaphoreCount(waits.size())` 显式补上（同一 count 也覆盖
+  `pWaitDstStageMask` 的长度）；
+- **全仓审计结论**（同批逐 (结构体, 设置器) 对核对 LWJGL 源码）：引擎全部 Vulkan 调用点里
+  只有此处真中招。其余分三类——① `npCommandBuffers`/`npSignalSemaphores`/`npBindings`/
+  `npAttachments`/`npColorAttachments`/`npPoolSizes`/`npSetLayouts`/`npPushConstantRanges`/
+  `npStages`/`npVertex*Descriptions`/`npDynamicStates`/`npQueueCreateInfos`/`npCode` 等**自动带**；
+  ② `pSwapchains`/`pImageIndices`（count 由 `swapchainCount` 共用）与
+  `VkWriteDescriptorSet.descriptorCount` 引擎**已显式设**；③ 字符串/单结构指针字段本就无 count；
+- **教训**：**LWJGL 的 `pXxx(Buffer)` 是否顺手设 count，逐字段不同——不能凭"另一个字段自动带"
+  就类推**。凡"数组 + 长度字段"的 Vulkan 结构体，落码时**逐个字段对着 LWJGL 源码核一遍**
+  （`npXxx` 里有没有 `nXxxCount(struct, …)`），或干脆一律显式设 count（重复设无害）。
+  这类坑的可怕之处是**静默**：结构体合法、校验层只在"下游行为可观测"时才报（本例靠
+  acquire 语义暴露），没有校验层就是长期的静默 UB；
+- **另一个教训**：上一轮曾据「`FrameLoop` 确实传了 `f.imageAvailable()`」判定外部诊断
+  "submit 漏传 acquire 信号量"**不成立**——错了。**报错描述的现象是真的，只是机制猜错了**：
+  传的是"Java 侧的对象"，丢的是"Vulkan 结构体的 count"。见「症状与其机制的区分」
+  （§六 方法论 8）；
+- **出处**：2026-11-12 用户二次报障（改完 #37 后报错不变，促成本项定位）；
+  `javelin-rhi/.../VulkanQueue.java` 已修，**2026-11-12 用户实测通过**（重跑 `logs/error/error.log` 零 ERROR——三连环全消；同轮仅余 4 条 `Shader-OutputNotConsumed` 警告走 info 面）。
+
 ---
 
 ## 六、排障方法论（沉淀）
@@ -566,3 +638,12 @@
    #35（越权读零）与 #36（vertex input location 错位）这类「链路全对、结果不对」
    的问题，抓帧是分钟级断案手段。引擎内轻量替代面 = dbg-2 G-Buffer 可视化
    （`Engine_DebugTools_Plan.md`）；口径同见 `AGENTS.md`「渲染 / Shader 排障：RenderDoc 抓帧」。
+8. **区分「报错描述的现象」与「你以为的机制」——现象为真，机制可以猜错**（2026-11-12 坑 #38，
+   起因=坑 #37 一轮误判）：校验层说"acquire 信号量没被等待"，我方查了 Java 侧确实传了
+   `f.imageAvailable()`，就判"外部诊断不成立、是布局连带症状"——现象其实完全属实，
+   只是丢在了**C 结构体字段**（`waitSemaphoreCount` 未设）而不是 Java 参数。教训：
+   否证一个报错前先问「我是否核对到了**驱动真正读的那一层**（结构体字段/内存/句柄）」；
+   Java 侧"我传了"只证明你没漏参数，不证明字段被填。**下一层（LWJGL 绑定 → 结构体）才是
+   真值面**，逐字段对着绑定源码核（本例一读 `npWaitSemaphores` 就落地）。
+   与之配套：**同一门类的坑要一次性全仓审计**——本例顺手把引擎全部 Vulkan 结构体 ×
+   设置器对核了一遍（结论见坑 #38），避免同族复发。

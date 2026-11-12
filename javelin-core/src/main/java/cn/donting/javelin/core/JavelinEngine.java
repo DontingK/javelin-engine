@@ -136,6 +136,9 @@ public class JavelinEngine {
     }
 
     private final void initialize() {
+        // 启动参数覆盖引擎设置（命令行优先于设置文件）：--debug=true|false → engineDebug，
+        // 在实例创建前落地（Engine_DebugTools_Plan §2.1：校验层/messenger 装载于实例创建时）
+        setting.setEngineDebug(LaunchArgs.getBoolean("debug", setting.isEngineDebug()));
         window = createWindow();
         window.create();
         window.showWindow();
@@ -382,7 +385,9 @@ public class JavelinEngine {
     }
 
     protected RHI.RHIInstanceConfig createInstanceConfig() {
-        return new RHI.RHIInstanceConfig(setting.getTitle(), 1, true);
+        // 校验层/messenger 开关（Engine_DebugTools_Plan §2.1）：启动期消费 setting.engineDebug，
+        // 运行期不可切（实例级装载无热切时机）
+        return new RHI.RHIInstanceConfig(setting.getTitle(), 1, setting.isEngineDebug());
     }
 
     protected RHIDevicePrefs createDevicePrefs() {
@@ -571,6 +576,7 @@ public class JavelinEngine {
     }
 
     public static void main(String[] args) {
+        LaunchArgs.parse(args);
         JavelinSetting setting = new JavelinSetting();
         JavelinEngine javelinEngine = new JavelinEngine(setting);
         javelinEngine.start();

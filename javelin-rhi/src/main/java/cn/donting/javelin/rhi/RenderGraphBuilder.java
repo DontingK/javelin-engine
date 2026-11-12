@@ -34,7 +34,7 @@ public interface RenderGraphBuilder {
 
     /**
      * 执行器（24.3）：cmd.begin → 按拓扑序插入屏障 + 录制各 Pass 回调 → cmd.end。
-     * backbuffer 非空时：起始布局按 PRESENT_SRC 跟踪，图尾自动转回 PRESENT_SRC。
+     * backbuffer 非空时：起始布局按 UNDEFINED 跟踪（acquire 后的真实态），图尾自动转回 PRESENT_SRC。
      */
     void execute(CommandBuffer cmd, Texture backbuffer);
 

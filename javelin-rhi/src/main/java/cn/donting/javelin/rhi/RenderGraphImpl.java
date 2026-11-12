@@ -348,7 +348,12 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
         try {
             LayoutTracker tracker = new LayoutTracker();
             if (hasBackbuffer) {
-                tracker.set(backbufferHandle, TextureLayout.PRESENT_SRC);
+                // acquire 回来的交换链图像真实布局是 UNDEFINED（上一帧内容无保留义务）。
+                // 此处必须如实声明：谎报 PRESENT_SRC 会让首道 barrier 带上
+                // COLOR_ATTACHMENT_WRITE 的 srcAccess、声明成「保留内容」的转换，校验层
+                // 随即判定该转换须与 acquire 信号量同步，报
+                // non-acquired-swapchain-image-used / 09600（2026-11-12 实测，Pitfalls #37）
+                tracker.set(backbufferHandle, TextureLayout.UNDEFINED);
             }
             // buffer 句柄 → {本帧最近使用是否计算域, 是否含写}——屏障源端同步域现推用
             Map<Long, boolean[]> bufferLastUse = new HashMap<>();

@@ -49,14 +49,15 @@
 
 | 序 | 候选 | 理由 |
 |----|------|------|
-| 1 | **DBG-01 dbg-1 校验层回调 + engineDebug 开关** | 半天量级；四期要大量动 G-Buffer/多 Pass，先立排障面，把 #35 那类「读零不报错」变分钟级 |
-| 2 | **HOT-01 贴图热重载批次** | 红线 17 履约的**唯一残留项**（`setImage` 后 GPU 像素不上屏），不清则「改贴图不生效」持续可复现 |
-| 3 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | targetClass 加回分支即恢复，外部手改资产自动生效的能力现被摘除 |
-| 4 | **ED-01 耗时指示器调用点接入** | 半成品收尾（类与双语包已验收，只差 3 个候选调用点接线） |
-| 5 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染） |
-| 6 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
-| 7 | **BUG 打包小修** | §13 里 `loadScene` NPE / Layer 下拉空 / javadoc 引用错误等，可一次性清 |
-| 8 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项 |
+| 1 | **HOT-01 贴图热重载批次** | 红线 17 履约的**唯一残留项**（`setImage` 后 GPU 像素不上屏），不清则「改贴图不生效」持续可复现 |
+| 2 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | targetClass 加回分支即恢复，外部手改资产自动生效的能力现被摘除 |
+| 3 | **ED-01 耗时指示器调用点接入** | 半成品收尾（类与双语包已验收，只差 3 个候选调用点接线） |
+| 4 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染） |
+| 5 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
+| 6 | **BUG 打包小修** | §13 里 `loadScene` NPE / Layer 下拉空 / javadoc 引用错误等，可一次性清 |
+| 7 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项 |
+
+> DBG-01（dbg-1 校验层回调 + engineDebug 开关）2026-11-11 建档时列本表首位，**2026-11-12 落地待验收**（现挂 `Engine_Features.md` §6），已移出本表。
 
 ---
 
@@ -64,7 +65,6 @@
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注 |
 |----|------|------|------|-----------|
-| DBG-01 | dbg-1：`JavelinSetting.engineDebug`（默认 true、启动期消费不可热切）+ 无校验层 **fail-fast 报错不启动** + `vkCreateDebugUtilsMessengerEXT` 回调路由 logback（WARNING\|ERROR） | 调试工具 §2 | 未开工 | 无（先行）；2026-11-10 立项 |
 | DBG-02 | dbg-2：G-Buffer 可视化（F4 循环 albedo/法线/世界位置，覆盖制贴屏，HYBRID 专用，FORWARD 档日志提示） | 调试工具 §3 | 未开工 | 与 DBG-01 无硬依赖，建议在后 |
 | DBG-03 | shadowMap 可视化（深度比较采样需专 shader 分支） | 调试工具 §3.3 | 后置项 | — |
 | DBG-04 | 校验层 VERBOSE 严重度分支（对象命名/生命周期追踪用） | 调试工具 §2.2 | 后置项 | DBG-01 的一行改动 |
@@ -100,6 +100,9 @@
 | RHI-07 | RHI 内部封装视口 Y 翻转（吸收测试里的负高度手法，上层不再处理） | RHI 进度 待办 | 未开工 | — |
 | RHI-08 | R32_UINT 附件支持查询（未调 `vkGetPhysicalDeviceFormatProperties`，现靠校验层把关） | 拾取 §8 | 后置项 | 拾取附件格式 |
 | RHI-09 | P2 包：多线程并行录制/异步加载（27.5）、QueryPool 性能回读、多队列 compute、DebugUtils 对象命名/帧 region、采样器缓存去重、Bindless | RHI 计划 §4 | 后置项 | 明确「不做（P2，实现后置）」 |
+| RHI-10 | 图依赖缺「材质贴图读」：前向/光照 Pass 只声明 `shadowMap`，`_MainTex` 等走材质描述符集绑定 → 采样贴图无屏障可插（坑 #37 修后已不报错，但跨帧布局仍是猜的） | 管线 §4.2 / 坑 #37 | 未开工 | 需把材质贴图句柄纳入 PassDef 读声明（structureHash 随之变） |
+| RHI-11 | 非 `VulkanTexture` 的纹理绑描述符走 `texture().handle()` 当 imageView（`VulkanDescriptorSet.update` else 分支）——`SwapChainTexture` 等会把 VkImage 当 view 传进去 | RHI 进度 已知问题 / 坑 #37 | 已知问题 | 当前无消费方（无人绑交换链图），属潜伏 |
+| RHI-12 | 交换链 per-image `SwapChainTexture` 未释放：`VulkanSwapChain.create` 直接覆盖 `images`、`dispose` 不遍历 → 每次 resize 重建漏一批 VkImageView（且 view 须先于 `vkDestroySwapchainKHR` 销毁，Cleaner 的两帧延迟不适用，需即时销毁口） | 坑 #37 / RHI 进度 已知问题 | 未开工 | 与 BUG-09 泄漏账同源 |
 
 ## 5. 渲染 / 管线后置（跨期）
 
@@ -229,6 +232,7 @@
 | BUG-06 | 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受） | 编辑器 §9 / 原 功能清单 §7 | 已拍板接受 | 不修，记录 |
 | BUG-07 | Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘） | 原 功能清单 §7 | 已知问题 | 后调 |
 | BUG-08 | Layer 下拉空（设置管线遗留：`Game/` 与其未合，接通前下拉无内容） | Inspector（节点头段） | 已知问题 | 与 ED-07 设置管线合流同源 |
+| BUG-09 | 退出期 `vkDestroyDevice` 报 46 个对象未销毁（VVL 05137；首 10 个为 VkDeviceMemory），`CleanerRegistry.flush()` 已跑仍剩 → 逐笔账未查 | 坑 #37 | 已知问题 | 已确认子项 = RHI-12 交换链 view；查账手法 = 抬高 `duplicate_message_limit` 看全列表 + 按 handle 反查创建点 |
 
 > 另有一批存量问题（描述符池 / FrameArena / backbuffer 哈希等）登记在 §4 RHI 遗留，性质同属 bug 类（RHI-03 / RHI-05 / RHI-06），不在此重复登记。
 
@@ -246,5 +250,7 @@
 - 条目数：**106 条**（DBG 6 / P4 9 / RHI 9 / REND 13 / AST 15 / HOT 13 / ED 12 / PLG 8 / SYS 9 / PICK 3 / BLD 1 / BUG 8），去重后按域归入 §2~§13；
 - 建档口径：**只登记「还没做」**；已落地待实测（`功能清单 §6`）与已完成批次（`进度卷`）不收；
 - 优先级与「建议下一步」为建档时建议，非承诺。
+
+> **移出记录**：DBG-01（dbg-1 校验层回调 + `engineDebug` 开关）2026-11-12 落地待验收，移入 `Engine_Features.md` §6 待验收挂账（现挂账 1 项）→ DBG 域余 5 条，在建条目 105。
 
 > （注：部分内容可能由 AI 生成）

@@ -82,6 +82,14 @@ final class VulkanDevice implements Device {
             createInfo.pQueueCreateInfos(queueCreateInfos);
             createInfo.pEnabledFeatures(features);
 
+            // Dynamic Rendering（Vulkan 1.3 core）：引擎全程走 dynamic rendering
+            // （renderPass=NULL + VkPipelineRenderingCreateInfo + vkCmdBeginRendering），
+            // 不启用即非法用法；设备不支持时 vkCreateDevice 抛 FEATURE_NOT_PRESENT（下方统一处理）
+            VkPhysicalDeviceVulkan13Features features13 = VkPhysicalDeviceVulkan13Features.calloc(stack);
+            features13.sType$Default();
+            features13.dynamicRendering(true);
+            createInfo.pNext(features13);
+
             // 扩展：swapchain
             PointerBuffer extBuf = stack.mallocPointer(1);
             extBuf.put(stack.UTF8(KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME));
@@ -423,6 +431,13 @@ final class VulkanDevice implements Device {
             cmd.copyBufferToTexture(staging, texture,
                     TextureRegion.whole2D(texture.desc().width(), texture.desc().height()));
         }
+        // 拷贝后转回 SHADER_READ_ONLY：采样侧描述符恒声明 SHADER_READ_ONLY_OPTIMAL
+        // （VulkanDescriptorSet），停在 TRANSFER_DST 直接采样即布局不匹配——校验层报
+        // 09600、无校验层时是未定义行为（2026-11-12 实测，Pitfalls #37）。上传 fence
+        // 已担保拷贝写入可见，此处只需布局转换本身
+        cmd.pipelineBarrier(texture,
+                TextureLayout.TRANSFER_DST,
+                TextureLayout.SHADER_READ_ONLY);
         cmd.end();
 
         // 提交并等待

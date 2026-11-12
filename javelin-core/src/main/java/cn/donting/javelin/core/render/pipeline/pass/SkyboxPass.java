@@ -165,7 +165,7 @@ public class SkyboxPass implements RenderPass {
                     log.info("首帧 Skybox 回调执行: 视口[{}] skybox={}",
                             view.name(), skybox.desc());
                 }
-                cmd.bindPipeline(pipelineFor(ctx.colorTarget().desc().format()));
+                cmd.bindPipeline(pipelineFor(rs, ctx.colorTarget().desc().format()));
                 // set0 相机块（帧布局同材质 PSO——动态偏移选本视口相机）
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{view.uboOffset()});
                 // set1 skybox cubemap（本 Pass 专属布局，纹理换代重建）
@@ -214,7 +214,7 @@ public class SkyboxPass implements RenderPass {
                         ShaderStage.FRAGMENT)));
     }
 
-    private GraphicsPipeline pipelineFor(Format colorFormat) {
+    private GraphicsPipeline pipelineFor(RenderingSystem rs, Format colorFormat) {
         GraphicsPipeline cached = pipelines.get(colorFormat);
         if (cached != null) {
             return cached;
@@ -236,20 +236,15 @@ public class SkyboxPass implements RenderPass {
                         ColorComponentFlags.B, ColorComponentFlags.A),
                 // 深度格式必须声明（渲染通道带深度附件、LEqual 靠它；漏声明 = 深度态被忽略）
                 List.of(colorFormat), Format.D32_SFLOAT,
-                // set0 = 帧布局（CameraBlock UBO 动态偏移，与材质 PSO 同源）；set1 = skybox 专属
-                List.of(frameLayoutDesc(), skyboxLayoutDesc()), 0,
+                // set0 = 复用引擎帧布局契约 rs.frameSetLayoutDesc()（与材质/拾取/光照 PSO 逐字段
+                // 同构；天空盒只用 vs 读相机块，但**布局兼容要求相同而非子集**——自建 VERTEX 版
+                // 会与本 Pass 绑定的 ALL_GRAPHICS 描述符集不兼容，VVL 00358/08600）；set1 = skybox 专属
+                List.of(rs.frameSetLayoutDesc(), skyboxLayoutDesc()), 0,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR), SampleCount.COUNT_1);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(colorFormat, created);
         log.info("skybox PSO created: colorFormat={}", colorFormat);
         return created;
-    }
-
-    /** set0 帧布局（与材质 PSO 同源：CameraBlock UBO DYNAMIC，vs 可见） */
-    private static DescriptorSetLayoutDesc frameLayoutDesc() {
-        return new DescriptorSetLayoutDesc(List.of(
-                new DescriptorSetLayoutDesc.Binding(0, DescriptorType.UNIFORM_BUFFER_DYNAMIC, 1,
-                        ShaderStage.VERTEX)));
     }
 
     private Buffer createVertexBuffer() {

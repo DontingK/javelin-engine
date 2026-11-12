@@ -67,6 +67,14 @@ final class VulkanQueue implements Queue {
             VkSubmitInfo submitInfo = VkSubmitInfo.calloc(stack);
             submitInfo.sType$Default();
             if (waitSemaphores != null) {
+                // **waitSemaphoreCount 必须显式设**：LWJGL 3.4.2 的
+                // `VkSubmitInfo.pWaitSemaphores` 只写指针不写 count（该 count 与
+                // pWaitDstStageMask 共用，生成器留给调用方；npWaitSemaphores 无 count 赋值，
+                // 而 npCommandBuffers/npSignalSemaphores 都自动带）。calloc 后恒为 0
+                // → 驱动整条忽略 wait 列表：acquire 信号量从未被消费（VVL
+                // non-acquired-swapchain-image-used / MissingAcquireWait / 01286；
+                // 无校验层时该图像缺 presentation 引擎读完的同步，坑 #38）
+                submitInfo.waitSemaphoreCount(waits.size());
                 submitInfo.pWaitSemaphores(waitSemaphores);
                 submitInfo.pWaitDstStageMask(waitStages);
             }

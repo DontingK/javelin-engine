@@ -17,6 +17,11 @@ import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.VK13.VK_API_VERSION_1_3;
 import static org.lwjgl.vulkan.KHRSurface.VK_KHR_SURFACE_EXTENSION_NAME;
 import static org.lwjgl.vulkan.EXTDebugUtils.VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
+import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+import static org.lwjgl.vulkan.EXTDebugUtils.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
 
 /**
  * Vulkan 实例实现。
@@ -31,6 +36,10 @@ final class VulkanInstance implements Instance {
     private final VkInstance vkInstance;
     private final boolean debug;
     private volatile boolean disposed;
+
+    /** 校验层消息回调（LWJGL Callback 靠 native 地址存活，必须强引用到 dispose） */
+    private VkDebugUtilsMessengerCallbackEXT debugCallback;
+    private long debugMessenger = VK_NULL_HANDLE;
 
     VulkanInstance(RHI.RHIInstanceConfig config, Platform platform) {
         this.debug = config.debug();
@@ -66,17 +75,19 @@ final class VulkanInstance implements Instance {
             extBuf.flip();
             createInfo.ppEnabledExtensionNames(extBuf);
 
-            // 校验层（仅 Debug；本机未安装时降级为无校验运行，避免 VK_ERROR_LAYER_NOT_PRESENT）
+            // 校验层（仅 Debug）：无层即 fail-fast 不启动（2026-11-10 拍板，红线 15 /
+            // Pitfalls #19 收口——静默降级会让「校验层开了却听不见」持续掩盖问题）；
+            // 关掉 engineDebug 可免校验层启动
             if (debug) {
-                if (isLayerAvailable(stack, VALIDATION_LAYER)) {
-                    PointerBuffer layerBuf = stack.mallocPointer(1);
-                    layerBuf.put(stack.UTF8(VALIDATION_LAYER));
-                    layerBuf.flip();
-                    createInfo.ppEnabledLayerNames(layerBuf);
-                } else {
-                    log.warn("Validation layer {} not available; continuing without it "
-                            + "(install Vulkan SDK to enable validation)", VALIDATION_LAYER);
+                if (!isLayerAvailable(stack, VALIDATION_LAYER)) {
+                    throw new IllegalStateException("Vulkan validation layer '" + VALIDATION_LAYER
+                            + "' is not available. Install the Vulkan SDK (LunarG) to enable "
+                            + "validation, or launch with --debug=false to run without it.");
                 }
+                PointerBuffer layerBuf = stack.mallocPointer(1);
+                layerBuf.put(stack.UTF8(VALIDATION_LAYER));
+                layerBuf.flip();
+                createInfo.ppEnabledLayerNames(layerBuf);
             }
 
             // 创建实例
@@ -87,6 +98,56 @@ final class VulkanInstance implements Instance {
             }
 
             this.vkInstance = new VkInstance(instanceBuf.get(0), createInfo);
+        }
+
+        // 校验层消息路由（Engine_DebugTools_Plan §2.2）：实例已建，紧接注册 messenger
+        if (debug) {
+            createDebugMessenger();
+        }
+    }
+
+    /**
+     * 注册 DebugUtilsMessenger：校验层消息（WARNING/ERROR × VALIDATION/GENERAL/PERFORMANCE）
+     * 回调路由到 slf4j，日志前缀 {@code [VVL]}。回调跑在驱动线程，只做字符串格式化 + log
+     * （禁止其中调用 Vulkan / 做大分配）。
+     */
+    private void createDebugMessenger() {
+        debugCallback = new VkDebugUtilsMessengerCallbackEXT() {
+            @Override
+            public int invoke(int messageSeverity, int messageTypes, long pCallbackData, long pUserData) {
+                VkDebugUtilsMessengerCallbackDataEXT data = VkDebugUtilsMessengerCallbackDataEXT.create(pCallbackData);
+                String idName = data.pMessageIdNameString();
+                String body = data.pMessageString();
+                String line = "[VVL] " + (idName != null ? idName + " " : "") + body;
+                if ((messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0) {
+                    log.error(line);
+                } else if ((messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0) {
+                    log.warn(line);
+                }
+                // 不中断调用方（官方建议恒返 VK_FALSE）
+                return VK_FALSE;
+            }
+        };
+
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDebugUtilsMessengerCreateInfoEXT createInfo = VkDebugUtilsMessengerCreateInfoEXT.calloc(stack);
+            createInfo.sType$Default();
+            // 严重度：WARNING|ERROR（VERBOSE/INFO 噪声大，不收；后续排查要开只改此处一行）
+            createInfo.messageSeverity(
+                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                            | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT);
+            createInfo.messageType(
+                    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                            | VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                            | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT);
+            createInfo.pfnUserCallback(debugCallback);
+
+            long[] messenger = new long[1];
+            int result = EXTDebugUtils.vkCreateDebugUtilsMessengerEXT(vkInstance, createInfo, null, messenger);
+            if (result != VK_SUCCESS) {
+                throw new VulkanException(result, "Failed to create Vulkan debug utils messenger");
+            }
+            debugMessenger = messenger[0];
         }
     }
 
@@ -119,7 +180,16 @@ final class VulkanInstance implements Instance {
     public void dispose() {
         if (disposed) return;
         disposed = true;
+        // messenger 生命周期必须短于实例：先销毁 messenger，再毁实例，最后释放回调
+        if (debugMessenger != VK_NULL_HANDLE) {
+            EXTDebugUtils.vkDestroyDebugUtilsMessengerEXT(vkInstance, debugMessenger, null);
+            debugMessenger = VK_NULL_HANDLE;
+        }
         vkDestroyInstance(vkInstance, null);
+        if (debugCallback != null) {
+            debugCallback.free();
+            debugCallback = null;
+        }
     }
 
     private void checkDisposed() {

@@ -82,6 +82,10 @@ final class VulkanBuffer implements Buffer {
     public int writeAligned(int offset, FloatBuffer data) {
         // 简化实现：直接映射内存写入
         // 实际应该用 FrameArena，这里先保证功能正确
+        if (data.remaining() == 0) {
+            // 零长度写入是合法 no-op（vkMapMemory 不接受 size=0）
+            return (offset + 255) & ~255;
+        }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             org.lwjgl.PointerBuffer ppData = stack.mallocPointer(1);
             int result = vkMapMemory(device.vkDevice(), memoryHandle, offset, data.remaining() * 4, 0, ppData);
@@ -100,6 +104,10 @@ final class VulkanBuffer implements Buffer {
 
     @Override
     public void update(int offset, ByteBuffer data) {
+        if (data.remaining() == 0) {
+            // 零长度写入是合法 no-op（vkMapMemory 不接受 size=0）
+            return;
+        }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             org.lwjgl.PointerBuffer ppData = stack.mallocPointer(1);
             int result = vkMapMemory(device.vkDevice(), memoryHandle, offset, data.remaining(), 0, ppData);
@@ -118,6 +126,10 @@ final class VulkanBuffer implements Buffer {
         if (length < 0 || out.remaining() < length) {
             throw new IllegalArgumentException("read length out of bounds: length=" + length
                     + " out.remaining=" + out.remaining());
+        }
+        if (length == 0) {
+            // 零长度读取是合法 no-op（vkMapMemory 不接受 size=0）
+            return;
         }
         try (MemoryStack stack = MemoryStack.stackPush()) {
             org.lwjgl.PointerBuffer ppData = stack.mallocPointer(1);

@@ -7,7 +7,8 @@ import java.util.Map;
 
 /**
  * 布局跟踪表（24.3 LayoutTracker）：每张纹理当前布局，屏障冗余消除的依据。
- * 执行器每帧新建（帧内状态），backbuffer 起始为 PRESENT_SRC，其余 UNDEFINED。
+ * 执行器每帧新建（帧内状态）；backbuffer 起始 UNDEFINED（acquire 返回的真实布局，
+ * 见 RenderGraphImpl.execute），其余纹理 UNDEFINED。
  */
 final class LayoutTracker {
 

@@ -1525,7 +1525,9 @@ frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 
 
 
-* **LayoutTracker**：每张纹理一张表项，记录当前 VkImageLayout（初始 UNDEFINED / PRESENT_SRC）；
+* **LayoutTracker**：每张纹理一张表项，记录当前 VkImageLayout（**全 UNDEFINED 起手**，含 backbuffer——
+  acquire 返回的交换链图像真实布局即 UNDEFINED，谎报 PRESENT_SRC 会让图首屏障声明成「保留内容的转换」而
+  被校验层判为须与 acquire 信号量同步，见 `Vulkan_Pitfalls.md` #37，2026-11-12）；
 
 * **屏障插入算法**（按拓扑序遍历）：
 

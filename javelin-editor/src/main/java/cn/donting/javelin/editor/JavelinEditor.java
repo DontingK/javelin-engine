@@ -1,6 +1,7 @@
 package cn.donting.javelin.editor;
 
 import cn.donting.javelin.core.JavelinEngine;
+import cn.donting.javelin.core.LaunchArgs;
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.appstate.AppStateManager;
 import cn.donting.javelin.core.scene.GameScene;
@@ -291,6 +292,8 @@ public class JavelinEditor extends JavelinEngine {
     }
 
     public static void main(String[] args) {
+        // 启动参数装入（--debug=true|false 等，引擎启动期读取覆盖设置）
+        LaunchArgs.parse(args);
         // FlatLaf——必须在任何 Swing 组件创建之前安装（Editor_Swing_Design §3）
         EditorTheme.setup();
         // 界面语言（2026-10-29 拍板默认 en_US）：编辑器设置已存值优先；未设置（首启）

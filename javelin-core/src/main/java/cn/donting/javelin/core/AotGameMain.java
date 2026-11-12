@@ -24,6 +24,7 @@ public class AotGameMain {
 
     /** native-image 同样要求 main(String[]) 签名 */
     public static void main(String[] args) {
+        LaunchArgs.parse(args);
         System.setProperty("org.lwjgl.librarypath", "./lib");
         JavelinSetting javelinSetting = SettingManager.loadJavelinSettings();
         JavelinEngine javelinEngine = new JavelinEngine(javelinSetting);

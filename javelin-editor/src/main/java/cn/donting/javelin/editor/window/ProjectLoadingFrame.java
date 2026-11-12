@@ -100,7 +100,23 @@ public class ProjectLoadingFrame extends JFrame {
 
             } catch (Exception ex) {
                 log.error(ex.getMessage(), ex);
+                showStartupError(ex);
             }
         });
+    }
+
+    /**
+     * 启动链异常（含 engineDebug fail-fast 无校验层）：弹错误框让用户看见（红线 15），
+     * 确认后关闭进程——加载窗已 dispose，无其他可见窗口可回退。
+     */
+    private void showStartupError(Throwable error) {
+        try {
+            SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(null,
+                    "引擎启动失败\n\n" + error.getMessage(),
+                    "Javelin Editor", JOptionPane.ERROR_MESSAGE));
+        } catch (Exception e) {
+            log.warn("启动失败弹框不可用（EDT 等待失败），直接关闭编辑器");
+        }
+        System.exit(1);
     }
 }

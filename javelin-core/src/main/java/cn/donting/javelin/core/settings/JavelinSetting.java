@@ -48,6 +48,21 @@ public class JavelinSetting implements Serializable {
      */
     private PipelineProfile renderPipeline = PipelineProfile.FORWARD;
 
+    /**
+     * 引擎调试开关（Vulkan 校验层 + DebugUtilsMessenger 回调，Engine_DebugTools_Plan §2）：
+     * 默认 true——开发者默认要听见校验层。启动期消费、运行期不可切；为 true 且本机无
+     * 校验层时启动即报错（fail-fast，红线 15），关掉本开关可免校验层启动。
+     */
+    private boolean engineDebug = true;
+
+    public boolean isEngineDebug() {
+        return engineDebug;
+    }
+
+    public void setEngineDebug(boolean engineDebug) {
+        this.engineDebug = engineDebug;
+    }
+
     public PipelineProfile getRenderPipeline() {
         return renderPipeline;
     }
@@ -131,6 +146,7 @@ public class JavelinSetting implements Serializable {
         output.write("antialiasing",antialiasing);
         output.write("maxFps",maxFps);
         output.write("renderPipeline",renderPipeline);
+        output.write("engineDebug",engineDebug);
     }
 
     @Override
@@ -156,5 +172,7 @@ public class JavelinSetting implements Serializable {
         if (rp != null) {
             renderPipeline = rp;
         }
+        // 缺键按协议既定行为读取（readBoolean 缺键= false）
+        engineDebug = input.readBoolean("engineDebug");
     }
 }

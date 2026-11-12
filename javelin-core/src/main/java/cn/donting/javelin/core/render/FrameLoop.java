@@ -5,6 +5,7 @@ import cn.donting.javelin.rhi.CompiledGraph;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.RenderGraphCache;
+import cn.donting.javelin.rhi.Semaphore;
 import cn.donting.javelin.rhi.SubmitInfo;
 import cn.donting.javelin.rhi.SwapChain;
 import cn.donting.javelin.rhi.Texture;
@@ -44,6 +45,13 @@ public final class FrameLoop implements AutoCloseable {
     private final FrameState[] states;
     private final int maxFramesInFlight;
 
+    /**
+     * present 完成信号：<b>按交换链图像</b>持有（VVL 00067 修法 a）。每帧复用会在上一次
+     * present 未完成时重复 signal；按图像持有后，该图像能再次 acquire 即证明上次 present
+     * 已完成，重签安全。随交换链重建按新图像数重建。
+     */
+    private Semaphore[] renderFinished;
+
     private int ringIndex;
     private long frameCounter;
     private boolean closed;
@@ -70,6 +78,7 @@ public final class FrameLoop implements AutoCloseable {
             states[i] = new FrameState(device);
         }
         this.swapChain = device.createSwapChain(desc);
+        this.renderFinished = createRenderFinishedSemaphores(swapChain.imageCount());
         // 呈现配置读数：presentMode 为实际生效值（vsync→MAILBOX 不支持时静默回退
         // FIFO，回退只有此处可见——Vulkan_Pitfalls #21 观测口）
         log.info("swapchain: images={}, present={}", swapChain.imageCount(), swapChain.presentMode());
@@ -119,8 +128,8 @@ public final class FrameLoop implements AutoCloseable {
         graph.execute(f.cmd(), swapChain.image(idx), compiled);
 
         device.graphicsQueue().submit(f.cmd(), new SubmitInfo(
-                List.of(f.imageAvailable()), List.of(f.renderFinished()), f.fence()));
-        swapChain.present(idx, f.renderFinished());
+                List.of(f.imageAvailable()), List.of(renderFinished[idx]), f.fence()));
+        swapChain.present(idx, renderFinished[idx]);
 
         // 延迟销毁队列帧推进（17 节两帧规则）
         CleanerRegistry.onFrameEnd(frameCounter++);
@@ -146,7 +155,30 @@ public final class FrameLoop implements AutoCloseable {
                 descTemplate.presentMode(), descTemplate.colorSpace(),
                 descTemplate.minImageCount(), descTemplate.vsync()));
         graphCache.invalidate();
+        // 重建后图像数可能变；recreate 内已 vkDeviceWaitIdle → 旧信号量可安全释放
+        disposeRenderFinishedSemaphores();
+        renderFinished = createRenderFinishedSemaphores(swapChain.imageCount());
         surface.acknowledgeResize();
+    }
+
+    /** 按交换链图像数创建 present 完成信号量（每图像一个） */
+    private Semaphore[] createRenderFinishedSemaphores(int imageCount) {
+        Semaphore[] semaphores = new Semaphore[imageCount];
+        for (int i = 0; i < imageCount; i++) {
+            semaphores[i] = device.createSemaphore();
+        }
+        return semaphores;
+    }
+
+    /** 释放按图像持有的 present 信号量（调用方须保证 device 已 waitIdle） */
+    private void disposeRenderFinishedSemaphores() {
+        if (renderFinished == null) {
+            return;
+        }
+        for (Semaphore semaphore : renderFinished) {
+            semaphore.dispose();
+        }
+        renderFinished = null;
     }
 
     @Override
@@ -159,6 +191,7 @@ public final class FrameLoop implements AutoCloseable {
         for (FrameState s : states) {
             s.close();
         }
+        disposeRenderFinishedSemaphores();
         swapChain.dispose();
     }
 
