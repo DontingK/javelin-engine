@@ -81,6 +81,7 @@ Shader "PBR_Standard"
 - 顶点属性 location 与 Mesh 顶点布局一致（Position=0 等，见 Engine_Assets_Design）。
 - std140 对齐由 MaterialBlock 排布器保证，作者不手补 padding；不得手写与注入同名的 cam/pc/MaterialBlock 声明（构建期报错）。
 - 注入位置固定 `#version` 之后一行，无标记。
+- **纯 GLSL 覆盖制 Pass 的 `.vert`/`.frag`：源内（含注释）绝不可出现字面量 `//@javelinLighting`**——`SpvShaderImporter` 用 `source.contains("//@javelinLighting")` 判定是否注入光照段，写在注释里也算命中；注入的 `gbufferAlbedo`/`gbufferNormal`/`gbufferWorldPos`（set1 binding5/6/7）会与手写的同名采样器撞 `redefinition`（gbufferview.frag 2026-11-12 实锤：注释里提了一嘴标记名就编译失败）。要说明「不注入」请只写标识名，别写完整字面量。
 - 占位贴图：`white` / `bump` / `black`。
 - **透明分桶 = Material.surfaceType（材质显式裁决，2026-10-17 方案 B），不是 PassState 的 Blend 态，也不是 Queue**：材质 surfaceType=TRANSPARENT → 透明桶 + PSO 覆盖 Blend SrcAlpha OneMinusSrcAlpha / ZWrite Off；OPAQUE → Blend Off / ZWrite On。PassState 里的 Blend/ZWrite 声明对场景材质的前向路径恒被覆盖（写 .shader 时不用靠改 Blend 开透明；要透明改材质）。
 - **坑**：`bindDescriptorSet` 前必须先 `bindPipeline`（Vulkan 命令序，Vulkan_Pitfalls.md）。

@@ -16,6 +16,7 @@ import cn.donting.javelin.editor.appstate.TransformWatchAppState;
 import cn.donting.javelin.editor.appstate.ViewportPickAppState;
 import cn.donting.javelin.editor.appstate.gizmo.TransformGizmoAppState;
 import cn.donting.javelin.editor.debug.DebugLineAppState;
+import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.picking.PickSystem;
 import cn.donting.javelin.core.settings.JavelinSetting;
@@ -141,6 +142,9 @@ public class JavelinEditor extends JavelinEngine {
             // DebugDrawLine 调试线（Editor_DebugLine_Design.md）：选中物体 bounds/
             // 相机视锥线框（组件绘制器查表分派），插管线 Transparent 后、Gizmo 前
             stateManager.attach(new DebugLineAppState());
+            // G-Buffer 可视化调试视图（dbg-2，Engine_DebugTools_Plan §3）：工具菜单/F4 切换，
+            // 覆盖制贴编辑器相机视口的 G-Buffer（albedo/世界法线/世界位置；仅 HYBRID 档）
+            stateManager.attach(new GBufferDebugAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());

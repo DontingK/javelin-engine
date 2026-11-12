@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.5（2026-11-12 补 dbg-1 批次与「首跑排障产出」两条）
+> 版本：v0.6（2026-11-12 补 dbg-2 G-Buffer 可视化批次）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -86,6 +86,7 @@
 
 - **2026-11-12｜dbg-1 校验层消息回调（`Engine_DebugTools_Plan` §2 步骤一）**：`JavelinSetting.engineDebug`（原生 `boolean`、默认 true、启动期消费；序列化走既有协议**不新增接口**）+ `LaunchArgs` 启动参数持有类（`--debug=true|false` 命令行覆盖，四入口 main 首行 parse、`JavelinEngine.initialize` 实例创建前读取）+ 无 `VK_LAYER_KHRONOS_validation` 即 **fail-fast 不启动**（`VulkanInstance` 抛错含「装 SDK / 关 engineDebug」两条出路）+ `DebugUtilsMessenger` 回调（WARNING\|ERROR × VALIDATION\|GENERAL\|PERFORMANCE → logback `[VVL]` 前缀，回调对象/handle 存字段、dispose 先毁 messenger）+ 编辑器启动链异常弹错误框（红线 15） → `Engine_DebugTools_Plan.md` v0.2 §2.5 ｜✅ 2026-11-12 用户实测（启动正常、`logs/error/error.log` 零 ERROR；口径 §2.3 的「违约现形」同日实证——首跑五连报即据以定位坑 #37/#38）
 - **2026-11-12｜dbg-1 首跑排障产出（两轮）：布局两条 + WSI 信号量一条**：dbg-1 首次把校验层消息接进日志即刷出五连报。**第一轮（坑 #37，同日重跑确认两条 09600 全消）**：`RenderGraphImpl.execute` backbuffer 起手布局 `PRESENT_SRC → UNDEFINED`（acquire 后真实态；谎报会让图首屏障声明成「保留内容的转换」）+ `VulkanDevice.uploadTexture` 拷完补 `TRANSFER_DST → SHADER_READ_ONLY` 回迁（原停在 TRANSFER_DST 直接采样，描述符却声明 SHADER_READ_ONLY）。**第二轮（坑 #38）**：acquire 信号量三连环（`non-acquired-swapchain-image-used` / `MissingAcquireWait` / `01286`）根因 = **LWJGL `VkSubmitInfo.pWaitSemaphores` 只写指针不写 `waitSemaphoreCount`**（该 count 与 `pWaitDstStageMask` 共用，生成器留给调用方；而 `npCommandBuffers`/`npSignalSemaphores` 都自动带）→ 驱动整条忽略 wait 列表，故显式补 `waitSemaphoreCount(n)`；同批把引擎全部 Vulkan「结构体 × 设置器」对核了一遍，仅此一处中招。首轮曾误判「外部诊断（submit 漏传 acquire 信号量）不成立」，实为现象属实、机制猜错（丢在结构体字段而非 Java 参数），方法论落 `Vulkan_Pitfalls.md` §六-8 → `Vulkan_Pitfalls.md` #37/#38 / `RHI_Design_Pipeline.md` §24.3 / `RHI_Implementation_Progress.md` API 记录 ｜✅ 2026-11-12 用户实测（重跑 `logs/error/error.log` 零 ERROR，三类错全消）；残留项进待办总账（RHI-10/11/12、BUG-09 泄漏）
+- **2026-11-12｜dbg-2 G-Buffer 可视化调试视图（`Engine_DebugTools_Plan` §3 步骤二，**归属=编辑器**）**：**切换入口 = 顶部菜单「工具 | G-Buffer 视图」四项单选**（关闭/基色/世界法线/世界位置，`GBufferViewMenuCommand` 只写静态意图）+ F4 快捷循环；`GBufferViewPass`（覆盖制全屏贴图，内置 `builtin-asset-editor/debug/gbufferview.vert/.frag` 走 SpvShader 导入链、不带光照注入标记；**源内含标记字面量会误触注入撞名**——写注释也别写）+ push 常量 `int mode` 三选一 + 自建 set0 三采样器（不依赖 set1/set2）；`GBufferDebugAppState extends AbsEditorAppState`（`JavelinEditor.onInitialize` 装配链挂载、引擎帧消费意图挂/卸 Pass；仅 HYBRID 档——FORWARD 档菜单项置灰 + F4 提示、切走自动收起；Pass 惰性创建 + 装载失败捕获）；Pass/AppState/内置资产全迁 javelin-editor、**core 零改动** → `Engine_DebugTools_Plan.md` v0.3 §3.5 / `Engine_Features.md` §3.5 ｜✅ 2026-11-12 用户实测（口径 §3.4：HYBRID 档四态循环 / FORWARD 档菜单项置灰 + 提示行）；**随验修**：世界位置视图原「xyz 直传」在 UNORM 缓冲把负值钳成 0（负坐标全黑看不见）→ 改带符号线性重映射 `p/(2·RANGE)+0.5`（`RANGE` 常量默认 10，0=中灰、±外饱和）
 
 ---
 

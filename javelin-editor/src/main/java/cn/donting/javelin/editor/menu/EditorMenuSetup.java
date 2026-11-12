@@ -25,7 +25,9 @@ import cn.donting.javelin.editor.menu.project.ShowInExplorerMenuCommand;
 import cn.donting.javelin.editor.menu.top.CompileMenuCommand;
 import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.menu.top.GridMenuCommand;
+import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.menu.top.RenderPipelineMenuCommand;
+import cn.donting.javelin.editor.menu.top.GBufferViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
 import cn.donting.javelin.editor.menu.top.PreferencesMenuCommand;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -75,6 +77,15 @@ public final class EditorMenuSetup {
         context.registerCommand(new GridMenuCommand());
         // 渲染管线档位（FORWARD ↔ HYBRID，批次④-B 2026-11-08）：运行期切换 + 写盘
         context.registerCommand(new RenderPipelineMenuCommand());
+        // G-Buffer 可视化视图（dbg-2，2026-11-12）：工具菜单四项单选（关闭/基色/世界法线/世界位置）
+        context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.off",
+                GBufferDebugAppState.MODE_OFF));
+        context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.albedo",
+                GBufferDebugAppState.MODE_ALBEDO));
+        context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.normal",
+                GBufferDebugAppState.MODE_NORMAL));
+        context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.worldPos",
+                GBufferDebugAppState.MODE_WORLD_POS));
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new PreferencesMenuCommand());
@@ -138,7 +149,12 @@ public final class EditorMenuSetup {
 
         MenuRegistry.menu("tools", EditorLang.key("tools"))
                 .item("tools.grid")
-                .item("tools.renderPipeline");
+                .item("tools.renderPipeline")
+                .submenu(EditorLang.key("tools.gbufferView"), gbuffer -> gbuffer
+                        .item("tools.gbufferView.off")
+                        .item("tools.gbufferView.albedo")
+                        .item("tools.gbufferView.normal")
+                        .item("tools.gbufferView.worldPos"));
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）

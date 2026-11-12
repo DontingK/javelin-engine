@@ -234,6 +234,7 @@
 | 场景视图工具栏（Tools 组三工具全可用 + 局部/世界坐标切换（缩放恒局部）；游戏视图同高占位空条） | ✅（旋转/缩放解禁 2026-11-08） | ✅ 用户实测（2026-10-14 移动/坐标空间；**2026-11-08 三钮全可用复验通过**） |
 | 视口聚焦（层级双击节点行 / 视口 F 键 → 编辑器相机平滑滑到框住选中物；有网格走世界包围盒、无网格对准位置；姿态不变、手动输入即打断） | ✅（2026-10-24，Editor_Design §10） | ✅ 用户实测（2026-10-24） |
 | DebugDrawLine 调试线（编辑器专属世界空间线框：选中 mesh bounds 世界 AABB / 相机视锥 / BoxCollider 贴合盒——组件绘制器查表分派 + 覆盖制 DebugLinePass 插 Transparent 后深度咬合 + 每帧 clear 重提交跟随选中；**着色器 2026-11-07 改走资产导入链**——`debugline.vert/.frag` 源码落 `builtin-asset-editor/debugline`，Pass 经 `AssetManager` 装载） | ✅（2026-10-23，Editor_DebugLine_Design v0.1；shader 路线改向 2026-11-07） | ✅ 用户实测（2026-10-23，清单见该档 §7；**shader 换装 2026-11-07 复验销账**） |
+| G-Buffer 可视化调试视图（dbg-2，2026-11-12 落地，编辑器）：顶部菜单「工具 \| G-Buffer 视图」四项单选（关闭/基色/世界法线/世界位置）+ F4 快捷循环；`GBufferViewPass` 覆盖制全屏贴图（内置 `builtin-asset-editor/debug/gbufferview.vert/.frag` 走 SpvShader 导入链，不带光照注入标记）——push 常量 `int mode` 三选一，自建 set0 三采样器（不依赖 set1/set2），1:1 贴编辑器相机视口；仅 HYBRID 档（FORWARD 档菜单项置灰 + F4 提示，切走自动收起）；Engine_DebugTools_Plan §3.5 | ✅（2026-11-12） | ✅ 用户实测（2026-11-12：HYBRID 档四项切换正常、世界位置负值可辨；FORWARD 档菜单项置灰 + F4 提示行） |
 
 ### 3.6 资产导入管线（importer / meta / asset）
 
@@ -305,6 +306,8 @@
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
 > **当前挂账 0 项**（2026-11-12 清空）。
+>
+> （**2026-11-12 验收销账：dbg-2 G-Buffer 可视化调试视图**（§3.5 行，编辑器归属）——顶部菜单「工具 \| G-Buffer 视图」四项单选 / F4 快捷循环，把编辑器相机视口的 G-Buffer（albedo / 世界法线 / 世界位置）贴屏；仅 HYBRID 档（FORWARD 档菜单项置灰 + F4 提示）。**随验修**：世界位置原「xyz 直传」在 UNORM 缓冲把负值钳成 0（负坐标全黑看不见）→ 改带符号线性重映射 `p/(2·RANGE)+0.5`。验收口径 = `Engine_DebugTools_Plan §3.4`；用户实测：HYBRID 档四项切换正常、世界位置负值可辨。）
 >
 > （**2026-11-12 验收销账：dbg-1 校验层消息回调**（§1 行）——`JavelinSetting.engineDebug` + 无校验层 fail-fast + DebugUtilsMessenger 路由 logback（`[VVL]` 前缀）。验收口径见 `Engine_DebugTools_Plan §2.3`；用户实测：启动正常、`logs/error/error.log` 零 ERROR（仅余退出期对象泄漏 BUG-09，属另笔账）。**「违约现形」能力同日实证**：首次接上即刷出五连报，据此定位坑 #37（backbuffer 起手布局谎报 + `uploadTexture` 未回迁 `SHADER_READ_ONLY`）与坑 #38（LWJGL `VkSubmitInfo.waitSemaphoreCount` 未设 → wait 列表被驱动整条忽略），两条 `vkCmdDraw-None-09600` 与 acquire 三连环全消。残留账（RHI-10/11/12、BUG-09）在待办总账。）
 >

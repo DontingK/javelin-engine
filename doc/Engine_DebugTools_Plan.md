@@ -1,9 +1,11 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.2
-> 日期：2026-11-10（v0.2：2026-11-12）
-> 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（F 系热键把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
+> 版本：v0.3
+> 日期：2026-11-10（v0.3：2026-11-12）
+> 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
+>
+> v0.3 变更（2026-11-12）：**步骤二（dbg-2）落地并验收（2026-11-12 用户实测），归属=编辑器**——G-Buffer 可视化调试视图：`GBufferViewPass`（覆盖制全屏贴图，内置 `builtin-asset-editor/debug/gbufferview.vert/.frag` 走 SpvShader 导入链、不带光照注入标记）+ push 常量 `int mode` 三选一 + 自建 set0 三采样器（不依赖 set1/set2）；切换入口 = **顶部菜单**「工具 | G-Buffer 视图」四项单选（F4 降为快捷循环）；`GBufferDebugAppState`（编辑器装配链挂载、FORWARD 档置灰/提示、Pass 惰性创建）——**core 零改动**（未挂 `registerDefaultAppStates`）。实装落点见 §3.5，验收口径 §3.4 未变。
 >
 > v0.2 变更（2026-11-12）：**步骤一（dbg-1）落地并验收**（2026-11-12 用户实测：启动正常、`logs/error/error.log` 零 ERROR；「违约现形」能力首跑即实证——五连报据以定位坑 #37/#38）——`JavelinSetting.engineDebug` 设置字段（默认 true；序列化走既有协议、**不新增接口**；命令行 `--debug=true|false` 经 `LaunchArgs` 覆盖）+ 无校验层 **fail-fast** + `VulkanInstance` DebugUtilsMessenger 回调（WARNING/ERROR 路由 logback，`[VVL]` 前缀）+ 编辑器启动链异常弹错误框（红线 15）。实装落点见 §2.5；验收口径 §2.3 未变。
 
@@ -84,19 +86,20 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 ### 3.1 形态
 
-- **F4 热键循环切换**（F3 = 渲染统计文本，先例 `RenderStatsAppState`；F4 空闲、邻位顺理）：关闭 → albedo → 世界法线 → 世界位置 → 关闭，循环；**默认关闭**（调试视图不常驻）；
-- **形态 = 全屏覆盖 Pass**：把选定 G-Buffer 附件整张贴到屏幕（小视口居中缩放，保持宽高比，四周留背景——整张可见才叫可视化；不跟随相机视口裁切）。法线视图着色 = `normal * 0.5 + 0.5`（[-1,1]→[0,1] 可见域）；世界位置 = xyz 直接显示（越界值一眼可见）；albedo 原样；
-- **覆盖制着色器**（SkyboxPass/LightingPass 同族先例）：`builtin-asset-core/debug/gbufferview.frag/.vert` 走 SpvShader 导入链（**不带 `//@javelinLighting` 标记**——只采样三选一，无光照注入；vertex = 全屏三角形，LightingPass 同款）；uniform 通道 = push constants 传 `int mode`（三态选一，无 set1/set2 依赖）——**新增 push-only PSO 布局先例**（ShadowPass 128B 专属 push 布局同法，4B 即够）。
+- **切换入口 = 顶部菜单**「工具 | G-Buffer 视图」四项单选（关闭 / 基色 / 世界法线 / 世界位置，`checked()` 勾选）；另保留 **F4 边沿循环**作快捷键（F3 = 渲染统计文本，邻位顺理）。**默认关闭**（调试视图不常驻）。菜单在 EDT 写意图、AppState 引擎帧消费（Gizmo 意图镜像同口径）；三个视图项仅 HYBRID 档可用（置灰），「关闭」恒可用；
+- **形态 = 覆盖制全屏贴图**：按 `gl_FragCoord` 绝对坐标把目标 G-Buffer 附件 1:1 贴回本视口（与 `LightingPass` 同款映射，不做居中留白——单视口满屏等价、分屏各贴各自区域）。法线视图着色 = `normal * 0.5 + 0.5`（[-1,1]→[0,1] 可见域）；世界位置 = **带符号线性重映射** `p / (2·RANGE) + 0.5`（0=中灰、+xyz 变亮 / -xyz 变暗、±RANGE 外饱和——`RANGE` 常量默认 10）——原「xyz 直传」在 UNORM 缓冲里会把负值钳成 0（负坐标全黑看不见，2026-11-12 实机修正）；albedo 原样；
+- **覆盖制着色器**（SkyboxPass/LightingPass 同族先例）：`builtin-asset-editor/debug/gbufferview.vert/.frag` 走 SpvShader 导入链（**不带光照注入标记**——只采样三选一，无光照注入；vertex = 全屏三角形，LightingPass 同款）；uniform 通道 = push constants 传 `int mode`（三态选一，**不依赖 set1/set2**，自建 set0 三采样器）；描述符集按「视口名 + 三张纹理身份」缓存、附件换代重建。
 
 ### 3.2 挂点与驱动
 
-- **驱动 = `GBufferDebugAppState`**（`registerDefaultAppStates` 注册链挂载，RenderStatsAppState 同族）：`update` 里 `Input.wasPressed(KeyCode.F4)` 边沿切 mode；持有 Pass 实例按需 `pipeline.addPass/removePass`（Gizmo 网格开关 = AppState 挂/卸 Pass 先例）；
-- **Pass 挂点 = 末尾置顶**（`addPass(pass)` 尾追加，两档同步——GizmoPass/DebugLinePass 同口径）：读首视口 G-Buffer 三张（`rs.gbufferAlbedoFor/NormalFor/WorldPosFor(首视口名)`，RenderingSystem 既有公开口），HYBRID 档专用视图——**FORWARD 档下 F4 切开时该 AppState 弹日志提示「HYBRID 档专用」**（管线档位 `RenderPipeline.profile()` 可查；不弹窗打断，日志 + DebugText 行提示即可）；
-- 图依赖：`addTextureRead` 三张（读声明即建边，G-Buffer 必已写完）；写终点 = backbuffer（appendOverlay 同层、覆盖制 LOAD）。
+- **归属 = 编辑器**（javelin-editor `editor.debug`，2026-11-12 拍板从 core 迁入）：`GBufferDebugAppState extends AbsEditorAppState`，`JavelinEditor.onInitialize` 随编辑器装配链挂载；切换走工具菜单命令 `GBufferViewMenuCommand`（`JavelinEditor.getInstance()` 取管线判档位）；
+- **驱动**：菜单 `execute()` 只写静态意图 `GBufferDebugAppState.requestMode(mode)`；`update` 在引擎帧消费——F4 边沿循环、意图变化才 `pipeline.addPass/removePass` + `setMode`（Gizmo 网格开关 = AppState 挂/卸 Pass 先例）；Pass **惰性创建**（不激活不装载着色器），创建/装载失败捕获 → 日志 + 行提示 + 回退意图（不把帧循环带崩）；
+- **Pass 挂点 = 末尾置顶**（`addPass(pass)` 尾追加，两档同步——GizmoPass/DebugLinePass 同口径）：目标视口 = **编辑器相机视口**（`targetView` 过滤，GAME 视口不进图），读该视口 G-Buffer 三张（`rs.gbufferAlbedoFor/NormalFor/WorldPosFor(视口名)`，RenderingSystem 既有公开口），HYBRID 档专用视图——**FORWARD 档下按 F4 弹日志 + DebugText 行提示「仅 HYBRID 档可用」**（管线档位 `RenderPipeline.profile()` 可查；运行期 HYBRID 切 FORWARD 自动收起）；
+- 图依赖：`addTextureRead` 三张（读声明即建边，G-Buffer 必已写完）；写终点 = backbuffer（覆盖制 LOAD）。
 
 ### 3.3 边界与不做
 
-- 只看**首视口**（主相机）G-Buffer——多视口分屏各看各的属过度设计，需要时再加；
+- 只看**目标视口（编辑器相机）** G-Buffer——多视口分屏各看各的属过度设计，需要时再加；
 - 不做像素取值放大镜/直方图（那是 RenderDoc 的领域；本视图只答「中间产物肉眼对不对」）；
 - shadowMap 可视化（另一张高价值中间产物）**不在本步**——深度比较采样器采样与普通采样不同（需专 shader 分支），独立小批次后置，档内留位。
 
@@ -106,6 +109,21 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 - #35 复盘对照：模拟「G-Buffer 正常但光照输出黑」时，F4 albedo 视图正常 → 断点定位在 LightingPass，不再需要推演；
 - FORWARD 档：F4 无画面 + 提示行；F3 统计不受影响。
 
+### 3.5 实装落点（2026-11-12；归属=编辑器，当日从 core 迁入）
+
+| 落点 | 改动 |
+|------|------|
+| `GBufferViewPass`（新增，javelin-editor `editor.debug`） | 覆盖制全屏大三角形（`LightingPass` 同款 NDC 顶点 + 1x 无深度附件 PSO）；`addToGraph` 按 `mode` 门控（0=不进图）+ **`targetView` 过滤**（只编辑器相机视口，GAME 视口不进图）；读本视口 G-Buffer 三张（`gbufferAlbedoFor/NormalFor/WorldPosFor` + `addTextureRead` 建边）+ 终点 `colorTarget()` LOAD；render 回调绑 PSO + 自建 set0（三采样器）+ push `int mode` + `draw(3,1)`；描述符集按「view 名 + 三张纹理身份」缓存、附件换代重建；着色器缺失/坏产物经 `EditorLang` 报错（红线 15） |
+| `GBufferViewMenuCommand`（新增，javelin-editor `menu.top`） | 四个实例（关闭/基色/世界法线/世界位置），单选勾选（`checked()` 比对意图模式）；`execute()` 只写意图 `requestMode(mode)`（Gizmo 意图镜像口径）；三个视图项 `enabled()` 仅 HYBRID 档可用、「关闭」恒可用 |
+| `gbufferview.vert/.frag`（新增，`javelin-editor/.../builtin-asset-editor/debug/`） | vs = 全屏三角形 NDC（零声明）；fs = `layout(set=0, binding=0/1/2) uniform sampler2D` 三张 G-Buffer + `layout(push_constant){ int mode; }`——按 `gl_FragCoord / textureSize` 1:1 取回本像素；albedo 原样 / 法线 `×0.5+0.5` / 世界位置**带符号重映射**（`p/(2·RANGE)+0.5`，负值不再钳黑）；**源内（含注释）不得出现光照注入标记字面量**（`source.contains` 判定——注释里写也会误触注入撞名，2026-11-12 实锤）；伴生 `.meta`（assetType=SpvShader）；Gradle 索引任务自动收 `.vert/.frag` |
+| `GBufferDebugAppState`（新增，javelin-editor `editor.debug`） | `extends AbsEditorAppState`；静态 volatile 意图 `requestMode/getMode`（菜单 EDT 写、帧内消费）；`update`：F4 边沿循环 + 意图变化才挂/卸 Pass + `setMode`；FORWARD 档按 F4 不切换（日志 + DebugText 行 10 提示「仅 HYBRID 档可用」）、运行期切到 FORWARD 自动收起；Pass 惰性创建 + 创建/装载失败捕获（日志 + 行提示 + 回退意图）；onDetach 摘 Pass |
+| `JavelinEditor.onInitialize` | 编辑器场景就绪分支内 `attach(new GBufferDebugAppState())`（与 DebugLine/Pick 同链） |
+| `EditorMenuSetup` / 语言包 | 注册 4 条命令 + 「工具」域 `.submenu("tools.gbufferView", ...)` 四项；zh_CN / en_US 各补 `tools.gbufferView*` 与 `gbufferView.assetMissing/assetInvalid` 键 |
+
+> 实装取舍：显示沿用 `LightingPass` 的 **`gl_FragCoord` 绝对坐标 1:1 映射**（不另做居中缩放/留白——单视口满屏时两者等价，分屏时各视口贴各自区域最直观）；只作用于编辑器相机视口（多视口各看各的属过度设计，§3.3）。
+>
+> 归属沿革：v0.2 时点本步骤原拟落 core（`registerDefaultAppStates` 同族）；2026-11-12 用户拍板**归编辑器**——切换入口随之改为**顶部菜单**（F4 降为快捷键），Pass/AppState/内置 shader 全迁 javelin-editor，core 零改动（`JavelinEngine.registerDefaultAppStates` 未加此状态）。
+
 ---
 
 ## 4. 排期与批次划分
@@ -113,7 +131,7 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | 批次 | 内容 | 依赖 | 量级预估 |
 |------|------|------|---------|
 | **dbg-1** ✅ 已验收（2026-11-12 用户实测） | 步骤一：`engineDebug` 设置 + fail-fast + messenger 回调路由（2.1~2.4 全部） | 无（先行） | 小（RHI `VulkanInstance` 主体 + `JavelinSetting` 两字段 + `JavelinEngine` 一行接线；改动集中、无渲染路径风险） |
-| **dbg-2** | 步骤二：G-Buffer 可视化（3.1~3.4 全部） | dbg-1 无硬依赖，可并行；建议在后（dbg-1 验收后顺手） | 中（新 AppState + 覆盖 Pass + 内置 shader 资产三件 + meta + 单测/手验清单） |
+| **dbg-2** ✅ 已验收（2026-11-12 用户实测；归属编辑器） | 步骤二：G-Buffer 可视化（3.1~3.4 全部；实装落点 §3.5） | dbg-1 无硬依赖，可并行；建议在后（dbg-1 验收后顺手） | 中（新 AppState + 覆盖 Pass + 内置 shader 资产三件 + meta + 单测/手验清单） |
 | 后置挂账 | shadowMap 可视化（3.3）；VERBOSE 严重度；编辑器首选项 UI（2.4）；SPIR-V 静态自检（无 SDK 环境的引擎侧校验，立项另议） | dbg-1/2 | — |
 
 两批各自独立验收（dbg-1 = 2.3 清单、dbg-2 = 3.4 清单），验收口径单点落 `Engine_Features.md`；批次索引进 `Engine_Roadmap_Progress.md`（支撑类散件节）。
