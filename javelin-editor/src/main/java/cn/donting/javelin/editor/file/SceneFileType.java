@@ -8,6 +8,7 @@ import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.scene.EditorScene;
 import cn.donting.javelin.editor.selection.EditorSelection;
+import cn.donting.javelin.editor.swing.dialog.TimeConsumingDialog;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
@@ -81,7 +82,9 @@ public class SceneFileType implements FileType {
             return;
         }
         boolean saveFirst = choice == 0;
-        editor.submitTask(() -> swapScene(editor, file, saveFirst));
+        // 场景切换（Library 装载 + 对象图换代 + 保存）在引擎主线程帧边界串行执行，期间无任何
+        // 其它反馈——大场景可超 1s，故挂「处理中」指示器（ED-01）
+        editor.submitTask(TimeConsumingDialog.wrap(() -> swapScene(editor, file, saveFirst)));
     }
 
     /**

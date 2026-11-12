@@ -124,10 +124,10 @@ CharacterCodingException 降级 debug「二进制源无头=预期态」+ **拖�
 
 **单测**：`Texture2DTest` 原「上传后修改抛异常」用例改「允许修改（revision 自增、换图置空 gpu）」+ 新增「同一 Image 引用不重建（句柄保持）」用例。
 
-**v0.3 验收清单（待用户实测）**：
-- [ ] 运行期对场景 Texture2D 实例 setImage（换图）→ 画面下帧更新为新图；旧 GPU 图片经 Cleaner 释放（F3 存活计数不涨）；
-- [ ] 运行期 setFilterMode/setWrapMode → 采样效果即时变（POINT/CLAMP 可见）；
-- [ ] `Texture2DTest` 修改后两例全绿（跑测归用户）。
+**v0.3 验收清单（✅ 2026-10-30 用户实测；换图重传 2026-11-12 复核）**：
+- [x] 运行期对场景 Texture2D 实例 setImage（换图）→ 画面下帧更新为新图；旧 GPU 图片经 Cleaner 释放（F3 存活计数不涨）；**2026-11-12 用户实机复核**：面板换图 → `material set created` 出新 guid + 旧 TEXTURE/IMAGE_VIEW 经 Cleaner 回收、画面当帧变；
+- [x] 运行期 setFilterMode/setWrapMode → 采样效果即时变（POINT/CLAMP 可见）；
+- [x] `Texture2DTest` 修改后两例全绿（跑测归用户）。
 
 ---
 

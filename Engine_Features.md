@@ -29,7 +29,7 @@
 | backbuffer 句柄入 structureHash | ⬜ 后置 | — |
 | R32Uint 拾取附件 + 图像读回 | ✅（2026-10-23，Engine_Picking_Design v0.1：TextureReadbackRing 环 + copyImageToBuffer/Buffer.read/Fence.isSignaled/RHIClearUintColor/Format.bytesPerPixel） | ✅ 用户实测（2026-10-23，随拾取全链） |
 | **SSBO + compute 全链**（三期批次①，2026-10-31 落地：compute 管线布局装配补齐（原空壳——setLayouts+pushConstantRange，stage=COMPUTE）/ pushConstants stageFlags 按 bindPoint 分流 / **Buffer 进图同步**——PassDef addBufferRead/Write + 依赖推导 + structureHash + VkBufferMemoryBarrier 屏障计划（通用资源面，非光照特化）/ DescriptorUpdate.storageBuffer VK_WHOLE_SIZE 修正+offset/range 重载 / 删 VulkanPipelineLayout+createPipelineLayout 死代码；SSBO 描述符链/dispatch/compute 进图骨架为 RHI 实装期既有） | ✅（2026-10-31） | ✅ 用户实测（2026-10-31，ComputeSsboTest 全环——双段 compute 链+图形读+读回 65536 元素逐比对通过 + ComputeShaderImporterTest 绿；排障两条入 Vulkan_Pitfalls #27/#28） |
-| 校验层 + DebugUtilsMessenger 回调（dbg-1，2026-11-12 落地：`JavelinSetting.engineDebug` 默认 true、启动期消费、`--debug=true\|false` 经 `LaunchArgs` 命令行覆盖；`VulkanInstance` 无 `VK_LAYER_KHRONOS_validation` 即 fail-fast 不启动；消息 WARNING/ERROR × VALIDATION/GENERAL/PERFORMANCE 路由 logback `[VVL]` 前缀；Engine_DebugTools_Plan §2） | ✅（2026-11-12） | ⏳ 待用户实测 |
+| 校验层 + DebugUtilsMessenger 回调（dbg-1，2026-11-12 落地：`JavelinSetting.engineDebug` 默认 true、启动期消费、`--debug=true\|false` 经 `LaunchArgs` 命令行覆盖；`VulkanInstance` 无 `VK_LAYER_KHRONOS_validation` 即 fail-fast 不启动；消息 WARNING/ERROR × VALIDATION/GENERAL/PERFORMANCE 路由 logback `[VVL]` 前缀；Engine_DebugTools_Plan §2） | ✅（2026-11-12） | ✅ 用户实测（2026-11-12，启动正常、`logs/error/error.log` 零 ERROR；「违约现形」能力同日实证——首跑即刷出五连报并据以定位坑 #37/#38） |
 
 ## 2. javelin-core —— 引擎核心
 
@@ -161,7 +161,7 @@
 | JS↔Java 桥（方法桥协议 + 事件总线双向 + EDT hop / 引用计数退订） | 🪦 已清退 | 2026-10-18 jcef 包整包删除（桥方法/par/vo/EventBridgeForwarder 全量），jcefmaven、jackson 依赖移除；事件体系保留——BridgeEvent/JsEvent/PongEvent 删、五场景事件转纯 EditorEventBus 事件；Inspector 三 VO 迁 inspector 包（M4 数据模型） |
 | ~~通用 CEF 模态对话框 Dialog~~ | 🪦 已退役 | 2026-10-17 随去 Web 化删除（唯一消费方打包对话框迁 Swing；原待验收场景作废） |
 | 打包对话框 PackDialog（Swing 版：构建形态/启动场景/构建模式/窗口元信息表单 + 实时日志流，构建链 Java 直调） | ✅ | ✅ 用户实测（2026-10-23） |
-| 耗时操作指示器 TimeConsumingDialog（`swing/dialog`：静态 `start()/end()/wrap()` 标记后台耗时操作，超 1 s 弹无边框非模态「处理中」指示器——线程名 + 已用时、标记清零自动关；EDT 标记跳过、监视线程按需存活、嵌套按最外层计时；双语键 `time.consuming.*` 随批，Editor_Swing_Design §4.3 v0.2） | ✅（2026-11-08） | ✅ 用户确认验收（2026-11-08；调用点接入为后续动作） |
+| 耗时操作指示器 TimeConsumingDialog（`swing/dialog`：静态 `start()/end()/wrap()` 标记后台耗时操作，超 1 s 弹无边框非模态「处理中」指示器——线程名 + 已用时、标记清零自动关；EDT 标记跳过、监视线程按需存活、嵌套按最外层计时；双语键 `time.consuming.*` 随批，Editor_Swing_Design §4.3 v0.2） | ✅（2026-11-08） | ✅ 用户确认验收（2026-11-08；调用点接入 2026-11-12 落地——场景切换 `SceneFileType.openScene` + 焦点扫描 `AssetReloadService.scanAndShow` 两处，待实机确认） |
 
 ### 3.2 菜单与命令（menu / selection）
 
@@ -218,7 +218,7 @@
 | v0.18 组件头右键菜单（右键组件分组头弹菜单，当前项=删除组件；required 组件（Transform）置灰、折叠切换改只认左键；core 补 `Node.removeComponent`+`GameScene.onComponentDetached`——即时 onDisable→onDestroy+退注册表（唯一性槽位释放），口径同节点摘出场景（Engine_Scene_Design §2.2/§2.5 v0.7）；移除链=帧边界删 + 置脏 + 面板自拉；测试 SceneComponentTest 两组断言；Inspector_Design §14） | ✅（2026-11-08） | ✅ 用户实测（2026-11-08） |
 | v0.19 材质 Shader 换绑落共享实例（修用户报「材质检查器改 shader 后用该材质的物体不变」：`onShaderCommit` 不再走盘面重解析私有实例——换绑落 loadGuid 缓存共享实例、引擎帧首 `setShader` + `requestReconcile`，渲染侧按 builtFromShader 换代退役重建 set2/按新 shader 身份另建 PSO；面板载体与共享实例分歧时按盘面值补齐再收回共享实例；v0.11「换绑例外」口径作废。顺修 `materialSet` 注释陈旧（贴图槽 live 换绑早已随 textureRevision 即时生效）。外部手改 .mat 自动生效仍挂资产热重载批次） | ✅（2026-11-10） | ✅ 用户实测（2026-11-10，改 shader 场景物体即时换模板） |
 | v0.20 材质面板装载只走 Library 产物（用户两轮纠偏「应该从缓存获取」「load 都不应该使用文本源，文本源只用于导入器，否则会出现缓存/内存不一致」：`load` 改「伴生 .meta 取 guid → `loadGuid` 取缓存/Library 产物实例」作载体，未导入/产物缺失/损坏=显性诊断态（新增 `material.inspector.missingProduct` 键）、不再回退文本源解析；诊断态重选同文件可重试（`onSelection` 同文件判据改「已持载体才跳过」）；**分歧守卫与 sameShaderGuid 退役**，`onShaderCommit` 不再重解析源文件做回写基线——直接改内存载体 → 导出源文件 → 重导产物，共享实例取用走新增 `ProjectAssetLibManager.loadCache(guid, type)` 只查缓存口） | ✅（2026-11-10） | ✅ 用户实测（2026-11-11，装载改造复验） |
-| v0.21 纹理面板装载只走 Library 产物（AGENTS 红线 17 清账：`load` 由 TextImporter 文本源解析改「伴生 .meta 取 guid → `loadGuid` 取缓存/产物实例」；编辑载体=内存缓存共享实例（v0.12 文本私有实例作废——冻结语义已于 2026-10-30 废除）；产物缺失=诊断态（新增 `texture.inspector.missingProduct` 键）可重选重试；采样两下拉即写即生效（revision → materialSet 重建）；图换绑只改内存+源文件，上屏换像素归贴图热重载批次） | ✅（2026-11-10） | ✅ 用户实测（2026-11-11，装载改造复验） |
+| v0.21 纹理面板装载只走 Library 产物（AGENTS 红线 17 清账：`load` 由 TextImporter 文本源解析改「伴生 .meta 取 guid → `loadGuid` 取缓存/产物实例」；编辑载体=内存缓存共享实例（v0.12 文本私有实例作废——冻结语义已于 2026-10-30 废除）；产物缺失=诊断态（新增 `texture.inspector.missingProduct` 键）可重选重试；采样两下拉即写即生效（revision → materialSet 重建）；图换绑即时生效——`setImage` 置空 GPU 句柄 + revision 自增 → materialSet 退役重建重传，2026-11-12 实机复核销账） | ✅（2026-11-10） | ✅ 用户实测（2026-11-11 装载改造复验；2026-11-12 换图重传复核） |
 | v0.22 纹理面板「预览」行（检查器）——引用的 `Image` 有像素即 8 位 RGBA/BGRA 解码 → 等比缩放进 128px 方框显示（1px 描边分辨透明区）；未选图/无像素/非支持格式不出该行（正常域空态不报错）；缩略图后台线程算、图换绑提交后重装刷新（缩略图逻辑 = `widget/ImagePreview`，v0.23 抽公用件） | ✅（2026-11-11） | ✅ 用户实测（2026-11-11） |
 | v0.23 图片检查器（.png/.jpg/.jpeg 公用，只读预览台）——`ImageInspectorProvider`（三后缀同 provider）+ `ImageInspectorContent`：伴生 .meta 取 guid → `loadGuid` 取 Library 产物（红线 17，不解析源文件），EDT 组装预览缩略图 + 文件/尺寸(W×H)/格式/GUID/文件大小(人类可读)；只展示不编辑（派生设置归 Texture2D 引用层）；产物缺失/未导入=诊断态（红线 15）；缩略图共用 `widget/ImagePreview` | ✅（2026-11-11） | ✅ 用户实测（2026-11-11） |
 | v0.24 cubemap 检查器（.hdr/.pano 公用，只读十字预览台）——`CubemapInspectorProvider`（两后缀同 provider）+ `CubemapInspectorContent`：伴生 .meta 取 guid → `loadGuid` 取 Library `CubemapImage` 产物（红线 17，不解析源文件），EDT 组装六面十字缩略图（标准立方图 4×3 布局）+ 文件/面尺寸/面数/格式/GUID/文件大小；只展示不编辑；产物缺失/未导入=诊断态（红线 15）；十字拼图归 `ImagePreview.cubemapCross`、字节格式化归 `InsFormat.humanSize` | ✅（2026-11-11） | ✅ 用户实测（2026-11-11） |
@@ -304,9 +304,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 1 项**：①**dbg-1 校验层消息回调**（§1 行）——`JavelinSetting.engineDebug` + 无校验层 fail-fast + DebugUtilsMessenger 路由 logback（`[VVL]` 前缀）。验收口径（Engine_DebugTools_Plan §2.3）：debug=true 无 SDK 环境启动即抛错（错误框含两条出路）；有 SDK 正常启动且无虚假 VVL 洗屏；故意造违约（如 set0 stageFlags 改回 VERTEX）→ draw 帧 VVL ERROR 现形含 set/binding/stage；debug=false 不请求层/扩展零 VVL 日志；engineDebug 两值落盘重启保持。
+> **当前挂账 0 项**（2026-11-12 清空）。
 >
-> （**2026-11-12 销账**：dbg-1 首跑排障产出两轮——第一轮坑 #37（backbuffer 起手布局 `PRESENT_SRC→UNDEFINED` + `uploadTexture` 回迁 `SHADER_READ_ONLY`），同日重跑两条 `vkCmdDraw-None-09600` 全消；第二轮坑 #38（`VkSubmitInfo.waitSemaphoreCount` 未设 → wait 列表被驱动整条忽略），用户实测 `logs/error/error.log` **零 ERROR**、acquire 三连环（`non-acquired-swapchain-image-used` / `MissingAcquireWait` / `01286`）全消。残留账（RHI-10/11/12、BUG-09 退出期泄漏）在待办总账。）
+> （**2026-11-12 验收销账：dbg-1 校验层消息回调**（§1 行）——`JavelinSetting.engineDebug` + 无校验层 fail-fast + DebugUtilsMessenger 路由 logback（`[VVL]` 前缀）。验收口径见 `Engine_DebugTools_Plan §2.3`；用户实测：启动正常、`logs/error/error.log` 零 ERROR（仅余退出期对象泄漏 BUG-09，属另笔账）。**「违约现形」能力同日实证**：首次接上即刷出五连报，据此定位坑 #37（backbuffer 起手布局谎报 + `uploadTexture` 未回迁 `SHADER_READ_ONLY`）与坑 #38（LWJGL `VkSubmitInfo.waitSemaphoreCount` 未设 → wait 列表被驱动整条忽略），两条 `vkCmdDraw-None-09600` 与 acquire 三连环全消。残留账（RHI-10/11/12、BUG-09）在待办总账。）
 >
 > （**2026-11-10 销账**：HYBRID 档 / Deferred 复用（三期批次④-B）——用户实机 HYBRID 光照正常、与 FORWARD 两路一致；随验坑 Pitfalls #35（set0 相机块 stageFlags VERTEX-only，LightingPass fs 读 cam.view 越权读零全黑——修=ALL_GRAPHICS 超集）；遗留口径=非光照材质（default.shader）HYBRID 档 albedo 仍乘光照（无灯=黑，Deferred 物理正确），「直读 albedo」契约归四期材质专档。§2.4 行已翻✅；设计=Engine_RenderPipeline_Design v0.6、Engine_Lighting_Design v0.10。）
 >

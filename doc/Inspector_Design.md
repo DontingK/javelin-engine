@@ -220,8 +220,8 @@
 > 编辑载体=内存缓存共享实例（与 v0.12「文本私有实例」拍板相反；该拍板理由=Texture2D 冻结语义，冻结已于
 > 2026-10-30 废除）；产物缺失=显性诊断态（新增 `texture.inspector.missingProduct` 键）+ 重选同文件可重试。
 > 收益：采样两下拉即写即生效（`Texture2D.revision` 自增 → materialSet 两帧退役重建、sampler 随值重解）。
-> **已知边界**：图换绑只改内存 + 源文件，GPU 侧像素句柄缓存于实例（`TextureUpload` 幂等返回）——上屏换
-> 像素归贴图热重载批次。
+> **换图即时生效**（2026-11-12 实机复核销账）：`setImage` 置空 GPU 句柄 + `revision` 自增 → materialSet
+> 退役重建重传，换图当帧上屏、旧图经 Cleaner 回收（`TextureUpload` 的实例幂等只对未变更实例短路）。
 > v0.22（2026-11-11，用户实测验收通过）：**.texture 面板加「预览」行**——引用的 `Image` 有像素时，按 8 位
 > RGBA/BGRA（导入链固定产 `R8G8B8A8_UNORM`，sRGB 同字节序）解码为 `BufferedImage`，等比缩放进 128px 方框
 > 显示（1px 描边分辨透明区，色值取 UIManager）；**未选图/无像素/非支持格式不出该行**（正常域空态，不报错

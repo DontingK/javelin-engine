@@ -33,6 +33,9 @@ public class ProjectLoadingFrame extends JFrame {
 
     private static final Logger log = LoggerFactory.getLogger(ProjectLoadingFrame.class);
 
+    /** 加载页最短可见时长（毫秒）：防窗口一闪而过，引导链已耗时计入其中 */
+    private static final long MIN_DISPLAY_MS = 2000L;
+
     public ProjectLoadingFrame(File projectDir) {
         setTitle("Javelin Editor");
         setSize(400, 300);
@@ -71,6 +74,7 @@ public class ProjectLoadingFrame extends JFrame {
      */
     private void initAssets(File projectDir) {
         ThreadUtil.run("Engine Main", () -> {
+            long startedAt = System.currentTimeMillis();
             try {
                 GradleProject gradleProject = new GradleProject(projectDir);
                 // 插件装载（editor.core + 项目级 Plugins/ 目录）——先于资产初始化，
@@ -84,8 +88,12 @@ public class ProjectLoadingFrame extends JFrame {
                 assetImportPipeline.refresh();
                 assetImportPipeline.startAndWait();
                 assetManager.loadIndex();
-                // 最短展示 2s 防窗口一闪而过（沿用 CEF 版行为）
-                ThreadUtil.sleep(2000);
+                // 防窗口一闪而过（沿用 CEF 版行为）：补足到最短可见时长，而非无条件多等 2s
+                //（慢工程本已超时则不再叠加——原实现把「最短展示」写成了「额外 +2s」）
+                long remainMs = MIN_DISPLAY_MS - (System.currentTimeMillis() - startedAt);
+                if (remainMs > 0) {
+                    ThreadUtil.sleep(remainMs);
+                }
 
                 SwingUtilities.invokeAndWait((Runnable) () -> dispose());
                 JavelinSetting setting = new JavelinSetting();

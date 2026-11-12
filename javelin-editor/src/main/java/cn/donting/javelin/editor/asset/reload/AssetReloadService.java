@@ -12,6 +12,7 @@ import cn.donting.javelin.editor.event.EditorEventBus;
 import cn.donting.javelin.editor.event.EditorFocusGainedEvent;
 import cn.donting.javelin.editor.importer.AssetImportPipeline;
 import cn.donting.javelin.editor.swing.dialog.ImportProgressDialog;
+import cn.donting.javelin.editor.swing.dialog.TimeConsumingDialog;
 import cn.donting.javelin.editor.window.MainFrame;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,11 +74,14 @@ public class AssetReloadService {
 
     /** 后台扫描（refresh 同步 IO）→ 有待导入弹模态进度框（EDT；小批次可能已导完不弹） */
     private void scanAndShow() {
+        TimeConsumingDialog.start();   // 大工程全量扫描可超 1s（ED-01）
         try {
             pipeline.refresh();
         } catch (Exception e) {
             log.warn("焦点扫描资产失败", e);
             return;
+        } finally {
+            TimeConsumingDialog.end();
         }
         SwingUtilities.invokeLater(() -> {
             if (pipeline.getImportingCount() > 0

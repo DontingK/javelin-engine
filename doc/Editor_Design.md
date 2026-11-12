@@ -274,12 +274,14 @@ mainLoop 帧首消费、异常隔离，2026-09-30 场景树对接落地）；场
 
 ## 9. 已知问题与风险（检查结论）
 
-1. **`ProjectLoadingFrame` 有 `ThreadUtil.sleep(2000)` 假等待**（纯为加载页观感）。
-2. **导入成功即全量 `updateIndex()`**：每个任务成功都重扫监听目录重写索引，资产量大时是热点。
-3. **`SettingsManager` javadoc 引用不存在的 `ProjectManagerJFrame`**（现为 `ProjectFrame`）。
-4. **`MainFrame.width()` 语义与 GLFW 实现不同**（逻辑像素 vs framebuffer 像素），
+> **2026-11-12 清账**：原第 1 条（加载页 `sleep(2000)` 假等待）与原第 3 条（`SettingsManager`
+> javadoc 悬空引用）已处理——前者改「补足最短可见时长」、后者该引用已不存在（现引 `PreferencesDialog`），
+> 两条移出本表（见 `Engine_Roadmap_Progress.md` 2026-11-12 零散债务小批），余下三条编号顺延。
+
+1. **导入成功即全量 `updateIndex()`**：每个任务成功都重扫监听目录重写索引，资产量大时是热点。
+2. **`MainFrame.width()` 语义与 GLFW 实现不同**（逻辑像素 vs framebuffer 像素），
    当前消费方（帧循环只用 surface 尺寸）不受影响，但若未来有按窗口宽高的逻辑需留意 dpi。
-5. **窗口拖拽 resize 期画面非等比拉伸（2026-10-17 实测拍板：接受现状）**：拖动中
+3. **窗口拖拽 resize 期画面非等比拉伸（2026-10-17 实测拍板：接受现状）**：拖动中
     文字/画面压缩/拉宽，松手立即恢复。机制=窗口客户区每步即变、交换链图像停留在
     旧尺寸等下一帧 renderFrame 里 recreate，失配期 DWM 把旧图非等比铺满新客户区
     （整帧形变，字形最显眼）；拖动期每中间尺寸付一遍交换链重建+图缓存失效重编+

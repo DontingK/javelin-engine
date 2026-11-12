@@ -49,15 +49,15 @@
 
 | 序 | 候选 | 理由 |
 |----|------|------|
-| 1 | **HOT-01 贴图热重载批次** | 红线 17 履约的**唯一残留项**（`setImage` 后 GPU 像素不上屏），不清则「改贴图不生效」持续可复现 |
-| 2 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | targetClass 加回分支即恢复，外部手改资产自动生效的能力现被摘除 |
-| 3 | **ED-01 耗时指示器调用点接入** | 半成品收尾（类与双语包已验收，只差 3 个候选调用点接线） |
-| 4 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染） |
-| 5 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
-| 6 | **BUG 打包小修** | §13 里 `loadScene` NPE / Layer 下拉空 / javadoc 引用错误等，可一次性清 |
-| 7 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项 |
+| 1 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染） |
+| 2 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
+| 3 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项 |
+| 4 | **BUG 余项** | §13 余 `updateIndex` 热点（BUG-02）、`MainFrame.width()` 语义（BUG-05）、Layer 下拉空（BUG-08，依赖 ED-07 设置管线合流） |
+| 5 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | 外部手改资产自动生效；**须先拍板真值源优先序**（内存即真值 vs 盘面改动），拍板前不动 |
 
-> DBG-01（dbg-1 校验层回调 + engineDebug 开关）2026-11-11 建档时列本表首位，**2026-11-12 落地待验收**（现挂 `Engine_Features.md` §6），已移出本表。
+> DBG-01（dbg-1 校验层回调 + engineDebug 开关）2026-11-11 建档时列本表首位，**2026-11-12 落地并验收**，已移出本表。
+> HOT-01（运行期 `setImage` 后 GPU 像素重上传）建档时同列首位，**2026-11-12 实机复核确认早已生效**（2026-10-30 随「Texture2D 冻结废除 + revision」落地），已移出本表（详见 §7 移出记录）。
+> 本批（2026-11-12 零散债务小批）移出：**BUG 打包小修**与 **ED-01 耗时指示器接线**——BUG-01/03/04 两条过期两条已修、ED-01 落两处调用点（见 §8/§13 移出记录）。
 
 ---
 
@@ -146,7 +146,6 @@
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注 |
 |----|------|------|------|-----------|
-| HOT-01 | 运行期 `setImage` 后 **GPU 侧像素重上传**（`TextureUpload` 对实例幂等返回旧句柄 → 改贴图不上屏） | AGENTS 红线 17 履约残留 / 贴图 §8 | 半成品 | **红线 17 唯一残留项**；归贴图热重载批次 |
 | HOT-02 | `.mat`/`.texture`/`.smesh` 文件级 reload 摘除的恢复（收窄只 shader；`targetClass` 加回分支即恢复 → 外部手改这些资产自动生效） | 热重载 §8/§9 | 半成品 | walker/reload/reconcile 基建全保留 |
 | HOT-03 | Scene 根豁免（外部改 `.scene` 重导 Library 但场景对象图 warn 跳过、画面不刷新）——批次②剩余 | 热重载 §5.1/§8 | 半成品 | 二期 |
 | HOT-04 | Scene 脏时警示形式（日志 warn → 顶部弹条 / 对话框，Unity 式） | 热重载 §10 | 待拍板 | 批次②实测定 |
@@ -160,11 +159,12 @@
 | HOT-12 | 脚本导入器落地（`.java` 代码树不产 meta、meta 无消费方；头 GUID 脚手架保留） | 编辑器 §6.2 | 待拍板 | 待脚本功能真落地 |
 | HOT-13 | std140 排布生成器独立化（Engine_Material §3 P2）——**疑已随 .mat/DefaultMaterial 落地，待复核** | 材质 §3 | 待复核 | 低置信 |
 
+> **移出记录**：HOT-01（运行期 `setImage` 后 GPU 像素重上传）2026-11-12 复核**确认早已生效**——`setImage` 置空句柄 + `revision` 自增 → materialSet 退役重建重传，2026-10-30「Texture2D 冻结废除」时即落地；用户实机面板换图当帧上屏、旧 TEXTURE/IMAGE_VIEW 经 Cleaner 回收。原「半成品 / 红线 17 唯一残留项」归类系 2026-10-25 面板初版注释（「`TextureUpload` 幂等返回旧句柄」）未随改动回收。外部手改 `.texture`/`.png` 的 file-level 重载仍摘除 → 见 HOT-02。
+
 ## 8. 编辑器（二期 / 跨期）
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注 |
 |----|------|------|------|-----------|
-| ED-01 | 耗时指示器**调用点接入**（候选：AssetReloadService 焦点扫描 / ProjectLoadingFrame 引导链 / PackDialog 构建线程） | Swing §4.3 / 功能清单 §3.1 | 半成品 | 类与双语包已验收 |
 | ED-02 | Swing 深色主题（2026-10-17 拍板先改亮色，深色随后置） | Swing | 后置项 | — |
 | ED-03 | Dock 拖拽停靠（复杂交互分期后置） | Swing | 后置项 | — |
 | ED-04 | 多视口（各自相机各自 swapchain，RHI 侧扩展） | Swing | 后置项 | RHI 联动 |
@@ -176,6 +176,8 @@
 | ED-10 | 脚本资产检查器 + 脚本功能本体 | Inspector §11 | 后置项 | 与 HOT-12 同域 |
 | ED-11 | Gizmo 后置族：双轴平面手柄、环上角度扇形、拖拽箭头变长动画、角度/位移吸附、pivot/center 切换、环不可见 collider、W/E/R 快捷键 | 编辑器 | 后置项 | — |
 | ED-12 | 视口聚焦已知边界（F 键依赖渲染窗口 OS 焦点；极窄竖视口按垂直 FOV 口径可能侧向裁边） | 编辑器（视口聚焦段） | 已知问题 | 二期 |
+
+> **移出记录**：ED-01（耗时指示器调用点接入）2026-11-12 落地——场景切换（`SceneFileType.openScene`）+ 焦点扫描（`AssetReloadService.scanAndShow`）两处；原另两候选（`ProjectLoadingFrame` 引导链、`PackDialog` 构建线程）复核后不接（各有常驻指示器，叠浮层是重复）。
 
 ## 9. 插件与 i18n（二期 / 跨期）
 
@@ -224,10 +226,7 @@
 
 | ID | 症状 | 落点 | 归类 | 备注 |
 |----|------|------|------|------|
-| BUG-01 | `loadScene` 失败路径 `getEditorGameScene()` NPE 未补 | 原 功能清单 §7 | 已知问题 | — |
 | BUG-02 | 导入成功即全量 `updateIndex()` 热点（每任务成功都重扫监听目录重写索引） | 编辑器 §9 | 已知问题 | 性能 |
-| BUG-03 | `ProjectLoadingFrame` 有 `ThreadUtil.sleep(2000)` 假等待（纯为加载页观感） | 编辑器 §9 | 已知问题 | — |
-| BUG-04 | `SettingsManager` javadoc 引用不存在的 `ProjectManagerJFrame`（现为 `ProjectFrame`） | 编辑器 §9 | 已知问题 | 文档 |
 | BUG-05 | `MainFrame.width()` 语义与 GLFW 不同（逻辑像素 vs framebuffer 像素；按窗口宽高的逻辑须留意 dpi） | 编辑器 §9 | 已知问题 | — |
 | BUG-06 | 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受） | 编辑器 §9 / 原 功能清单 §7 | 已拍板接受 | 不修，记录 |
 | BUG-07 | Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘） | 原 功能清单 §7 | 已知问题 | 后调 |
@@ -235,6 +234,8 @@
 | BUG-09 | 退出期 `vkDestroyDevice` 报 46 个对象未销毁（VVL 05137；首 10 个为 VkDeviceMemory），`CleanerRegistry.flush()` 已跑仍剩 → 逐笔账未查 | 坑 #37 | 已知问题 | 已确认子项 = RHI-12 交换链 view；查账手法 = 抬高 `duplicate_message_limit` 看全列表 + 按 handle 反查创建点 |
 
 > 另有一批存量问题（描述符池 / FrameArena / backbuffer 哈希等）登记在 §4 RHI 遗留，性质同属 bug 类（RHI-03 / RHI-05 / RHI-06），不在此重复登记。
+
+> **移出记录（2026-11-12 零散债务小批）**：**BUG-01**（`loadScene` 失败路径 NPE）**复核为过期条目**——四处 null 守卫早已落地（`JavelinEditor.onInitialize` 场景未就绪跳过装配 + `EditGridAppState` / `TransformGizmoAppState` / `DebugLineAppState`）；**BUG-04**（`SettingsManager` javadoc 悬空引用）同属过期——该引用全仓零命中、现引 `PreferencesDialog`；**BUG-03**（加载页假等待）已修——`ProjectLoadingFrame` 改「补足最短可见时长」（原为在引导链耗时之上额外 +2s）。
 
 ## 14. 待复核（疑文档残留，非真待办）
 
@@ -251,6 +252,6 @@
 - 建档口径：**只登记「还没做」**；已落地待实测（`功能清单 §6`）与已完成批次（`进度卷`）不收；
 - 优先级与「建议下一步」为建档时建议，非承诺。
 
-> **移出记录**：DBG-01（dbg-1 校验层回调 + `engineDebug` 开关）2026-11-12 落地待验收，移入 `Engine_Features.md` §6 待验收挂账（现挂账 1 项）→ DBG 域余 5 条，在建条目 105。
+> **移出记录**：DBG-01（dbg-1 校验层回调 + `engineDebug` 开关）2026-11-12 落地并**验收**（`Engine_Features.md` §6 挂账清零）→ DBG 域余 5 条；HOT-01（贴图换绑像素重上传）同日复核确认早已生效（非待办）→ HOT 域余 12 条；同日零散债务小批移出 **ED-01**（耗时指示器接线）与 **BUG-01 / BUG-03 / BUG-04**（两条过期条目 + 一条已修）→ ED 域余 11 条、BUG 域余 6 条。**在建条目 = 104**（建档 106 − DBG-01 − HOT-01 − ED-01 − BUG-01/03/04 + 首跑排障新增 RHI-10/11/12、BUG-09 共 4 条）。
 
 > （注：部分内容可能由 AI 生成）

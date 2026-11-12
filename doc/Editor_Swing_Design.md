@@ -134,8 +134,11 @@ pollEvents/attachInputSink/renderSurface/isResized/acknowledgeResize/width/heigh
   故 EDT 侧无脑配对调用安全。
 - **指示器形态**：单实例、不可手动关（留关闭按钮会「关掉又弹」循环）；文案走 EditorLang
   双语包（`time.consuming.title/message`，2026-11-08 随批）。
-- **状态**：类与语言包已落（2026-11-08），**2026-11-08 用户确认验收**；调用点接入为后续动作
-  ——首批候选 = `AssetReloadService` 焦点扫描、`ProjectLoadingFrame` 引擎引导链、`PackDialog` 构建线程。
+- **状态**：类与语言包已落（2026-11-08），**2026-11-08 用户确认验收**；**调用点接入已落（2026-11-12，
+  待实机确认）**——场景切换（`SceneFileType.openScene` 的 `submitTask` 包 `wrap`：Library 装载 +
+  对象图换代跑在引擎主线程帧边界，大场景超 1 s 期间无任何反馈）与 `AssetReloadService` 焦点扫描
+  （`start/end` 包 `refresh`，大工程全量扫描）两处；原另两候选**复核后不接**——`ProjectLoadingFrame`
+  引导链（加载窗自身即进度指示器）与 `PackDialog` 构建线程（对话框日志区已在反馈），再叠浮层是重复。
 
 ## 5. Dock 框架设计
 
