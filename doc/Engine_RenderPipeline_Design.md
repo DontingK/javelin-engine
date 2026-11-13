@@ -1,13 +1,16 @@
 # 引擎渲染管线设计（Engine Render Pipeline Design）
 
-> 版本：v0.6
-> 日期：2026-09-24（v0.5 2026-11-08；v0.6 2026-11-10）
+> 版本：v0.7
+> 日期：2026-09-24（v0.5 2026-11-08；v0.6 2026-11-10；v0.7 2026-11-13）
 > 说明：引擎侧（javelin-core）渲染管线专档——一帧渲染的 Pass 组织（哪些 Pass、什么顺序、读写哪些资源、扩展机制）。
 > v0.2 变更（2026-09-25）：**钩子点枚举（PipelineHook）移除**——编排改为**有序 Pass 列表**（`RenderPass.addToGraph`），扩展 = 向列表指定位置插入自定义 Pass（6.2）；散点表述同步清扫。
 > v0.3 变更（2026-10-28）：**光照拍板 clustered Forward+（一步到位）**——ClusterBuildPass（compute）入 Pass 清单转正三期（2.2/3.1/3.2/4.3）、set1 改 cluster 套件多 binding（§7）、管线 4.5 两路光照一致性取舍**消解**（正透明同读一份 cluster，Engine_Lighting_Design v0.1 单点）；原「tiled/clustered 为 P2」口径作废。
 > v0.4 变更（2026-10-31）：**ShadowPass 补单张硬影拍板**（§4.1，明细归 Engine_Lighting_Design §4.5）；**SkyboxPass 入 Pass 清单**（§3.1/3.2，插 Opaque 后/Transparent 前，cubemap+纯视觉，设计归 Engine_Skybox_Design v0.2（2026-11-02 实装拍板）——三期批次⑤）；§9 待定表天空盒旧口径收口。
 > v0.5 变更（2026-11-08）：**HYBRID 档（Deferred 复用）实装**（§4.2-实装/§4.3-实装、§8 步骤二）——GBufferPass + LightingPass 上线，管线按 `PipelineProfile` 双 Pass 列表分派、运行期可切；不透明几何走 `Pass GBuffer` 同名桶（严格制既有机制），透明与天空盒两档共用；**不引入 lightingRT/Composite**（LightingPass 直写既有颜色终点，HDR 切换点仍归四期第 1 项）；**HYBRID 强制 1x**（MSAA-GBuffer 归四期）。
 > v0.6 变更（2026-11-10）：**HYBRID 档验收关账**——用户实机两路光照一致确认；随验一坑（**Pitfalls #35**：set0 相机块 stageFlags VERTEX-only，LightingPass fs 读 `cam.view` 越权读零全黑——修=改 `ALL_GRAPHICS` 超集）。遗留口径：非光照材质（default.shader）HYBRID 档下 albedo 仍乘光照（无灯=黑，Deferred 物理正确），「直读 albedo」非光照语义契约归四期材质专档。
+> v0.7 变更（2026-11-13）：**后处理链设计方案出档（待拍板）**——四期第 1 项（HDR 切换点 + Bloom/Tonemap）具体化落新档 `Engine_PostProcess_Design.md`；本文 §4.6/§4.7 占位收为其指针，§5.1 `lightingRT` 行指向该档（方案未拍板、未落码）。
+> v0.9 变更（2026-11-13）：**管线拆成两个独立实现类 + MSAA 移除**（同日用户拍板）——新增 `AbstractRenderPipeline`（共用骨架：单条有序 Pass 列表 + 场景 Pass 身份集 + 后处理链 + 清屏/Pass 管理 + 链展开模板）、`DefaultHybridRenderPipeline` 瘦身为 HYBRID 独用、新增 `ForwardRenderPipeline`；**启动期**由 `JavelinSetting.renderPipeline` 选实现类、**运行期不再切档**（删 `setProfile`），「工具｜混合渲染」菜单退役，编辑器固定 HYBRID；**引擎/编辑器/设置层的 MSAA 全部删除**（`AntialiasingMode`/`antialiasing` 字段/MSAA 附件族/`isMsaaPath`/各 Pass MSAA 分支与 resolve 调用点），RHI 多采样设施保留休眠（§5.3）。
+> v0.8 变更（2026-11-13）：**后处理链步骤一落码待验收**（同日用户下令开工，按方案 §7 建议默认）——`lightingRT` per-view 资源、`PipelineContext.sceneColorTarget()`、`PostProcessNode`/`PostProcessChain` 具体化 + 链展开（**展开点在最后一个场景 Pass 之后、overlay 制 Pass 之前**）、`TonemapPass`（高光肩部曲线）+ 工具菜单开关；HDR = 链非空才生效（§5.1 `lightingRT` 行转实装）。实装记录与两处实装边界见后处理档 §9。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
 > - RHI 文档管**「图怎么推导执行」**（依赖拓扑、屏障、图缓存——22 节「声明在引擎，推导执行在 RHI」）；
@@ -63,7 +66,7 @@ SkyboxPass（视口天空盒，深度 LEqual 远平面）      [三期批次⑤�
    ↓ 现混合目标叠加
 TransparentForwardPass（Forward：透明由远及近）   [v0.1 实现]
    ↓ lightingRT 叠加
-PostProcessChain（Bloom→Tonemap→…，链式可插拔）  [结构落地，Pass 占位]
+PostProcessChain（…→Tonemap，链式可插拔）        [步骤一 HDR+Tonemap 已实装 2026-11-13]
    ↓
 CompositePass（写 backbuffer；多相机 LOAD 叠加） [v0.1 实现]
 ```
@@ -78,13 +81,14 @@ CompositePass（写 backbuffer；多相机 LOAD 叠加） [v0.1 实现]
 | 3 | LightingPass | 图形（全屏） | GBuffer×3、depth、shadowMap、UBO1(camera)、set1 cluster 套件 | 颜色终点（与 Opaque 同址） | ✅ 批次④-B（2026-11-08 落地） |
 | 3.5 | SkyboxPass | 图形（全屏/视口） | skybox cubemap、UBO1(camera)、depth（LEqual 读） | 现混合目标 LOAD 叠加 | ✅ 三期批次⑤（2026-11-02 实机验收） |
 | 4 | TransparentForwardPass | 图形 | RenderList.transparent、depth、UBO1 | 颜色终点（叠加） | ✅ |
-| 5 | PostProcessChain | 链（0..n 个 Pass） | 颜色终点 / 链上游输出 | 链下游 | ⚠️ 空链直通 |
+| 5 | PostProcessChain | 链（0..n 个 Pass） | 颜色终点 / 链上游输出 | 链下游 | ⚠️ 空链直通（步骤一 Tonemap 已实装，链非空 = HDR，2026-11-13） |
 | 6 | CompositePass | 图形（全屏） | 链输出 | backbuffer | ✅（单相机可省略） |
 
-> **两档实装（v0.5）**：`PipelineProfile.FORWARD` = Shadow → OpaqueForward → Skybox → Transparent；
-> `PipelineProfile.HYBRID` = Shadow → GBuffer → Lighting → Skybox → Transparent。两档共用同一套
-> set1 cluster/阴影数据与同一 `javelinLighting` 函数（光照一致由构造保证）。后处理恒空链，
-> 单相机全屏时终点即最后一个 Pass（无 Composite、无 lightingRT）。
+> **两实现类（v0.9 拆分）**：`ForwardRenderPipeline` = Shadow → OpaqueForward → Skybox → Transparent；
+> `DefaultHybridRenderPipeline` = Shadow → GBuffer → Lighting → Skybox → Transparent。两实现共用同一套
+> set1 cluster/阴影数据与同一 `javelinLighting` 函数（光照一致由构造保证），共用
+> `AbstractRenderPipeline` 的编排与后处理链。空后处理链时单相机全屏终点即最后一个场景 Pass
+> （无 Composite、无 lightingRT）；链非空即 HDR 生效（场景写 lightingRT、链尾 Tonemap 写显示终点）。
 
 ### 3.3 v0.1 实现形态（先 Forward，已拍板）
 
@@ -167,7 +171,9 @@ addTextureRead(depthTex)                   // 着色可读（如软粒子）
 - **着色**：v0.x Forward 透明着色为简化模型（Lambert + 环境项）——**与 Deferred LightingPass 读同一套 set1 cluster 契约、同一着色公式**（2026-10-28 clustered 拍板，原「两路一致性属已知取舍」消解，统一光照模型待材质专档回填两处）；
 - **输出**：混合态目标（混合管线=lightingRT LOAD；v0.1=backbuffer LOAD）。
 
-### 4.6 PostProcessChain（结构落地，细节占位）
+### 4.6 PostProcessChain（细节具体化归 `Engine_PostProcess_Design.md`，2026-11-13）
+
+> **章节定位**：本节保留链的结构契约与挂点；**节点契约、HDR 切换点的启用条件、中间 RT、Tonemap/Bloom 形态、与多相机/AA 的交互** 已于 2026-11-13 具体化到 `Engine_PostProcess_Design.md`（四期第 1 项）——本节不再展开，改向该档。**步骤一（HDR 切换点 + Tonemap）同日已落码待验收**：链非空 = HDR 生效，链由 `AbstractRenderPipeline` 在最后一个场景 Pass 之后统一展开（overlay 制 Pass 之前，避免链尾 Tonemap 覆盖 Gizmo/调试线）；实装见该档 §9。
 
 - **结构**：有序 Pass 列表，链首=场景颜色（混合管线 lightingRT / v0.1 backbuffer），链尾=Composite 的输入；
 
@@ -191,6 +197,8 @@ pipeline.postProcess().remove("Bloom");
 
 ### 4.7 CompositePass
 
+> **v1 收窄（2026-11-13，方案待拍板）**：`Engine_PostProcess_Design.md` §3.6 建议 v1 不实装 Composite——链尾 Tonemap 全屏直出 `colorTarget` 并接管清屏/叠加语义即可；出现「链尾输出非最终显示内容」的节点时再按本节补。
+
 - **单相机全屏**：消费链输出 → backbuffer（CLEAR），viewport=全屏；**空后处理链时可省略**（3.3）；
 - **多相机**：每视口链尾 → backbuffer **LOAD** 叠加，viewport/scissor=该相机视口；叠加顺序=RenderView 声明序（后声明的画在上层，RHI 19.5-3）；
 - 独立输出目标（编辑器渲染到纹理）：终点换目标纹理，语义不变。
@@ -211,7 +219,7 @@ pipeline.postProcess().remove("Bloom");
 | msaaDepth | D32_SFLOAT | 交换链大小 | 每视口 | 随视口创建，resize 重建（AA 关恒不创建） | ✅（2026-10-06） |
 | shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ✅ 批次④-A |
 | GBuffer×3 | RGBA8 / RGBA16F / RGBA32F（见 4.2） | 视口大小（同 depth 尺码） | 每视口 | 随视口创建，resize 换绑，惰性建 | ✅ 批次④-B |
-| lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 重建 | ❌ 四期第 1 项（HDR 切换点，本批直写颜色终点） |
+| lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 换绑，惰性建（链非空才创建） | ✅ 四期第 1 项**步骤一已实装**（2026-11-13 待验收；`RenderingSystem.lightingRtFor`，后处理档 §3.3/§9） |
 | lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ✅ 批次②首视口单缓冲 → 批次③ per-view（2026-11-01 待验收） |
 | clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（**CPU 构建**——批次③拍板 2026-11-01，GPU Pass 化归四期；灯光档 §6 修订）；视口尺寸变化重建 | ✅ 三期批次③已实装（2026-11-01 待验收） |
 | 后处理中间 RT | 链内自定 | 链内自定 | 链持有 | 帧临时（RHI 17.4 别名，P1） | ⚠️ 空链无 |
@@ -223,7 +231,15 @@ pipeline.postProcess().remove("Bloom");
 - **命名规范**：`{ViewName}_{资源名}`（如 `Main_GBufferAlbedo`），对接 RHI `setDebugName`（13.3），RenderDoc 抓帧可直接辨认；
 - 资源创建/销毁只走 RHI 资源生命周期（Cleaner 两帧规则），引擎不裸建 VkImage。
 
-### 5.3 MSAA 抗锯齿（2026-10-06 拍板并落地，四片连做，已实测验收）
+### 5.3 MSAA 抗锯齿（2026-10-06 拍板并落地，已实测验收；**2026-11-13 移除**）
+
+> **⚠ MSAA 已移除（2026-11-13，用户拍板）**：引擎/编辑器/设置层的 MSAA 全部删除——`AntialiasingMode`
+> 枚举、`JavelinSetting.antialiasing` 字段、`RenderingSystem` 的 MSAA 附件族（`msaaColorFor`/`msaaDepthFor`
+> /两张视口纹理表/生效采样档）、`PipelineContext` 的 msaaColor/msaaDepth、`AbstractForwardPass.isMsaaPath`
+> /`passSamples`、Opaque/Transparent/DebugLine 的 MSAA 分支（3 处 resolve 调用点改普通三轴附件声明）、
+> 菜单守卫与两枚 i18n 键。**RHI 的多采样设施保留休眠**（`PassDef` resolve 重载 / `SampleCount` /
+> `TextureDesc.sampleCount` / `Device.supported*SampleCounts`——不动已发布 API 面）。**AA 空窗至 TAA
+> （P4-10）落地**；本节以下内容为历史实装记录。
 
 **路线拍板**：离屏 MSAA 附件 + Vulkan 原生 resolve attachment + overlay 恒 1x。
 不走 swapchain MSAA（桌面基本不支持）、不自建 blit pass、不动后处理链
@@ -262,8 +278,13 @@ pipeline.postProcess().remove("Bloom");
 ```java
 // 管线 = 每视口一实例（或共享实例 + 每视口 buildGraph 调用）
 interface RenderPipeline {
-    PipelineProfile profile();                 // HYBRID / FORWARD_SIMPLE（预览视口用，14.5-5）
+    PipelineProfile profile();                 // 身份常量：HYBRID / FORWARD（实现类固定返回，运行期不可切）
     void buildGraph(RenderGraphBuilder graph, PipelineContext ctx);
+    void setClearColor(RHIClearColor c);
+    void setPostProcessingEnabled(boolean on); // 链非空 = HDR 生效
+    boolean postProcessingEnabled();
+    default boolean usesHdrSceneTarget() { return postProcessingEnabled(); }
+    void addPass(RenderPass pass); void addPass(RenderPass pass, String afterPass); void removePass(RenderPass pass);
 }
 
 // buildGraph 的输入（引擎侧上下文，字段级定义归 Engine_Rendering_Design.md）
@@ -272,12 +293,15 @@ class PipelineContext {
     FrameContext frame;                 // 场景快照 + 各 RenderList + UBO1 写入句柄
     Texture backbuffer;                 // 本帧终点（单相机可不进 ctx，由 FrameLoop 包进 graphFactory）
     Texture depth;                      // 本视口深度
-    Texture msaaColor;                  // 本视口 MSAA 颜色附件（null = AA 关；与 msaaDepth 成对，5.3）
-    Texture msaaDepth;                  // 本视口 MSAA 深度附件（overlay 家族仍用 1x depth）
+    Texture hdrSceneTarget;             // 本视口 HDR 场景色（链非空时非 null，§5.1；sceneColorTarget() 取值口）
     // Deferred 阶段扩展：gbuffer×3 / lightingRT / shadowMap
     // 三期光照扩展（Engine_Lighting_Design §8）：lightList / clusterGrid / clusterIndices
 }
 ```
+
+> **实现类**：`AbstractRenderPipeline`（骨架：单列表 + 身份集 + 后处理链 + 链展开模板）→
+> `DefaultHybridRenderPipeline` / `ForwardRenderPipeline`；启动期由 `JavelinSetting.renderPipeline`
+> 选类，编辑器固定 HYBRID。
 
 ### 6.2 Pass 编排与扩展（有序 Pass 列表；v0.2 起替代原钩子点枚举）
 
@@ -310,9 +334,10 @@ interface RenderPass {
 
 ### 6.3 每视口管线选择
 
-- **档位 = 全局单档**（v0.5 实装）：`DefaultHybridRenderPipeline` 持 FORWARD/HYBRID 两份 Pass 列表，
-  引擎启动按 `JavelinSetting.renderPipeline` 定档、编辑器工具域可运行期切换（两档同步持有外部
-  插入的覆盖制 Pass——Gizmo/拾取/调试线切档不丢）；按视口分档（预览视口 FORWARD_SIMPLE）仍未实现；
+- **管线 = 启动期选定**（v0.9 起）：两个独立实现类（`DefaultHybridRenderPipeline` / `ForwardRenderPipeline`），
+  引擎启动按 `JavelinSetting.renderPipeline` 选类，**运行期不可切**（原「同实例双列表 + setProfile」机制
+  随拆分删除；编辑器固定 HYBRID、不读该字段）；覆盖制 Pass（Gizmo/拾取/调试线）经 `addPass` 进当前
+  实现类的唯一列表，无「两档同步」语义（已不存在双列表）；按视口分档（预览视口 FORWARD_SIMPLE）仍未实现；
 - 每视口独立 `buildGraph` 调用；共享 backbuffer 的相机靠 LOAD 叠加自动串行（RHI 8 节依赖推导）。
 
 ### 6.4 与图缓存咬合
@@ -340,8 +365,8 @@ interface RenderPass {
 | 步 | 内容 | 验收 |
 |----|------|------|
 | 一 | Forward 两 Pass（OpaqueForward 直写 backbuffer + TransparentForward LOAD 叠加）+ 空后处理链 + 单相机省略 Composite；接 FrameLoop/renderFrame，多相机多物体 Demo（阶段⑥终验，Engine_Design 2.5） | 多相机分屏正确、透明排序正确、图缓存命中 |
-| 二 | +ShadowPass（✅ 批次④-A 2026-11-01）；+GBuffer/Lighting 切换混合（`PipelineProfile` 开关切换两套 buildGraph 分支，同场景验证两路光照一致——4.5 取舍的回填点）（✅ 批次④-B 2026-11-08 落地） | 阴影正确✅；混合/纯 Forward 可配置切换 ✅（`JavelinSetting.renderPipeline` 持久化 + 工具域运行期切换） |
-| 三 | 后处理链具体化（Bloom 计算降采样链 + Tonemap；HDR 切换按 4.6） | 链插拔不破坏管线直通路径 |
+| 二 | +ShadowPass（✅ 批次④-A 2026-11-01）；+GBuffer/Lighting 切换混合（同场景验证两路光照一致——4.5 取舍的回填点）（✅ 批次④-B 2026-11-08 落地；**v0.9 2026-11-13 改为两个独立实现类、启动期选定、运行期不可切**） | 阴影正确✅；混合/纯 Forward 启动期可选 ✅（`JavelinSetting.renderPipeline` 持久化；编辑器固定 HYBRID） |
+| 三 | 后处理链具体化（Bloom 计算降采样链 + Tonemap；HDR 切换按 4.6）——**归四期第 1 项**：步骤一（HDR + Tonemap）2026-11-13 已落码待验收、步骤二 Bloom 待开工，见 `Engine_PostProcess_Design.md` §9 | 链插拔不破坏管线直通路径 |
 
 每步独立的约束：不改动 RHI 已发布 API；新增引擎 Pass 仍走「声明读写 + 回调录制」。
 
@@ -354,9 +379,9 @@ interface RenderPass {
 - ~~tiled/clustered 计算光照~~（2026-10-28 转正三期主路线）；clustered 自身后置项（前缀和计算化/脏标记/Morton）归 Engine_Lighting_Design §10；SSR 等光照后扩展 Pass 示例（插入 Pass 列表）仍 P2；
 - 单 Pass 多视口（RHI 8 节备选）、后处理中间 RT 别名内存（RHI 17.4，P1）；
 - UI Pass 组、环境（雾，Scene.environment）；~~天空盒~~ **已转正三期批次⑤**（cubemap+纯视觉，SkyboxPass 插 3.5 位——设计归 Engine_Skybox_Design v0.2（2026-11-02 实装拍板落定），本档 §3 已同步）；天空盒环境光照（ambient 源）归 GI 探针期。
-- MSAA 后置项（5.3）：stacking 相机/预览视口/分屏区域清屏的 MSAA 路径、运行期切换
-  档位（PSO/附件失效协议）、FXAA 档、区域清屏与 resolve 组合重载、末 pass storeOp
-  DONT_CARE 带宽优化。
+- ~~MSAA 后置项（5.3）~~ **已随 MSAA 移除作废（2026-11-13）**：stacking/预览/分屏的 MSAA 路径、运行期
+  切档、FXAA 档、区域清屏与 resolve 组合重载全部不再做（AA 路线 = TAA，P4-10）；仅存「末 pass storeOp
+  DONT_CARE 带宽优化」一项仍挂 REND-11。
 
 ## 10. 文档衔接
 

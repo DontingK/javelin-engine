@@ -34,7 +34,7 @@
 | 功能清单 | `Engine_Features.md`（根目录） |
 | 实现计划 | `doc/Engine_Implementation_Plan.md` |
 | RHI 计划 / RHI 进度 | `doc/RHI_Implementation_Plan.md` / `doc/RHI_Implementation_Progress.md` |
-| 管线 / 光照 / 天空盒 | `doc/Engine_RenderPipeline_Design.md` / `doc/Engine_Lighting_Design.md` / `doc/Engine_Skybox_Design.md` |
+| 管线 / 光照 / 天空盒 / 后处理 | `doc/Engine_RenderPipeline_Design.md` / `doc/Engine_Lighting_Design.md` / `doc/Engine_Skybox_Design.md` / `doc/Engine_PostProcess_Design.md` |
 | 贴图 / 资产 / 材质 / 热重载 | `doc/Engine_Texture_Design.md` / `doc/Engine_Assets_Design.md` / `doc/Engine_Material_Design.md` / `doc/Engine_AssetReload_Design.md` |
 | 场景 / 碰撞 / 拾取 / 输入 | `doc/Engine_Scene_Design.md` / `doc/Engine_Collision_Design.md` / `doc/Engine_Picking_Design.md` / `doc/Engine_Input_Design.md` |
 | 编辑器 / Swing / 菜单 | `doc/Editor_Design.md` / `doc/Editor_Swing_Design.md` / `doc/Editor_Menu_Design.md` |
@@ -51,7 +51,7 @@
 |----|------|------|
 | 1 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染） |
 | 2 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
-| 3 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项 |
+| 3 | **P4-01 后处理链（Bloom/Tonemap + HDR）** | 四期第一项，链式结构已落地、零新底座；主线推进项；**步骤一（HDR + Tonemap）2026-11-13 已落码待验收（`Engine_PostProcess_Design.md` v0.2）** |
 | 4 | **BUG 余项** | §13 余 `updateIndex` 热点（BUG-02）、`MainFrame.width()` 语义（BUG-05）、Layer 下拉空（BUG-08，依赖 ED-07 设置管线合流） |
 | 5 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | 外部手改资产自动生效；**须先拍板真值源优先序**（内存即真值 vs 盘面改动），拍板前不动 |
 
@@ -76,15 +76,16 @@
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注 |
 |----|------|------|------|-----------|
-| P4-01 | 后处理链（Bloom/Tonemap + **HDR 切换点**） | 路线 §4-1 / 管线 §4.6 | 未开工 | 链式结构已落，零新底座 |
+| P4-01 | 后处理链（Bloom/Tonemap + **HDR 切换点**） | 路线 §4-1 / 管线 §4.6 / **后处理档** | 半成品 | **步骤一（HDR 切换点 + Tonemap）2026-11-13 已落码待验收**；步骤二 Bloom 待开工；方案与实装记录见 `Engine_PostProcess_Design.md` v0.2 §9 |
 | P4-02 | SSAO（后处理链 Pass，**GI 第一步**） | 路线 §4-2 / 光照 §10 | 未开工 | 零新底座；依赖 P4-01 |
 | P4-03 | 阴影质量分级（PCF 软采样 → CSM 级联 → bias 精调 / per-object 开关 / stabilize） | 路线 §4-3 / 光照 §10 | 未开工 | 三期 shadowMap 底座 + 注入段已备 |
 | P4-04 | 天空盒环境光照（作 ambient 源：SH9 球谐 / mipmap 降采样，替换 ambient 常量） | 路线 §4-4 / 光照 §10 / 天空盒 §8 | 未开工 | 天空盒视觉面已备；DDGI 前的过渡 |
 | P4-05 | 探针实时 GI（DDGI 路线；**烘焙 GI 管线明确不建**） | 路线 §4-5 / 光照 §10 | 未开工 | 三期 SSBO/compute 底座 + 3D 纹理/纹理数组（RHI 现仅 Texture2D） |
 | P4-06 | 光线追踪 rayQuery（AS 资源种类/图状态、BDA、`GL_EXT_ray_query` 编译链、蒙皮 BLAS 重构；首范围=静态几何） | 路线 §4-6 / 光照 §10 | 未开工 | 三期批次①「通用性红线」 |
-| P4-07 | HYBRID 档 MSAA-GBuffer（现强制 1x） | 光照 §9 批次④-B | 后置项 | 归四期 |
+| P4-07 | ~~HYBRID 档 MSAA-GBuffer（现强制 1x）~~ **作废（2026-11-13）**：AA 路线改 TAA，不做 MSAA-GBuffer | 光照 §9 批次④-B | 作废 | 由 P4-10 取代 |
 | P4-08 | 非光照材质语义契约（`default.shader` HYBRID 档 albedo 仍乘光照 → 无灯即黑；「直读 albedo」语义待定） | 光照 v0.10 遗留 / 管线 v0.6 | 待拍板 | 归四期材质/着色模型专档 |
 | P4-09 | HDR→LDR 高亮截白真解（`.hdr` float 产物） | 天空盒 §1.2/§5 | 后置项 | 随 P4-04 环境光批 |
+| P4-10 | **TAA（AA 路线取代 MSAA，2026-11-13 用户拍板）**：相机投影抖动（Halton）+ 逐像素运动矢量（混合实现由 G-Buffer 世界位置 + 上帧 viewProj 反投影重建；前向实现无 G-Buffer 需另定）+ 历史缓冲 ping-pong + 重投影/邻域钳制防拖影 + 历史失效触发（切场景/相机跳变/热重载/resize）+ 锐化。**MSAA 已删（2026-11-13），空窗期**：在 TAA 落地前画面无抗锯齿 | 后处理档 §4.2 / 原 P4-07 | 待拍板 | 挂后处理链（Bloom/Tonemap 之前）；参考 `Babylon_Rendering_Reference` TAA 段 |
 
 ## 4. RHI 遗留（跨期）
 
@@ -116,8 +117,9 @@
 | REND-07 | decals / 反射探针并入同一 cluster 索引系统（索引池语义泛化） | 光照 §10 | 后置项 | — |
 | REND-08 | 世界位置改**深度重建**（现 G-Buffer 直存 worldPos） | 管线 §4.2 / 光照 §10 | 后置项 | P2 优化 |
 | REND-09 | 单 Pass 多视口（RHI 8 节备选） | 管线 §9 | 后置项 | — |
-| REND-10 | 按视口分档（预览视口 `FORWARD_SIMPLE`） | 管线 §5.1 | 未开工 | — |
-| REND-11 | MSAA 后置族：stacking/预览/分屏区域清屏的 MSAA 路径、运行期切档（PSO/附件失效协议）、FXAA 档、末 pass storeOp DONT_CARE | 管线 §9 | 后置项 | — |
+| REND-10 | 按视口分档（预览视口 `FORWARD_SIMPLE`） | 管线 §5.1 | 未开工 | **前向实现非重点（2026-11-13 主口径混合），优先级下调** |
+| REND-14 | 前向管线独立类的落地面（`ForwardRenderPipeline` 屏外无人消费：demo/测试现仍直用 `RenderingSystem` 不经管线类；编辑器固定混合、仅打包运行时按 `javelinSettings.renderPipeline` 选用） | 管线 §6.3 | 后置项 | 2026-11-13 拆分产物；需要时再补 demo/测试接线 |
+| REND-11 | ~~MSAA 后置族：stacking/预览/分屏区域清屏的 MSAA 路径、运行期切档（PSO/附件失效协议）、FXAA 档、末 pass storeOp DONT_CARE~~ **作废（2026-11-13）**：MSAA 业务面已整体删除（AA 改 TAA，P4-10）；**仅存「末 pass storeOp DONT_CARE 带宽优化」** | 管线 §9 | 后置项 | AA 部分由 P4-10 接管；MSAA 路径族不再做 |
 | REND-12 | UI Pass 组 + 环境雾（`Environment` 加雾字段；天空盒已转正） | 管线 §9 / 场景 §8 | 后置项 | — |
 | REND-13 | 光照 gizmo/调试显示（编辑器侧 DebugLine 光球线框 + 灯图标） | 光照 §10 / 调试线 | 未开工 | — |
 

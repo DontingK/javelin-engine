@@ -15,7 +15,6 @@ import cn.donting.javelin.rhi.data.RHIClearColor;
 import cn.donting.javelin.rhi.data.RHIClearDepthStencil;
 import cn.donting.javelin.rhi.data.RHILoadOp;
 import cn.donting.javelin.rhi.types.Format;
-import cn.donting.javelin.rhi.types.SampleCount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,12 +79,6 @@ public class GBufferPass extends AbstractForwardPass {
         rs.registerPassColorFormats(SHADER_PASS_NAME, COLOR_FORMATS);
         List<RenderObject> objects = opaqueGbufferObjects(view);
         warnMissingPassIfNeeded(view);
-        if (isMsaaPath(ctx)) {
-            // HYBRID 强制 1x（引擎启动期已按档位钳制）；此分支仅防未来档位组合漏改
-            log.warn("GBufferPass 不支持 MSAA 路径（视口[{}]），按 1x 绘制——HYBRID 档应禁用 AA",
-                    view.name());
-        }
-        SampleCount samples = SampleCount.COUNT_1;
         graph.addGraphicsPass(view.name() + "_GBuffer", pass -> {
             declareAttachments(pass, view, albedo, normal, worldPos, depth);
             pass.setViewport(view.viewport());
@@ -105,12 +98,12 @@ public class GBufferPass extends AbstractForwardPass {
                 if (objects.isEmpty()) {
                     return;
                 }
-                cmd.bindPipeline(entryPipeline(rs, objects.get(0), samples));
+                cmd.bindPipeline(entryPipeline(rs, objects.get(0)));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 cmd.bindDescriptorSet(1, rs.lightingSet(view.name()), 1,
                         new int[]{view.lightingOffset()});
                 for (RenderObject ro : objects) {
-                    drawObject(cmd, rs, ro, tpf, samples);
+                    drawObject(cmd, rs, ro, tpf);
                 }
             });
         });

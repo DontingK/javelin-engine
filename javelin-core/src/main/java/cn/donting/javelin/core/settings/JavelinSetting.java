@@ -27,12 +27,6 @@ public class JavelinSetting implements Serializable {
     private Color backgroundColor = new Color(0.05f, 0.05f, 0.08f, 1f);
 
     /**
-     * 抗锯齿模式（v0.1 仅 MSAA 档：离屏 MSAA 附件 + resolve 回 backbuffer，
-     * overlay 恒 1x；引擎启动期消费，运行期切换后置）。默认关闭。
-     */
-    private AntialiasingMode antialiasing = AntialiasingMode.OFF;
-
-    /**
      * 引擎帧率上限（mainLoop 帧末限帧）。0 = 不限制（默认）。
      *
      * <p>vsync（MAILBOX 呈现）下建议设为刷新率 × ~1.1：MAILBOX 生产端不限速、
@@ -42,11 +36,12 @@ public class JavelinSetting implements Serializable {
     private int maxFps = 144;
 
     /**
-     * 渲染管线档位（Engine_RenderPipeline_Design §8 步骤二）：FORWARD 纯前向 /
-     * HYBRID 混合（Deferred 不透明 + Forward 透明）。引擎启动期消费；HYBRID 强制
-     * 关 AA（MSAA-GBuffer 归四期）。运行期可经编辑器「工具」域命令切换。
+     * 渲染管线**启动期选择**（Engine_RenderPipeline_Design §8）：FORWARD 纯前向 /
+     * HYBRID 混合（Deferred 不透明 + Forward 透明）。运行期不可切（2026-11-13 拍板：
+     * 管线拆成两个独立实现类）；编辑器固定 HYBRID、不读本字段，本字段供打包运行时
+     * （GameMain/AotGameMain）启动期选实现类。默认混合。
      */
-    private PipelineProfile renderPipeline = PipelineProfile.FORWARD;
+    private PipelineProfile renderPipeline = PipelineProfile.HYBRID;
 
     /**
      * 引擎调试开关（Vulkan 校验层 + DebugUtilsMessenger 回调，Engine_DebugTools_Plan §2）：
@@ -54,6 +49,21 @@ public class JavelinSetting implements Serializable {
      * 校验层时启动即报错（fail-fast，红线 15），关掉本开关可免校验层启动。
      */
     private boolean engineDebug = true;
+
+    /**
+     * 后处理开关（Engine_PostProcess_Design §3.1）：默认关——链空 = 直通，画面与
+     * 改造前逐像素不变；开 = 链尾挂 Tonemap，HDR 生效（场景色写 lightingRT 经高光肩部
+     * 压到显示目标）。启动期消费填充链；运行期可经编辑器「工具」域命令切换并写盘。
+     */
+    private boolean postProcessing = false;
+
+    public boolean isPostProcessing() {
+        return postProcessing;
+    }
+
+    public void setPostProcessing(boolean postProcessing) {
+        this.postProcessing = postProcessing;
+    }
 
     public boolean isEngineDebug() {
         return engineDebug;
@@ -117,17 +127,6 @@ public class JavelinSetting implements Serializable {
         this.backgroundColor = backgroundColor;
     }
 
-    public AntialiasingMode getAntialiasing() {
-        return antialiasing;
-    }
-
-    public void setAntialiasing(AntialiasingMode antialiasing) {
-        if (antialiasing == null) {
-            throw new IllegalArgumentException("antialiasing must not be null");
-        }
-        this.antialiasing = antialiasing;
-    }
-
     public int getMaxFps() {
         return maxFps;
     }
@@ -143,10 +142,10 @@ public class JavelinSetting implements Serializable {
         output.write("title",title);
         output.write("vsync",vsync);
         output.write("backgroundColor",backgroundColor);
-        output.write("antialiasing",antialiasing);
         output.write("maxFps",maxFps);
         output.write("renderPipeline",renderPipeline);
         output.write("engineDebug",engineDebug);
+        output.write("postProcessing",postProcessing);
     }
 
     @Override
@@ -160,11 +159,6 @@ public class JavelinSetting implements Serializable {
         if (bg != null) {
             backgroundColor = bg;
         }
-        // 旧设置文件无此键时保留默认（readEnum 缺键返回 null）
-        AntialiasingMode aa=input.readEnum("antialiasing", AntialiasingMode.class);
-        if (aa != null) {
-            antialiasing = aa;
-        }
         // 旧设置文件缺键 readInt=0，恰为本字段默认语义（0=不限制）——无迁移坑
         maxFps = Math.max(0, input.readInt("maxFps"));
         // 旧设置文件无此键时保留默认（readEnum 缺键返回 null）
@@ -174,5 +168,7 @@ public class JavelinSetting implements Serializable {
         }
         // 缺键按协议既定行为读取（readBoolean 缺键= false）
         engineDebug = input.readBoolean("engineDebug");
+        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关=直通）——无迁移坑
+        postProcessing = input.readBoolean("postProcessing");
     }
 }

@@ -19,7 +19,6 @@ import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.MeshRenderer;
 import cn.donting.javelin.core.scene.component.Transform;
-import cn.donting.javelin.core.settings.AntialiasingMode;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.tool.shaderc.ShaderStage;
 import org.joml.Quaternionf;
@@ -62,7 +61,6 @@ public final class InputCameraDemo extends JavelinEngineTestBase {
         setting.setTitle("Javelin - InputCameraDemo");
         setting.setVsync(true);
         setting.setMaxFps(180);
-        setting.setAntialiasing(AntialiasingMode.MSAA_8);
         new InputCameraDemo(setting).start();
     }
 

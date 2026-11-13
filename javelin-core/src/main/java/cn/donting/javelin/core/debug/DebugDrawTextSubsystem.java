@@ -149,7 +149,7 @@ public class DebugDrawTextSubsystem extends AbstractSubsystem {
                 null,
                 List.of(colorFormat), null,
                 List.of(fontSetLayoutDesc), 0,
-                // overlay 恒 1x（直写 backbuffer，不随场景 MSAA 变档）
+                // overlay 恒 1x（直写 backbuffer，不进场景链）
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR), SampleCount.COUNT_1));
 
         resize(engine.frameLoop().swapChain().width(), engine.frameLoop().swapChain().height());

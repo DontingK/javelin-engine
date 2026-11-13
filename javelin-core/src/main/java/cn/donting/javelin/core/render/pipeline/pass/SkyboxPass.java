@@ -63,8 +63,7 @@ import java.util.Set;
  *
  * <p><b>挂载判定</b>：本视口 ClearFlags.SKYBOX 且 RenderingSystem 挂有 skybox 才
  * addToGraph（无 skybox 时不挂——Opaque 正常清屏，正常域空状态不弹错，红线 15
- * 边界）。v0.x 边界：SKYBOX 视口 MSAA 降级 1x（isMsaaPath 判 SOLID_COLOR，
- * 与 stacking/预览/分屏降级同口径）。MSAA 与 SkyboxPass 正交接线归后置。</p>
+ * 边界）。附件恒 1x（MSAA 已移除，2026-11-13）。</p>
  *
  * <p><b>描述符</b>：set0 复用引擎帧布局（CameraBlock UBO 动态偏移，与材质 PSO 的
  * set0 同一 DescriptorSetLayoutDesc——绑定兼容）；set1 为本 Pass 专属 cubemap 采样
@@ -107,7 +106,7 @@ public class SkyboxPass implements RenderPass {
     private final Buffer vertexBuffer;
     private final VertexLayout cubeLayout;
     private final Sampler skyboxSampler;
-    /** 覆盖制 PSO 缓存：key = 颜色附件格式（换帧缓冲格式即新建；附件恒 1x——SKYBOX 视口 MSAA 降级） */
+    /** 覆盖制 PSO 缓存：key = 颜色附件格式（换帧缓冲格式即新建；附件恒 1x） */
     private final Map<Format, GraphicsPipeline> pipelines = new HashMap<>();
     /** skybox 采样描述符集（纹理换代重建） */
     private DescriptorSetLayout skyboxSetLayout;
@@ -153,8 +152,10 @@ public class SkyboxPass implements RenderPass {
             return;
         }
         // 依赖声明：skybox 纹理句柄进 structureHash（纹理换代失效图缓存）+ SHADER_READ_ONLY 屏障
+        Texture target = ctx.sceneColorTarget();
         graph.addGraphicsPass(view.name() + "_Skybox", pass -> {
-            pass.addColorOutput(ctx.colorTarget(), RHILoadOp.LOAD, null);
+            // 场景颜色终点（HDR 生效 = lightingRT；天空盒 LOAD 叠加的场景色）
+            pass.addColorOutput(target, RHILoadOp.LOAD, null);
             pass.addDepthOutput(ctx.depth(), RHILoadOp.LOAD, null);
             pass.addTextureRead(skybox);
             pass.setViewport(view.viewport());
@@ -165,7 +166,7 @@ public class SkyboxPass implements RenderPass {
                     log.info("首帧 Skybox 回调执行: 视口[{}] skybox={}",
                             view.name(), skybox.desc());
                 }
-                cmd.bindPipeline(pipelineFor(rs, ctx.colorTarget().desc().format()));
+                cmd.bindPipeline(pipelineFor(rs, target.desc().format()));
                 // set0 相机块（帧布局同材质 PSO——动态偏移选本视口相机）
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{view.uboOffset()});
                 // set1 skybox cubemap（本 Pass 专属布局，纹理换代重建）

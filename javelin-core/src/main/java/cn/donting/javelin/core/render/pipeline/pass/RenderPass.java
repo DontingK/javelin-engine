@@ -6,7 +6,7 @@ import cn.donting.javelin.rhi.RenderGraphBuilder;
 /**
  * 引擎侧渲染管线 Pass（Engine_RenderPipeline_Design.md 第 4 节「Pass 逐个设计」）。
  *
- * <p>管线 = 有序 Pass 列表（编排见 DefaultHybridRenderPipeline）；Pass 负责
+ * <p>管线 = 有序 Pass 列表（编排见 AbstractRenderPipeline）；Pass 负责
  * 向图声明附件/视口/回调（addToGraph，构建期），渲染回调内只做绘制调用，
  * 不碰屏障/布局（RHI 22.4 迁移纪律）。
  */

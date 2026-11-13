@@ -114,13 +114,14 @@
 
 > 三期收官 = 「有光照」（Forward+ 成形 + 单张硬影 + 视觉天空盒）；四期 = 质量升级全谱。排序为初步依赖序，开工前逐项拍板方案（先方案后码）。
 
-1. **后处理链**（Bloom/Tonemap + **HDR 切换点**，管线档 4.6——四期第一候选：链式结构已落地，具体化零新底座）；
+1. **后处理链**（Bloom/Tonemap + **HDR 切换点**，管线档 4.6——四期第一候选：链式结构已落地，具体化零新底座）——**方案 `Engine_PostProcess_Design.md`（2026-11-13）；步骤一（HDR 切换点 + Tonemap）同日落码待验收，步骤二 Bloom 待验收后开工**；
 2. **SSAO**（后处理链 Pass，管线档 4.6 挂点——**GI 第一步**，零新底座）；
 3. **阴影质量分级**（PCF 软采样 → CSM 级联 → bias 精调/per-object 开关/stabilize，灯光档 §10——消费侧注入段与 shadowMap 底座三期已备，纯增量）；
 4. **天空盒环境光照**（天空盒作 ambient 源：SH9 球谐或 mipmap 降采样，替换灯光档 §3.3 ambient 常量——**DDGI 落地前的过渡环境光**；天空盒视觉面三期批次⑤已备）；
 5. **探针实时 GI**（GI 目标态拍板 2026-10-28：**DDGI 路线**，团结引擎实时 GI / HDRP APV 产业验证）——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数（含第 4 项的过渡环境光）；探针采样前置 = **3D 纹理/纹理数组**（RHI 现仅 Texture2D——cubemap（三期批次⑤）同族先行，纹理数组随探针实装前核实）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档；
 6. **光线追踪**（光追方向 2026-10-28 记录）：**rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先**、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；**前置约束 = 三期批次①通用性红线**（灯光档 §9——Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口——四期 GI/RT 是该红线的第一复用方）。
 
+- **AA 路线改向 + 管线拆分（2026-11-13 用户拍板，同日执行）**：**MSAA 已从引擎/编辑器/设置层移除**（RHI 多采样设施保留休眠），**AA 空窗至 TAA（P4-10）落地**——TAA 取代 MSAA，原「HYBRID 档 MSAA-GBuffer」（P4-07）作废。同期**渲染管线拆成两个独立实现类**（`AbstractRenderPipeline` 共用骨架 + `DefaultHybridRenderPipeline` / `ForwardRenderPipeline`），**运行期不再切档**、编辑器固定混合，主口径 = 混合管线（前向「先不管」）。设计归 `Engine_RenderPipeline_Design.md` v0.9 / 后处理档 v0.3。
 - **着色模型升级**（Lambert → BRDF，材质/着色模型专档）与 **clustered 后置项**（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）不设期，随四期各批次需要顺带或独立小批。
 
 ---

@@ -33,16 +33,16 @@ import cn.donting.javelin.rhi.types.ShaderStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * 编辑器调试线 Pass（Editor_DebugLine_Design §3，覆盖制——PickPass 同款自建 PSO）。
  *
  * <p><b>深度咬合</b>：LEqual 测试 + ZWrite Off，线被不透明几何遮挡（Unity Gizmo
- * 观感）。MSAA 分支走 msaaColor/msaaDepth（场景深度在多采样附件，1x depth 无
- * 场景内容不能 LOAD）；resolve 终点 = colorTarget（AVERAGE 全量幂等）。
+ * 观感）。颜色/深度附件 LOAD 复用场景 1x 附件（MSAA 已移除，2026-11-13）。
  * 目标视口过滤（编辑器相机 view）——GAME 视口天然无线。</p>
  *
  * <p><b>双帧槽</b>：顶点 buffer 按 frameIndex%2 轮转写（{@code Buffer.update}
@@ -78,8 +78,8 @@ public class DebugLinePass extends AbstractForwardPass {
     private final String targetView;
     private final byte[] vertSpv;
     private final byte[] fragSpv;
-    /** 覆盖制 PSO 缓存（≤2 枚：COUNT_1 / MSAA 档），键 = 采样档 */
-    private final EnumMap<SampleCount, GraphicsPipeline> pipelines = new EnumMap<>(SampleCount.class);
+    /** 覆盖制 PSO 缓存（键 = 颜色附件格式；HDR 换格式即新建） */
+    private final Map<Format, GraphicsPipeline> pipelines = new HashMap<>();
     private final Buffer[] vertexSlots = new Buffer[FRAME_SLOTS];
     private boolean drawLogged;
 
@@ -117,8 +117,6 @@ public class DebugLinePass extends AbstractForwardPass {
             return; // 非目标视口（GAME 视口等）不进图——GAME 模式下编辑器 view 不在图，全场景零线
         }
         Texture target = ctx.colorTarget();
-        boolean msaa = isMsaaPath(ctx);
-        SampleCount samples = passSamples(ctx);
         long frameIndex = ctx.frame().frameIndex();
         Buffer slot = vertexSlots[(int) (frameIndex % FRAME_SLOTS)];
         // 本帧顶点写入（构建期，引擎线程串行——batch 已由 update 段填好，DebugText 同时序）
@@ -126,18 +124,11 @@ public class DebugLinePass extends AbstractForwardPass {
         if (vertexCount > 0) {
             slot.update(0, batch.data());
         }
-        GraphicsPipeline pso = pipelineFor(samples, target.desc().format());
+        GraphicsPipeline pso = pipelineFor(target.desc().format());
 
         graph.addGraphicsPass(view.name() + "_DebugLine", pass -> {
-            if (msaa) {
-                // MSAA：场景深度在多采样附件（1x depth 无内容不能 LOAD）；
-                // resolve 终点 = colorTarget（AVERAGE 全量 resolve 幂等）
-                pass.addColorOutput(ctx.msaaColor(), RHILoadOp.LOAD, null, target);
-                pass.addDepthOutput(ctx.msaaDepth(), RHILoadOp.LOAD, null);
-            } else {
-                pass.addColorOutput(target, RHILoadOp.LOAD, null);
-                pass.addDepthOutput(ctx.depth(), RHILoadOp.LOAD, null);
-            }
+            pass.addColorOutput(target, RHILoadOp.LOAD, null);
+            pass.addDepthOutput(ctx.depth(), RHILoadOp.LOAD, null);
             pass.setViewport(view.viewport());
             pass.setScissor(view.scissor());
             pass.setPipeline(pso);
@@ -157,9 +148,9 @@ public class DebugLinePass extends AbstractForwardPass {
         });
     }
 
-    /** 覆盖制 PSO（键=采样档）：LINE_LIST / ZTest LEqual / ZWrite Off / Blend Off */
-    private GraphicsPipeline pipelineFor(SampleCount samples, Format colorFormat) {
-        GraphicsPipeline cached = pipelines.get(samples);
+    /** 覆盖制 PSO（键=颜色附件格式）：LINE_LIST / ZTest LEqual / ZWrite Off / Blend Off */
+    private GraphicsPipeline pipelineFor(Format colorFormat) {
+        GraphicsPipeline cached = pipelines.get(colorFormat);
         if (cached != null) {
             return cached;
         }
@@ -176,10 +167,10 @@ public class DebugLinePass extends AbstractForwardPass {
                 List.of(colorFormat), Format.D32_SFLOAT,
                 List.of(renderingSystem.frameSetLayoutDesc()), 0,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
-                samples);
+                SampleCount.COUNT_1);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
-        pipelines.put(samples, created);
-        log.info("DebugLine PSO created: samples={}", samples);
+        pipelines.put(colorFormat, created);
+        log.info("DebugLine PSO created: colorFormat={}", colorFormat);
         return created;
     }
 

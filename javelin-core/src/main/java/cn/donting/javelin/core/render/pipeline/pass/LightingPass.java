@@ -119,15 +119,19 @@ public class LightingPass implements RenderPass {
     public void addToGraph(RenderGraphBuilder graph, PipelineContext ctx) {
         RenderView view = ctx.view();
         RenderingSystem rs = ctx.renderingSystem();
-        Texture target = ctx.colorTarget();
+        // 场景颜色终点：后处理链非空时为 HDR 缓冲（lightingRT），否则同 colorTarget
+        Texture target = ctx.sceneColorTarget();
         Texture albedo = rs.gbufferAlbedoFor(view.name());
         Texture normal = rs.gbufferNormalFor(view.name());
         Texture worldPos = rs.gbufferWorldPosFor(view.name());
         Format colorFormat = target.desc().format();
         RHIClearColor clear = view.clearColor() != null ? view.clearColor() : clearColor;
         boolean regionClear = AbstractForwardPass.isRegionClear(view, target);
-        boolean loadColor = view.clearFlags() == ClearFlags.DEPTH_ONLY
-                || view.clearFlags() == ClearFlags.DONT_CLEAR;
+        // HDR 下恒清屏（每视口独立 HDR 缓冲，LOAD 到的是本视口上一帧内容——跨相机
+        // 颜色叠加不成立，v1 按整视口 CLEAR 独立输出，后处理档 §4.3）
+        boolean loadColor = !ctx.hdrEnabled()
+                && (view.clearFlags() == ClearFlags.DEPTH_ONLY
+                    || view.clearFlags() == ClearFlags.DONT_CLEAR);
         graph.addGraphicsPass(view.name() + "_Lighting", pass -> {
             if (loadColor) {
                 // 叠加相机（DEPTH_ONLY/DONT_CLEAR）：保留上一位画面，只写几何覆盖处

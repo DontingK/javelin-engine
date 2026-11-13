@@ -56,7 +56,7 @@ import java.util.Set;
  *
  * <p>深度语义：不透明+透明物体深度测试照常（近者胜，Unity 口径透明物可选中——
  * 拾取输出常量 ID 无 blend 语义；编辑器透明面如 Grid 命中后由消费方按节点归属
- * 裁决）。恒 1x（与主画面 MSAA 档解耦，附件像素与屏幕像素一一对应）。</p>
+ * 裁决）。恒 1x（附件像素与屏幕像素一一对应）。</p>
  */
 public class PickPass implements RenderPass {
 

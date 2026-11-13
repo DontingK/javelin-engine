@@ -64,6 +64,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -105,6 +106,11 @@ public final class RenderingSystem implements AutoCloseable {
 
     /** 单帧支持的最大相机数（UBO1 槽内相机块数） */
     public static final int MAX_CAMERAS = 4;
+    /**
+     * 场景 HDR 颜色格式（Engine_PostProcess_Design §3.3）：后处理链生效时场景色缓冲
+     * （lightingRT / 后处理中间 RT）与**场景材质 PSO 的颜色附件**同用此格式。
+     */
+    public static final Format HDR_SCENE_COLOR_FORMAT = Format.R16G16B16A16_SFLOAT;
     /** 相机块步长：必须满足 minUniformBufferOffsetAlignment（256B，RHI 19.5-1） */
     private static final int CAMERA_STRIDE = 256;
     /** 槽内布局：相机块 × MAX_CAMERAS，其后 256B 时间块（timeSec/tpf，引擎私有约定） */
@@ -208,6 +214,8 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<SamplerDesc, Sampler> samplers = new HashMap<>();
 
     private Format colorAttachmentFormat;
+    /** 场景色是否走 HDR 缓冲（后处理链生效；帧构建每帧设置，见 setHdrSceneColor） */
+    private boolean hdrSceneColor;
     /** shader Pass 名 → PSO 颜色附件格式列表（未登记 = 单张 colorAttachmentFormat；
      *  HYBRID 的 "GBuffer" 登记三张 MRT——图缓存键已含 passName，无需扩键） */
     private final Map<String, List<Format>> passColorFormats = new HashMap<>();
@@ -217,9 +225,6 @@ public final class RenderingSystem implements AutoCloseable {
 
     // 每相机深度纹理（视口独立，RHI 19.4-2）
     private final Map<String, Texture> depthTextures = new HashMap<>();
-    // 每视口 MSAA 附件（视口独立，同 depthFor 模式；AA 关时惰性创建永不发生）
-    private final Map<String, Texture> msaaColorTextures = new HashMap<>();
-    private final Map<String, Texture> msaaDepthTextures = new HashMap<>();
     // 每视口拾取附件（GPU ID-buffer 拾取，Engine_Picking_Design；PickSystem 启用时 PickPass 惰性创建）
     private final Map<String, Texture> pickIdTextures = new HashMap<>();
     private final Map<String, Texture> pickDepthTextures = new HashMap<>();
@@ -228,6 +233,10 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> gbufferAlbedoTextures = new HashMap<>();
     private final Map<String, Texture> gbufferNormalTextures = new HashMap<>();
     private final Map<String, Texture> gbufferWorldPosTextures = new HashMap<>();
+    // 每视口 HDR 场景颜色（后处理链非空时，Engine_PostProcess_Design §3.3；惰性创建）
+    private final Map<String, Texture> lightingRtTextures = new HashMap<>();
+    // 每视口后处理中间 RT（链内非首尾节点输出，§3.4；key = cameraName#节点序）
+    private final Map<String, Texture> postRtTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
@@ -236,8 +245,6 @@ public final class RenderingSystem implements AutoCloseable {
     private boolean reconcilePending;
     // 最近一次 collectFrame 的帧号（retire 条目时间戳基准）
     private long lastFrame = -1;
-    /** 生效采样档（构造期由引擎钳制后传入；COUNT_1 = AA 关） */
-    private final SampleCount effectiveSamples;
     private int depthWidth;
     private int depthHeight;
 
@@ -248,28 +255,15 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     public RenderingSystem(Device device, FrameLoop frameLoop, int frameSlots) {
-        this(device, frameLoop, frameSlots, SampleCount.COUNT_1);
-    }
-
-    /**
-     * @param sampleCount 生效 MSAA 采样档（引擎启动期钳制后传入；
-     *                    COUNT_1 = 关闭。运行期切换需 PSO/附件失效协议，后置）
-     */
-    public RenderingSystem(Device device, FrameLoop frameLoop, int frameSlots,
-                           SampleCount sampleCount) {
         if (device == null || frameLoop == null) {
             throw new IllegalArgumentException("device / frameLoop must not be null");
         }
         if (frameSlots < 1) {
             throw new IllegalArgumentException("frameSlots must be >= 1, got: " + frameSlots);
         }
-        if (sampleCount == null) {
-            throw new IllegalArgumentException("sampleCount must not be null");
-        }
         this.device = device;
         this.frameLoop = frameLoop;
         this.frameSlots = frameSlots;
-        this.effectiveSamples = sampleCount;
 
         this.uboBuffer = device.createBuffer(
                 new BufferDesc(frameSlots * SLOT_SIZE, Set.of(BufferUsage.UNIFORM),
@@ -334,10 +328,10 @@ public final class RenderingSystem implements AutoCloseable {
                 retireResource(viewLighting::dispose);
             }
             retire(depthTextures.remove(camera.name()));
-            retire(msaaColorTextures.remove(camera.name()));
-            retire(msaaDepthTextures.remove(camera.name()));
             retire(pickIdTextures.remove(camera.name()));
             retire(pickDepthTextures.remove(camera.name()));
+            retire(lightingRtTextures.remove(camera.name()));
+            retirePostRts(camera.name());
         }
     }
 
@@ -413,13 +407,11 @@ public final class RenderingSystem implements AutoCloseable {
      * 其中 Blend/depthWrite 按材质 surfaceType 覆盖（URP 口径，Material_Design §4.1：
      * TRANSPARENT → Blend SrcAlpha OneMinusSrcAlpha / ZWrite Off，OPAQUE → Blend Off /
      * ZWrite On；Cull/ZTest/ColorMask 保留 Shader 声明，覆盖经 {@link PassState#copy()}
-     * 不回写 Shader 资产）。采样档 = 本 Pass 附件 MSAA 档（rasterizationSamples 必须
-     * 与附件一致，同材质双档并存不串）；图元类型 = Mesh 拓扑；set 布局 = set0 帧 +
-     * set1 帧级光照/通用通道（批次②）+ set2 材质（RHI 20.3/20.4）。
+     * 不回写 Shader 资产）。附件恒单采样（MSAA 已移除，2026-11-13）；图元类型 = Mesh
+     * 拓扑；set 布局 = set0 帧 + set1 帧级光照/通用通道（批次②）+ set2 材质（RHI 20.3/20.4）。
      */
     public GraphicsPipeline pipelineFor(Material material, VertexLayout layout,
-                                        PrimitiveTopology topology, SampleCount samples,
-                                        String passName) {
+                                        PrimitiveTopology topology, String passName) {
         checkOpen();
         // 坏 shader 回退解析（DefaultMaterial，拍板 2026-10-27）：shader null / SPIR-V 缺失 → 默认材质
         material = DefaultMaterial.resolve(material);
@@ -428,7 +420,7 @@ public final class RenderingSystem implements AutoCloseable {
         }
         Shader shader = material.getShader();
         String key = System.identityHashCode(shader) + ":" + layout.hashCode()
-                + ":" + topology + ":" + samples + ":" + material.getSurfaceType()
+                + ":" + topology + ":" + material.getSurfaceType()
                 + ":" + passName;
         GraphicsPipeline cached = pipelines.get(key);
         if (cached != null) {
@@ -468,7 +460,7 @@ public final class RenderingSystem implements AutoCloseable {
                 List.of(frameLayoutDesc(), frameStorageLayoutDesc(), materialLayoutDesc(shader)),
                 PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
-                samples);
+                SampleCount.COUNT_1);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
         pipelineOwners.put(created, shader);
@@ -527,45 +519,9 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
-     * 每视口 MSAA 颜色附件（视口独立；仅 AA 开启时创建，AA 关恒 null——
-     * 上层以 null 判定走 1x 直写）。首次访问按当前交换链尺寸创建，resize 换绑。
-     */
-    public Texture msaaColorFor(String cameraName) {
-        if (effectiveSamples == SampleCount.COUNT_1) {
-            return null;
-        }
-        return msaaColorTextures.computeIfAbsent(cameraName, n -> device.createTexture(
-                new TextureDesc(TextureType.TYPE_2D, colorAttachmentFormat(), depthWidth, depthHeight,
-                        1, 1, 1, effectiveSamples, Set.of(TextureUsage.COLOR_ATTACHMENT),
-                        MemoryPreference.deviceLocal()),
-                null));
-    }
-
-    /**
-     * 每视口 MSAA 深度附件（与 msaaColorFor 成对同档——同一次渲染通道内
-     * 附件采样数必须一致，验证层抓混搭）。AA 关恒 null。
-     */
-    public Texture msaaDepthFor(String cameraName) {
-        if (effectiveSamples == SampleCount.COUNT_1) {
-            return null;
-        }
-        return msaaDepthTextures.computeIfAbsent(cameraName, n -> device.createTexture(
-                new TextureDesc(TextureType.TYPE_2D, depthFormat(), depthWidth, depthHeight,
-                        1, 1, 1, effectiveSamples, Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT),
-                        MemoryPreference.deviceLocal()),
-                null));
-    }
-
-    /** 生效采样档（COUNT_1 = AA 关） */
-    public SampleCount effectiveSampleCount() {
-        return effectiveSamples;
-    }
-
-    /**
      * 每视口拾取 ID 附件（GPU ID-buffer 拾取，R32_UINT：像素值 = 帧内分配的 pick ID，
-     * 0 = 背景/未命中）。恒 1x（与主画面 MSAA 档解耦，点击像素与附件一一对应），
-     * usage 含 TRANSFER_SRC（点击读回 CopyImageToBuffer）。PickSystem 启用时由
-     * PickPass 惰性创建，resize 换绑同 depthFor。
+     * 0 = 背景/未命中）。恒 1x，usage 含 TRANSFER_SRC（点击读回 CopyImageToBuffer）。
+     * PickSystem 启用时由 PickPass 惰性创建，resize 换绑同 depthFor。
      */
     public Texture pickIdFor(String cameraName) {
         return pickIdTextures.computeIfAbsent(cameraName, n -> device.createTexture(
@@ -576,7 +532,7 @@ public final class RenderingSystem implements AutoCloseable {
                 null));
     }
 
-    /** 每视口拾取深度附件（拾取 pass 自有深度，与主深度解耦——MSAA resolve 语义无关） */
+    /** 每视口拾取深度附件（拾取 pass 自有深度，与主深度解耦） */
     public Texture pickDepthFor(String cameraName) {
         return pickDepthTextures.computeIfAbsent(cameraName, n ->
                 device.createTexture(TextureDesc.depth2D(depthFormat(), depthWidth, depthHeight,
@@ -618,6 +574,47 @@ public final class RenderingSystem implements AutoCloseable {
                 MemoryPreference.deviceLocal()), null);
     }
 
+    // ═══ 每视口 HDR 场景颜色 + 后处理中间 RT（后处理链启用时才创建） ═══
+
+    /**
+     * 每视口 HDR 场景颜色缓冲（Engine_PostProcess_Design §3.3）：后处理链非空时，
+     * 场景 Pass 的颜色终点由 backbuffer 改为本缓冲（RGBA16F），链尾 Tonemap 再写
+     * backbuffer。与 depthFor/gbuffer*For 同模式（视口独立、交换链尺寸、resize 换绑、
+     * 惰性创建——链空时永不创建，零新增 RT）。
+     */
+    public Texture lightingRtFor(String cameraName) {
+        return lightingRtTextures.computeIfAbsent(cameraName, n -> createHdrViewTexture());
+    }
+
+    /**
+     * 每视口后处理中间 RT（链内非首尾节点的输出，§3.4；index = 节点序）。
+     * 与 lightingRtFor 同模式；链内节点 ≤1 时不会创建（链尾直出 colorTarget）。
+     */
+    public Texture postRtFor(String cameraName, int index) {
+        return postRtTextures.computeIfAbsent(cameraName + "#" + index, n -> createHdrViewTexture());
+    }
+
+    /** 每视口 HDR 颜色纹理（RGBA16F、交换链尺寸、1x；场景色/后处理中间 RT 同格式） */
+    private Texture createHdrViewTexture() {
+        return device.createTexture(new TextureDesc(TextureType.TYPE_2D,
+                HDR_SCENE_COLOR_FORMAT, depthWidth, depthHeight, 1, 1, 1, SampleCount.COUNT_1,
+                Set.of(TextureUsage.COLOR_ATTACHMENT, TextureUsage.SAMPLED),
+                MemoryPreference.deviceLocal()), null);
+    }
+
+    /** 退役某视口的全部后处理中间 RT（removeCamera 用；retire 两帧后销毁） */
+    private void retirePostRts(String cameraName) {
+        String prefix = cameraName + "#";
+        Iterator<Map.Entry<String, Texture>> it = postRtTextures.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Texture> entry = it.next();
+            if (entry.getKey().startsWith(prefix)) {
+                retire(entry.getValue());
+                it.remove();
+            }
+        }
+    }
+
     /**
      * 登记 shader Pass 名的 PSO 颜色附件格式列表（HYBRID 的 "GBuffer" = 三张 MRT）。
      * 未登记的 Pass 名走单张 {@link #colorAttachmentFormat()}（Forward 族现状）。
@@ -626,6 +623,39 @@ public final class RenderingSystem implements AutoCloseable {
         if (passName != null && colors != null && !colors.isEmpty()) {
             passColorFormats.put(passName, List.copyOf(colors));
         }
+    }
+
+    /**
+     * 设置场景色是否走 HDR 缓冲（帧构建每帧调用，Engine_PostProcess_Design §3.2）：
+     * HDR 生效时场景 Pass（shader Pass 名 = "Forward"）的颜色附件为 RGBA16F，
+     * {@code pipelineFor} 须按同一格式建 PSO，否则附件格式不匹配（VVL 报错/画面错）。
+     * **格式切换即失效材质 PSO 缓存**（两帧退役旧管线，GPU in-flight 安全）——
+     * overlay 制 Pass（"Gizmo" 等）写显示目标，走未登记回退的交换链格式，不受影响。
+     */
+    public void setHdrSceneColor(boolean hdr) {
+        if (hdr == hdrSceneColor) {
+            return;
+        }
+        hdrSceneColor = hdr;
+        if (hdr) {
+            registerPassColorFormats(RenderPass.FORWARD_PASS_NAME,
+                    List.of(HDR_SCENE_COLOR_FORMAT));
+        } else {
+            passColorFormats.remove(RenderPass.FORWARD_PASS_NAME);
+        }
+        discardMaterialPipelines();
+        log.info("场景颜色格式切换: {}（材质 PSO 缓存已失效重建）",
+                hdr ? "RGBA16F（HDR 后处理链生效）" : "交换链格式（直通）");
+    }
+
+    /** 失效全部材质 PSO（格式/契约变化时调用；旧管线两帧退役） */
+    private void discardMaterialPipelines() {
+        if (pipelines.isEmpty()) {
+            return;
+        }
+        pipelines.values().forEach(pipeline -> retireResource(pipeline::dispose));
+        pipelines.clear();
+        pipelineOwners.clear();
     }
 
     // ═══ 每帧收集（逻辑侧帧首；单线程退化下由图声明回调驱动） ═══
@@ -1314,13 +1344,13 @@ public final class RenderingSystem implements AutoCloseable {
         if (!depthTextures.isEmpty()) {
             log.info("depth size changed: {}x{} → {}x{}, rebind all view depths", depthWidth, depthHeight, w, h);
             disposeAll(depthTextures);
-            disposeAll(msaaColorTextures);
-            disposeAll(msaaDepthTextures);
             disposeAll(pickIdTextures);
             disposeAll(pickDepthTextures);
             disposeAll(gbufferAlbedoTextures);
             disposeAll(gbufferNormalTextures);
             disposeAll(gbufferWorldPosTextures);
+            disposeAll(lightingRtTextures);
+            disposeAll(postRtTextures);
             // set1 per-view 描述符集引用 G-Buffer 纹理（binding5/6/7）——纹理换绑即重建
             // 描述符集（视口像素尺寸可能未变，不能只靠 viewLightsFor 的尺寸判据）
             if (!viewLights.isEmpty()) {
@@ -1472,13 +1502,13 @@ public final class RenderingSystem implements AutoCloseable {
         materialLayouts.values().forEach(DescriptorSetLayout::dispose);
         materialLayouts.clear();
         disposeAll(depthTextures);
-        disposeAll(msaaColorTextures);
-        disposeAll(msaaDepthTextures);
         disposeAll(pickIdTextures);
         disposeAll(pickDepthTextures);
         disposeAll(gbufferAlbedoTextures);
         disposeAll(gbufferNormalTextures);
         disposeAll(gbufferWorldPosTextures);
+        disposeAll(lightingRtTextures);
+        disposeAll(postRtTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）

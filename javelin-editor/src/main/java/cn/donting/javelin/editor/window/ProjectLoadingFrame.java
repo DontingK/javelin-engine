@@ -1,6 +1,6 @@
 package cn.donting.javelin.editor.window;
 
-import cn.donting.javelin.core.settings.AntialiasingMode;
+import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.asset.BuiltinAssetReleaser;
@@ -97,7 +97,10 @@ public class ProjectLoadingFrame extends JFrame {
 
                 SwingUtilities.invokeAndWait((Runnable) () -> dispose());
                 JavelinSetting setting = new JavelinSetting();
-                setting.setAntialiasing(AntialiasingMode.OFF);
+                // 拍板（2026-11-13）：编辑器恒用混合（Deferred）管线——管线已拆成两个独立
+                // 实现类、无运行期切档，编辑器显式指定（不读项目 javelinSettings 的档位字段，
+                // 该字段只供打包运行时启动期选实现类）
+                setting.setRenderPipeline(PipelineProfile.HYBRID);
                 setting.setMaxFps(144);
                 // 拍板（2026-10-17，Vulkan_Pitfalls #21 跨机器复发后）：编辑器恒关 vsync 走
                 // IMMEDIATE + maxFps 限帧兜底——无 MAILBOX 的驱动会静默回退 FIFO，

@@ -18,6 +18,7 @@ import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
+import cn.donting.javelin.core.render.pipeline.ForwardRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
@@ -25,7 +26,6 @@ import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.SceneRenderBridge;
 import cn.donting.javelin.core.scene.component.Camera;
-import cn.donting.javelin.core.settings.AntialiasingMode;
 import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.SettingManager;
@@ -42,12 +42,10 @@ import cn.donting.javelin.rhi.data.RHIClearColor;
 import cn.donting.javelin.rhi.data.RHILoadOp;
 import cn.donting.javelin.rhi.desc.SwapChainDesc;
 import cn.donting.javelin.rhi.render.RenderSurface;
-import cn.donting.javelin.rhi.types.SampleCount;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -297,12 +295,15 @@ public class JavelinEngine {
                 sceneRenderBridge.sync(scene, renderingSystem, backbuffer);
             }
             FrameDescription desc = renderingSystem.collectFrame(frameLoop.frameCounter(), backbuffer);
+            // HDR 生效（后处理链非空）时场景色写本视口 lightingRT，链尾 Tonemap 写显示终点
+            boolean hdr = renderPipeline.usesHdrSceneTarget();
+            // 场景色格式随 HDR 切换（材质 PSO 颜色附件须为 RGBA16F——格式变化即失效 PSO 缓存）
+            renderingSystem.setHdrSceneColor(hdr);
             for (RenderView view : desc.views()) {
                 renderPipeline.buildGraph(graph, new PipelineContext(
                         renderingSystem, view, desc, backbuffer,
                         renderingSystem.depthFor(view.name()),
-                        renderingSystem.msaaColorFor(view.name()),
-                        renderingSystem.msaaDepthFor(view.name())));
+                        hdr ? renderingSystem.lightingRtFor(view.name()) : null));
             }
             if (desc.views().isEmpty()) {
                 graph.addGraphicsPass("ClearOnly", pass ->
@@ -422,64 +423,21 @@ public class JavelinEngine {
      * 渲染系统工厂：默认 null（纯清屏）；游戏/演示子类覆盖创建并注册相机与渲染对象。
      */
     protected RenderingSystem createRenderingSystem() {
-        return new RenderingSystem(device(), frameLoop(), 2, resolveAntialiasingSamples());
-    }
-
-    /**
-     * 抗锯齿档位钳制：设置档 → 设备色彩+深度附件支持位掩码共同约束（MSAA
-     * 附件成对出现），不支持则逐档降级，降档一次性日志。启动期消费
-     * （vsync 同口径）；运行期切换需 PSO/MSAA 附件失效协议，后置。
-     */
-    private SampleCount resolveAntialiasingSamples() {
-        AntialiasingMode mode = setting.getAntialiasing();
-        // HYBRID 档强制 1x：G-Buffer MRT 多采样 + resolve 归四期（PipelineProfile javadoc）
-        if (setting.getRenderPipeline() == PipelineProfile.HYBRID && mode != AntialiasingMode.OFF) {
-            log.warn("HYBRID 渲染档不支持 MSAA（G-Buffer 多采样归四期），antialiasing={} 被钳为关闭",
-                    mode);
-            return SampleCount.COUNT_1;
-        }
-        if (mode == AntialiasingMode.OFF) {
-            return SampleCount.COUNT_1;
-        }
-        SampleCount requested = switch (mode.samples()) {
-            case 2 -> SampleCount.COUNT_2;
-            case 4 -> SampleCount.COUNT_4;
-            case 8 -> SampleCount.COUNT_8;
-            default -> throw new IllegalStateException("unexpected antialiasing samples: " + mode.samples());
-        };
-        Set<SampleCount> color = device.supportedColorSampleCounts();
-        Set<SampleCount> depth = device.supportedDepthSampleCounts();
-        SampleCount effective = requested;
-        while (effective != SampleCount.COUNT_1
-                && !(color.contains(effective) && depth.contains(effective))) {
-            effective = downgradeSampleCount(effective);
-        }
-        if (effective != requested) {
-            log.warn("antialiasing 降档: mode={} 设备 color={} depth={} 生效={}",
-                    mode, color, depth, effective == SampleCount.COUNT_1 ? "OFF" : effective);
-        } else {
-            log.info("antialiasing 生效: {}", mode);
-        }
-        return effective;
-    }
-
-    /** 采样档降级链（8→4→2→1） */
-    private static SampleCount downgradeSampleCount(SampleCount current) {
-        return switch (current) {
-            case COUNT_64, COUNT_32, COUNT_16 -> SampleCount.COUNT_8;
-            case COUNT_8 -> SampleCount.COUNT_4;
-            case COUNT_4 -> SampleCount.COUNT_2;
-            case COUNT_2, COUNT_1 -> SampleCount.COUNT_1;
-        };
+        return new RenderingSystem(device(), frameLoop(), 2);
     }
 
     protected RenderPipeline createRenderPipeline() {
         if (renderingSystem == null) {
             return null;
         }
-        DefaultHybridRenderPipeline pipeline = new DefaultHybridRenderPipeline(
-                device(), assetManager, setting.getRenderPipeline());
+        // 启动期按设置选实现类（2026-11-13 拍板：管线不再承载运行期切档——编辑器固定混合，
+        // 前向管线只留给打包运行时与 demo/测试）
+        RenderPipeline pipeline = setting.getRenderPipeline() == PipelineProfile.FORWARD
+                ? new ForwardRenderPipeline(device(), assetManager)
+                : new DefaultHybridRenderPipeline(device(), assetManager);
         pipeline.setClearColor(clearColor());
+        // 后处理开关（默认关 = 直通）：启动期按设置填充链（Tonemap → HDR 生效）
+        pipeline.setPostProcessingEnabled(setting.isPostProcessing());
         return pipeline;
     }
 
