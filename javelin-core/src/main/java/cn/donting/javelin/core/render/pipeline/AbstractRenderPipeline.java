@@ -2,6 +2,7 @@ package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.RenderingSystem;
+import cn.donting.javelin.core.render.pipeline.pass.BloomPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.pipeline.pass.TonemapPass;
 import cn.donting.javelin.rhi.Device;
@@ -39,6 +40,8 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
     private final PostProcessChain postProcess = new PostProcessChain();
     /** 后处理启用时惰性创建（装载内置 Tonemap 着色器产物） */
     private TonemapPass tonemap;
+    /** Bloom 启用时惰性创建（装载内置 Bloom 着色器产物） */
+    private BloomPass bloom;
     private RHIClearColor clearColor = new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f);
 
     protected AbstractRenderPipeline(Device device, AssetManager assetManager) {
@@ -67,7 +70,8 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
 
     /**
      * 后处理开关（启动期按设置填充 + 工具菜单运行期切换）：开 = 链尾挂 Tonemap（HDR 生效
-     * ——场景 Pass 写 lightingRT，Tonemap 写显示终点）；关 = 清空链（直通，逐像素不变）。
+     * ——场景 Pass 写 lightingRT，Tonemap 写显示终点）；关 = 摘除 Tonemap（Bloom 若在链上
+     * 则保留，HDR 仍生效）。
      */
     @Override
     public final void setPostProcessingEnabled(boolean enabled) {
@@ -79,17 +83,41 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
             if (!postProcess.nodes().contains(tonemap)) {
                 postProcess.addLast(tonemap);
             }
-        } else {
-            postProcess.clear();
+        } else if (tonemap != null) {
+            postProcess.remove(tonemap);
         }
     }
 
     @Override
     public final boolean postProcessingEnabled() {
-        return !postProcess.isEmpty();
+        return tonemap != null && postProcess.nodes().contains(tonemap);
     }
 
-    /** HDR 生效 = 后处理链非空（帧构建据此换场景颜色终点，见 PipelineContext） */
+    /**
+     * Bloom 开关（独立于后处理；§3.7）：开 = 链中挂 Bloom（{@code orderedChain} 保证排在 Tonemap
+     * 之前，读未 tonemap 的 HDR 缓冲）；关 = 摘除 Bloom（不动 Tonemap）。
+     */
+    @Override
+    public final void setBloomEnabled(boolean enabled) {
+        if (enabled) {
+            if (bloom == null) {
+                bloom = new BloomPass(device, assetManager);
+                bloom.setClearColor(clearColor);
+            }
+            if (!postProcess.nodes().contains(bloom)) {
+                postProcess.addLast(bloom);
+            }
+        } else if (bloom != null) {
+            postProcess.remove(bloom);
+        }
+    }
+
+    @Override
+    public final boolean bloomEnabled() {
+        return bloom != null && postProcess.nodes().contains(bloom);
+    }
+
+    /** HDR 生效 = 后处理链非空（任一节点在链上即写 lightingRT，见 PipelineContext） */
     @Override
     public final boolean usesHdrSceneTarget() {
         return !postProcess.isEmpty();
@@ -97,13 +125,16 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
 
     // ═══ 清屏色 ═══
 
-    /** 清屏色（下发各实现登记的清屏入口 + 链尾 Tonemap） */
+    /** 清屏色（下发各实现登记的清屏入口 + 链尾 Tonemap / 链中 Bloom） */
     @Override
     public final void setClearColor(RHIClearColor clearColor) {
         this.clearColor = clearColor;
         clearColorSinks.forEach(sink -> sink.accept(clearColor));
         if (tonemap != null) {
             tonemap.setClearColor(clearColor);
+        }
+        if (bloom != null) {
+            bloom.setClearColor(clearColor);
         }
     }
 

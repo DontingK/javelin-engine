@@ -1,6 +1,6 @@
 # 编辑器菜单与命令系统设计（v0.22）
 
-> v0.22（2026-11-13）：工具域**删 `tools.renderPipeline`**（管线拆成两个独立实现类、运行期不再切档，编辑器固定混合管线；原命令表行划除）；同期新增 `tools.postProcessing`（后处理开关，随四期第 1 项步骤一）。
+> v0.23（2026-11-13）：工具域 `tools.renderPipeline` **已删**（管线拆成两个独立实现类、运行期不再切档，编辑器固定混合管线；原命令表行划除）；新增 `tools.postProcessing`（后处理/Tonemap 开关，随四期第 1 项步骤一）与 `tools.bloom`（泛光独立开关，随步骤二——与后处理解耦、可分别开关）。
 > v0.21（2026-11-08）：工具域补 `tools.renderPipeline`（渲染管线档位 FORWARD ↔ HYBRID 运行期切换 + 写盘，随三期批次④-B 落地；命令表 §… 已登记）。
 
 > 定位：`javelin-editor` 的菜单/命令子系统——命令层（Command）+ 菜单结构注册（MenuRegistry）
@@ -443,6 +443,8 @@ public class MenuItemVo {        // 顶层与子项同构
 | `file.preferences` | 首选项 | 文件 | 弹 PreferencesDialog（模态挂 MainFrame）——语言设置首批（Lang 下拉），确定写回 EditorSettings.language 存盘 + 重启生效（2026-10-29 落地 v0.18，待验收） |
 | `tools.devtools` | 开发者工具 | 工具 | `CefFrame.openDevTools()`——同时是事件桥 ping/pong 验收的 DevTools 入口 |
 | `tools.grid` | 网格显示 | 工具 | checked 勾选命令，切换 `EditGridAppState` 网格开关——验证 checked 求值链路 |
+| `tools.postProcessing` | 后处理（HDR） | 工具 | checked 勾选命令（= 链含 Tonemap），切换 `RenderPipeline.setPostProcessingEnabled`——开 = HDR + 高光肩部 Tonemap，关 = 直通；写盘 `Game/javelinSettings.settings`，装配/写盘失败弹框（红线 15）。2026-11-13 随四期第 1 项步骤一 |
+| `tools.bloom` | 泛光（Bloom） | 工具 | checked 勾选命令（= 链含 Bloom），切换 `RenderPipeline.setBloomEnabled`——**独立于后处理**，与 Tonemap 可分别开关（链四态见后处理档 §9.6）；写盘 + 失败弹框同口径。2026-11-13 随步骤二 |
 | ~~`tools.renderPipeline`~~ | ~~混合渲染（Deferred）~~ | 工具 | **已删（2026-11-13）**：管线拆成两个独立实现类、运行期不再切档——编辑器固定混合管线（`ProjectLoadingFrame` 显式设 `PipelineProfile.HYBRID`），档位字段只供打包运行时启动期选实现类；原「运行期切档 + 写盘 + AA 守卫」随批次④-B 的机制一并退役 |
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |

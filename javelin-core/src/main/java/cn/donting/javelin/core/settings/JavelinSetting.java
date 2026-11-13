@@ -57,12 +57,27 @@ public class JavelinSetting implements Serializable {
      */
     private boolean postProcessing = false;
 
+    /**
+     * Bloom 开关（Engine_PostProcess_Design §3.7，独立于后处理）：默认关。开 = 后处理链中挂
+     * Bloom（Tonemap 之前，读未 tonemap 的 HDR 场景色）；与后处理（Tonemap）可分别开关。
+     * 启动期消费；运行期可经编辑器「工具」域命令切换并写盘。
+     */
+    private boolean bloom = false;
+
     public boolean isPostProcessing() {
         return postProcessing;
     }
 
     public void setPostProcessing(boolean postProcessing) {
         this.postProcessing = postProcessing;
+    }
+
+    public boolean isBloom() {
+        return bloom;
+    }
+
+    public void setBloom(boolean bloom) {
+        this.bloom = bloom;
     }
 
     public boolean isEngineDebug() {
@@ -146,6 +161,7 @@ public class JavelinSetting implements Serializable {
         output.write("renderPipeline",renderPipeline);
         output.write("engineDebug",engineDebug);
         output.write("postProcessing",postProcessing);
+        output.write("bloom",bloom);
     }
 
     @Override
@@ -170,5 +186,7 @@ public class JavelinSetting implements Serializable {
         engineDebug = input.readBoolean("engineDebug");
         // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关=直通）——无迁移坑
         postProcessing = input.readBoolean("postProcessing");
+        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
+        bloom = input.readBoolean("bloom");
     }
 }

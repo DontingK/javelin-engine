@@ -1,11 +1,11 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.6（2026-11-12 补 dbg-2 G-Buffer 可视化批次）
+> 版本：v0.7（2026-11-13 补四期后处理链步骤一/二批次）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
 > 溯源：v0.1 逐字流水版见 git 历史（2026-11-08）；本卷每条均可在对应设计档版本段核到。
-> 章节对应：§2 二期、§3 三期散件；**§1 一期（关账总结）与 §4 四期（立项未开工）无批次条目**，节号与总纲保持一致以便对读。
+> 章节对应：§2 二期、§3 三期散件、§7 四期（2026-11-13 起补批次）；**§1 一期（关账总结）无批次条目**；§4 排障基建、§5 六阶段映射、§6 已收口专项各自独立。
 
 ---
 
@@ -119,6 +119,15 @@
 - **文档结构治理（2026-11-08）**：`Engine_Roadmap.md` 涨到 72KB（单文件逼近不可读）——按「总纲 + 分卷」拆出本卷，并把逐字流水压成批次索引（54KB → 26KB）；同期立 AGENTS **红线 16**（进度 / 台账类文档单文件 ≤ 50KB，超限即分片，手法照本次：总纲留状态摘要 + 分卷索引表 + 指针，节号沿用原编号）。范围收窄 = 只约束随批次线性增长的进度文档，设计档 / 参考资料 / `Engine_Features.md` 功能清单不受此限（量由设计范围决定）。
 
 - **待办总账建档（2026-11-11）**：新建 `doc/Engine_Backlog.md`——**「已计划、尚未完成」的唯一登记处**；起因 = 待办散在 30 份文档的「后置项 / 挂账 / 遗留 / 待拍板 / 已知边界」段，无单点可查。手法 = 全量清点（`doc/*.md` + `Engine_Features.md` + `AGENTS.md`）去重后按域收敛，**106 条**（DBG 6 / P4 9 / RHI 9 / REND 13 / AST 15 / HOT 13 / ED 12 / PLG 8 / SYS 9 / PICK 3 / BLD 1 / BUG 8），一项一行「ID｜待办｜落点｜归类｜依赖」，ID 建档一次分配、永久稳定、完成后留空档不复用；归类 = 未开工 / 半成品 / 后置项 / 待拍板 / 已知问题。**落点收敛三处**：`Engine_Features.md` §7 已知问题并入本文 §13（原处留指针）、`Engine_Roadmap.md` §6 跨期遗留改指向本文（同步更正两处残留——`environment/sun` 与 `.scene 序列化` 实已落地、「插件域待拍板」实剩 2 项，总纲升 v0.6）、`AGENTS.md` 文档索引登记新档（Features/Roadmap 两行描述同步）。维护纪律四条写入档内（开工改状态 / 完成整行移出进本卷批次索引 + Features 验收状态 / 设计档新写后置段须同批登记 / 拍板后去 `待拍板` 归类）；体量 24KB 在红线 16 限内。
+
+---
+
+## 7. 四期：高质量渲染——批次索引
+
+> 四期批次（`Engine_Roadmap.md` §4 立项项）。总纲 §4 只留状态摘要，明细归各设计档版本段；本节按批一行。（2026-11-13 起补：此前四期无批次条目，步骤一/二落码后补登。）
+
+- **2026-11-13｜后处理链步骤一（HDR 切换点 + Tonemap）+ 管线拆两个实现类 + MSAA 移除**：`RenderingSystem.lightingRtFor`/`postRtFor`（per-view RGBA16F 场景色/中间 RT）+ `PipelineContext.sceneColorTarget()` 抽象（四场景 Pass 换取值来源）+ `PostProcessChain`/`PostProcessNode` 具体化 + `AbstractRenderPipeline` 链展开（最后一个场景 Pass 之后、overlay 之前）+ `TonemapPass`（高光肩部 KNEE=0.8，ACES 实机「发灰」换装）+ 内置 `builtin-asset-core/postprocess/tonemap.vert|frag` 走 SpvShader 导入链 + `RenderingSystem.setHdrSceneColor`（材质 PSO 格式跟随）+ `JavelinSetting.postProcessing` + `tools.postProcessing`；**同日**管线拆 `AbstractRenderPipeline`/`DefaultHybridRenderPipeline`/`ForwardRenderPipeline`（启动期选定、运行期不可切）+ MSAA 从引擎/编辑器/设置层整体移除（RHI 多采样设施休眠，AA 空窗至 TAA/P4-10） → `Engine_PostProcess_Design.md` v0.3 §9 / `Engine_RenderPipeline_Design.md` v0.9 ｜✅ 2026-11-14 用户实机验收（提交 `1cef2a4`）
+- **2026-11-13｜后处理链步骤二 Bloom（独立开关）**：`BloomPass`（链中节点，单节点内录制 8 个覆盖制全屏 Pass = 阈值提取 + 3 级降采样 + 3 级上采样累加 + 合成；跨视口/多级坐标用 push `uvRect` + 顶点 vUV）+ `RenderingSystem.bloomRtFor`（per-view 尺寸递减 1/2..1/16 RT 族）+ 内置 `builtin-asset-core/postprocess/bloom*.vert|frag` 走 SpvShader 导入链 + `JavelinSetting.bloom` + `tools.bloom`（`BloomMenuCommand`）；**开关拆分**（`setPostProcessingEnabled` 由「清空链」改为「只摘 Tonemap」、`postProcessingEnabled` 语义收为「链含 Tonemap」） → `Engine_PostProcess_Design.md` v0.4 §3.7/§9.6 ｜✅ 2026-11-14 用户实机验收（本批，运行通过）
 
 ---
 

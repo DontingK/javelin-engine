@@ -1,8 +1,8 @@
 # 引擎后处理设计（Engine Post Process Design）
 
-> 版本：v0.3（**步骤一已落码待验收**；v0.1 方案件 / v0.2 落码 / v0.3 随管线拆分与 MSAA 移除同步 + 曲线换装）
+> 版本：v0.4（**步骤一 HDR+Tonemap / 步骤二 Bloom 均已验收（2026-11-14 用户实机）**；v0.1 方案件 / v0.2 步骤一落码 / v0.3 随管线拆分与 MSAA 移除同步 + 曲线换装 / v0.4 步骤二 Bloom 独立开关落地）
 > 日期：2026-11-13
-> 说明：四期第 1 项（`Engine_Roadmap.md` §4-1）「后处理链（Bloom/Tonemap + HDR 切换点）」的设计方案——HDR 场景颜色、后处理链形态、Tonemap/Bloom 落点、与管线实现/AA（TAA 方向）/多相机的交互。**v0.1 方案件（8 条拍板点见 §7）；v0.2 = 按建议默认落「步骤一（HDR 切换点 + Tonemap）」，实装记录见 §9；v0.3 = 同日管线拆成两个独立实现类（链入共用基类 `AbstractRenderPipeline`、两管线同享）+ MSAA 从引擎/编辑器/设置层移除（AA 空窗至 TAA）+ **Tonemap 曲线由 ACES 换为「高光肩部」**（实机反馈「发灰/不纯」，§9.5），§2/§3.5/§4.2/§7/§8/§9 同步。**
+> 说明：四期第 1 项（`Engine_Roadmap.md` §4-1）「后处理链（Bloom/Tonemap + HDR 切换点）」的设计方案——HDR 场景颜色、后处理链形态、Tonemap/Bloom 落点、与管线实现/AA（TAA 方向）/多相机的交互。**v0.1 方案件（8 条拍板点见 §7）；v0.2 = 按建议默认落「步骤一（HDR 切换点 + Tonemap）」，实装记录见 §9；v0.3 = 同日管线拆成两个独立实现类（链入共用基类 `AbstractRenderPipeline`、两管线同享）+ MSAA 从引擎/编辑器/设置层移除（AA 空窗至 TAA）+ **Tonemap 曲线由 ACES 换为「高光肩部」**（实机反馈「发灰/不纯」，§9.5），§2/§3.5/§4.2/§7/§8/§9 同步；v0.4 = 步骤二 Bloom（**独立开关**，与 Tonemap 解耦；4 级降采样 + 帐篷核模糊 + 上采样累加，§3.7/§9.6）。**
 > 职责边界：
 > - 本档管**后处理域**（HDR 容器、链的组成与展开、链内 Pass 形态、Tonemap/Bloom 具体化）；
 > - `Engine_RenderPipeline_Design.md` 管 Pass 编排骨架与视口资源表——本档是它 §4.6/§4.7 占位的**具体化**，不重复其机制（有序 Pass 列表、两个管线实现类、图缓存失效规则）；
@@ -183,7 +183,7 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 
 **验收（步骤一）**：链空时画面与改造前**逐像素一致**（默认关）；开 Tonemap 后高光质感变化合理、不爆白；分屏两视口各自正确；`logs/error` 零 ERROR（dbg-1 校验层前置）。
 
-**步骤二：Bloom（内容批）**——阈值提取 + 多级模糊 + 累加 + Tonemap 合成；参数起步常量。**验收**：亮部（灯/高光/天空盒亮区）溢出发光、暗部不受影响、分屏正确、帧率达标。
+**步骤二：Bloom（内容批）**——阈值提取 + 多级模糊 + 累加 + Tonemap 合成；参数起步常量。**验收**：亮部（灯/高光/天空盒亮区）溢出发光、暗部不受影响、分屏正确、帧率达标。**2026-11-13 落码、2026-11-14 用户实机验收（独立开关，§9.6）。**
 
 ---
 
@@ -205,6 +205,8 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 > 每项给建议，取默认则按建议落码。
 >
 > **2026-11-13 开工拍板（用户下令「开工」= 按建议默认）**：拍板点 1/2/3/5/6/7/8 采纳建议；拍板点 4 的 AA 路线已定（TAA 取代 MSAA）——**棋后同日进一步拍板：MSAA 不再「保留冻结」而是从引擎/编辑器/设置层直接删除**（RHI 多采样设施保留休眠）；步骤一已落码（§9），步骤二 Bloom 待步骤一验收后开工。
+>
+> **2026-11-13 步骤二开工拍板（用户）**：Bloom 走**独立开关**（`JavelinSetting.bloom` + 工具菜单 `tools.bloom`），与后处理（Tonemap）开关**解耦**——两者可分别开关（链四态见 §9.6）；参数（threshold/intensity/级数）起步常量，接设置后置。
 
 | 序 | 拍板点 | 建议 |
 |----|--------|------|
@@ -233,7 +235,7 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 
 ---
 
-## 9. 实装记录（步骤一，2026-11-13 落码待验收）
+## 9. 实装记录（后处理链，2026-11-13）
 
 > 用户 2026-11-13 下令开工、按 §7 建议默认；本批只做步骤一（HDR 切换点 + Tonemap）。Bloom 归步骤二。
 
@@ -282,3 +284,41 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 **换装**（`tonemap.frag`）：**高光肩部**——`KNEE=0.8`，`≤KNEE` 逐像素**原样输出**（保住既有画面的对比与纯度），`>KNEE` 走指数肩部 `KNEE + (1-KNEE)(1-exp(-(x-KNEE)/(1-KNEE)))` 平滑压向 1.0（在 `KNEE` 处导数连续 = C1，永不硬截白）。取值：0.5→0.5、0.8→0.8、1.0→0.926、2.0→0.9995、4.0→1.0。
 
 **取舍**：这是「只修过曝、不动正常画面」的最小干预口径——代价是失去电影曲线的色偏/肩部造型（当前内容用不上，等真 HDR 内容与 sRGB 工作流落地后（P4-09）可再评估换回电影曲线）。`KNEE` 与曲线形状是着色器内常量，接设置后置。
+
+### 9.6 步骤二 Bloom（2026-11-13 落码，2026-11-14 用户实机验收）
+
+> 用户 2026-11-13 拍板 Bloom 走**独立开关**（与后处理/Tonemap 解耦）；本批只做步骤二（Bloom 节点，参数起步常量）。
+
+**落点（代码实证）**
+
+| 件 | 落点 | 形态 |
+|----|------|------|
+| `BloomPass` | `core/render/pipeline/pass/BloomPass` | `implements PostProcessNode`；单节点内录制 8 个覆盖制全屏 Pass（1 prefilter + 3 down + 3 up + 1 composite）；PSO 缓存 key=(kind,输出格式)、描述符集 per-view 按纹理身份换代重建；push = `vec4 uvRect` |
+| Bloom RT 资源族 | `RenderingSystem.bloomRtFor(cameraName, level)` + `createHdrViewTexture(w,h)` | per-view、尺寸递减（`>> (level+1)`，1/2..1/16）、RGBA16F `COLOR_ATTACHMENT\|SAMPLED`；resize / close / removeCamera 三处随族清理（同 lightingRt/postRt） |
+| 内置着色器 | `builtin-asset-core/postprocess/bloom.vert` + `bloom_prefilter.frag` / `bloom_down.frag` / `bloom_up.frag` / `bloom_composite.frag`（各伴生 `.meta`） | 裸 GLSL 走 `SpvShaderImporter`（Gradle 扫目录零登记）；vert 输出 vUV，frag 按 push `uvRect` 换算源坐标；prefilter 软阈值（THRESHOLD=0.8/KNEE=0.4）、down 4-tap 帐篷、up 9-tap 帐篷 + 加性混合、composite `scene + bloom*INTENSITY(0.5)` |
+| 开关 | `JavelinSetting.bloom`（默认 false）+ `AbstractRenderPipeline.setBloomEnabled/bloomEnabled` + `tools.bloom`（`BloomMenuCommand`，checked = 链含 Bloom） | 独立于 `postProcessing`（Tonemap）；启动期 `JavelinEngine.createRenderPipeline` 消费；运行期切 + 写盘（失败弹框，红线 15） |
+| 开关拆分 | `setPostProcessingEnabled(false)` 由「清空链」改为**只摘 Tonemap**；`postProcessingEnabled()` 语义收为「链含 Tonemap」；`usesHdrSceneTarget()` 仍为「链非空」 | 两开关互不误伤 |
+
+**链四态**
+
+| 后处理(Tonemap) | Bloom | 链 | 结果 |
+|---|---|---|---|
+| 关 | 关 | `[]` | 直通，零新增 RT（现基线） |
+| 开 | 关 | `[Tonemap]` | 步骤一现状 |
+| 关 | 开 | `[Bloom]` | 场景色 + Bloom 直写显示目标（无 tonemap，>1 截断的边界） |
+| 开 | 开 | `[Bloom, Tonemap]` | 完整 HDR 链（`orderedChain` 保证 Bloom 在 Tonemap 前） |
+
+**实装期确定的边界（与方案字面有差，记明不静默）**
+
+1. **跨视口/多级坐标用 push 常量 `uvRect` + 顶点 `vUV`**，而非 `gl_FragCoord/textureSize`（Tonemap 口径）。原因：Bloom 各级目标 RT 尺寸递减（1/2..1/16），且分屏视口只占帧缓冲一区域——`gl_FragCoord` 与源纹理不在同一坐标空间。取 `uvRect = (viewportX/fullW, viewportY/fullH, viewportW/fullW, viewportH/fullH)`（源 = 全分辨率场景色），片元 `uv = uvRect.xy + vUV*uvRect.zw`；各 Pass 的 viewport/scissor 随级数缩放 `>> (level+1)`。该式对任一级、任视口区域一致成立（各 Bloom RT 的「内容区域」归一化坐标恒等于屏幕归一化坐标）。
+2. **Bloom 是单个链节点、内部录制 8 个 Pass**——`PostProcessNode` 契约是单节点「读 input 写 output」，Bloom 的中间级全部写它自管的 Bloom RT（`bloomRtFor`），对链只暴露「input = 场景色、output = 场景色 + Bloom」。
+
+**未做（步骤二范围外）**：参数（threshold/intensity/级数）接设置；Bloom 中间 RT 内存别名（RHI-04）；高亮截白真解（P4-09）；AA（TAA，P4-10）。
+
+**验收口径（用户实机；重点混合管线，前向先不管）**
+
+- 两个开关四态各自正确，关时画面**逐像素不变**；
+- Bloom 开后：亮部（灯/高光/天空盒亮区）溢出发光、暗部不受影响，无爆白；
+- Scene + Game 双视口各自正确、不串；
+- 帧率达标（Bloom 增 8 个半分辨率以下全屏 Pass）；
+- `logs/error/error.log` 零 ERROR（dbg-1 校验层已就绪）。

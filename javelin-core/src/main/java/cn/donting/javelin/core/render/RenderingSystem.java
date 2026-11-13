@@ -237,6 +237,8 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> lightingRtTextures = new HashMap<>();
     // 每视口后处理中间 RT（链内非首尾节点输出，§3.4；key = cameraName#节点序）
     private final Map<String, Texture> postRtTextures = new HashMap<>();
+    // 每视口 Bloom 多级 RT（Engine_PostProcess_Design §3.7；尺寸递减 1/2..1/16，key = cameraName#b级）
+    private final Map<String, Texture> bloomRtTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
@@ -332,6 +334,7 @@ public final class RenderingSystem implements AutoCloseable {
             retire(pickDepthTextures.remove(camera.name()));
             retire(lightingRtTextures.remove(camera.name()));
             retirePostRts(camera.name());
+            retireBloomRts(camera.name());
         }
     }
 
@@ -594,10 +597,28 @@ public final class RenderingSystem implements AutoCloseable {
         return postRtTextures.computeIfAbsent(cameraName + "#" + index, n -> createHdrViewTexture());
     }
 
+    /**
+     * 每视口 Bloom 多级 RT（Engine_PostProcess_Design §3.7）：level 0..N-1 对应 1/2、1/4、
+     * 1/8、1/16（尺寸 = 交换链尺寸 &gt;&gt; (level+1)）。与 lightingRtFor/postRtFor 同模式
+     * （视口独立、resize 换绑、惰性创建、removeCamera 回收）；Bloom 关闭时不创建。
+     */
+    public Texture bloomRtFor(String cameraName, int level) {
+        return bloomRtTextures.computeIfAbsent(cameraName + "#b" + level, n -> {
+            int w = Math.max(1, depthWidth >> (level + 1));
+            int h = Math.max(1, depthHeight >> (level + 1));
+            return createHdrViewTexture(w, h);
+        });
+    }
+
     /** 每视口 HDR 颜色纹理（RGBA16F、交换链尺寸、1x；场景色/后处理中间 RT 同格式） */
     private Texture createHdrViewTexture() {
+        return createHdrViewTexture(depthWidth, depthHeight);
+    }
+
+    /** 按尺寸创建 HDR 颜色纹理（RGBA16F、1x；Bloom 多级 RT 尺寸递减用） */
+    private Texture createHdrViewTexture(int width, int height) {
         return device.createTexture(new TextureDesc(TextureType.TYPE_2D,
-                HDR_SCENE_COLOR_FORMAT, depthWidth, depthHeight, 1, 1, 1, SampleCount.COUNT_1,
+                HDR_SCENE_COLOR_FORMAT, width, height, 1, 1, 1, SampleCount.COUNT_1,
                 Set.of(TextureUsage.COLOR_ATTACHMENT, TextureUsage.SAMPLED),
                 MemoryPreference.deviceLocal()), null);
     }
@@ -606,6 +627,19 @@ public final class RenderingSystem implements AutoCloseable {
     private void retirePostRts(String cameraName) {
         String prefix = cameraName + "#";
         Iterator<Map.Entry<String, Texture>> it = postRtTextures.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Texture> entry = it.next();
+            if (entry.getKey().startsWith(prefix)) {
+                retire(entry.getValue());
+                it.remove();
+            }
+        }
+    }
+
+    /** 退役某视口的全部 Bloom RT（removeCamera 用；retire 两帧后销毁） */
+    private void retireBloomRts(String cameraName) {
+        String prefix = cameraName + "#b";
+        Iterator<Map.Entry<String, Texture>> it = bloomRtTextures.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String, Texture> entry = it.next();
             if (entry.getKey().startsWith(prefix)) {
@@ -1351,6 +1385,7 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(gbufferWorldPosTextures);
             disposeAll(lightingRtTextures);
             disposeAll(postRtTextures);
+            disposeAll(bloomRtTextures);
             // set1 per-view 描述符集引用 G-Buffer 纹理（binding5/6/7）——纹理换绑即重建
             // 描述符集（视口像素尺寸可能未变，不能只靠 viewLightsFor 的尺寸判据）
             if (!viewLights.isEmpty()) {
@@ -1509,6 +1544,7 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(gbufferWorldPosTextures);
         disposeAll(lightingRtTextures);
         disposeAll(postRtTextures);
+        disposeAll(bloomRtTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）

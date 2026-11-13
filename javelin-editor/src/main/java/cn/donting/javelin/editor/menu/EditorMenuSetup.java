@@ -27,6 +27,7 @@ import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.menu.top.GridMenuCommand;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.menu.top.PostProcessingMenuCommand;
+import cn.donting.javelin.editor.menu.top.BloomMenuCommand;
 import cn.donting.javelin.editor.menu.top.GBufferViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
 import cn.donting.javelin.editor.menu.top.PreferencesMenuCommand;
@@ -77,6 +78,7 @@ public final class EditorMenuSetup {
         context.registerCommand(new GridMenuCommand());
         // 后处理开关（直通 ↔ HDR Tonemap，四期第 1 项步骤一 2026-11-13）：运行期切换 + 写盘
         context.registerCommand(new PostProcessingMenuCommand());
+        context.registerCommand(new BloomMenuCommand());
         // G-Buffer 可视化视图（dbg-2，2026-11-12）：工具菜单四项单选（关闭/基色/世界法线/世界位置）
         context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.off",
                 GBufferDebugAppState.MODE_OFF));
@@ -150,6 +152,7 @@ public final class EditorMenuSetup {
         MenuRegistry.menu("tools", EditorLang.key("tools"))
                 .item("tools.grid")
                 .item("tools.postProcessing")
+                .item("tools.bloom")
                 .submenu(EditorLang.key("tools.gbufferView"), gbuffer -> gbuffer
                         .item("tools.gbufferView.off")
                         .item("tools.gbufferView.albedo")

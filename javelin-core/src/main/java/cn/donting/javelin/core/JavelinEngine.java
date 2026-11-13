@@ -438,6 +438,8 @@ public class JavelinEngine {
         pipeline.setClearColor(clearColor());
         // 后处理开关（默认关 = 直通）：启动期按设置填充链（Tonemap → HDR 生效）
         pipeline.setPostProcessingEnabled(setting.isPostProcessing());
+        // Bloom 开关（默认关，独立于后处理）：启动期按设置挂链中节点（Tonemap 之前）
+        pipeline.setBloomEnabled(setting.isBloom());
         return pipeline;
     }
 
