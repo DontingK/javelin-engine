@@ -1,6 +1,6 @@
 # 编辑器项目设置设计（Editor Project Settings Design）
 
-> 版本：v0.1（2026-11-14 落地待验收）
+> 版本：v0.1（2026-11-14 落地，用户实机验收通过）
 > 日期：2026-11-14
 > 职责边界：
 > - 本档管**「项目设置」窗口**（对标 Unity `Edit → Project Settings → Graphics → HDRP Global Settings`）——窗口形态、分类骨架、设置项的**即时/重启两档生效口径**、与首选项的边界；

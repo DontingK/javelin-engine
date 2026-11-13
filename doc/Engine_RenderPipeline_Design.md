@@ -10,8 +10,8 @@
 > v0.6 变更（2026-11-10）：**HYBRID 档验收关账**——用户实机两路光照一致确认；随验一坑（**Pitfalls #35**：set0 相机块 stageFlags VERTEX-only，LightingPass fs 读 `cam.view` 越权读零全黑——修=改 `ALL_GRAPHICS` 超集）。遗留口径：非光照材质（default.shader）HYBRID 档下 albedo 仍乘光照（无灯=黑，Deferred 物理正确），「直读 albedo」非光照语义契约归四期材质专档。
 > v0.7 变更（2026-11-13）：**后处理链设计方案出档（待拍板）**——四期第 1 项（HDR 切换点 + Bloom/Tonemap）具体化落新档 `Engine_PostProcess_Design.md`；本文 §4.6/§4.7 占位收为其指针，§5.1 `lightingRT` 行指向该档（方案未拍板、未落码）。
 > v0.9 变更（2026-11-13）：**管线拆成两个独立实现类 + MSAA 移除**（同日用户拍板）——新增 `AbstractRenderPipeline`（共用骨架：单条有序 Pass 列表 + 场景 Pass 身份集 + 后处理链 + 清屏/Pass 管理 + 链展开模板）、`DefaultHybridRenderPipeline` 瘦身为 HYBRID 独用、新增 `ForwardRenderPipeline`；**启动期**由 `JavelinSetting.renderPipeline` 选实现类、**运行期不再切档**（删 `setProfile`），「工具｜混合渲染」菜单退役，编辑器固定 HYBRID；**引擎/编辑器/设置层的 MSAA 全部删除**（`AntialiasingMode`/`antialiasing` 字段/MSAA 附件族/`isMsaaPath`/各 Pass MSAA 分支与 resolve 调用点），RHI 多采样设施保留休眠（§5.3）。
-> v0.8 变更（2026-11-13）：**后处理链步骤一落码待验收**（同日用户下令开工，按方案 §7 建议默认）——`lightingRT` per-view 资源、`PipelineContext.sceneColorTarget()`、`PostProcessNode`/`PostProcessChain` 具体化 + 链展开（**展开点在最后一个场景 Pass 之后、overlay 制 Pass 之前**）、`TonemapPass`（高光肩部曲线）+ 工具菜单开关；HDR = 链非空才生效（§5.1 `lightingRT` 行转实装）。实装记录与两处实装边界见后处理档 §9。
-> v0.10 变更（2026-11-13）：**后处理链步骤二 Bloom 落码待验收**——`BloomPass`（链中节点，单节点内 8 个覆盖制全屏 Pass）+ `RenderingSystem.bloomRtFor`（per-view 尺寸递减 1/2..1/16 RT 族）+ 内置 `bloom*.vert|frag` 走 SpvShader 导入链 + Bloom **独立开关**（`JavelinSetting.bloom`/`tools.bloom`，与后处理/Tonemap 解耦）；§5.1 资源表补 `postRt`/`bloomRt` 行；实装记录见后处理档 v0.4 §9.6。
+> v0.8 变更（2026-11-13）：**后处理链步骤一落码（2026-11-14 用户实机验收通过）**（同日用户下令开工，按方案 §7 建议默认）——`lightingRT` per-view 资源、`PipelineContext.sceneColorTarget()`、`PostProcessNode`/`PostProcessChain` 具体化 + 链展开（**展开点在最后一个场景 Pass 之后、overlay 制 Pass 之前**）、`TonemapPass`（高光肩部曲线）+ 工具菜单开关；HDR = 链非空才生效（§5.1 `lightingRT` 行转实装）。实装记录与两处实装边界见后处理档 §9。
+> v0.10 变更（2026-11-13）：**后处理链步骤二 Bloom 落码（2026-11-14 用户实机验收通过）**——`BloomPass`（链中节点，单节点内 8 个覆盖制全屏 Pass）+ `RenderingSystem.bloomRtFor`（per-view 尺寸递减 1/2..1/16 RT 族）+ 内置 `bloom*.vert|frag` 走 SpvShader 导入链 + Bloom **独立开关**（`JavelinSetting.bloom`/`tools.bloom`，与后处理/Tonemap 解耦）；§5.1 资源表补 `postRt`/`bloomRt` 行；实装记录见后处理档 v0.4 §9.6。
 > v0.11 变更（2026-11-14）：**管线与后处理节点解耦（零行为变化）**——`RenderPipeline` 删 4 个效果开关方法、改暴露 `postProcess()`；`AbstractRenderPipeline` 不再 `new`/持有具体节点（`orderedChain` 的 `instanceof` → `PostProcessNode.isTerminal()`）；节点创建/开关归组合根 `PostProcessSetup`（后处理档 v0.5 §9.7）。
 > 职责边界：
 > - 本文管**「画哪些、先后顺序、读写哪些 RT」**（引擎侧渲染管线，RHI 12 节概念）；
@@ -222,8 +222,8 @@ pipeline.postProcess().remove("Bloom");
 | shadowMap | D32_SFLOAT | 2048²（默认） | 全局（主光） | 常驻，灯光参数变化重建内容 | ✅ 批次④-A |
 | GBuffer×3 | RGBA8 / RGBA16F / RGBA32F（见 4.2） | 视口大小（同 depth 尺码） | 每视口 | 随视口创建，resize 换绑，惰性建 | ✅ 批次④-B |
 | lightingRT | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 换绑，惰性建（链非空才创建） | ✅ 四期第 1 项**步骤一已实装**（2026-11-14 验收；`RenderingSystem.lightingRtFor`，后处理档 §3.3/§9） |
-| lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ✅ 批次②首视口单缓冲 → 批次③ per-view（2026-11-01 待验收） |
-| clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（**CPU 构建**——批次③拍板 2026-11-01，GPU Pass 化归四期；灯光档 §6 修订）；视口尺寸变化重建 | ✅ 三期批次③已实装（2026-11-01 待验收） |
+| lightList（SSBO） | 视空间 64B/灯 | 容量 4096 | 每视口 | 视口级常驻，每帧重写（host 上传） | ✅ 批次②首视口单缓冲 → 批次③ per-view（批次② 2026-10-31、批次③ 2026-11-01 用户实测验收） |
+| clusterGrid + clusterIndices（SSBO） | uint×2/cell + uint 变长池 | 2MB + 4MB（1080p 默认参数） | 每视口 | 视口级常驻，每帧重写（**CPU 构建**——批次③拍板 2026-11-01，GPU Pass 化归四期；灯光档 §6 修订）；视口尺寸变化重建 | ✅ 三期批次③已实装（2026-11-01 用户实测验收） |
 | postRt（后处理中间 RT） | R16G16B16A16_SFLOAT | 视口大小 | 每视口 | 随视口创建，resize 换绑，惰性建（链内非首尾节点输出） | ✅ 步骤一已实装（2026-11-14 验收；`RenderingSystem.postRtFor`，后处理档 §3.4/§9） |
 | bloomRt ×4（Bloom 多级 RT） | R16G16B16A16_SFLOAT | 视口大小 >>(level+1)（1/2..1/16） | 每视口 | 随视口创建，resize 换绑，惰性建（Bloom 开才创建） | ✅ 步骤二已实装（2026-11-14 验收；`RenderingSystem.bloomRtFor`，后处理档 §3.7/§9.6） |
 
