@@ -21,6 +21,7 @@ import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.ForwardRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
+import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.Scene;
@@ -28,6 +29,7 @@ import cn.donting.javelin.core.scene.SceneRenderBridge;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.core.settings.JavelinSetting;
+import cn.donting.javelin.core.settings.PostProcessSettings;
 import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.core.subsystem.SubsystemManager;
 import cn.donting.javelin.core.window.GLFWWindow;
@@ -91,6 +93,8 @@ public class JavelinEngine {
     private RenderSurface renderSurface;
     protected RenderingSystem renderingSystem;
     protected RenderPipeline renderPipeline;
+    /** 后处理节点装配（组合根，createRenderPipeline 建；管线只承载链与展开） */
+    private PostProcessSetup postProcessSetup;
     /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
     private PickSystem pickSystem;
 
@@ -436,10 +440,19 @@ public class JavelinEngine {
                 ? new ForwardRenderPipeline(device(), assetManager)
                 : new DefaultHybridRenderPipeline(device(), assetManager);
         pipeline.setClearColor(clearColor());
-        // 后处理开关（默认关 = 直通）：启动期按设置填充链（Tonemap → HDR 生效）
-        pipeline.setPostProcessingEnabled(setting.isPostProcessing());
-        // Bloom 开关（默认关，独立于后处理）：启动期按设置挂链中节点（Tonemap 之前）
-        pipeline.setBloomEnabled(setting.isBloom());
+        // 后处理节点装配（组合根持有；管线只承载链与展开——2026-11-14 解耦）：启动期按设置填充链
+        postProcessSetup = new PostProcessSetup(device(), getAssetManager());
+        postProcessSetup.setClearColor(clearColor());
+        // 后处理参数（阈值/软膝/强度/肩部）下发（运行期可由「项目设置」窗口再调）
+        PostProcessSettings pps = setting.getPostProcessSettings();
+        postProcessSetup.setBloomParams(pps.getBloomThreshold(), pps.getBloomKnee(), pps.getBloomIntensity());
+        postProcessSetup.setTonemapKnee(pps.getTonemapKnee());
+        if (setting.isPostProcessing()) {
+            postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.TONEMAP, true);
+        }
+        if (setting.isBloom()) {
+            postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.BLOOM, true);
+        }
         return pipeline;
     }
 
@@ -525,6 +538,11 @@ public class JavelinEngine {
 
     public RenderPipeline renderPipeline() {
         return renderPipeline;
+    }
+
+    /** 后处理节点装配（组合根，持有节点实例 + 按 id 增删链；编辑器工具菜单开关经此） */
+    public PostProcessSetup postProcessSetup() {
+        return postProcessSetup;
     }
 
     public AssetManager getAssetManager() {

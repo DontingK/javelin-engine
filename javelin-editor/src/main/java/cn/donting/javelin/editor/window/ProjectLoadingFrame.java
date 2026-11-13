@@ -1,7 +1,9 @@
 package cn.donting.javelin.editor.window;
 
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
+import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.JavelinSetting;
+import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.asset.BuiltinAssetReleaser;
 import cn.donting.javelin.editor.asset.ProjectAssetLibManager;
@@ -96,7 +98,9 @@ public class ProjectLoadingFrame extends JFrame {
                 }
 
                 SwingUtilities.invokeAndWait((Runnable) () -> dispose());
-                JavelinSetting setting = new JavelinSetting();
+                // 项目设置窗口（Edit|项目设置…）管理的字段（图形|后处理）由项目文件驱动，
+                // 编辑器启动读入；其余字段不随项目文件走（见 loadEditorSetting）
+                JavelinSetting setting = loadEditorSetting(gradleProject);
                 // 拍板（2026-11-13）：编辑器恒用混合（Deferred）管线——管线已拆成两个独立
                 // 实现类、无运行期切档，编辑器显式指定（不读项目 javelinSettings 的档位字段，
                 // 该字段只供打包运行时启动期选实现类）
@@ -114,6 +118,34 @@ public class ProjectLoadingFrame extends JFrame {
                 showStartupError(ex);
             }
         });
+    }
+
+    /**
+     * 读项目设置（图形|后处理）：把项目 {@code Game/javelinSettings.settings} 里由「项目设置」
+     * 窗口管理的字段（背景清屏色、后处理/Bloom 开关、后处理参数）读入编辑器设置；其余字段
+     * （窗口尺寸/标题、vsync、maxFps、engineDebug、管线档位）是编辑器运行环境或打包期的事，
+     * 不随项目文件走。文件缺失/损坏回退默认（损坏不静默吞——warn 记录后回退）。
+     */
+    private static JavelinSetting loadEditorSetting(GradleProject project) {
+        JavelinSetting setting = new JavelinSetting();
+        File file = new File(project.getGameDir(), SettingManager.JAVELIN_SETTINGS_FILE);
+        if (!file.exists()) {
+            return setting;
+        }
+        try {
+            JavelinSetting loaded = new BinaryImporter(file).importData(JavelinSetting.class);
+            if (loaded.getBackgroundColor() != null) {
+                setting.setBackgroundColor(loaded.getBackgroundColor());
+            }
+            setting.setPostProcessing(loaded.isPostProcessing());
+            setting.setBloom(loaded.isBloom());
+            if (loaded.getPostProcessSettings() != null) {
+                setting.setPostProcessSettings(loaded.getPostProcessSettings());
+            }
+        } catch (Exception e) {
+            log.warn("项目 javelinSettings 读取失败，回退编辑器默认: {}", file, e);
+        }
+        return setting;
     }
 
     /**

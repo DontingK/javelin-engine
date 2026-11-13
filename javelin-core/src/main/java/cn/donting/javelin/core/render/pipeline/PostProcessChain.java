@@ -14,7 +14,7 @@ public final class PostProcessChain {
 
     private final List<PostProcessNode> nodes = new ArrayList<>();
 
-    /** 尾部追加节点（Tonemap 由管线按「Bloom… → Tonemap」组装，见 AbstractRenderPipeline） */
+    /** 尾部追加节点（由组合根 {@code PostProcessSetup} 增删；链序按节点 {@code isTerminal()} 重排） */
     public void addLast(PostProcessNode node) {
         if (node == null) {
             throw new IllegalArgumentException("node must not be null");

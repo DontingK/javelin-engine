@@ -31,6 +31,7 @@ import cn.donting.javelin.editor.menu.top.BloomMenuCommand;
 import cn.donting.javelin.editor.menu.top.GBufferViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
 import cn.donting.javelin.editor.menu.top.PreferencesMenuCommand;
+import cn.donting.javelin.editor.menu.top.ProjectSettingsMenuCommand;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.plugin.PluginContext;
 
@@ -91,6 +92,9 @@ public final class EditorMenuSetup {
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new PreferencesMenuCommand());
+        // 项目设置窗口（编辑域，2026-11-14）：非模态「图形 | 后处理」设置页，对标 Unity
+        // Edit → Project Settings
+        context.registerCommand(new ProjectSettingsMenuCommand());
         context.registerCommand(new CreateEmptyMenuCommand());
         context.registerCommand(new CreatePlaneMenuCommand());
         context.registerCommand(new CreateBoxMenuCommand());
@@ -148,6 +152,10 @@ public final class EditorMenuSetup {
                 .item("file.save")
                 .separator()
                 .item("file.preferences");
+
+        // 编辑域（2026-11-14，Unity 对齐）：项目设置窗口（Edit → Project Settings）
+        MenuRegistry.menu("edit", EditorLang.key("edit"))
+                .item("edit.projectSettings");
 
         MenuRegistry.menu("tools", EditorLang.key("tools"))
                 .item("tools.grid")

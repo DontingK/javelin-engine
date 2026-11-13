@@ -1,5 +1,7 @@
 package cn.donting.javelin.editor.menu.top;
 
+import cn.donting.javelin.core.render.pipeline.PostProcessChain;
+import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
@@ -16,7 +18,7 @@ import javax.swing.SwingUtilities;
 import java.io.File;
 
 /**
- * 后处理开关命令（工具域，checked = 链非空/HDR 生效）：直通 ↔ HDR Tonemap。
+ * 后处理开关命令（工具域，checked = 链含 Tonemap）：直通 ↔ HDR Tonemap。
  *
  * <p>运行期切换即时生效（链组成变化 → 图缓存下次构建失效，RHI 18.5），便于现场比对
  * 开/关画面；同时把开关写进项目 Game/{@code javelinSettings.settings}（load-改-save，
@@ -37,7 +39,9 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
     @Override
     public Boolean checked() {
         RenderPipeline pipeline = pipeline();
-        return pipeline != null && pipeline.postProcessingEnabled();
+        PostProcessSetup setup = setup();
+        return pipeline != null && setup != null
+                && setup.isEnabled(pipeline.postProcess(), PostProcessSetup.TONEMAP);
     }
 
     @Override
@@ -48,15 +52,17 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
             return;
         }
         RenderPipeline pipeline = pipeline();
-        if (pipeline == null) {
+        PostProcessSetup setup = setup();
+        if (pipeline == null || setup == null) {
             LOGGER.warn("编辑器渲染管线未就绪，后处理开关不可用");
             return;
         }
-        boolean next = !pipeline.postProcessingEnabled();
+        PostProcessChain chain = pipeline.postProcess();
+        boolean next = !setup.isEnabled(chain, PostProcessSetup.TONEMAP);
         try {
-            pipeline.setPostProcessingEnabled(next);
+            // 链装配要惰性创建 Tonemap 并装载内置着色器产物——缺失/坏产物属异常态，弹框不静默
+            setup.setEnabled(chain, PostProcessSetup.TONEMAP, next);
         } catch (RuntimeException e) {
-            // 链装配要装载内置 Tonemap 着色器产物——缺失/坏产物属异常态，弹框不静默
             LOGGER.error("后处理链装配失败: enabled={}", next, e);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                     MainFrame.getInstance(),
@@ -92,5 +98,11 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
     private RenderPipeline pipeline() {
         JavelinEditor editor = JavelinEditor.getInstance();
         return editor == null ? null : editor.renderPipeline();
+    }
+
+    /** 后处理节点装配（组合根；编辑器未建返回 null） */
+    private PostProcessSetup setup() {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        return editor == null ? null : editor.postProcessSetup();
     }
 }

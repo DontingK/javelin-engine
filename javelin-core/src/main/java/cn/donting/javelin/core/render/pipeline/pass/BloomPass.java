@@ -88,8 +88,8 @@ public class BloomPass implements PostProcessNode {
     /** Bloom 级数（1/2、1/4、1/8、1/16） */
     private static final int LEVELS = 4;
 
-    /** push 常量：vec4 uvRect（16B） */
-    private static final int PUSH_SIZE = 16;
+    /** push 常量：vec4 uvRect + vec4 params（x=threshold, y=knee, z=intensity, w=0），共 32B */
+    private static final int PUSH_SIZE = 32;
 
     /** 全屏大三角形 NDC 顶点（(-1,-1)/(3,-1)/(-1,3)，vec2、stride 8B） */
     private static final float[] TRIANGLE_VERTICES = {
@@ -120,6 +120,10 @@ public class BloomPass implements PostProcessNode {
     /** 每帧复用的 push 打包缓冲（录制串行，回调内填后即推） */
     private final ByteBuffer pushData = ByteBuffer.allocateDirect(PUSH_SIZE)
             .order(ByteOrder.LITTLE_ENDIAN);
+    /** Bloom 参数（运行期由「项目设置」下发；录制回调按当前值 push）——起步常量同 §3.7 */
+    private float threshold = 0.8f;
+    private float knee = 0.4f;
+    private float intensity = 0.5f;
     /** 合成 Pass 默认清屏色（相机自带 clearColor 优先；AbstractRenderPipeline.setClearColor 下发） */
     private RHIClearColor defaultClearColor = new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f);
     private boolean drawLogged;
@@ -236,7 +240,7 @@ public class BloomPass implements PostProcessNode {
                 logFirstDraw(view.name());
                 cmd.bindPipeline(pipelineFor(kind, colorFormat));
                 cmd.bindDescriptorSet(0, descSetFor(key, src, null), 0, null);
-                pushUvRect(cmd, uvRect);
+                pushParams(cmd, uvRect);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
             });
@@ -267,7 +271,7 @@ public class BloomPass implements PostProcessNode {
                 logFirstDraw(view.name());
                 cmd.bindPipeline(pipelineFor("comp", colorFormat));
                 cmd.bindDescriptorSet(0, descSetFor(key, scene, bloom0), 0, null);
-                pushUvRect(cmd, uvRect);
+                pushParams(cmd, uvRect);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
             });
@@ -281,6 +285,13 @@ public class BloomPass implements PostProcessNode {
         }
     }
 
+    /** Bloom 参数下发（阈值/软膝/强度；运行期由组合根 PostProcessSetup 调，录制回调按当前值 push） */
+    public void setParams(float threshold, float knee, float intensity) {
+        this.threshold = threshold;
+        this.knee = knee;
+        this.intensity = intensity;
+    }
+
     private void logFirstDraw(String viewName) {
         if (!drawLogged) {
             drawLogged = true;
@@ -288,12 +299,17 @@ public class BloomPass implements PostProcessNode {
         }
     }
 
-    private void pushUvRect(CommandBuffer cmd, float[] uvRect) {
+    /** push 块：vec4 uvRect + vec4 params（x=threshold, y=knee, z=intensity, w=0），共 32B */
+    private void pushParams(CommandBuffer cmd, float[] uvRect) {
         pushData.clear();
         pushData.putFloat(uvRect[0]);
         pushData.putFloat(uvRect[1]);
         pushData.putFloat(uvRect[2]);
         pushData.putFloat(uvRect[3]);
+        pushData.putFloat(threshold);
+        pushData.putFloat(knee);
+        pushData.putFloat(intensity);
+        pushData.putFloat(0.0f);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
     }

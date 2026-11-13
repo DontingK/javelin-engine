@@ -64,6 +64,12 @@ public class JavelinSetting implements Serializable {
      */
     private boolean bloom = false;
 
+    /**
+     * 后处理参数（Bloom 阈值/肩部/强度 + Tonemap 肩部，Engine_PostProcess_Design §3.7/§9.8）：
+     * 独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link PostProcessSettings}）。
+     */
+    private PostProcessSettings postProcessSettings = new PostProcessSettings();
+
     public boolean isPostProcessing() {
         return postProcessing;
     }
@@ -78,6 +84,17 @@ public class JavelinSetting implements Serializable {
 
     public void setBloom(boolean bloom) {
         this.bloom = bloom;
+    }
+
+    public PostProcessSettings getPostProcessSettings() {
+        return postProcessSettings;
+    }
+
+    public void setPostProcessSettings(PostProcessSettings postProcessSettings) {
+        if (postProcessSettings == null) {
+            throw new IllegalArgumentException("postProcessSettings must not be null");
+        }
+        this.postProcessSettings = postProcessSettings;
     }
 
     public boolean isEngineDebug() {
@@ -162,6 +179,7 @@ public class JavelinSetting implements Serializable {
         output.write("engineDebug",engineDebug);
         output.write("postProcessing",postProcessing);
         output.write("bloom",bloom);
+        output.write("postProcessSettings",postProcessSettings);
     }
 
     @Override
@@ -188,5 +206,10 @@ public class JavelinSetting implements Serializable {
         postProcessing = input.readBoolean("postProcessing");
         // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
         bloom = input.readBoolean("bloom");
+        // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
+        PostProcessSettings pps = input.readSerializable("postProcessSettings", PostProcessSettings.class);
+        if (pps != null) {
+            postProcessSettings = pps;
+        }
     }
 }

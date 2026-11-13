@@ -2,9 +2,7 @@ package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.RenderingSystem;
-import cn.donting.javelin.core.render.pipeline.pass.BloomPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
-import cn.donting.javelin.core.render.pipeline.pass.TonemapPass;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.Texture;
@@ -35,13 +33,9 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
     private final List<RenderPass> passes = new ArrayList<>();
     /** 场景 Pass 身份集（构造期登记；后处理链展开点判定用） */
     private final Set<RenderPass> scenePasses = Collections.newSetFromMap(new IdentityHashMap<>());
-    /** 清屏色接收者（各实现把颜色清屏 Pass 登记进来；Tonemap 由本类直下） */
+    /** 清屏色接收者（各实现把自己的颜色清屏 Pass 登记进来） */
     private final List<Consumer<RHIClearColor>> clearColorSinks = new ArrayList<>();
     private final PostProcessChain postProcess = new PostProcessChain();
-    /** 后处理启用时惰性创建（装载内置 Tonemap 着色器产物） */
-    private TonemapPass tonemap;
-    /** Bloom 启用时惰性创建（装载内置 Bloom 着色器产物） */
-    private BloomPass bloom;
     private RHIClearColor clearColor = new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f);
 
     protected AbstractRenderPipeline(Device device, AssetManager assetManager) {
@@ -63,58 +57,10 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
 
     // ═══ 后处理（Engine_PostProcess_Design；链非空 = HDR 生效） ═══
 
-    /** 后处理链（§3.4；空链 = 直通，非空 = HDR 生效） */
+    /** 后处理链（§3.4；空链 = 直通，非空 = HDR 生效）：组成/开关由组合根维护，管线只承载与展开 */
+    @Override
     public final PostProcessChain postProcess() {
         return postProcess;
-    }
-
-    /**
-     * 后处理开关（启动期按设置填充 + 工具菜单运行期切换）：开 = 链尾挂 Tonemap（HDR 生效
-     * ——场景 Pass 写 lightingRT，Tonemap 写显示终点）；关 = 摘除 Tonemap（Bloom 若在链上
-     * 则保留，HDR 仍生效）。
-     */
-    @Override
-    public final void setPostProcessingEnabled(boolean enabled) {
-        if (enabled) {
-            if (tonemap == null) {
-                tonemap = new TonemapPass(device, assetManager);
-                tonemap.setClearColor(clearColor);
-            }
-            if (!postProcess.nodes().contains(tonemap)) {
-                postProcess.addLast(tonemap);
-            }
-        } else if (tonemap != null) {
-            postProcess.remove(tonemap);
-        }
-    }
-
-    @Override
-    public final boolean postProcessingEnabled() {
-        return tonemap != null && postProcess.nodes().contains(tonemap);
-    }
-
-    /**
-     * Bloom 开关（独立于后处理；§3.7）：开 = 链中挂 Bloom（{@code orderedChain} 保证排在 Tonemap
-     * 之前，读未 tonemap 的 HDR 缓冲）；关 = 摘除 Bloom（不动 Tonemap）。
-     */
-    @Override
-    public final void setBloomEnabled(boolean enabled) {
-        if (enabled) {
-            if (bloom == null) {
-                bloom = new BloomPass(device, assetManager);
-                bloom.setClearColor(clearColor);
-            }
-            if (!postProcess.nodes().contains(bloom)) {
-                postProcess.addLast(bloom);
-            }
-        } else if (bloom != null) {
-            postProcess.remove(bloom);
-        }
-    }
-
-    @Override
-    public final boolean bloomEnabled() {
-        return bloom != null && postProcess.nodes().contains(bloom);
     }
 
     /** HDR 生效 = 后处理链非空（任一节点在链上即写 lightingRT，见 PipelineContext） */
@@ -125,17 +71,11 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
 
     // ═══ 清屏色 ═══
 
-    /** 清屏色（下发各实现登记的清屏入口 + 链尾 Tonemap / 链中 Bloom） */
+    /** 清屏色（下发各实现登记的清屏入口；后处理节点的清屏色由组合根 PostProcessSetup 同步） */
     @Override
     public final void setClearColor(RHIClearColor clearColor) {
         this.clearColor = clearColor;
         clearColorSinks.forEach(sink -> sink.accept(clearColor));
-        if (tonemap != null) {
-            tonemap.setClearColor(clearColor);
-        }
-        if (bloom != null) {
-            bloom.setClearColor(clearColor);
-        }
     }
 
     // ═══ 编排 ═══
@@ -182,17 +122,17 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
         }
     }
 
-    /** 链序：Tonemap 恒置链尾（Bloom 须读未 tonemap 的 HDR 缓冲，§3.5——不依赖注册序） */
+    /** 链序：终节点（如 Tonemap）恒置链尾（Bloom/SSAO 须读未经它处理的 HDR 缓冲，§3.5——不依赖注册序） */
     private List<PostProcessNode> orderedChain() {
         List<PostProcessNode> nodes = postProcess.nodes();
         List<PostProcessNode> ordered = new ArrayList<>(nodes.size());
         for (PostProcessNode node : nodes) {
-            if (!(node instanceof TonemapPass)) {
+            if (!node.isTerminal()) {
                 ordered.add(node);
             }
         }
         for (PostProcessNode node : nodes) {
-            if (node instanceof TonemapPass) {
+            if (node.isTerminal()) {
                 ordered.add(node);
             }
         }

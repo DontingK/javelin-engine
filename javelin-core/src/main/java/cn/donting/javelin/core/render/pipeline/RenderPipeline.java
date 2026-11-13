@@ -34,17 +34,12 @@ public interface RenderPipeline {
     /** 清屏色（管线全局默认色；相机自带 clearColor 优先） */
     void setClearColor(RHIClearColor clearColor);
 
-    /** 后处理开关：开 = 链尾挂 Tonemap（HDR 生效）；关 = 摘除 Tonemap（不动 Bloom） */
-    void setPostProcessingEnabled(boolean enabled);
-
-    /** 后处理链是否含 Tonemap */
-    boolean postProcessingEnabled();
-
-    /** Bloom 开关：开 = 链中挂 Bloom（Tonemap 之前）；关 = 摘除 Bloom（不动 Tonemap） */
-    void setBloomEnabled(boolean enabled);
-
-    /** 后处理链是否含 Bloom */
-    boolean bloomEnabled();
+    /**
+     * 后处理链（Engine_PostProcess_Design §3.4）：管线承载链与展开点，**不认识具体后处理类**。
+     * 链的组成/开关由组合根（{@code PostProcessSetup}）经 {@link PostProcessChain#addLast} /
+     * {@link PostProcessChain#remove} 维护；链非空即 HDR 生效。
+     */
+    PostProcessChain postProcess();
 
     void addPass(RenderPass pass);
 

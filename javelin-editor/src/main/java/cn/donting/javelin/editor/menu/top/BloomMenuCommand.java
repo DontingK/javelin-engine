@@ -1,5 +1,7 @@
 package cn.donting.javelin.editor.menu.top;
 
+import cn.donting.javelin.core.render.pipeline.PostProcessChain;
+import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
@@ -37,7 +39,9 @@ public final class BloomMenuCommand extends TopMenuCommand {
     @Override
     public Boolean checked() {
         RenderPipeline pipeline = pipeline();
-        return pipeline != null && pipeline.bloomEnabled();
+        PostProcessSetup setup = setup();
+        return pipeline != null && setup != null
+                && setup.isEnabled(pipeline.postProcess(), PostProcessSetup.BLOOM);
     }
 
     @Override
@@ -48,15 +52,17 @@ public final class BloomMenuCommand extends TopMenuCommand {
             return;
         }
         RenderPipeline pipeline = pipeline();
-        if (pipeline == null) {
+        PostProcessSetup setup = setup();
+        if (pipeline == null || setup == null) {
             LOGGER.warn("编辑器渲染管线未就绪，Bloom 开关不可用");
             return;
         }
-        boolean next = !pipeline.bloomEnabled();
+        PostProcessChain chain = pipeline.postProcess();
+        boolean next = !setup.isEnabled(chain, PostProcessSetup.BLOOM);
         try {
-            pipeline.setBloomEnabled(next);
+            // 链装配要惰性创建 Bloom 并装载内置着色器产物——缺失/坏产物属异常态，弹框不静默
+            setup.setEnabled(chain, PostProcessSetup.BLOOM, next);
         } catch (RuntimeException e) {
-            // 链装配要装载内置 Bloom 着色器产物——缺失/坏产物属异常态，弹框不静默
             LOGGER.error("Bloom 链装配失败: enabled={}", next, e);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
                     MainFrame.getInstance(),
@@ -92,5 +98,11 @@ public final class BloomMenuCommand extends TopMenuCommand {
     private RenderPipeline pipeline() {
         JavelinEditor editor = JavelinEditor.getInstance();
         return editor == null ? null : editor.renderPipeline();
+    }
+
+    /** 后处理节点装配（组合根；编辑器未建返回 null） */
+    private PostProcessSetup setup() {
+        JavelinEditor editor = JavelinEditor.getInstance();
+        return editor == null ? null : editor.postProcessSetup();
     }
 }

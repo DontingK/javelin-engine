@@ -1,6 +1,6 @@
 # 引擎后处理设计（Engine Post Process Design）
 
-> 版本：v0.4（**步骤一 HDR+Tonemap / 步骤二 Bloom 均已验收（2026-11-14 用户实机）**；v0.1 方案件 / v0.2 步骤一落码 / v0.3 随管线拆分与 MSAA 移除同步 + 曲线换装 / v0.4 步骤二 Bloom 独立开关落地）
+> 版本：v0.6（**步骤一/二已验收；参数可配（常量→push，2026-11-14）**；v0.1 方案件 / v0.2 步骤一落码 / v0.3 管线拆两实现类 + MSAA 移除 + 曲线换装 / v0.4 步骤二 Bloom 独立开关 / v0.5 管线解耦 / v0.6 后处理参数接设置）
 > 日期：2026-11-13
 > 说明：四期第 1 项（`Engine_Roadmap.md` §4-1）「后处理链（Bloom/Tonemap + HDR 切换点）」的设计方案——HDR 场景颜色、后处理链形态、Tonemap/Bloom 落点、与管线实现/AA（TAA 方向）/多相机的交互。**v0.1 方案件（8 条拍板点见 §7）；v0.2 = 按建议默认落「步骤一（HDR 切换点 + Tonemap）」，实装记录见 §9；v0.3 = 同日管线拆成两个独立实现类（链入共用基类 `AbstractRenderPipeline`、两管线同享）+ MSAA 从引擎/编辑器/设置层移除（AA 空窗至 TAA）+ **Tonemap 曲线由 ACES 换为「高光肩部」**（实机反馈「发灰/不纯」，§9.5），§2/§3.5/§4.2/§7/§8/§9 同步；v0.4 = 步骤二 Bloom（**独立开关**，与 Tonemap 解耦；4 级降采样 + 帐篷核模糊 + 上采样累加，§3.7/§9.6）。**
 > 职责边界：
@@ -86,10 +86,15 @@
 public interface PostProcessNode extends RenderPass {
     /** 链内声明：input = 上一节点输出（链首 = lightingRT），output = 本节点输出（链尾 = colorTarget） */
     void addToGraph(RenderGraphBuilder graph, PipelineContext ctx, Texture input, Texture output);
+    /** 终节点标志：true = 恒置链尾（Tonemap）；其余保持注册序（2026-11-14 解耦，取代 instanceof 特例） */
+    default boolean isTerminal() { return false; }
 }
 ```
 
-**展开时机与位置**：由 `DefaultHybridRenderPipeline.buildGraph` 在场景 Pass 之后统一展开（不进 `passes()` 列表——链与档位无关，两份列表共用同一链，避免 `addPass` 式双维护）：
+**节点归组合根持有**（2026-11-14 解耦）：节点实例由 `PostProcessSetup`（引擎侧组合根）创建、按 id 增删链；
+管线只承载「链 + 展开点」，**不认识任何具体后处理类**——新增后期效果（SSAO/TAA…）只改组合根，不改管线基类。
+
+**展开时机与位置**：由 `AbstractRenderPipeline.buildGraph` 在场景 Pass 之后统一展开（不进 `passes()` 列表——链与档位无关，两份列表共用同一链，避免 `addPass` 式双维护）：
 
 ```
 场景 Pass（写 lightingRT）→ [链节点 0 → 链节点 1 → …] → Tonemap（写 colorTarget）→ overlay（DebugText 等，恒 backbuffer）
@@ -107,7 +112,7 @@ public interface PostProcessNode extends RenderPass {
 
 - **清屏职责接管**：Tonemap 写 `colorTarget` 时承担原场景 Pass 那套 `CLEAR/LOAD` + `isRegionClear` + `scissor` 语义（**同一段判定逻辑从场景 Pass 平移到 Tonemap**）——多相机分屏（区域清屏）、stacking（LOAD）、单相机全屏（全屏 CLEAR）三态照旧成立；
 - **曲线**：v1 实装 = **高光肩部（≤KNEE 逐像素不变、>KNEE 指数肩部压向 1.0）**——**2026-11-13 实机反馈「开了发灰、不纯」后由 ACES 近似换装**（原因与数据见 §9.5）；肩部起点 KNEE 为着色器内常量，后续接设置；
-- **位置固定为链尾**：Bloom 必须读**未 tonemap** 的 HDR 缓冲，故 Tonemap 恒最后；链的实现由引擎按「Bloom… → Tonemap」组装，不依赖调用方顺序正确。
+- **位置固定为链尾**：Bloom 必须读**未 tonemap** 的 HDR 缓冲，故 Tonemap 恒最后（`isTerminal()=true`，展开时稳定重排到链尾，不依赖注册顺序）。
 
 ### 3.6 `CompositePass`：v1 收窄（不实装）
 
@@ -248,7 +253,7 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 | 链承载 | `AbstractRenderPipeline`（2026-11-13 拆分后） | 链、展开、清屏色、Pass 列表全在共用基类——`DefaultHybridRenderPipeline` / `ForwardRenderPipeline` 同享，后处理与管线实现无关 |
 | 四场景 Pass 换取值来源 | `OpaqueForwardPass` / `LightingPass` / `SkyboxPass` / `TransparentForwardPass` | 一律取 `sceneColorTarget()`（PSO 颜色格式、区域清屏判定同步）；`isMsaaPath` 的尺寸基准同步 |
 | 链机制 | `PostProcessNode`（extends `RenderPass`，四参 `addToGraph(graph, ctx, input, output)`）/ `PostProcessChain`（`addLast/remove/clear/nodes`） | 管线两份 Pass 列表共用同一链；Tonemap 恒置链尾（`orderedChain` 稳定重排，不依赖注册序） |
-| 链展开 | `DefaultHybridRenderPipeline.buildGraph` + `expandPostProcess` | 展开点 = **列表最后一个场景 Pass 之后、overlay 制 Pass 之前**（场景 Pass 身份集构造期登记，见 §9.2 第 1 条）；链首输入 `lightingRT`、链尾输出 `colorTarget`、中间节点输出 `postRtFor(view, i)` |
+| 链展开 | `AbstractRenderPipeline.buildGraph` + `expandPostProcess` | 展开点 = **列表最后一个场景 Pass 之后、overlay 制 Pass 之前**（场景 Pass 身份集构造期登记，见 §9.2 第 1 条）；链首输入 `lightingRT`、链尾输出 `colorTarget`、中间节点输出 `postRtFor(view, i)` |
 | `TonemapPass` | `core/render/pipeline/pass/TonemapPass` | 覆盖制全屏三角形（`LightingPass` 同款 VB/PSO 缓存）；set0 = 专属单纹理布局（binding0 组合采样器，按视口缓存、纹理换代重建）；无相机块/无 push；恒 CLEAR（含区域清屏/scissor），接管原场景 Pass 的清屏职责 |
 | 内置着色器 | `builtin-asset-core/postprocess/tonemap.vert/.frag` + 伴生 `.meta` | 走 `SpvShaderImporter` 导入链（索引由 Gradle 扫目录自动再生成，零登记）；frag = 高光肩部曲线（`KNEE=0.8`，§9.5）；按 `gl_FragCoord` 绝对坐标 1:1 采样 |
 | 设置面 | `JavelinSetting.postProcessing`（默认 `false`） | write/read 缺键保默认（关 = 直通，无迁移坑）；启动期 `JavelinEngine.createRenderPipeline` 消费 → `setPostProcessingEnabled(true)` |
@@ -322,3 +327,30 @@ Composite 的回归条件：出现「链尾输出不是最终显示内容」的�
 - Scene + Game 双视口各自正确、不串；
 - 帧率达标（Bloom 增 8 个半分辨率以下全屏 Pass）；
 - `logs/error/error.log` 零 ERROR（dbg-1 校验层已就绪）。
+
+### 9.7 管线与后处理解耦（2026-11-14，零行为变化）
+
+**起因**：步骤二落地后复核「Tonemap/Bloom 是否有必要与管线强绑定」——结论：链的**承载与展开点**必须归管线（每视口装配 + 插入点），但管线**认识具体节点类**（`new TonemapPass`/`new BloomPass`、`orderedChain` 的 `instanceof TonemapPass`、每个效果一对开关方法）不是必需的；后者每加一个后期效果都要改管线基类。
+
+**做法**：
+- `RenderPipeline` 接口：删 `setPostProcessingEnabled`/`postProcessingEnabled`/`setBloomEnabled`/`bloomEnabled`，改暴露 `postProcess()`（链）；接口回归纯结构面。
+- `AbstractRenderPipeline`：删 `tonemap`/`bloom` 字段与两对开关方法、删对具体类的 import；`orderedChain` 的 `instanceof TonemapPass` → `PostProcessNode.isTerminal()`；`setClearColor` 不再逐节点转发。
+- `PostProcessNode`：+ `isTerminal()`（终节点恒置链尾）+ `setClearColor()`（默认 no-op）。
+- 新增 `PostProcessSetup`（core 组合根）：持有节点实例、按 id（`tonemap`/`bloom`）惰性创建、`setEnabled`/`isEnabled` 增删链（**`isEnabled` 不触发创建**——菜单 checked 高频求值不得装载着色器）、下发清屏色。
+- `JavelinEngine`：`createRenderPipeline` 建 `PostProcessSetup` 并按设置装配链；暴露 `postProcessSetup()`（编辑器经继承的访问面使用）。
+- 两个工具菜单命令：`pipeline.setXxxEnabled` → `setup.setEnabled(pipeline.postProcess(), id, next)`，checked = `setup.isEnabled(chain, id)`。
+
+**边界**：链展开 / HDR（链非空）留在管线（本质耦合）；**未做插件式注册表**（就两节点，`PostProcessSetup` 里显式创建足够）。
+
+### 9.8 参数可配：着色器常量 → push 常量（2026-11-14）
+
+**起因**：步骤二参数（Bloom 阈值/软膝/强度、Tonemap 肩部）为着色器内 `const`，无法运行期调；「项目设置」窗口（`Editor_ProjectSettings_Design.md`）需要它们可配且即时生效。
+
+**做法**：
+- 新增 `PostProcessSettings`（core `@Reflective Serializable`）：`bloomThreshold`/`bloomKnee`/`bloomIntensity`/`tonemapKnee`——**独立成对象**是因 `InputCapsule` 无「键存在」判定、浮点缺键恒 0，须走 `readSerializable` 的 null 判定保默认（照 backgroundColor 的 Color 先例）。挂 `JavelinSetting.postProcessSettings`。
+- 着色器：`bloom_prefilter.frag`/`bloom_composite.frag` 去 `const`、读 `push_constant` 的 `params`（x=threshold / y=knee / z=intensity；四 kind 共用块）；`tonemap.frag` 加 push 块（x=knee）。
+- Pass：`BloomPass` push 16B→32B（`uvRect + params`，四 kind 共用）+ `setParams(...)`；`TonemapPass` push 0→16B（`vec4 params`）+ `setKnee(...)`。
+- `PostProcessSetup`：持参数 + `setBloomParams`/`setTonemapKnee`（已创建即时、后创建补发——照 `setClearColor`）；`JavelinEngine.createRenderPipeline` 启动期从 `JavelinSetting` 下发。
+- 编辑器「项目设置」窗口即时改（见 `Editor_ProjectSettings_Design.md`）；编辑器启动读项目文件（`ProjectLoadingFrame.loadEditorSetting`）。
+
+**边界**：级数（4）仍为常量（改级数 = 改 Pass 数，另议）；参数变更走 push 常量（录制期数据，不改 Pass 组成、无图缓存失效）。

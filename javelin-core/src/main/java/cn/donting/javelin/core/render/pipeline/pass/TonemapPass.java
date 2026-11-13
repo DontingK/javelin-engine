@@ -6,6 +6,7 @@ import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.core.render.pipeline.PostProcessNode;
 import cn.donting.javelin.rhi.Buffer;
+import cn.donting.javelin.rhi.CommandBuffer;
 import cn.donting.javelin.rhi.DescriptorSet;
 import cn.donting.javelin.rhi.DescriptorSetLayout;
 import cn.donting.javelin.rhi.DescriptorUpdate;
@@ -63,7 +64,7 @@ import java.util.Set;
  * 亦按整视口 CLEAR 独立输出——每视口 HDR 缓冲不承载跨相机颜色叠加（§4.3 v1 边界）。</p>
  *
  * <p><b>描述符</b>：set0 为本 Pass 专属单纹理布局（binding0 组合采样器，链输入）；无相机块
- * （tonemap 不需要相机数据）、无 push 常量（肩部起点与曲线为着色器内常量，曝光接设置后置）。</p>
+ * （tonemap 不需要相机数据）、push 常量 vec4 params（x = KNEE 肩部起点，运行期由「项目设置」调）。</p>
  */
 public class TonemapPass implements PostProcessNode {
 
@@ -72,6 +73,9 @@ public class TonemapPass implements PostProcessNode {
     /** 内置 tonemap 着色器 loadAsset 路径（builtin-asset-core 释放后的相对路径） */
     private static final String VERT_SHADER_PATH = "core/postprocess/tonemap.vert";
     private static final String FRAG_SHADER_PATH = "core/postprocess/tonemap.frag";
+
+    /** push 常量：vec4 params（x = KNEE 肩部起点），16B */
+    private static final int PUSH_SIZE = 16;
 
     /** 全屏大三角形 NDC 顶点（(-1,-1)/(3,-1)/(-1,3)，vec2、stride 8B） */
     private static final float[] TRIANGLE_VERTICES = {
@@ -92,6 +96,11 @@ public class TonemapPass implements PostProcessNode {
     /** 每视口链输入描述符集（input 纹理随 resize/换绑变化，按视口缓存身份） */
     private final Map<String, InputSlot> inputSets = new HashMap<>();
     private RHIClearColor clearColor = new RHIClearColor(0.05f, 0.05f, 0.08f, 1.0f);
+    /** 每帧复用的 push 打包缓冲（录制串行，回调内填后即推） */
+    private final ByteBuffer pushData = ByteBuffer.allocateDirect(PUSH_SIZE)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    /** Tonemap 肩部起点（运行期由「项目设置」下发；起步常量同 §3.5） */
+    private float knee = 0.8f;
     private boolean drawLogged;
 
     /**
@@ -117,6 +126,22 @@ public class TonemapPass implements PostProcessNode {
         this.clearColor = clearColor;
     }
 
+    /** 肩部起点下发（运行期由组合根 PostProcessSetup 调，录制回调按当前值 push） */
+    public void setKnee(float knee) {
+        this.knee = knee;
+    }
+
+    /** push 块：vec4 params（x = knee），16B */
+    private void pushParams(CommandBuffer cmd) {
+        pushData.clear();
+        pushData.putFloat(knee);
+        pushData.putFloat(0.0f);
+        pushData.putFloat(0.0f);
+        pushData.putFloat(0.0f);
+        pushData.position(0);
+        cmd.pushConstants(0, pushData);
+    }
+
     @Override
     public String name() {
         return "Tonemap";
@@ -126,6 +151,12 @@ public class TonemapPass implements PostProcessNode {
     @Override
     public String shaderPassName() {
         return "Tonemap";
+    }
+
+    /** 终节点：Tonemap 恒置链尾（Bloom/SSAO 等须读未 tonemap 的 HDR 缓冲，§3.5） */
+    @Override
+    public boolean isTerminal() {
+        return true;
     }
 
     @Override
@@ -151,6 +182,7 @@ public class TonemapPass implements PostProcessNode {
                     log.info("首帧 Tonemap 回调执行: 视口[{}] outputFormat={}", view.name(), colorFormat);
                 }
                 cmd.bindPipeline(pipelineFor(colorFormat));
+                pushParams(cmd);
                 cmd.bindDescriptorSet(0, inputSetFor(view.name(), input), 0, null);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
@@ -217,8 +249,8 @@ public class TonemapPass implements PostProcessNode {
                 Set.of(ColorComponentFlags.R, ColorComponentFlags.G,
                         ColorComponentFlags.B, ColorComponentFlags.A),
                 List.of(colorFormat), null,               // 无深度附件
-                // set0 = 本 Pass 专属输入采样布局（无相机块、无 push）
-                List.of(inputLayoutDesc()), 0,
+                // set0 = 本 Pass 专属输入采样布局（无相机块）；push = vec4 params（肩部）
+                List.of(inputLayoutDesc()), PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR), SampleCount.COUNT_1);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(colorFormat, created);

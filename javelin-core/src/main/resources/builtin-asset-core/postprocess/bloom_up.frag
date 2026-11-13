@@ -4,8 +4,10 @@
 // set0 binding0 = 上一级 Bloom RT。
 layout(set = 0, binding = 0) uniform sampler2D srcColor;
 
+// params 为四 kind 共用块的一部分（本 stage 未用，声明以对齐 push 块尺寸）。
 layout(push_constant) uniform BloomPush {
     vec4 uvRect;
+    vec4 params;
 } pc;
 
 layout(location = 0) in vec2 vUV;

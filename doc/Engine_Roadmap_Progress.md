@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.7（2026-11-13 补四期后处理链步骤一/二批次）
+> 版本：v0.9（2026-11-14 补项目设置窗口批次）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -128,6 +128,8 @@
 
 - **2026-11-13｜后处理链步骤一（HDR 切换点 + Tonemap）+ 管线拆两个实现类 + MSAA 移除**：`RenderingSystem.lightingRtFor`/`postRtFor`（per-view RGBA16F 场景色/中间 RT）+ `PipelineContext.sceneColorTarget()` 抽象（四场景 Pass 换取值来源）+ `PostProcessChain`/`PostProcessNode` 具体化 + `AbstractRenderPipeline` 链展开（最后一个场景 Pass 之后、overlay 之前）+ `TonemapPass`（高光肩部 KNEE=0.8，ACES 实机「发灰」换装）+ 内置 `builtin-asset-core/postprocess/tonemap.vert|frag` 走 SpvShader 导入链 + `RenderingSystem.setHdrSceneColor`（材质 PSO 格式跟随）+ `JavelinSetting.postProcessing` + `tools.postProcessing`；**同日**管线拆 `AbstractRenderPipeline`/`DefaultHybridRenderPipeline`/`ForwardRenderPipeline`（启动期选定、运行期不可切）+ MSAA 从引擎/编辑器/设置层整体移除（RHI 多采样设施休眠，AA 空窗至 TAA/P4-10） → `Engine_PostProcess_Design.md` v0.3 §9 / `Engine_RenderPipeline_Design.md` v0.9 ｜✅ 2026-11-14 用户实机验收（提交 `1cef2a4`）
 - **2026-11-13｜后处理链步骤二 Bloom（独立开关）**：`BloomPass`（链中节点，单节点内录制 8 个覆盖制全屏 Pass = 阈值提取 + 3 级降采样 + 3 级上采样累加 + 合成；跨视口/多级坐标用 push `uvRect` + 顶点 vUV）+ `RenderingSystem.bloomRtFor`（per-view 尺寸递减 1/2..1/16 RT 族）+ 内置 `builtin-asset-core/postprocess/bloom*.vert|frag` 走 SpvShader 导入链 + `JavelinSetting.bloom` + `tools.bloom`（`BloomMenuCommand`）；**开关拆分**（`setPostProcessingEnabled` 由「清空链」改为「只摘 Tonemap」、`postProcessingEnabled` 语义收为「链含 Tonemap」） → `Engine_PostProcess_Design.md` v0.4 §3.7/§9.6 ｜✅ 2026-11-14 用户实机验收（本批，运行通过）
+- **2026-11-14｜管线与后处理解耦（零行为变化）**：`RenderPipeline` 删 4 个效果开关方法、改暴露 `postProcess()`（接口回归纯结构面）；`AbstractRenderPipeline` 去具体类依赖（删 `tonemap`/`bloom` 字段与方法、`orderedChain` 的 `instanceof` → `PostProcessNode.isTerminal()`、清屏色不再逐节点转发）；新增 `PostProcessSetup`（core 组合根：节点持有 + 按 id 惰性创建 + `setEnabled`/`isEnabled` 增删链，`isEnabled` 不触发创建）；`JavelinEngine` 按设置装配并暴露 `postProcessSetup()`；两个工具菜单命令改走 setup+链。起因 = 用户复核「Tonemap/Bloom 是否有必要与管线强绑定」 → `Engine_PostProcess_Design.md` v0.5 §3.4/§9.7 ｜🔧 已落码（结构重构、行为不变，待用户编译验证）
+- **2026-11-14｜项目设置窗口 + 后处理参数可配（对标 Unity Edit → Project Settings → Graphics）**：**核心**——后处理参数（Bloom 阈值/软膝/强度、Tonemap 肩部）由着色器常量改 **push 常量**（新 `PostProcessSettings` core `@Reflective Serializable`，挂 `JavelinSetting`；`BloomPass` push 16→32B + `setParams`、`TonemapPass` push 0→16B + `setKnee`；`PostProcessSetup` 参数下发 + `JavelinEngine` 启动期应用）；**编辑器**——新 `ProjectSettingsWindow`（非模态，左栏分类 + 右栏「图形\|后处理」页；改动即时生效、关窗 load-modify-save 写 `<project>/Game/javelinSettings.settings`）+ 新**编辑域**菜单 `edit.projectSettings` + `ProjectLoadingFrame` 启动读项目文件图形/后处理字段（闭环修正「菜单开 Bloom 重启就丢」）+ i18n 双语 → 新档 `Editor_ProjectSettings_Design.md` v0.1 / 后处理档 v0.6 §9.8 / 菜单档 v0.24 ｜🔧 已落码（待用户编译 + 实机验收）
 
 ---
 
