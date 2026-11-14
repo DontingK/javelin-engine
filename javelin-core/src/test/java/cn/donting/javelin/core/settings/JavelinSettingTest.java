@@ -80,4 +80,65 @@ public class JavelinSettingTest {
             assertEquals(profile, restored.getRenderPipeline());
         }
     }
+
+    /** 阴影参数（嵌套 ShadowSettings：品质档 + 五项浮点）round-trip */
+    @Test
+    public void shadowSettingsRoundTrip() throws Exception {
+        JavelinSetting source = new JavelinSetting();
+        ShadowSettings shadow = source.getShadowSettings();
+        shadow.setQuality(ShadowQuality.SOFT_HIGH);
+        shadow.setStrength(0.4f);
+        shadow.setPcfRadius(2.5f);
+        shadow.setRefDepthOffset(0.3f);
+        shadow.setBiasConstant(3.5f);
+        shadow.setBiasSlope(2.25f);
+
+        File file = tempDir.resolve("shadow.settings").toFile();
+        new BinaryExporter(file).export(source);
+        JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
+
+        ShadowSettings r = restored.getShadowSettings();
+        assertEquals(ShadowQuality.SOFT_HIGH, r.getQuality());
+        assertEquals(0.4f, r.getStrength(), 1e-6f);
+        assertEquals(2.5f, r.getPcfRadius(), 1e-6f);
+        assertEquals(0.3f, r.getRefDepthOffset(), 1e-6f);
+        assertEquals(3.5f, r.getBiasConstant(), 1e-6f);
+        assertEquals(2.25f, r.getBiasSlope(), 1e-6f);
+    }
+
+    /** 品质档每个取值分支都过一遍（枚举序即 UBO 编码，改动须双向一致） */
+    @Test
+    public void shadowQualityAllValuesRoundTrip() throws Exception {
+        for (ShadowQuality quality : ShadowQuality.values()) {
+            JavelinSetting source = new JavelinSetting();
+            source.getShadowSettings().setQuality(quality);
+            File file = tempDir.resolve("sq-" + quality.name() + ".settings").toFile();
+            new BinaryExporter(file).export(source);
+            JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
+            assertEquals(quality, restored.getShadowSettings().getQuality());
+        }
+    }
+
+    /** 旧设置文件无 shadowSettings 键 → 保默认（缺键 null 判定，非读 0） */
+    @Test
+    public void shadowSettingsDefaultsRemainOnLegacyFile() throws Exception {
+        File file = tempDir.resolve("legacy-shadow.settings").toFile();
+        new BinaryExporter(file).export(new JavelinSetting() {
+            @Override
+            public void write(OutputCapsule output) {
+                output.write("width", 800);
+                output.write("height", 600);
+                output.write("title", "Legacy");
+            }
+        });
+        JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
+        ShadowSettings r = restored.getShadowSettings();
+        // 缺键若走 readFloat 会得 0（强度 0 = 无阴影、半径 0 = 无软核）——嵌套对象保默认为正确语义
+        assertEquals(ShadowQuality.SOFT_LOW, r.getQuality());
+        assertEquals(1.0f, r.getStrength(), 1e-6f);
+        assertEquals(1.0f, r.getPcfRadius(), 1e-6f);
+        assertEquals(0.0f, r.getRefDepthOffset(), 1e-6f);
+        assertEquals(2.0f, r.getBiasConstant(), 1e-6f);
+        assertEquals(1.5f, r.getBiasSlope(), 1e-6f);
+    }
 }

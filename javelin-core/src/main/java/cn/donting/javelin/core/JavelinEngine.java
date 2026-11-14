@@ -466,6 +466,10 @@ public class JavelinEngine {
                 postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.SSAO, true);
             }
         }
+        // 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design
+        // §3.2）：启动期下发到渲染系统；运行期可由「项目设置」窗口再调（前三项与偏移每帧
+        // 进 UBO 即时生效，bias 两项触发 ShadowPass 重建 PSO）
+        renderingSystem.setShadowSettings(setting.getShadowSettings());
         return pipeline;
     }
 

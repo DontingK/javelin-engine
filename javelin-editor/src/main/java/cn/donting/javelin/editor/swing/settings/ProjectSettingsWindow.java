@@ -3,11 +3,14 @@ package cn.donting.javelin.editor.swing.settings;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
+import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.PostProcessSettings;
 import cn.donting.javelin.core.settings.SettingManager;
+import cn.donting.javelin.core.settings.ShadowQuality;
+import cn.donting.javelin.core.settings.ShadowSettings;
 import cn.donting.javelin.core.settings.SsaoSettings;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.inspector.InspectorFieldVo;
@@ -15,6 +18,7 @@ import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.swing.inspector.widget.ColorField;
 import cn.donting.javelin.editor.swing.inspector.widget.InsFormat;
 import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
+import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
 import cn.donting.javelin.rhi.data.RHIClearColor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -214,8 +218,63 @@ public final class ProjectSettingsWindow extends JDialog {
                     applySsaoParams(editor, ssao);
                 })));
 
+        // —— 阴影（Engine_Shadow_Quality_Design §3.7）——
+        pane.add(sectionLabel("projectSettings.section.shadow"));
+        ShadowSettings shadow = setting.getShadowSettings();
+
+        JeSelect qualitySelect = new JeSelect(qualityOptions(), shadow.getQuality().name(),
+                value -> {
+                    shadow.setQuality(ShadowQuality.valueOf(value));
+                    applyShadowSettings(editor, shadow);
+                });
+        pane.add(formRow("projectSettings.shadowQuality", qualitySelect));
+
+        pane.add(formRow("projectSettings.shadowStrength",
+                numberInput(shadow.getStrength(), 0f, 1f, 0.05f, v -> {
+                    shadow.setStrength(v);
+                    applyShadowSettings(editor, shadow);
+                })));
+        pane.add(formRow("projectSettings.shadowPcfRadius",
+                numberInput(shadow.getPcfRadius(), 0f, 4f, 0.1f, v -> {
+                    shadow.setPcfRadius(v);
+                    applyShadowSettings(editor, shadow);
+                })));
+        pane.add(formRow("projectSettings.shadowDepthOffset",
+                numberInput(shadow.getRefDepthOffset(), 0f, 1f, 0.01f, v -> {
+                    shadow.setRefDepthOffset(v);
+                    applyShadowSettings(editor, shadow);
+                })));
+        pane.add(formRow("projectSettings.shadowBiasConstant",
+                numberInput(shadow.getBiasConstant(), 0f, 10f, 0.1f, v -> {
+                    shadow.setBiasConstant(v);
+                    applyShadowSettings(editor, shadow);
+                })));
+        pane.add(formRow("projectSettings.shadowBiasSlope",
+                numberInput(shadow.getBiasSlope(), 0f, 10f, 0.1f, v -> {
+                    shadow.setBiasSlope(v);
+                    applyShadowSettings(editor, shadow);
+                })));
+        pane.add(hintLabel(EditorLang.text("projectSettings.shadowBiasHint")));
+
         pane.add(javax.swing.Box.createVerticalGlue());
         return pane;
+    }
+
+    /** 阴影品质档下拉选项（value = 枚举名，label 走语言包） */
+    private static java.util.List<InspectorFieldVo.Option> qualityOptions() {
+        java.util.List<InspectorFieldVo.Option> options = new java.util.ArrayList<>();
+        addQualityOption(options, ShadowQuality.HARD, "projectSettings.shadowQuality.hard");
+        addQualityOption(options, ShadowQuality.SOFT_LOW, "projectSettings.shadowQuality.softLow");
+        addQualityOption(options, ShadowQuality.SOFT_HIGH, "projectSettings.shadowQuality.softHigh");
+        return options;
+    }
+
+    private static void addQualityOption(java.util.List<InspectorFieldVo.Option> options,
+                                         ShadowQuality quality, String labelKey) {
+        InspectorFieldVo.Option option = new InspectorFieldVo.Option();
+        option.value = quality.name();
+        option.label = EditorLang.text(labelKey);
+        options.add(option);
     }
 
     /** 分组标题（加粗小标题 + 上下留白） */
@@ -368,6 +427,27 @@ public final class ProjectSettingsWindow extends JDialog {
         }
     }
 
+    /**
+     * 阴影参数：即时下发渲染系统（Engine_Shadow_Quality_Design §3.2）——品质档/强度/
+     * PCF 半径/参考深度偏移下一帧进 UBO 生效，bias 两项由 {@code ShadowPass} 检测变化后
+     * 重建 PSO（旧管线两帧退役）。
+     */
+    private void applyShadowSettings(JavelinEditor editor, ShadowSettings shadow) {
+        if (editor == null) {
+            showError(EditorLang.text("projectSettings.editorMissing"));
+            return;
+        }
+        try {
+            RenderingSystem rs = editor.renderingSystem();
+            if (rs != null) {
+                rs.setShadowSettings(shadow);
+            }
+        } catch (RuntimeException e) {
+            LOGGER.error("阴影参数应用失败", e);
+            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
+        }
+    }
+
     /** SSAO 参数：即时下发 + 写盘 */
     private void applySsaoParams(JavelinEditor editor, SsaoSettings ssao) {
         if (editor == null) {
@@ -405,6 +485,7 @@ public final class ProjectSettingsWindow extends JDialog {
             fileSetting.setBloom(live.isBloom());
             fileSetting.setSsao(live.isSsao());
             fileSetting.setPostProcessSettings(live.getPostProcessSettings());
+            fileSetting.setShadowSettings(live.getShadowSettings());
             new BinaryExporter(file).export(fileSetting);
         } catch (Exception e) {
             LOGGER.error("项目设置写盘失败", e);

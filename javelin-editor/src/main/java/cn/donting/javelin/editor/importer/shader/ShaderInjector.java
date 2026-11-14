@@ -53,11 +53,13 @@ public final class ShaderInjector {
      * lightCounts（x=dirCount, y=pointCount）、gridDim（xyz=维度, w=tileSize）、
      * zParams（x=near, y=far, z=ortho 标志）、viewport（帧缓冲原点+尺寸，
      * gl_FragCoord 定位 cell 用）、ambient、sunViewProj（批次④：主光 世界→光裁剪，
-     * fs 重建 shadowMap 采样坐标）。
+     * fs 重建 shadowMap 采样坐标）、shadowParams（四期阴影质量分级：x=品质档编码 /
+     * y=PCF 半径（纹素）/ z=阴影强度 / w=参考深度偏移）。
      *
      * <p>{@code javelinLighting(viewNormal, viewPos, worldPos)}：Lambert + 环境项 +
-     * 点/聚光衰减（§7）+ 主光单张硬影（§4.5 批次④：槽 0 castShadow 位门控，
-     * sunViewProj 投影 → NDC xy 映 [0,1] 采样 → compare LESS 深度比较，盒外受光）。
+     * 点/聚光衰减（§7）+ 主光阴影（§4.5 批次④门控 + 四期品质档：槽 0 castShadow 位门控，
+     * sunViewProj 投影 → NDC xy 映 [0,1] → 硬影单采样 / 4 tap 复现 3×3 / 9 tap 复现 5×5
+     * 高斯（MJP 亚纹素权重），盒外受光；强度与参考深度偏移由 shadowParams 控制）。
      * ambient + 方向光全局段（UBO 直读）+ gl_FragCoord 定位 cell →
      * clusterIndices 索引段 → lightList 逐盏（inverse-square + range smoothstep
      * 滚降；SPOT 锥判定 cos 平滑带）。视空间光照全链（vs 用 {@code cam.view} 传出
@@ -73,6 +75,7 @@ public final class ShaderInjector {
                 vec4 viewport;
                 vec4 ambient;
                 mat4 sunViewProj;
+                vec4 shadowParams;
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
@@ -85,22 +88,87 @@ public final class ShaderInjector {
             };
             layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
 
+            // 单 tap 深度比较（越界按受光 1.0——与阴影盒外语义一致，避免软核在盒边缘硬切）
+            float javelinShadowTap(vec2 tuv, float refZ) {
+                if (tuv.x < 0.0 || tuv.x > 1.0 || tuv.y < 0.0 || tuv.y > 1.0) {
+                    return 1.0;
+                }
+                return texture(shadowMap, vec3(tuv, refZ));
+            }
+
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
                 vec3 result = lighting.ambient.rgb * lighting.ambient.a;
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);
                     float shadow = 1.0;
-                    // 主光单张硬影（批次④）：槽 0 castShadow 位门控；sunViewProj 正交
-                    // 投影（z 映 [0,1]），NDC xy×0.5+0.5 成采样 UV；盒外/越深度界=受光。
-                    // compare LESS：参考深度（像素到光深度）< 纹素深度（最近遮挡面）= 1.0
+                    // 主光单张硬影（批次④）+ 品质档 PCF（四期阴影质量分级 §3.4）：槽 0
+                    // castShadow 位门控；sunViewProj 正交投影（z 映 [0,1]），NDC xy×0.5+0.5
+                    // 成采样 UV；盒外/越深度界=受光。compare LESS：参考深度（像素到光深度）
+                    // < 纹素深度（最近遮挡面）= 1.0
                     if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
                         vec3 proj = (lighting.sunViewProj * vec4(worldPos, 1.0)).xyz;
                         if (proj.x >= -1.0 && proj.x <= 1.0
                                 && proj.y >= -1.0 && proj.y <= 1.0
                                 && proj.z >= 0.0 && proj.z <= 1.0) {
                             vec2 uv = proj.xy * 0.5 + 0.5;
-                            shadow = texture(shadowMap, vec3(uv, proj.z));
+                            // 参考深度偏移（世界单位，CPU 侧按光空间 z 范围折算成裁剪 z 增量）：
+                            // 正交光空间里常数 z 偏移 = 常数世界距离，抗彼得潘宁的细调项
+                            float refZ = proj.z + lighting.shadowParams.w;
+                            int pcfMode = int(lighting.shadowParams.x);
+                            float pcfRadius = lighting.shadowParams.y;
+                            float pcfShadow;
+                            if (pcfMode <= 0 || pcfRadius <= 0.0) {
+                                // 硬影档：单次比较采样（硬件 2×2 比较双线性仍在）
+                                pcfShadow = javelinShadowTap(uv, refZ);
+                            } else {
+                                // MJP 亚纹素权重（Babylon shadowsFragmentFunctions.fx:382/443）：
+                                // 4 tap 复现 3×3、9 tap 复现 5×5 高斯——权重和 16/144 已含分布
+                                // 归一，故直接除常数；PCF 半径按纹素缩放核偏移（Babylon 同式
+                                // 全程用「1/边长」标量——阴影图为正方形，x/y 纹素尺度相同）
+                                vec2 texSize = vec2(textureSize(shadowMap, 0));
+                                float texelSize = 1.0 / texSize.x;
+                                vec2 uvT = uv * texSize + 0.5;   // 纹素中心坐标
+                                vec2 st = fract(uvT);            // 亚纹素偏移
+                                vec2 base = (floor(uvT) - 0.5) * texelSize;
+                                if (pcfMode == 1) {
+                                    vec2 uvw0 = 3.0 - 2.0 * st;
+                                    vec2 uvw1 = 1.0 + 2.0 * st;
+                                    vec2 u = vec2((2.0 - st.x) / uvw0.x - 1.0,
+                                            st.x / uvw1.x + 1.0) * texelSize * pcfRadius;
+                                    vec2 v = vec2((2.0 - st.y) / uvw0.y - 1.0,
+                                            st.y / uvw1.y + 1.0) * texelSize * pcfRadius;
+                                    pcfShadow =
+                                            uvw0.x * uvw0.y * javelinShadowTap(base + vec2(u.x, v.x), refZ)
+                                            + uvw1.x * uvw0.y * javelinShadowTap(base + vec2(u.y, v.x), refZ)
+                                            + uvw0.x * uvw1.y * javelinShadowTap(base + vec2(u.x, v.y), refZ)
+                                            + uvw1.x * uvw1.y * javelinShadowTap(base + vec2(u.y, v.y), refZ);
+                                    pcfShadow /= 16.0;
+                                } else {
+                                    vec2 uvw0 = 4.0 - 3.0 * st;
+                                    vec2 uvw1 = vec2(7.0);
+                                    vec2 uvw2 = 1.0 + 3.0 * st;
+                                    vec3 u = vec3((3.0 - 2.0 * st.x) / uvw0.x - 2.0,
+                                            (3.0 + st.x) / uvw1.x,
+                                            st.x / uvw2.x + 2.0) * texelSize * pcfRadius;
+                                    vec3 v = vec3((3.0 - 2.0 * st.y) / uvw0.y - 2.0,
+                                            (3.0 + st.y) / uvw1.y,
+                                            st.y / uvw2.y + 2.0) * texelSize * pcfRadius;
+                                    pcfShadow =
+                                            uvw0.x * uvw0.y * javelinShadowTap(base + vec2(u.x, v.x), refZ)
+                                            + uvw1.x * uvw0.y * javelinShadowTap(base + vec2(u.y, v.x), refZ)
+                                            + uvw2.x * uvw0.y * javelinShadowTap(base + vec2(u.z, v.x), refZ)
+                                            + uvw0.x * uvw1.y * javelinShadowTap(base + vec2(u.x, v.y), refZ)
+                                            + uvw1.x * uvw1.y * javelinShadowTap(base + vec2(u.y, v.y), refZ)
+                                            + uvw2.x * uvw1.y * javelinShadowTap(base + vec2(u.z, v.y), refZ)
+                                            + uvw0.x * uvw2.y * javelinShadowTap(base + vec2(u.x, v.z), refZ)
+                                            + uvw1.x * uvw2.y * javelinShadowTap(base + vec2(u.y, v.z), refZ)
+                                            + uvw2.x * uvw2.y * javelinShadowTap(base + vec2(u.z, v.z), refZ);
+                                    pcfShadow /= 144.0;
+                                }
+                            }
+                            // 阴影强度：1 = 原强度；0 = 视觉等同关影（遮挡处保留 1-strength）
+                            shadow = mix(1.0, pcfShadow, lighting.shadowParams.z);
                         }
                     }
                     result += lighting.directional[2 * i + 1].rgb

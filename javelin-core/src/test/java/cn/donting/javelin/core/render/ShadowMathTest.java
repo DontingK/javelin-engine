@@ -43,6 +43,26 @@ public class ShadowMathTest {
         assertTrue(Math.abs(p.w - 1.0f) < 1e-5f, "正交矩阵 w 分量应恒 1，实际: " + p.w);
     }
 
+    /**
+     * 光空间 z 范围回填（阴影质量分级 §3.3：参考深度偏移「世界单位 → 裁剪 z 增量」的除数）：
+     * 范围为正且有限；盒心经矩阵投影落 z≈0.5（eye 在盒近面外 BOX_MARGIN，盒心距 eye
+     * 恰为深度范围之半）。
+     */
+    @Test
+    public void zRangeMatchesOrthoDepth() {
+        Aabb box = new Aabb(new Vector3f(-2.0f, 0.0f, -1.5f), new Vector3f(3.0f, 4.0f, 1.5f));
+        Vector3f dir = new Vector3f(0.2f, -0.9f, 0.3f).normalize();
+        float[] zRange = new float[1];
+        Matrix4f m = ShadowMath.buildSunViewProj(dir, box, new Matrix4f(), zRange);
+
+        assertTrue(zRange[0] > 0.0f && Float.isFinite(zRange[0]),
+                "光空间 z 范围应有限且为正，实际: " + zRange[0]);
+
+        Vector3f center = new Vector3f(box.getMin()).add(box.getMax()).mul(0.5f);
+        Vector4f p = m.transform(new Vector4f(center, 1.0f));
+        assertTrue(Math.abs(p.z - 0.5f) < 1e-4f, "盒心应落裁剪 z=0.5，实际: " + p.z);
+    }
+
     private static void assertCornersCovered(Vector3f dir, Aabb box) {
         Matrix4f m = ShadowMath.buildSunViewProj(dir, box, new Matrix4f());
         assertTrue(m.isFinite(), "矩阵含非有限值（基向量退化？）");

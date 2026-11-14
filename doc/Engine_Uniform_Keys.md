@@ -62,13 +62,14 @@
 | `lighting.viewport` | `vec4` | 304 | 16B | **批次③新增**：视口帧缓冲区 x/y/w/h（Vulkan 左上原点，同 gl_FragCoord/RHIViewport——着色器 cell 定位用） |
 | `lighting.ambient` | `vec4` | 320 | 16B | 环境项（v0.x = 纯黑，Unity 口径 2026-11-01 拍板；真值源归四期天空盒环境光） |
 | `lighting.sunViewProj` | `mat4` | 336 | 64B | **批次④-A 新增**：主光 世界→光裁剪 正交矩阵（zZeroToOne：裁剪 z 映 [0,1]、NDC xy [-1,1]）——fs 阴影采样重建投影；无主光/关阴影时值不消费（castShadow 标志门控） |
+| `lighting.shadowParams` | `vec4` | 400 | 16B | **四期阴影质量分级新增（2026-11-14）**：x=品质档编码（`ShadowQuality.code()`：0 硬影单采样 / 1=4 tap 复现 3×3 / 2=9 tap 复现 5×5）、y=PCF 半径（纹素，核偏移缩放）、z=阴影强度（0~1）、w=参考深度偏移（**已折算的裁剪 z 增量** = 世界单位偏移 ÷ 光空间 z 范围） |
 
-- 块实需 **400B**，描述符 range/动态偏移步长 = 512B（256 对齐进取）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶（sunViewProj 扩块于 ambient 后串接，2026-11-01 随批落位）；
+- 块实需 **416B**，描述符 range/动态偏移步长 = 512B（256 对齐进取，416 仍在内——**四期阴影质量分级未改步长**）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶（sunViewProj 扩块于 ambient 后串接 2026-11-01；shadowParams 于 sunViewProj 后串接 2026-11-14）；
 - lightList（binding1）：`vec4 lights[]`（std430，无名块）——16 float/灯布局语义归 `Engine_Lighting_Design.md` §3.1；**批次③起 per-view 缓冲**（首视口单缓冲口径作废——多视口挂账 BatchB 解除）；
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
 - shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
 - gbufferAlbedo/gbufferNormal/gbufferWorldPos（binding5/6/7，批次④-B）：LightingPass 全屏读 G-Buffer 三张（`RenderingSystem.frameStorageLayoutDesc` 与 `ShaderInjector` 的 G-Buffer 注入块同源）；G-Buffer 三张 per-view（与 depth 同尺码，resize 换绑并重建 set1 描述符集）；
-- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光硬影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 Engine_Lighting_Design §7）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**。
+- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光阴影（批次④-A 门控 + 四期品质档 PCF），消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `javelinShadowTap(vec2, float)`（单 tap 深度比较，越界按受光）。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 

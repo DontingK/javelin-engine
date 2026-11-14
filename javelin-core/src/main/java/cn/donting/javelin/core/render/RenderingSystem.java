@@ -16,6 +16,7 @@ import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
+import cn.donting.javelin.core.settings.ShadowSettings;
 
 import cn.donting.javelin.rhi.Buffer;
 import cn.donting.javelin.rhi.DescriptorSet;
@@ -125,8 +126,8 @@ public final class RenderingSystem implements AutoCloseable {
     // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
     /** LightingParamsBlock 帧槽步长（std140 实需 320B，256 对齐进取；动态偏移单位） */
     static final int LIGHTING_STRIDE = 512;
-    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16 + sunViewProj 64，批次④阴影段） */
-    static final int LIGHTING_BLOCK_BYTES = 400;
+    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16 + sunViewProj 64 + shadowParams 16，批次④阴影段 + 四期阴影质量分级 §3.3） */
+    static final int LIGHTING_BLOCK_BYTES = 416;
     /**
      * 环境项（rgb + 强度）：v0.x = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
      * 用户拍板；原 0.15 中性灰占位作废）。真值源 = 天空盒环境光照，归四期第 4 项
@@ -177,6 +178,12 @@ public final class RenderingSystem implements AutoCloseable {
     private final Matrix4f sunViewProj = new Matrix4f();
     /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据 */
     private boolean shadowSunActive;
+    /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design §3.2） */
+    private ShadowSettings shadowSettings = new ShadowSettings();
+    /** 光空间 z 范围回填暂存（纯逻辑 out 参数数组；帧路径 exclusive，预分配复用） */
+    private final float[] shadowZRangeTmp = new float[1];
+    /** 末帧光空间 z 范围（世界单位，正交盒深度；参考深度偏移折算除数；未生效时保持初值） */
+    private float shadowZRange = 1.0f;
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
     private final Aabb shadowWorldBounds = new Aabb();
     private final Aabb casterBoundsTmp = new Aabb();
@@ -921,7 +928,9 @@ public final class RenderingSystem implements AutoCloseable {
             min.set(-1.0f, -1.0f, -1.0f);
             max.set(1.0f, 1.0f, 1.0f);
         }
-        ShadowMath.buildSunViewProj(sun.worldDir(), shadowWorldBounds, sunViewProj);
+        ShadowMath.buildSunViewProj(sun.worldDir(), shadowWorldBounds, sunViewProj, shadowZRangeTmp);
+        // 光空间 z 范围（正交盒深度）：着色侧参考深度偏移（世界单位）→ 裁剪 z 增量的除数
+        shadowZRange = Math.max(shadowZRangeTmp[0], 1e-4f);
     }
 
     /** 主光阴影是否本帧生效（主光存在且 castShadow；ShadowPass 挂点判据） */
@@ -937,6 +946,33 @@ public final class RenderingSystem implements AutoCloseable {
     /** 全局单张 shadowMap（ShadowPass 深度输出 / Forward Pass 图声明采样读） */
     public Texture shadowMap() {
         return shadowMap;
+    }
+
+    /**
+     * 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项）：启动期由
+     * {@code JavelinEngine} 灌入设置、运行期由编辑器「项目设置」窗口改写。
+     * 前三项与参考深度偏移每帧打包进 UBO 即时生效；bias 两项是 PSO 静态态，
+     * 由 {@code ShadowPass} 检测变化后重建 PSO 缓存。
+     */
+    public ShadowSettings shadowSettings() {
+        return shadowSettings;
+    }
+
+    /** 阴影参数设置（null 拒绝——保持恒有值，调用方不必判空） */
+    public void setShadowSettings(ShadowSettings shadowSettings) {
+        if (shadowSettings == null) {
+            throw new IllegalArgumentException("shadowSettings must not be null");
+        }
+        this.shadowSettings = shadowSettings;
+    }
+
+    /**
+     * 非纹理资源的延迟销毁入口（stamp + 2 帧，GPU in-flight 安全）：供运行期重建
+     * 类资源退役——{@code ShadowPass} 的 PSO 随阴影 bias 设置变化重建即此消费方。
+     * 与纹理退役同队列（{@code drainRetired}）。
+     */
+    public void retireResource(Runnable disposeAction) {
+        retiredResources.add(new RetiredResource(disposeAction, lastFrame));
     }
 
     /** 场景级天空盒 cubemap（批次⑤测试形态：RHI 纹理引用；null = 未挂） */
@@ -1038,6 +1074,14 @@ public final class RenderingSystem implements AutoCloseable {
         for (float v : sunViewProj.get(sunViewProjTmp)) {
             lightingPack.putFloat(v);
         }
+        // 阴影参数段（四期阴影质量分级 §3.3，@400）：x=品质档编码（ShadowQuality.code()）
+        // / y=PCF 半径（纹素）/ z=阴影强度 / w=参考深度偏移（已折算的裁剪 z 增量——
+        // 正交光空间里常数 z 偏移 = 常数世界距离，世界单位偏移除以光空间 z 范围）
+        ShadowSettings shadow = shadowSettings;
+        lightingPack.putFloat(shadow.getQuality().code())
+                .putFloat(shadow.getPcfRadius())
+                .putFloat(shadow.getStrength())
+                .putFloat(shadow.getRefDepthOffset() / shadowZRange);
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }
@@ -1549,12 +1593,7 @@ public final class RenderingSystem implements AutoCloseable {
         });
     }
 
-    private void retireResource(Runnable disposeAction) {
-        retiredResources.add(new RetiredResource(disposeAction, lastFrame));
-    }
-
-    private void checkOpen() {
-        if (closed) {
+    private void checkOpen() {        if (closed) {
             throw new IllegalStateException("RenderingSystem has been closed");
         }
     }

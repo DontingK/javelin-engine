@@ -55,8 +55,8 @@ import java.util.Set;
  * （无/关阴影/无 caster）时只清不画——全图深度 1.0 采样恒受光，图结构不随光照态抖动。</p>
  *
  * <p><b>PSO</b>：无描述符集（vs 只消费 push），push 布局 128B 专属（lightViewProj@0 +
- * model@64，非引擎材质 80B 布局）；depthBias 静态保守值（漏影/彼得潘宁实测再调，
- * 灯光档 §4.5 口径）。透明物不投影（v0.x）。</p>
+ * model@64，非引擎材质 80B 布局）；depthBias 静态两项取阴影设置（改设置即整批重建，
+ * 旧管线两帧退役）。透明物不投影（v0.x）。</p>
  */
 public class ShadowPass implements RenderPass {
 
@@ -81,6 +81,9 @@ public class ShadowPass implements RenderPass {
     /** 幂等挂载门控（本帧已挂载的帧号；buildGraph per-view 循环重复调用） */
     private long lastAddedFrame = -1;
     private boolean shadowLogged;
+    /** 当前 PSO 批次建库时用的 depth bias 两项（设置变化即整批重建；NaN = 尚未建库） */
+    private float builtBiasConstant = Float.NaN;
+    private float builtBiasSlope = Float.NaN;
 
     /**
      * @param device       RHI 设备（PSO 创建）
@@ -132,6 +135,7 @@ public class ShadowPass implements RenderPass {
             pass.setRenderCallback(cmd -> {
                 // 恒挂载（保 shadowMap 写者存在 + 图结构稳定）：阴影关/无 caster 只清不画
                 // ——全图深度 1.0 采样恒受光；着色侧 castShadow 标志同步门控采样分支
+                ensurePipelineBias(rs);
                 if (!rs.shadowSunActive() || casters.isEmpty()) {
                     return;
                 }
@@ -193,13 +197,36 @@ public class ShadowPass implements RenderPass {
                 SHADOW_PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
                 SampleCount.COUNT_1,
-                // depthBias 静态保守值（2048² 单张全场景正交；实测漏影/彼得潘宁再调）
-                true, 2.0f, 1.5f);
+                // depthBias 静态两项来自阴影设置（Engine_Shadow_Quality_Design §3.5）；
+                // 设置变化由 ensurePipelineBias 整批重建 PSO
+                true, builtBiasConstant, builtBiasSlope);
         GraphicsPipeline created = device.createGraphicsPipeline(desc);
         pipelines.put(key, created);
         log.info("shadow PSO created: layout={} topology={}",
                 ro.mesh().layout(), ro.mesh().getTopology());
         return created;
+    }
+
+    /**
+     * 对齐 PSO 静态 depth bias 与当前设置（Engine_Shadow_Quality_Design §3.5）：
+     * 两项是管线创建态（RHI 无 vkCmdSetDepthBias 口），变化即整批退役重建——旧管线走
+     * {@code RenderingSystem.retireResource} 两帧延迟销毁（GPU in-flight 安全）。
+     * 重建发生在录制回调内、下一帧起用新管线绘制。
+     */
+    private void ensurePipelineBias(RenderingSystem rs) {
+        float constant = rs.shadowSettings().getBiasConstant();
+        float slope = rs.shadowSettings().getBiasSlope();
+        if (constant == builtBiasConstant && slope == builtBiasSlope) {
+            return;
+        }
+        boolean hadPipelines = !pipelines.isEmpty();
+        pipelines.values().forEach(pipeline -> rs.retireResource(pipeline::dispose));
+        pipelines.clear();
+        builtBiasConstant = constant;
+        builtBiasSlope = slope;
+        if (hadPipelines) {
+            log.info("shadow PSO 重建：depthBias constant={} slope={}（旧管线两帧退役）", constant, slope);
+        }
     }
 
     /**

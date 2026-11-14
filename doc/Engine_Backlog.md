@@ -82,7 +82,7 @@
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注（加粗数字 = 施工序） |
 |----|------|------|------|-----------|
-| P4-03 | 阴影质量分级（PCF 软采样 → CSM 级联 → bias 精调 / per-object 开关 / stabilize） | 路线 §4-3 / 光照 §10 | 未开工 | **②**｜三期 shadowMap 底座 + 注入段已备；**四期当前下一项**（P4-02 已验收移出） |
+| P4-03 | 阴影质量分级（PCF 软采样 → CSM 级联 → bias 精调 / per-object 开关 / stabilize） | 路线 §4-3 / 光照 §10 / **方案档 `Engine_Shadow_Quality_Design.md` v0.3** | 进行中 | **②**｜**步骤一（品质档 PCF / bias 调参面 / 设置窗口）2026-11-14 落码并用户实机验收关账**；**余 一-C per-object 开关**（`MeshRenderer.castShadow`/`receiveShadow` 检查器暴露 + `receiveShadow` 承载；G-Buffer `albedo.a` 契约变更）+ **步骤二 CSM**（单张 2×2 atlas + per-view 阴影资源族 + 纹素吸附） |
 | P4-10 | **TAA（AA 路线取代 MSAA，2026-11-13 用户拍板）**：相机投影抖动（Halton）+ 逐像素运动矢量（混合实现由 G-Buffer 世界位置 + 上帧 viewProj 反投影重建；前向实现无 G-Buffer 需另定）+ 历史缓冲 ping-pong + 重投影/邻域钳制防拖影 + 历史失效触发（切场景/相机跳变/热重载/resize）+ 锐化。**MSAA 已删（2026-11-13），空窗期**：在 TAA 落地前画面无抗锯齿 | 后处理档 §4.2 / 原 P4-07 | 待拍板 | **③**｜挂后处理链（Bloom/Tonemap 之前）；参考 `Babylon_Rendering_Reference` TAA 段 |
 | P4-04 | 天空盒环境光照（作 ambient 源：SH9 球谐 / mipmap 降采样，替换 ambient 常量） | 路线 §4-4 / 光照 §10 / 天空盒 §8 | 未开工 | **④**｜天空盒视觉面已备；DDGI 前的过渡 |
 | P4-09 | HDR→LDR 高亮截白真解（`.hdr` float 产物） | 天空盒 §1.2/§5 | 后置项 | 随 **④**｜随 P4-04 环境光批 |

@@ -143,6 +143,9 @@ public class ProjectLoadingFrame extends JFrame {
             if (loaded.getPostProcessSettings() != null) {
                 setting.setPostProcessSettings(loaded.getPostProcessSettings());
             }
+            if (loaded.getShadowSettings() != null) {
+                setting.setShadowSettings(loaded.getShadowSettings());
+            }
         } catch (Exception e) {
             log.warn("项目 javelinSettings 读取失败，回退编辑器默认: {}", file, e);
         }

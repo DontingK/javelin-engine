@@ -88,7 +88,7 @@ OpaqueForward / TransparentForward /（批次④）GBuffer+LightingPass
 | 计数 | `dirCount` / `pointCount`（uint×2） | pointCount = lightList 有效长度 |
 | grid 元数据 | `gridDim`（uvec3）+ `zParams`（vec2：near/far）+ `tileSize`（uint） | 着色器重建 cell 坐标用（§6 公式） |
 | 环境项 | `ambient`（vec4：RGB + 强度） | v0.x = **纯黑**（Unity 口径拍板 2026-11-01：无环境源即纯黑，原 0.15 中性灰占位作废）；真值源 = 天空盒环境光照（四期第 4 项 SH9/mipmap 降采样；GI 探针期再升级按位置查询） |
-| 主光阴影段 | `sunViewProj`（mat4）+ shadowMap 采样参数 | **批次④占位**；挂点已拍板（2026-10-28）= set1 扩展 binding4 combined depth-sampler（管线档 §7 同步收口），随 ShadowPass 落位 |
+| 主光阴影段 | `sunViewProj`（mat4）+ `shadowParams`（vec4：品质档编码/PCF 半径/阴影强度/参考深度偏移） | 挂点已拍板（2026-10-28）= set1 扩展 binding4 combined depth-sampler，④-A 落位；`shadowParams` 四期阴影质量分级 2026-11-14 增（`Engine_Shadow_Quality_Design.md` §3.3）——字段偏移单点归 `Engine_Uniform_Keys.md` §4-1 |
 
 - **批次②实装口径**：块为 std140 全 vec4 数组式排布（directional[16] vec4 / lightCounts ivec4 / gridDim ivec4 / zParams vec4 / ambient vec4），实需 320B、**DYNAMIC 动态偏移步长 512B**（每视口一块，字段详表单点归 `Engine_Uniform_Keys.md` §4-1）；gridDim/zParams 批次②写 0/相机裁剪面真值、cluster 消费归批次③；主光阴影段批次④追加扩块；环境项 v0.x = 0.15 中性常量。
 
@@ -137,7 +137,7 @@ class SpotLight extends Light { float range; float innerAngle, outerAngle; }  //
 
 ### 4.5.1 批次④-A 实装形态（2026-11-01，随批五拍板）
 
-- **bias 承载 = PSO 静态字段**：RHI `GraphicsPipelineDesc` 新增 depthBiasEnable/constant/slopeFactor 三参重载（旧构造代理 false/0/0），`VulkanGraphicsPipeline` 光栅化态填三参；**动态态（vkCmdSetDepthBias）后置**。ShadowPass PSO 常量起步 = constant 2.0 / slope 1.5（2048² 单张全场景正交档位，**实测漏影/彼得潘宁再调**——调参暴露点即此两常量）；
+- **bias 承载 = PSO 静态字段**：RHI `GraphicsPipelineDesc` 新增 depthBiasEnable/constant/slopeFactor 三参重载（旧构造代理 false/0/0），`VulkanGraphicsPipeline` 光栅化态填三参；**动态态（vkCmdSetDepthBias）后置**。ShadowPass PSO 常量起步 = constant 2.0 / slope 1.5（2048² 单张全场景正交档位，**实测漏影/彼得潘宁再调**——调参暴露点即此两常量）；**2026-11-14 起两项取阴影设置**（`ShadowSettings.biasConstant/biasSlope`，项目设置窗口可调；变化即整批退役重建 PSO，旧管线两帧销毁——Engine_Shadow_Quality_Design §3.5/§9.1）；
 - **ShadowPass 挂点 = per-view 幂等**：`JavelinEngine.buildFrameGraph` 按视口循环调 `renderPipeline.buildGraph`（全局 Pass 无帧级钩子），ShadowPass 以帧号门控——本帧首视口 addToGraph 挂载一次、后续视口跳过（PickSystem.beginFrame 幂等同构先例）。**恒挂载**（主光无/关阴影/无 caster 只清不画）：shadowMap 写者恒存在（免图孤儿读风险）+ 图结构不随光照态抖动；无 caster 时全图深度 1.0 → 采样恒受光，语义与 castShadow 标志门控自洽；
 - **binding4 并入 set1 布局**：`frameStorageLayoutDesc` 扩 binding4（COMBINED_IMAGE_SAMPLER, FRAGMENT）——Vulkan 同 set 号跨 Pass 单布局约束所迫，材质 PSO set1 布局随之 0-4（新 PSO 自动带，同进程缓存键不变）；shadowMap + compare 采样器引擎常驻（RenderingSystem 构造期创建、close 释放），per-view set 各自 update binding4 指同一张图；
 - **采样 = 深度比较采样器**：RHI `SamplerDesc` 新增 compare 构造重载 + `VulkanSampler` 填 compareEnable/compareOp；注入声明 `layout(set=1, binding=4) uniform sampler2DShadow shadowMap;`，fs 单次 `texture(shadowMap, vec3(uv, refZ))` = compare LESS 结果（未遮挡 1.0 / 遮挡 0.0）——**滤波 LINEAR（2026-11-01 实机验收「边缘块状锯齿」反馈换装，NEAREST 作废）**：比较采样器配 LINEAR 时 4 纹素比较结果按双线性权重平均，一次采样免费 2x2 PCF；3x3/5x5 邻域 tap 归四期（§10 阴影质量分级）；
@@ -216,7 +216,7 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 
 ## 10. 后置项与边界（2026-10-31 拍板：质量升级整体归四期——Roadmap §4 单点）
 
-- **阴影质量分级**：PCF 软采样（注入段采样次数 × 邻域偏移）、CSM 级联（多 lightViewProj/级联选择/接缝处理）、深度 bias 精调、shadowCasters per-object 开关、stabilize 抖动抑制——**归四期第 3 项**（Roadmap §4）；
+- **阴影质量分级**：PCF 软采样（注入段采样次数 × 邻域偏移）、CSM 级联（多 lightViewProj/级联选择/接缝处理）、深度 bias 精调、shadowCasters per-object 开关、stabilize 抖动抑制——**归四期第 3 项**（Roadmap §4，施工序 ②）；**方案档 `Engine_Shadow_Quality_Design.md`（v0.2：步骤一 品质档 PCF + bias 调参面 + 设置窗口 2026-11-14 已落码待用户实测；一-C per-object 与步骤二 CSM 未做）**——其中 **§4.5.1「PSO 静态 bias 硬编码 2.0/1.5」已改为取阴影设置（`ShadowSettings`，改档整批退役重建 PSO）**、**「ShadowPass 全局帧号幂等挂载」将在步骤二被「逐视口挂载」取代**（CSM 依赖各相机视锥）；
 - 天空盒环境光照（天空盒作 ambient 源：SH9/mipmap 降采样，替换 §3.3 ambient 常量）——**归四期第 4 项**（过渡环境光，探针 GI 落地后并入第 5 项）；
 - **GI 方向**：目标态 = 探针实时 GI（DDGI 路线）、烘焙管线不建、SSAO 为 GI 第一步——**归四期第 5 项**（Roadmap §4，探针复用本档批次①底座、求交后端可替换软光栅 → rayQuery；3D 纹理/纹理数组为采样前置缺口）；
 - **光追方向**：rayQuery 优先、RT pipeline 后置——**归四期第 6 项**（Roadmap §4，缺口 = AS 资源种类/图状态、BDA、GL_EXT_ray_query 编译链、蒙皮 BLAS 首范围=静态几何；复用本档批次①通用性红线）；

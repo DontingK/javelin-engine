@@ -77,6 +77,12 @@ public class JavelinSetting implements Serializable {
      */
     private PostProcessSettings postProcessSettings = new PostProcessSettings();
 
+    /**
+     * 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design
+     * §3.2）：独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link ShadowSettings}）。
+     */
+    private ShadowSettings shadowSettings = new ShadowSettings();
+
     public boolean isPostProcessing() {
         return postProcessing;
     }
@@ -110,6 +116,17 @@ public class JavelinSetting implements Serializable {
             throw new IllegalArgumentException("postProcessSettings must not be null");
         }
         this.postProcessSettings = postProcessSettings;
+    }
+
+    public ShadowSettings getShadowSettings() {
+        return shadowSettings;
+    }
+
+    public void setShadowSettings(ShadowSettings shadowSettings) {
+        if (shadowSettings == null) {
+            throw new IllegalArgumentException("shadowSettings must not be null");
+        }
+        this.shadowSettings = shadowSettings;
     }
 
     public boolean isEngineDebug() {
@@ -196,6 +213,7 @@ public class JavelinSetting implements Serializable {
         output.write("bloom",bloom);
         output.write("ssao",ssao);
         output.write("postProcessSettings",postProcessSettings);
+        output.write("shadowSettings",shadowSettings);
     }
 
     @Override
@@ -228,6 +246,11 @@ public class JavelinSetting implements Serializable {
         PostProcessSettings pps = input.readSerializable("postProcessSettings", PostProcessSettings.class);
         if (pps != null) {
             postProcessSettings = pps;
+        }
+        // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
+        ShadowSettings ss = input.readSerializable("shadowSettings", ShadowSettings.class);
+        if (ss != null) {
+            shadowSettings = ss;
         }
     }
 }

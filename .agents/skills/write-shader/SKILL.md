@@ -15,7 +15,7 @@ Javelin 引擎着色器编写规范。权威定义见 `doc/RHI_Design_Shader.md`
 |------|------------------------|------|--------|
 | 相机（set 0, UBO1 动态） | `layout(set=0, binding=0) uniform CameraBlock { mat4 viewProj; mat4 view; } cam;` | `cam.viewProj` / `cam.view`（世界→视空间，法线/位置变换用） | 引擎每帧写入；绑定时动态偏移选"当前帧当前相机"的段 |
 | 每物件（push constants, 80B） | `layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;` | `pc.model` / `pc.tpf` | 引擎每个 draw call 前自动推送 |
-| 光照（set 1，只注入 fs） | `LightingParamsBlock`（binding0 灯参数/环境/sunViewProj）+ lightList/cluster SSBO（binding1-3）+ shadowMap（binding4） | 不直接读——经注入函数 `javelinLighting` 消费 | 引擎每帧每视口写入；主光单张硬影自动含于函数内 |
+| 光照（set 1，只注入 fs） | `LightingParamsBlock`（binding0 灯参数/环境/sunViewProj/shadowParams）+ lightList/cluster SSBO（binding1-3）+ shadowMap（binding4） | 不直接读——经注入函数 `javelinLighting` 消费 | 引擎每帧每视口写入；主光阴影（品质档：硬影单采样 / 软影低 4 tap / 软影高 9 tap + 强度 + 参考深度偏移，2026-11-14 起）自动含于函数内 |
 | 材质数值（set 2, binding 0） | `layout(std140, set=2, binding=0) uniform MaterialBlock { /* 按 Properties 生成 */ } material;` | `material._Tint` 等 | 材质实例属性，std140 打包 |
 | 材质贴图（set 2, binding 1..n） | `layout(set=2, binding=1) uniform sampler2D _MainTex;` | 直接 `texture()` 采样 | 按 Properties 声明序，未赋值走占位贴图 |
 

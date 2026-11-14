@@ -33,6 +33,17 @@ public final class ShadowMath {
      * @return out
      */
     public static Matrix4f buildSunViewProj(Vector3f worldDir, Aabb bounds, Matrix4f out) {
+        return buildSunViewProj(worldDir, bounds, out, null);
+    }
+
+    /**
+     * 同上，并回填光空间 z 范围（正交盒深度，世界单位）：着色侧「参考深度偏移」
+     * （世界单位）折算成裁剪 z 增量时把它当除数（Engine_Shadow_Quality_Design §3.3）。
+     *
+     * @param zRangeOut 长度 ≥1 的输出数组（可空；为 null 时只算矩阵）
+     */
+    public static Matrix4f buildSunViewProj(Vector3f worldDir, Aabb bounds, Matrix4f out,
+                                            float[] zRangeOut) {
         // 光空间正交基：Z = -f（+Z 指向光），left = upHint × Z，upn = Z × left
         Vector3f axisZ = new Vector3f(worldDir).negate();
         float upHintX = 0.0f, upHintY = 1.0f, upHintZ = 0.0f;
@@ -63,8 +74,13 @@ public final class ShadowMath {
         float eyeY = cy + axisZ.y * (ez + BOX_MARGIN);
         float eyeZ = cz + axisZ.z * (ez + BOX_MARGIN);
 
+        float zRange = 2.0f * ez + 2.0f * BOX_MARGIN;
+        if (zRangeOut != null && zRangeOut.length > 0) {
+            zRangeOut[0] = zRange;
+        }
+
         return out.identity()
-                .ortho(-ex, ex, -ey, ey, 0.0f, 2.0f * ez + 2.0f * BOX_MARGIN, true)
+                .ortho(-ex, ex, -ey, ey, 0.0f, zRange, true)
                 .lookAt(eyeX, eyeY, eyeZ, cx, cy, cz, upHintX, upHintY, upHintZ);
     }
 }

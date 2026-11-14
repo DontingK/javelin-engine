@@ -109,6 +109,29 @@ public class ShaderImporterTest {
         assertValidSpirv(gbuffer.getFragmentSpirv());
     }
 
+    /**
+     * 注入段静态断言（四期阴影质量分级 §3.3/§3.4）：光照段声明含 shadowParams 通道、
+     * 含 PCF 单 tap 辅助函数与两档核（4/9 tap），且硬影/软影分支共用同一入口。
+     * 真实编译覆盖归 {@link #litShaderEndToEnd}（注入后的 fs 走 shaderc）。
+     */
+    @Test
+    public void lightingStageInjectsPcfShadowStage() {
+        String injected = ShaderInjector.inject("#version 450\nvoid main() {}\n",
+                java.util.List.of(), "pcf.frag", "fs");
+        assertTrue(injected.contains("vec4 shadowParams;"),
+                "光照段声明缺 shadowParams（阴影品质档/强度/半径/参考深度偏移通道）");
+        assertTrue(injected.contains("float javelinShadowTap("),
+                "光照段缺单 tap 深度比较辅助函数");
+        assertTrue(injected.contains("lighting.shadowParams.x"),
+                "阴影采样未消费品质档编码");
+        assertTrue(injected.contains("pcfShadow /= 16.0;"),
+                "缺 4 tap 复现 3×3 核（软影低档）");
+        assertTrue(injected.contains("pcfShadow /= 144.0;"),
+                "缺 9 tap 复现 5×5 核（软影高档）");
+        assertTrue(injected.contains("shadow = mix(1.0, pcfShadow, lighting.shadowParams.z);"),
+                "阴影强度未生效");
+    }
+
     private static void assertValidSpirv(byte[] spirv) {
         assertTrue(spirv != null && spirv.length > 100, "SPIR-V 产物为空");
         byte[] magic = {0x03, 0x02, 0x23, 0x07};
