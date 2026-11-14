@@ -55,7 +55,7 @@ public class SpvShader extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        name = input.readString("name");
+        name = input.readString("name", null);
         spvData = input.readByteArray("spvData");
     }
 

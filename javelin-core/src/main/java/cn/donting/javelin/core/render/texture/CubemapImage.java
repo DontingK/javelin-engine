@@ -52,11 +52,8 @@ public class CubemapImage extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        faceSize = input.readInt("faceSize");
-        Format f = input.readEnum("format", Format.class);
-        if (f != null) {
-            format = f;
-        }
+        faceSize = input.readInt("faceSize", 0);
+        format = input.readEnum("format", Format.class, null);
         pixels = input.readByteArray("pixels");
     }
 

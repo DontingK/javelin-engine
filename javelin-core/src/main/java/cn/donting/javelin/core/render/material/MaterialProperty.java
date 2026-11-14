@@ -61,13 +61,13 @@ public final class MaterialProperty implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
-        displayName = input.readString("displayName");
-        type = input.readEnum("type", MaterialPropertyType.class);
+        name = input.readString("name", null);
+        displayName = input.readString("displayName", null);
+        type = input.readEnum("type", MaterialPropertyType.class, null);
         defaultValues = input.readFloatArray("defaultValues");
-        min = input.readFloat("min");
-        max = input.readFloat("max");
-        texturePlaceholder = input.readString("texturePlaceholder");
+        min = input.readFloat("min", 0f);
+        max = input.readFloat("max", 0f);
+        texturePlaceholder = input.readString("texturePlaceholder", null);
     }
 
     /**

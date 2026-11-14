@@ -8,9 +8,11 @@ import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.asset.BuiltinAssetReleaser;
 import cn.donting.javelin.editor.asset.ProjectAssetLibManager;
 import cn.donting.javelin.editor.importer.AssetImportPipeline;
+import cn.donting.javelin.editor.inspector.InspectorMeta;
 import cn.donting.javelin.editor.meta.MetaManager;
 import cn.donting.javelin.editor.plugin.PluginManager;
 import cn.donting.javelin.editor.project.GradleProject;
+import cn.donting.javelin.editor.settings.SettingsSchema;
 import cn.donting.javelin.editor.util.ThreadUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,18 +100,18 @@ public class ProjectLoadingFrame extends JFrame {
                 }
 
                 SwingUtilities.invokeAndWait((Runnable) () -> dispose());
-                // 项目设置窗口（Edit|项目设置…）管理的字段（图形|后处理）由项目文件驱动，
-                // 编辑器启动读入；其余字段不随项目文件走（见 loadEditorSetting）
+                // 项目设置（图形/窗口…页）由项目文件驱动：逐页按 @Setting(editorStartup) 读入，
+                // 只写不读的页（窗口尺寸/标题/限帧）不跟随文件（见 loadEditorSetting）
                 JavelinSetting setting = loadEditorSetting(gradleProject);
                 // 拍板（2026-11-13）：编辑器恒用混合（Deferred）管线——管线已拆成两个独立
                 // 实现类、无运行期切档，编辑器显式指定（不读项目 javelinSettings 的档位字段，
                 // 该字段只供打包运行时启动期选实现类）
-                setting.setRenderPipeline(PipelineProfile.HYBRID);
-                setting.setMaxFps(144);
+                setting.getGraphSettings().setRenderPipeline(PipelineProfile.HYBRID);
+                setting.getWindowSettings().setMaxFps(144);
                 // 拍板（2026-10-17，Vulkan_Pitfalls #21 跨机器复发后）：编辑器恒关 vsync 走
                 // IMMEDIATE + maxFps 限帧兜底——无 MAILBOX 的驱动会静默回退 FIFO，
                 // 触发 DWM 踩线/错过双稳（细线/小字闪烁）
-                setting.setVsync(false);
+                setting.getWindowSettings().setVsync(false);
                 JavelinEditor editorApp = new JavelinEditor(gradleProject, setting, metaManager, assetManager, assetImportPipeline, builtinAssetReleaser);
                 editorApp.start();
 
@@ -121,10 +123,12 @@ public class ProjectLoadingFrame extends JFrame {
     }
 
     /**
-     * 读项目设置（图形|后处理）：把项目 {@code Game/javelinSettings.settings} 里由「项目设置」
-     * 窗口管理的字段（背景清屏色、后处理/Bloom 开关、后处理参数）读入编辑器设置；其余字段
-     * （窗口尺寸/标题、vsync、maxFps、engineDebug、管线档位）是编辑器运行环境或打包期的事，
-     * 不随项目文件走。文件缺失/损坏回退默认（损坏不静默吞——warn 记录后回退）。
+     * 读项目设置：逐页按 {@link SettingsSchema#managedRoots} 把项目
+     * {@code Game/javelinSettings.settings} 里**本页管理**的字段读入编辑器设置。
+     *
+     * <p>跳过 {@code @Setting(editorStartup = false)} 的页（窗口）：其值是编辑器运行环境
+     * （尺寸/标题/限帧），写进项目文件只供打包运行时消费，编辑器自身启动不跟随文件。
+     * 文件缺失/损坏回退默认（损坏不静默吞——warn 记录后回退）。</p>
      */
     private static JavelinSetting loadEditorSetting(GradleProject project) {
         JavelinSetting setting = new JavelinSetting();
@@ -134,15 +138,18 @@ public class ProjectLoadingFrame extends JFrame {
         }
         try {
             JavelinSetting loaded = new BinaryImporter(file).importData(JavelinSetting.class);
-            if (loaded.getBackgroundColor() != null) {
-                setting.setBackgroundColor(loaded.getBackgroundColor());
-            }
-            // 后处理设置（三效果开关 + 参数）整体覆写（开关 2026-11-14 已收进 PostProcessSettings）
-            if (loaded.getPostProcessSettings() != null) {
-                setting.setPostProcessSettings(loaded.getPostProcessSettings());
-            }
-            if (loaded.getShadowSettings() != null) {
-                setting.setShadowSettings(loaded.getShadowSettings());
+            // 逐页通用拷贝：页根对象按页字段名在文件实例上解析，只写不读的页跳过
+            for (SettingsSchema page : SettingsSchema.pagesOf(setting)) {
+                if (!page.editorStartup()) {
+                    continue;
+                }
+                Object fromFile = InspectorMeta.readProperty(loaded, page.fieldName());
+                for (String field : page.managedRoots()) {
+                    Object value = InspectorMeta.readProperty(fromFile, field);
+                    if (value != null) {
+                        InspectorMeta.writeProperty(page.root(), field, value);
+                    }
+                }
             }
         } catch (Exception e) {
             log.warn("项目 javelinSettings 读取失败，回退编辑器默认: {}", file, e);

@@ -76,7 +76,7 @@ public final class SkyboxDemo extends JavelinEngineTestBase {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setTitle("Javelin - SkyboxDemo");
+        setting.getWindowSettings().setTitle("Javelin - SkyboxDemo");
         new SkyboxDemo(setting).start();
     }
 

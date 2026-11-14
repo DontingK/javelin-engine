@@ -90,10 +90,10 @@ public class AssetMeta implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        this.guid = input.readString("guid");
-        this.assetType = input.readString("assetType");
+        this.guid = input.readString("guid", null);
+        this.assetType = input.readString("assetType", null);
         this.importSettings = input.readSerializable("importSettings", ImportSettings.class);
-        this.lastModifiedTime = input.readLong("lastModifiedTime");
+        this.lastModifiedTime = input.readLong("lastModifiedTime", 0L);
     }
 
 

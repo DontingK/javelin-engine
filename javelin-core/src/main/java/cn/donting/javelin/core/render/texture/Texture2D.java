@@ -175,18 +175,9 @@ public class Texture2D extends AbsAsset {
     public void read(InputCapsule input) {
         super.read(input);
         image = input.readSerializable("image", Image.class);
-        int mips = input.readInt("mipLevels");
-        if (mips > 0) {
-            mipLevels = mips;
-        }
-        FilterMode fm = input.readEnum("filterMode", FilterMode.class);
-        if (fm != null) {
-            filterMode = fm;
-        }
-        WrapMode wm = input.readEnum("wrapMode", WrapMode.class);
-        if (wm != null) {
-            wrapMode = wm;
-        }
+        mipLevels = input.readInt("mipLevels", 1);
+        filterMode = input.readEnum("filterMode", FilterMode.class, FilterMode.BILINEAR);
+        wrapMode = input.readEnum("wrapMode", WrapMode.class, WrapMode.REPEAT);
     }
 
     // ═══ 内置占位（Unity whiteTexture / blackTexture / normalTexture） ═══

@@ -295,9 +295,9 @@ public class Node extends ObjectId implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
-        active = input.readBoolean("active");
-        layer = readLayer(input.readInt("layer"));
+        name = input.readString("name", null);
+        active = input.readBoolean("active", true);
+        layer = readLayer(input.readInt("layer", Layer.DEFAULT.getValue()));
         ArrayList<String> names = input.readArrayString("tagNames");
         tags = new ArrayList<>();
         if (names != null) {

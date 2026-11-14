@@ -148,7 +148,7 @@ public class MeshRenderer extends Component implements Renderable {
         super.read(input);
         mesh = input.readSerializable("mesh", Mesh.class);
         materials = input.readArrayList("materials", Material.class);
-        castShadow = input.readBoolean("castShadow");
-        receiveShadow = input.readBoolean("receiveShadow");
+        castShadow = input.readBoolean("castShadow", true);
+        receiveShadow = input.readBoolean("receiveShadow", true);
     }
 }

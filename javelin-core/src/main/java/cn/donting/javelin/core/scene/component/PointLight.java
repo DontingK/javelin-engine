@@ -44,6 +44,6 @@ public class PointLight extends Light {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        range = input.readFloat("range");
+        range = input.readFloat("range", 10.0f);
     }
 }

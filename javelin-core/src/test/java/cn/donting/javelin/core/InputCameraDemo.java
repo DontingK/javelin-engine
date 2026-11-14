@@ -58,9 +58,9 @@ public final class InputCameraDemo extends JavelinEngineTestBase {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setTitle("Javelin - InputCameraDemo");
-        setting.setVsync(true);
-        setting.setMaxFps(180);
+        setting.getWindowSettings().setTitle("Javelin - InputCameraDemo");
+        setting.getWindowSettings().setVsync(true);
+        setting.getWindowSettings().setMaxFps(180);
         new InputCameraDemo(setting).start();
     }
 

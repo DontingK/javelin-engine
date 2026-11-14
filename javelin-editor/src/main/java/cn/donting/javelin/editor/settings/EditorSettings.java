@@ -66,7 +66,7 @@ public class EditorSettings implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        newProjectPath = input.readString("newProjectPath");
-        language = input.readString("language");
+        newProjectPath = input.readString("newProjectPath", null);
+        language = input.readString("language", null);
     }
 }

@@ -8,40 +8,28 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * Javelin引擎设置类
+ * Javelin 引擎设置（持久化单点，落 {@code Game/javelinSettings.settings}）。
+ *
+ * <p>三域：窗口（{@link WindowSetting}）/ 图形（{@link GraphSetting}，项目设置「图形」页根）/
+ * 引擎调试（{@code engineDebug}）。旧档把各域字段平铺在根上，read 时按「缺嵌套键即旧档」
+ * 判据一次性迁入；新文件只写三域对象。</p>
  */
 @Reflective
 public class JavelinSetting implements Serializable {
 
-    private int width=1080;
-    private int height=720;
-    private String title="Javelin Engine 5";
     /**
-     * 是否启用垂直同步。
+     * 图形设置（2026-11-14 从本类根字段迁入 {@link GraphSetting}）：管线档位 / 背景清屏色 /
+     * 后处理 / 环境光遮蔽 / 阴影。项目设置窗口「图形」页即以本对象为页根。
      */
-    private boolean vsync = true;
-    /**
-     * 默认背景颜色（引擎三处清屏的统一来源：无渲染系统清屏 / 无相机兜底 /
-     * 前向 Opaque Pass 清屏，JavelinEngine.clearColor 消费）。
-     */
-    private Color backgroundColor = new Color(0.05f, 0.05f, 0.08f, 1f);
+    private GraphSetting graphSettings = new GraphSetting();
 
     /**
-     * 引擎帧率上限（mainLoop 帧末限帧）。0 = 不限制（默认）。
+     * 窗口设置（尺寸 / 标题 / vsync / 帧率上限，2026-11-14 从本类根字段迁入
+     * {@link WindowSetting}）；引擎启动期消费，编辑器启动链覆盖 vsync 与 maxFps。
      *
-     * <p>vsync（MAILBOX 呈现）下建议设为刷新率 × ~1.1：MAILBOX 生产端不限速、
-     * 由本字段兜底；余量是承重的——限得恰好等于刷新率会偶发「vblank 无新帧→
-     * 旧帧重复显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
+     * <p>两页 {@code @Setting} 字段的声明序即项目设置窗导航序（图形在前）。</p>
      */
-    private int maxFps = 144;
-
-    /**
-     * 渲染管线**启动期选择**（Engine_RenderPipeline_Design §8）：FORWARD 纯前向 /
-     * HYBRID 混合（Deferred 不透明 + Forward 透明）。运行期不可切（2026-11-13 拍板：
-     * 管线拆成两个独立实现类）；编辑器固定 HYBRID、不读本字段，本字段供打包运行时
-     * （GameMain/AotGameMain）启动期选实现类。默认混合。
-     */
-    private PipelineProfile renderPipeline = PipelineProfile.HYBRID;
+    private WindowSetting windowSettings = new WindowSetting();
 
     /**
      * 引擎调试开关（Vulkan 校验层 + DebugUtilsMessenger 回调，Engine_DebugTools_Plan §2）：
@@ -50,39 +38,26 @@ public class JavelinSetting implements Serializable {
      */
     private boolean engineDebug = true;
 
-    /**
-     * 后处理设置（Engine_PostProcess_Design §3.7/§9.8）：**三效果开关**（Tonemap/Bloom/SSAO）
-     * + Bloom 阈值/软膝/强度 + Tonemap 肩部 + SSAO 参数。开关原散在本类顶层，2026-11-14 收拢
-     * 进本对象（与各自参数同域）。独立成对象以支持「缺键保默认」（见 {@link PostProcessSettings}）。
-     */
-    private PostProcessSettings postProcessSettings = new PostProcessSettings();
-
-    /**
-     * 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design
-     * §3.2）：独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link ShadowSettings}）。
-     */
-    private ShadowSettings shadowSettings = new ShadowSettings();
-
-    public PostProcessSettings getPostProcessSettings() {
-        return postProcessSettings;
+    public WindowSetting getWindowSettings() {
+        return windowSettings;
     }
 
-    public void setPostProcessSettings(PostProcessSettings postProcessSettings) {
-        if (postProcessSettings == null) {
-            throw new IllegalArgumentException("postProcessSettings must not be null");
+    public void setWindowSettings(WindowSetting windowSettings) {
+        if (windowSettings == null) {
+            throw new IllegalArgumentException("windowSettings must not be null");
         }
-        this.postProcessSettings = postProcessSettings;
+        this.windowSettings = windowSettings;
     }
 
-    public ShadowSettings getShadowSettings() {
-        return shadowSettings;
+    public GraphSetting getGraphSettings() {
+        return graphSettings;
     }
 
-    public void setShadowSettings(ShadowSettings shadowSettings) {
-        if (shadowSettings == null) {
-            throw new IllegalArgumentException("shadowSettings must not be null");
+    public void setGraphSettings(GraphSetting graphSettings) {
+        if (graphSettings == null) {
+            throw new IllegalArgumentException("graphSettings must not be null");
         }
-        this.shadowSettings = shadowSettings;
+        this.graphSettings = graphSettings;
     }
 
     public boolean isEngineDebug() {
@@ -93,123 +68,61 @@ public class JavelinSetting implements Serializable {
         this.engineDebug = engineDebug;
     }
 
-    public PipelineProfile getRenderPipeline() {
-        return renderPipeline;
-    }
-
-    public void setRenderPipeline(PipelineProfile renderPipeline) {
-        if (renderPipeline == null) {
-            throw new IllegalArgumentException("renderPipeline must not be null");
-        }
-        this.renderPipeline = renderPipeline;
-    }
-
-    public int getWidth() {
-        return width;
-    }
-
-    public void setWidth(int width) {
-        this.width = width;
-    }
-
-    public int getHeight() {
-        return height;
-    }
-
-    public void setHeight(int height) {
-        this.height = height;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public boolean isVsync() {
-        return vsync;
-    }
-
-    public void setVsync(boolean vsync) {
-        this.vsync = vsync;
-    }
-
-    public Color getBackgroundColor() {
-        return backgroundColor;
-    }
-
-    public void setBackgroundColor(Color backgroundColor) {
-        if (backgroundColor == null) {
-            throw new IllegalArgumentException("backgroundColor must not be null");
-        }
-        this.backgroundColor = backgroundColor;
-    }
-
-    public int getMaxFps() {
-        return maxFps;
-    }
-
-    public void setMaxFps(int maxFps) {
-        this.maxFps = Math.max(0, maxFps);
-    }
-
     @Override
     public void write(OutputCapsule output) {
-        output.write("width",width);
-        output.write("height",height);
-        output.write("title",title);
-        output.write("vsync",vsync);
-        output.write("backgroundColor",backgroundColor);
-        output.write("maxFps",maxFps);
-        output.write("renderPipeline",renderPipeline);
-        output.write("engineDebug",engineDebug);
-        output.write("postProcessSettings",postProcessSettings);
-        output.write("shadowSettings",shadowSettings);
+        output.write("windowSettings", windowSettings);
+        output.write("graphSettings", graphSettings);
+        output.write("engineDebug", engineDebug);
     }
 
     @Override
     public void read(InputCapsule input) {
-        width=input.readInt("width");
-        height=input.readInt("height");
-        title=input.readString("title");
-        vsync=input.readBoolean("vsync");
-        // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
-        Color bg=input.readSerializable("backgroundColor", Color.class);
-        if (bg != null) {
-            backgroundColor = bg;
+        // 窗口（2026-11-14 迁入 WindowSetting）：缺 windowSettings 键即旧档 → 迁根键
+        WindowSetting window = input.readSerializable("windowSettings", WindowSetting.class);
+        if (window != null) {
+            windowSettings = window;
+        } else {
+            windowSettings.setWidth(input.readInt("width", 1080));
+            windowSettings.setHeight(input.readInt("height", 720));
+            windowSettings.setTitle(input.readString("title", "Javelin Engine 5"));
+            windowSettings.setVsync(input.readBoolean("vsync", true));
+            windowSettings.setMaxFps(input.readInt("maxFps", 144));
         }
-        // 旧设置文件缺键 readInt=0，恰为本字段默认语义（0=不限制）——无迁移坑
-        maxFps = Math.max(0, input.readInt("maxFps"));
-        // 旧设置文件无此键时保留默认（readEnum 缺键返回 null）
-        PipelineProfile rp = input.readEnum("renderPipeline", PipelineProfile.class);
-        if (rp != null) {
-            renderPipeline = rp;
+        // 图形（2026-11-14 迁入 GraphSetting）：缺 graphSettings 键即旧档 → 迁根上的四项
+        GraphSetting graph = input.readSerializable("graphSettings", GraphSetting.class);
+        if (graph != null) {
+            graphSettings = graph;
+        } else {
+            graphSettings.setRenderPipeline(input.readEnum("renderPipeline", PipelineProfile.class,
+                    graphSettings.getRenderPipeline()));
+            Color bg = input.readSerializable("backgroundColor", Color.class);
+            if (bg != null) {
+                graphSettings.setBackgroundColor(bg);
+            }
+            PostProcessSettings pps = input.readSerializable("postProcessSettings",
+                    PostProcessSettings.class);
+            if (pps != null) {
+                graphSettings.setPostProcessSettings(pps);
+                // SSAO 独立成组后的补迁：旧文件把开关与参数挂在后处理下
+                graphSettings.adoptLegacySsao();
+            }
+            ShadowSettings shadow = input.readSerializable("shadowSettings", ShadowSettings.class);
+            if (shadow != null) {
+                graphSettings.setShadowSettings(shadow);
+            }
         }
-        // 缺键按协议既定行为读取（readBoolean 缺键= false）
-        engineDebug = input.readBoolean("engineDebug");
-        // 后处理设置（三效果开关 + 参数）：旧文件无此键时保留默认（readSerializable 缺键返回 null）
-        PostProcessSettings pps = input.readSerializable("postProcessSettings", PostProcessSettings.class);
-        if (pps != null) {
-            postProcessSettings = pps;
+        engineDebug = input.readBoolean("engineDebug", true);
+        // 最早形态的三效果开关（2026-11-14 从本类顶层收拢进各设置对象）：旧文件把它们写在
+        // 根上，"true" 表示当时开启；新文件不再写这些键（post-move 文件读到 false 无副作用），
+        // 故只迁 true，实现「旧工程开关不丢」。
+        if (input.readBoolean("postProcessing", false)) {
+            graphSettings.getPostProcessSettings().setTonemapEnabled(true);
         }
-        // 一次性迁移（2026-11-14 开关从本类顶层收拢进 PostProcessSettings）：旧文件把
-        // postProcessing/bloom/ssao 写在顶层，"true" 表示当时开启；新文件不再写这些键
-        // （post-move 文件读到 false → 无副作用），故只迁 true，实现「旧工程开关不丢」。
-        if (input.readBoolean("postProcessing")) {
-            postProcessSettings.setTonemapEnabled(true);
+        if (input.readBoolean("bloom", false)) {
+            graphSettings.getPostProcessSettings().setBloomEnabled(true);
         }
-        if (input.readBoolean("bloom")) {
-            postProcessSettings.setBloomEnabled(true);
-        }
-        if (input.readBoolean("ssao")) {
-            postProcessSettings.setSsaoEnabled(true);
-        }
-        // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
-        ShadowSettings ss = input.readSerializable("shadowSettings", ShadowSettings.class);
-        if (ss != null) {
-            shadowSettings = ss;
+        if (input.readBoolean("ssao", false)) {
+            graphSettings.getSsaoSettings().setEnabled(true);
         }
     }
 }

@@ -20,8 +20,8 @@ public abstract class AbsAsset extends ObjectId implements Asset {
 
     @Override
     public void read(InputCapsule input) {
-        guid = input.readString("guid");
-        lastModified = input.readLong("lastModified");
+        guid = input.readString("guid", null);
+        lastModified = input.readLong("lastModified", 0L);
     }
 
     public void setGuid(String guid) {

@@ -1,6 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
-> 版本：v0.15（2026-11-14）
+> 版本：v0.16（2026-11-15）
+> v0.16 变更（2026-11-15）：**设置域重构批次（非四期施工序，四期主线未推进）**——① `InputCapsule` 缺键语义改为「读法自带默认值」（标量/字符串/枚举无参版删除，默认值 = 字段声明初值）；② 设置对象分组化（新 `WindowSetting`、`GraphSetting` 成为「图形」页根、SSAO 独立成组、旧档根键一次性迁移）；③ `RenderSettings` 静态门面**退役**（下发收进 `JavelinEngine.applyRenderSettings()`，读写走设置对象）；④ **注解引擎接管设置窗**（`@Setting`/`@SettingGroup`/`@InsField`/`@SettingHint`/`@SettingSelect`/`@SettingRestart` 声明面，双页「图形｜窗口」，窗口页只写不读）。落点：`Editor_ProjectSettings_Design.md` v0.2 / `Engine_Rendering_Design.md` v0.4 §11 / `Engine_Features.md` 两行；**§4/§5 无施工序变化**（四期仍在施工序 ③ TAA 待开工）。
 > v0.15 变更（2026-11-14）：**四期施工序 ② 阴影质量分级全件关账（步骤一 + 步骤二 CSM）**——CSM（lambda 切分 + per-view 资源族 + 单张 2×2 atlas + 纹素吸附）当日落码并用户实机验收通过；§4-3 与 §5 映射表四期行同步为「② 关账、余步骤三可选收尾，下一项 ③ TAA」。
 > v0.14 变更（2026-11-14）：**四期施工序 ② 阴影质量分级步骤一全件关账（含一-C per-object）**——`castShadow`/`receiveShadow` 检查器暴露 + `receiveShadow` 双档承载当日落码并用户实机验收通过（随验两修：坑 #39 `RenderObject` 换代缓存致运行期切换不生效、#40 阴影盒只收 caster 致影子被裁）；§4-3 与 §5 映射表四期行同步为「步骤一全件已验收，余 步骤二 CSM」。
 > v0.13 变更（2026-11-14）：**四期施工序 ② 阴影质量分级步骤一验收关账**——品质档 PCF（4/9 tap）+ bias 调参面 + 设置窗口当日落码并用户实机验收通过（随验修：注入段标量/向量乘错）；§4-3 与 §5 映射表四期行同步为「步骤一已验收，余 一-C per-object + 步骤二 CSM」。

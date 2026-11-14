@@ -15,7 +15,6 @@ import cn.donting.javelin.core.physics.query.Physics;
 import cn.donting.javelin.core.render.FrameDescription;
 import cn.donting.javelin.core.render.FrameLoop;
 import cn.donting.javelin.core.render.RenderView;
-import cn.donting.javelin.core.render.RenderSettings;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
@@ -29,10 +28,12 @@ import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.SceneRenderBridge;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.settings.GameSettings;
+import cn.donting.javelin.core.settings.GraphSetting;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.PostProcessSettings;
 import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.core.settings.SsaoSettings;
+import cn.donting.javelin.core.settings.WindowSetting;
 import cn.donting.javelin.core.subsystem.SubsystemManager;
 import cn.donting.javelin.core.window.GLFWWindow;
 import cn.donting.javelin.core.window.Window;
@@ -97,6 +98,8 @@ public class JavelinEngine {
     protected RenderPipeline renderPipeline;
     /** 后处理节点装配（组合根，createRenderPipeline 建；管线只承载链与展开） */
     private PostProcessSetup postProcessSetup;
+    /** FORWARD 档忽略 SSAO 的 warn 一次性标记（applyRenderSettings 高频调用，不刷日志） */
+    private boolean ssaoForwardWarned;
     /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
     private PickSystem pickSystem;
 
@@ -160,8 +163,12 @@ public class JavelinEngine {
         frameLoop = createFrameLoop(renderSurface);
         renderingSystem = createRenderingSystem();
         renderPipeline = createRenderPipeline();
+        // 图形设置单点下发（背景清屏色 / 后处理参数 / 链成员；FORWARD 档忽略 SSAO 并 warn 一次）：
+        // 管线与后处理组合根都已就位，此处一次完成初始下发
+        applyRenderSettings();
         log.info("RHI initialized: {}x{}, vsync={}, maxFps={}",
-                window.width(), window.height(), setting.isVsync(), setting.getMaxFps());
+                window.width(), window.height(),
+                setting.getWindowSettings().isVsync(), setting.getWindowSettings().getMaxFps());
 
         subsystemManager.initAll(this);
 
@@ -263,7 +270,7 @@ public class JavelinEngine {
      * 显示」（FIFO 同病灶，Vulkan_Pitfalls #21）。
      */
     private void limitFrameRate() {
-        int maxFps = setting.getMaxFps();
+        int maxFps = setting.getWindowSettings().getMaxFps();
         if (maxFps <= 0) {
             limiterAnchorNanos = System.nanoTime();   // 免限帧也保鲜锚点（运行期改设置首帧即生效）
             return;
@@ -325,13 +332,67 @@ public class JavelinEngine {
 
     /** 设置的默认背景颜色 → RHI 清屏值（三处清屏统一来源：无渲染系统/无相机兜底/管线注入） */
     private RHIClearColor clearColor() {
-        Color bg = setting.getBackgroundColor();
+        Color bg = setting.getGraphSettings().getBackgroundColor();
         return new RHIClearColor(bg.r, bg.g, bg.b, bg.a);
+    }
+
+    /**
+     * 图形设置单点下发：把 {@code setting.graphSettings} 的当前值推给运行中的渲染链——后处理
+     * 参数、背景清屏色双 sink、三效果链成员按开关标志增删（FORWARD 档忽略 SSAO 并 warn 一次）。
+     *
+     * <p>启动期在 {@link #initialize()} 调一次完成初始下发；运行期改过设置字段（设置面板的
+     * 反射写 / 工具菜单开关）后调用本方法即生效。阴影不在此列——渲染系统持 live 实例、每帧
+     * 打包进 UBO，改即生效。</p>
+     */
+    public void applyRenderSettings() {
+        GraphSetting graph = setting.getGraphSettings();
+        PostProcessSettings pps = graph.getPostProcessSettings();
+        if (postProcessSetup != null) {
+            postProcessSetup.setBloomParams(pps.getBloomThreshold(), pps.getBloomKnee(),
+                    pps.getBloomIntensity());
+            postProcessSetup.setTonemapKnee(pps.getTonemapKnee());
+            SsaoSettings ssao = graph.getSsaoSettings();
+            postProcessSetup.setSsaoParams(ssao.getRadius(), ssao.getBias(), ssao.getIntensity());
+        }
+        pushClearColor();
+        if (postProcessSetup == null || renderPipeline == null) {
+            return;
+        }
+        boolean forward = renderPipeline.profile() == PipelineProfile.FORWARD;
+        applyPostProcessNode(PostProcessSetup.TONEMAP, pps.isTonemapEnabled());
+        applyPostProcessNode(PostProcessSetup.BLOOM, pps.isBloomEnabled());
+        boolean ssaoEnabled = graph.getSsaoSettings().isEnabled();
+        if (ssaoEnabled && forward && !ssaoForwardWarned) {
+            log.warn("SSAO 需要 G-Buffer，FORWARD 档不支持——忽略本次启用（HYBRID 档生效）");
+            ssaoForwardWarned = true;
+        }
+        applyPostProcessNode(PostProcessSetup.SSAO, ssaoEnabled && !forward);
+    }
+
+    /**
+     * 链成员按目标状态增删：状态一致即跳过——{@code PostProcessSetup.setEnabled} 会惰性创建
+     * 节点（关掉的节点也创建 = 白装载着色器），故先查链（{@code isEnabled} 不触发创建）。
+     */
+    private void applyPostProcessNode(String id, boolean enabled) {
+        if (postProcessSetup.isEnabled(renderPipeline.postProcess(), id) == enabled) {
+            return;
+        }
+        postProcessSetup.setEnabled(renderPipeline.postProcess(), id, enabled);
+    }
+
+    /** 背景清屏色下发（管线清屏 sink + 后处理组合根；两者缺一即跳过对应者） */
+    private void pushClearColor() {
+        RHIClearColor clear = clearColor();
+        if (renderPipeline != null) {
+            renderPipeline.setClearColor(clear);
+        }
+        if (postProcessSetup != null) {
+            postProcessSetup.setClearColor(clear);
+        }
     }
 
     /** shutdown 逆序：子系统 → frameLoop（含 waitIdle）→ 渲染系统 → device → instance → window */
     private void shutdown() {
-        RenderSettings.unbind();
         if (subsystemManager != null) {
             subsystemManager.shutdownAll();
         }
@@ -381,7 +442,9 @@ public class JavelinEngine {
      * 窗口工厂：子类可覆盖以替换窗口实现
      */
     protected Window createWindow() {
-        return new GLFWWindow(setting.getWidth(), setting.getHeight(), setting.getTitle());
+        WindowSetting windowSetting = setting.getWindowSettings();
+        return new GLFWWindow(windowSetting.getWidth(), windowSetting.getHeight(),
+                windowSetting.getTitle());
     }
 
     protected AssetManager createAssetManager() {
@@ -395,7 +458,8 @@ public class JavelinEngine {
     protected RHI.RHIInstanceConfig createInstanceConfig() {
         // 校验层/messenger 开关（Engine_DebugTools_Plan §2.1）：启动期消费 setting.engineDebug，
         // 运行期不可切（实例级装载无热切时机）
-        return new RHI.RHIInstanceConfig(setting.getTitle(), 1, setting.isEngineDebug());
+        return new RHI.RHIInstanceConfig(setting.getWindowSettings().getTitle(), 1,
+                setting.isEngineDebug());
     }
 
     protected RHIDevicePrefs createDevicePrefs() {
@@ -407,11 +471,12 @@ public class JavelinEngine {
      *  表面不支持时 VulkanSwapChain 自动回退 FIFO）；关闭 vsync → IMMEDIATE
      *  （Engine_Implementation_Plan 开放项落定） */
     protected SwapChainDesc createSwapChainDesc() {
-        SwapChainDesc.PresentMode presentMode = setting.isVsync()
+        boolean vsync = setting.getWindowSettings().isVsync();
+        SwapChainDesc.PresentMode presentMode = vsync
                 ? SwapChainDesc.PresentMode.MAILBOX
                 : SwapChainDesc.PresentMode.IMMEDIATE;
         return new SwapChainDesc(window.width(), window.height(),
-                presentMode, SwapChainDesc.ColorSpace.SRGB, 0, setting.isVsync());
+                presentMode, SwapChainDesc.ColorSpace.SRGB, 0, vsync);
     }
 
     protected Instance createInstance(RenderSurface surface) {
@@ -439,41 +504,13 @@ public class JavelinEngine {
         }
         // 启动期按设置选实现类（2026-11-13 拍板：管线不再承载运行期切档——编辑器固定混合，
         // 前向管线只留给打包运行时与 demo/测试）
-        RenderPipeline pipeline = setting.getRenderPipeline() == PipelineProfile.FORWARD
+        RenderPipeline pipeline = setting.getGraphSettings().getRenderPipeline() == PipelineProfile.FORWARD
                 ? new ForwardRenderPipeline(device(), assetManager)
                 : new DefaultHybridRenderPipeline(device(), assetManager);
-        pipeline.setClearColor(clearColor());
-        // 后处理节点装配（组合根持有；管线只承载链与展开——2026-11-14 解耦）：启动期按设置填充链
+        // 后处理节点装配（组合根持有；管线只承载链与展开——2026-11-14 解耦）
         postProcessSetup = new PostProcessSetup(device(), getAssetManager());
-        postProcessSetup.setClearColor(clearColor());
-        // 后处理参数（阈值/软膝/强度/肩部）下发（运行期可由「项目设置」窗口再调）
-        PostProcessSettings pps = setting.getPostProcessSettings();
-        postProcessSetup.setBloomParams(pps.getBloomThreshold(), pps.getBloomKnee(), pps.getBloomIntensity());
-        postProcessSetup.setTonemapKnee(pps.getTonemapKnee());
-        // SSAO 参数（半径/深度偏移/强度）下发（运行期可由「项目设置」窗口再调）
-        SsaoSettings ssao = pps.getSsao();
-        postProcessSetup.setSsaoParams(ssao.getRadius(), ssao.getBias(), ssao.getIntensity());
-        if (pps.isTonemapEnabled()) {
-            postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.TONEMAP, true);
-        }
-        if (pps.isBloomEnabled()) {
-            postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.BLOOM, true);
-        }
-        // SSAO（Engine_SSAO_Design §3.6/§3.8）：依赖 G-Buffer，**仅 HYBRID 档可挂**——
-        // FORWARD 档忽略该开关并 warn（不静默）；参数起步用组合根缺省，接项目设置窗口归步骤二
-        if (pps.isSsaoEnabled()) {
-            if (setting.getRenderPipeline() == PipelineProfile.FORWARD) {
-                log.warn("SSAO 需要 G-Buffer，FORWARD 档不支持——本次忽略 ssao 开关（HYBRID 档生效）");
-            } else {
-                postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.SSAO, true);
-            }
-        }
-        // 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design
-        // §3.2）：启动期下发到渲染系统；运行期可由「项目设置」窗口再调（前三项与偏移每帧
-        // 进 UBO 即时生效，bias 两项触发 ShadowPass 重建 PSO）
-        renderingSystem.setShadowSettings(setting.getShadowSettings());
-        // 渲染设置门面绑定（RenderSettings：背景/后处理/阴影的统一读写入口）
-        RenderSettings.bind(setting, postProcessSetup, pipeline);
+        // 阴影参数（Engine_Shadow_Quality_Design §3.2）：渲染系统持 live 实例，每帧打包进 UBO
+        renderingSystem.setShadowSettings(setting.getGraphSettings().getShadowSettings());
         return pipeline;
     }
 

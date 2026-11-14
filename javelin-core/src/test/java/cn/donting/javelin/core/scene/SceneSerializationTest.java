@@ -82,7 +82,7 @@ public class SceneSerializationTest {
         @Override
         public void read(InputCapsule input) {
             super.read(input);
-            probeName = input.readString("probeName");
+            probeName = input.readString("probeName", null);
         }
     }
 

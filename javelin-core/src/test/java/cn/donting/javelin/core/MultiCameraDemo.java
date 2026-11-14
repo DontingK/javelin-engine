@@ -66,7 +66,7 @@ public final class MultiCameraDemo extends JavelinEngine {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setTitle("Javelin - MultiCameraDemo");
+        setting.getWindowSettings().setTitle("Javelin - MultiCameraDemo");
         new MultiCameraDemo(setting).start();
     }
 

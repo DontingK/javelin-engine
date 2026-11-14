@@ -68,6 +68,6 @@ public class SphereCollider extends Collider {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        radius = input.readFloat("radius");
+        radius = input.readFloat("radius", 0.5f);
     }
 }

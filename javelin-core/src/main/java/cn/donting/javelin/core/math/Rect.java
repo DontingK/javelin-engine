@@ -60,10 +60,10 @@ public class Rect implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        x = input.readFloat("x");
-        y = input.readFloat("y");
-        width = input.readFloat("width");
-        height = input.readFloat("height");
+        x = input.readFloat("x", 0f);
+        y = input.readFloat("y", 0f);
+        width = input.readFloat("width", 0f);
+        height = input.readFloat("height", 0f);
     }
 
     @Override

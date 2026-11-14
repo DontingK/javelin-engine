@@ -40,6 +40,6 @@ public class ProjectSettings implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        this.defaultOpenScene = input.readString("defaultOpenScene");
+        this.defaultOpenScene = input.readString("defaultOpenScene", null);
     }
 }

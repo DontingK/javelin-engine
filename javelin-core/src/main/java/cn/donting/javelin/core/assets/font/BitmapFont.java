@@ -56,7 +56,7 @@ public class BitmapFont extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        name = input.readString("name");
+        name = input.readString("name", null);
         data = input.readByteArray("data");
     }
 

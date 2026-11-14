@@ -5,6 +5,7 @@ import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.SettingManager;
+import cn.donting.javelin.core.settings.WindowSetting;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.console.ConsoleOut;
 import cn.donting.javelin.editor.meta.AssetMeta;
@@ -271,24 +272,25 @@ public class PackDialog extends JDialog {
             JavelinSetting setting = settingFile.exists()
                     ? new BinaryImporter(settingFile).importData(JavelinSetting.class)
                     : new JavelinSetting();
+            WindowSetting windowSetting = setting.getWindowSettings();
             boolean changed = false;
             if (windowTitle != null && !windowTitle.isBlank()) {
-                setting.setTitle(windowTitle);
+                windowSetting.setTitle(windowTitle);
                 changed = true;
             }
             if (windowWidth > 0) {
-                setting.setWidth(windowWidth);
+                windowSetting.setWidth(windowWidth);
                 changed = true;
             }
             if (windowHeight > 0) {
-                setting.setHeight(windowHeight);
+                windowSetting.setHeight(windowHeight);
                 changed = true;
             }
             if (changed) {
                 new BinaryExporter(settingFile).export(setting);
                 appendLog(EditorLang.text("pack.windowSettingsWritten",
-                        SettingManager.JAVELIN_SETTINGS_FILE, setting.getTitle(),
-                        setting.getWidth(), setting.getHeight()));
+                        SettingManager.JAVELIN_SETTINGS_FILE, windowSetting.getTitle(),
+                        windowSetting.getWidth(), windowSetting.getHeight()));
             }
         } catch (Exception e) {
             appendLog(EditorLang.text("pack.windowSettingsWriteFailed", e.getMessage()));

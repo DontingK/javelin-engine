@@ -267,15 +267,15 @@ public class TextSerializeTest {
 
         @Override
         public void read(InputCapsule input) {
-            byteVal = input.readByte("byteVal");
-            shortVal = input.readShort("shortVal");
-            intVal = input.readInt("intVal");
-            longVal = input.readLong("longVal");
-            floatVal = input.readFloat("floatVal");
-            doubleVal = input.readDouble("doubleVal");
-            boolVal = input.readBoolean("boolVal");
-            charVal = input.readChar("charVal");
-            str = input.readString("str");
+            byteVal = input.readByte("byteVal", (byte) 0);
+            shortVal = input.readShort("shortVal", (short) 0);
+            intVal = input.readInt("intVal", 0);
+            longVal = input.readLong("longVal", 0L);
+            floatVal = input.readFloat("floatVal", 0f);
+            doubleVal = input.readDouble("doubleVal", 0d);
+            boolVal = input.readBoolean("boolVal", false);
+            charVal = input.readChar("charVal", (char) 0);
+            str = input.readString("str", null);
         }
     }
 
@@ -301,7 +301,7 @@ public class TextSerializeTest {
 
         @Override
         public void read(InputCapsule input) {
-            name = input.readString("name");
+            name = input.readString("name", null);
             friend = input.readSerializable("friend", Node.class);
         }
     }

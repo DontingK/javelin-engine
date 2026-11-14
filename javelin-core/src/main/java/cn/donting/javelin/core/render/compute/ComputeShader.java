@@ -54,7 +54,7 @@ public class ComputeShader extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        name = input.readString("name");
+        name = input.readString("name", null);
         spirv = input.readByteArray("spirv");
     }
 

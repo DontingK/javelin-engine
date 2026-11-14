@@ -114,56 +114,57 @@ public class BinaryInputCapsule implements InputCapsule {
     }
 
     @Override
-    public byte readByte(String key) {
+    public byte readByte(String key, byte defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).byteValue() : 0;
+        return v != null ? ((Number) v).byteValue() : defaultValue;
     }
 
     @Override
-    public short readShort(String key) {
+    public short readShort(String key, short defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).shortValue() : 0;
+        return v != null ? ((Number) v).shortValue() : defaultValue;
     }
 
     @Override
-    public int readInt(String key) {
+    public int readInt(String key, int defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).intValue() : 0;
+        return v != null ? ((Number) v).intValue() : defaultValue;
     }
 
     @Override
-    public long readLong(String key) {
+    public long readLong(String key, long defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).longValue() : 0;
+        return v != null ? ((Number) v).longValue() : defaultValue;
     }
 
     @Override
-    public float readFloat(String key) {
+    public float readFloat(String key, float defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).floatValue() : 0;
+        return v != null ? ((Number) v).floatValue() : defaultValue;
     }
 
     @Override
-    public double readDouble(String key) {
+    public double readDouble(String key, double defaultValue) {
         Object v = values.get(key);
-        return v != null ? ((Number) v).doubleValue() : 0;
+        return v != null ? ((Number) v).doubleValue() : defaultValue;
     }
 
     @Override
-    public boolean readBoolean(String key) {
+    public boolean readBoolean(String key, boolean defaultValue) {
         Object v = values.get(key);
-        return v != null ? (Boolean) v : false;
+        return v != null ? (Boolean) v : defaultValue;
     }
 
     @Override
-    public char readChar(String key) {
+    public char readChar(String key, char defaultValue) {
         Object v = values.get(key);
-        return v != null ? (Character) v : 0;
+        return v != null ? (Character) v : defaultValue;
     }
 
     @Override
-    public String readString(String key) {
-        return (String) values.get(key);
+    public String readString(String key, String defaultValue) {
+        Object v = values.get(key);
+        return v != null ? (String) v : defaultValue;
     }
 
     @Override
@@ -188,10 +189,10 @@ public class BinaryInputCapsule implements InputCapsule {
 
     @Override
     @SuppressWarnings("unchecked")
-    public <T extends Enum> T readEnum(String key, Class<T> type) {
+    public <T extends Enum> T readEnum(String key, Class<T> type, T defaultValue) {
         String name = (String) values.get(key);
         if (name == null) {
-            return null;
+            return defaultValue;
         }
         return (T) Enum.valueOf(type, name);
     }

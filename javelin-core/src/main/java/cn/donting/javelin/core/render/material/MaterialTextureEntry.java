@@ -46,7 +46,7 @@ public final class MaterialTextureEntry extends ObjectId implements Serializable
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
+        name = input.readString("name", null);
         texture = input.readSerializable("texture", Texture2D.class);
     }
 

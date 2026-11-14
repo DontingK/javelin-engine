@@ -445,7 +445,7 @@ public class GameScene extends AbsAsset implements Scene {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        name = input.readString("name");
+        name = input.readString("name", null);
         ArrayList<Node> roots = input.readArrayList("rootNodes", Node.class);
         rootNodes = roots != null ? roots : new ArrayList<>();
         // 注册表主表回写

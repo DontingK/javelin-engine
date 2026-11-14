@@ -2,6 +2,7 @@ package cn.donting.javelin.editor.window;
 
 import cn.donting.javelin.core.input.InputSink;
 import cn.donting.javelin.core.settings.JavelinSetting;
+import cn.donting.javelin.core.settings.WindowSetting;
 import cn.donting.javelin.core.window.Window;
 import cn.donting.javelin.editor.event.EditorEventBus;
 import cn.donting.javelin.editor.event.EditorFocusGainedEvent;
@@ -107,8 +108,9 @@ public class MainFrame extends JFrame implements Window {
                 EditorEventBus.publish(new EditorFocusGainedEvent());
             }
         });
-        setTitle(setting.getTitle());
-        setSize(setting.getWidth(), setting.getHeight());
+        WindowSetting windowSetting = setting.getWindowSettings();
+        setTitle(windowSetting.getTitle());
+        setSize(windowSetting.getWidth(), windowSetting.getHeight());
         setLocationRelativeTo(null);
         applyDpi();
     }
@@ -154,12 +156,12 @@ public class MainFrame extends JFrame implements Window {
 
     @Override
     public int width() {
-        return created() ? getWidth() : setting.getWidth();
+        return created() ? getWidth() : setting.getWindowSettings().getWidth();
     }
 
     @Override
     public int height() {
-        return created() ? getHeight() : setting.getHeight();
+        return created() ? getHeight() : setting.getWindowSettings().getHeight();
     }
 
     @Override

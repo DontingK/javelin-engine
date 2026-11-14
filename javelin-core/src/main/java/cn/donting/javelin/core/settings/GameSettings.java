@@ -40,6 +40,6 @@ public class GameSettings implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        this.defaultSceneGuid = input.readString("defaultSceneGuid");
+        this.defaultSceneGuid = input.readString("defaultSceneGuid", null);
     }
 }

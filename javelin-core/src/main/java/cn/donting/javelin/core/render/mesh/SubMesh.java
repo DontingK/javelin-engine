@@ -41,8 +41,8 @@ public final class SubMesh implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        firstIndex = input.readInt("firstIndex");
-        indexCount = input.readInt("indexCount");
+        firstIndex = input.readInt("firstIndex", 0);
+        indexCount = input.readInt("indexCount", 0);
     }
 
     public int getFirstIndex() {

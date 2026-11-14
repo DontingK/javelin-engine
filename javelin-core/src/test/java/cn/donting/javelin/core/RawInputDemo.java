@@ -60,8 +60,8 @@ public final class RawInputDemo extends JavelinEngineTestBase {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setTitle("Javelin - RawInputDemo");
-        setting.setVsync(false);
+        setting.getWindowSettings().setTitle("Javelin - RawInputDemo");
+        setting.getWindowSettings().setVsync(false);
         new RawInputDemo(setting).start();
     }
 

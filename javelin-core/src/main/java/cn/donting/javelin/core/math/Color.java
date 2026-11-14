@@ -81,10 +81,10 @@ public class Color implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        r = input.readFloat("r");
-        g = input.readFloat("g");
-        b = input.readFloat("b");
-        a = input.readFloat("a");
+        r = input.readFloat("r", 0f);
+        g = input.readFloat("g", 0f);
+        b = input.readFloat("b", 0f);
+        a = input.readFloat("a", 0f);
     }
 
     // ═══ 工厂 ═══

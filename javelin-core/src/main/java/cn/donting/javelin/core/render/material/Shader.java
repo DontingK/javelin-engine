@@ -66,7 +66,7 @@ public class Shader extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        shaderName = input.readString("shaderName");
+        shaderName = input.readString("shaderName", null);
         ArrayList<MaterialProperty> props = input.readArrayList("properties", MaterialProperty.class);
         properties = props != null ? props : new ArrayList<>();
         ArrayList<ShaderPass> passList = input.readArrayList("passes", ShaderPass.class);

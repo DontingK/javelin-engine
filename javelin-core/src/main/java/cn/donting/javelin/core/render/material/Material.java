@@ -184,11 +184,8 @@ public class Material extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        // 旧场景（surfaceType 落地前）无此字段：回退默认 OPAQUE
-        SurfaceType st = input.readEnum("surfaceType", SurfaceType.class);
-        if (st != null) {
-            surfaceType = st;
-        }
+        // 旧场景（surfaceType 落地前）无此字段：默认值即字段初值 OPAQUE
+        surfaceType = input.readEnum("surfaceType", SurfaceType.class, SurfaceType.OPAQUE);
         shader = input.readSerializable("shader", Shader.class);
         ArrayList<MaterialValueEntry> valueEntries =
                 input.readArrayList("values", MaterialValueEntry.class);

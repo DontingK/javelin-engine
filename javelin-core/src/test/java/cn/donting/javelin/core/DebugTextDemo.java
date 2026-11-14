@@ -30,8 +30,8 @@ public class DebugTextDemo extends JavelinEngineTestBase {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setWidth(1280);
-        setting.setHeight(720);
+        setting.getWindowSettings().setWidth(1280);
+        setting.getWindowSettings().setHeight(720);
         new DebugTextDemo(setting).start();
     }
 

@@ -46,9 +46,9 @@ public final class MeshAttributeData implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
-        components = input.readInt("components");
-        format = input.readEnum("format", Format.class);
+        name = input.readString("name", null);
+        components = input.readInt("components", 0);
+        format = input.readEnum("format", Format.class, null);
         data = input.readFloatArray("data");
     }
 

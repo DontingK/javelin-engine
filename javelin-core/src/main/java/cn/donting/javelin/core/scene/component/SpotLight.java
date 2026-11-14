@@ -67,8 +67,8 @@ public class SpotLight extends Light {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        range = input.readFloat("range");
-        innerAngle = input.readFloat("innerAngle");
-        outerAngle = input.readFloat("outerAngle");
+        range = input.readFloat("range", 10.0f);
+        innerAngle = input.readFloat("innerAngle", 30.0f);
+        outerAngle = input.readFloat("outerAngle", 45.0f);
     }
 }

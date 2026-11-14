@@ -45,7 +45,7 @@ public final class MaterialValueEntry extends ObjectId implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
+        name = input.readString("name", null);
         data = input.readFloatArray("data");
     }
 

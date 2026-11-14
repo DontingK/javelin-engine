@@ -38,9 +38,11 @@ public final class PassState implements Serializable {
     private BlendFactor srcAlpha = BlendFactor.ONE;
     private BlendFactor dstAlpha = BlendFactor.ZERO;
     private BlendOp blendOp = BlendOp.ADD;
-    private Set<ColorComponentFlags> colorMask = Set.of(
+    /** 默认色掩码（RGBA 全写）：字段初值与 read 缺键回退共用同一来源 */
+    private static final Set<ColorComponentFlags> DEFAULT_COLOR_MASK = Set.of(
             ColorComponentFlags.R, ColorComponentFlags.G,
             ColorComponentFlags.B, ColorComponentFlags.A);
+    private Set<ColorComponentFlags> colorMask = DEFAULT_COLOR_MASK;
 
     /** 反序列化用无参构造（ReflectiveFactory 重建） */
     public PassState() {
@@ -83,37 +85,16 @@ public final class PassState implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        CullMode c = input.readEnum("cull", CullMode.class);
-        if (c != null) {
-            cull = c;
-        }
-        depthWrite = input.readBoolean("depthWrite");
-        CompareOp dt = input.readEnum("depthTest", CompareOp.class);
-        if (dt != null) {
-            depthTest = dt;
-        }
-        blendEnabled = input.readBoolean("blendEnabled");
-        BlendFactor sc = input.readEnum("srcColor", BlendFactor.class);
-        if (sc != null) {
-            srcColor = sc;
-        }
-        BlendFactor dc = input.readEnum("dstColor", BlendFactor.class);
-        if (dc != null) {
-            dstColor = dc;
-        }
-        BlendFactor sa = input.readEnum("srcAlpha", BlendFactor.class);
-        if (sa != null) {
-            srcAlpha = sa;
-        }
-        BlendFactor da = input.readEnum("dstAlpha", BlendFactor.class);
-        if (da != null) {
-            dstAlpha = da;
-        }
-        BlendOp op = input.readEnum("blendOp", BlendOp.class);
-        if (op != null) {
-            blendOp = op;
-        }
-        colorMask = intToColorMask(input.readInt("colorMask"));
+        cull = input.readEnum("cull", CullMode.class, CullMode.BACK);
+        depthWrite = input.readBoolean("depthWrite", true);
+        depthTest = input.readEnum("depthTest", CompareOp.class, CompareOp.LESS_OR_EQUAL);
+        blendEnabled = input.readBoolean("blendEnabled", false);
+        srcColor = input.readEnum("srcColor", BlendFactor.class, BlendFactor.ONE);
+        dstColor = input.readEnum("dstColor", BlendFactor.class, BlendFactor.ZERO);
+        srcAlpha = input.readEnum("srcAlpha", BlendFactor.class, BlendFactor.ONE);
+        dstAlpha = input.readEnum("dstAlpha", BlendFactor.class, BlendFactor.ZERO);
+        blendOp = input.readEnum("blendOp", BlendOp.class, BlendOp.ADD);
+        colorMask = intToColorMask(input.readInt("colorMask", colorMaskToInt(DEFAULT_COLOR_MASK)));
     }
 
     private static int colorMaskToInt(Set<ColorComponentFlags> mask) {

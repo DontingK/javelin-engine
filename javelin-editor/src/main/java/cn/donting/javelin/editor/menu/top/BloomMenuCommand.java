@@ -1,6 +1,5 @@
 package cn.donting.javelin.editor.menu.top;
 
-import cn.donting.javelin.core.render.RenderSettings;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
@@ -59,9 +58,10 @@ public final class BloomMenuCommand extends TopMenuCommand {
         }
         boolean next = !setup.isEnabled(pipeline.postProcess(), PostProcessSetup.BLOOM);
         try {
-            // 经渲染设置门面切换（内部同步 setting + 切链）；链装配要惰性创建 Bloom 并装载
-            // 内置着色器产物——缺失/坏产物属异常态，弹框不静默
-            RenderSettings.setBloomEnabled(next);
+            // 写设置 + 交引擎单点下发（切链）；链装配要惰性创建 Bloom 并装载内置着色器
+            // 产物——缺失/坏产物属异常态，弹框不静默
+            editor.setting().getGraphSettings().getPostProcessSettings().setBloomEnabled(next);
+            editor.applyRenderSettings();
         } catch (RuntimeException e) {
             LOGGER.error("Bloom 链装配失败: enabled={}", next, e);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
@@ -82,7 +82,7 @@ public final class BloomMenuCommand extends TopMenuCommand {
             JavelinSetting setting = settingFile.exists()
                     ? new BinaryImporter(settingFile).importData(JavelinSetting.class)
                     : new JavelinSetting();
-            setting.getPostProcessSettings().setBloomEnabled(enabled);
+            setting.getGraphSettings().getPostProcessSettings().setBloomEnabled(enabled);
             new BinaryExporter(settingFile).export(setting);
         } catch (Exception e) {
             LOGGER.error("Bloom 开关写盘失败: {}", enabled, e);

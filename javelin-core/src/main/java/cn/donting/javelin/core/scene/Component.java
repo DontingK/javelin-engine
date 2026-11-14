@@ -130,7 +130,7 @@ public abstract class Component extends ObjectId implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        enabled = input.readBoolean("enabled");
+        enabled = input.readBoolean("enabled", true);
         node = input.readSerializable("node", Node.class);
     }
 }

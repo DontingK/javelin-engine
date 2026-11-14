@@ -60,7 +60,7 @@ public final class SceneRenderDemo extends JavelinEngineTestBase {
 
     public static void main(String[] args) {
         JavelinSetting setting = new JavelinSetting();
-        setting.setTitle("Javelin - SceneRenderDemo");
+        setting.getWindowSettings().setTitle("Javelin - SceneRenderDemo");
         new SceneRenderDemo(setting).start();
     }
 

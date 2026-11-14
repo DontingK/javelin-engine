@@ -102,11 +102,9 @@ public class Mesh extends AbsAsset {
         indices = input.readIntArray("indices");
         ArrayList<SubMesh> subs = input.readArrayList("submeshes", SubMesh.class);
         submeshes = subs != null ? subs : new ArrayList<>();
-        PrimitiveTopology t = input.readEnum("topology", PrimitiveTopology.class);
-        if (t != null) {
-            topology = t;
-        }
-        keepCpuCopy = input.readBoolean("keepCpuCopy");
+        topology = input.readEnum("topology", PrimitiveTopology.class,
+                PrimitiveTopology.TRIANGLE_LIST);
+        keepCpuCopy = input.readBoolean("keepCpuCopy", false);
     }
 
     // ═══ 数据填充（上传前；防御性拷贝） ═══

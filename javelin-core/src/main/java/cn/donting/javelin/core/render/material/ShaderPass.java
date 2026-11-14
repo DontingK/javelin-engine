@@ -50,7 +50,7 @@ public final class ShaderPass implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        name = input.readString("name");
+        name = input.readString("name", null);
         vertexSpirv = input.readByteArray("vertexSpirv");
         fragmentSpirv = input.readByteArray("fragmentSpirv");
         state = input.readSerializable("state", PassState.class);

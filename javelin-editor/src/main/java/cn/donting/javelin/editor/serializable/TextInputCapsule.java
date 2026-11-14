@@ -25,60 +25,60 @@ public class TextInputCapsule implements InputCapsule {
     }
 
     @Override
-    public byte readByte(String key) {
+    public byte readByte(String key, byte defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Byte.parseByte(v);
+        return v == null ? defaultValue : Byte.parseByte(v);
     }
 
     @Override
-    public short readShort(String key) {
+    public short readShort(String key, short defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Short.parseShort(v);
+        return v == null ? defaultValue : Short.parseShort(v);
     }
 
     @Override
-    public int readInt(String key) {
+    public int readInt(String key, int defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Integer.parseInt(v);
+        return v == null ? defaultValue : Integer.parseInt(v);
     }
 
     @Override
-    public long readLong(String key) {
+    public long readLong(String key, long defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Long.parseLong(v);
+        return v == null ? defaultValue : Long.parseLong(v);
     }
 
     @Override
-    public float readFloat(String key) {
+    public float readFloat(String key, float defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Float.parseFloat(v);
+        return v == null ? defaultValue : Float.parseFloat(v);
     }
 
     @Override
-    public double readDouble(String key) {
+    public double readDouble(String key, double defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : Double.parseDouble(v);
+        return v == null ? defaultValue : Double.parseDouble(v);
     }
 
     @Override
-    public boolean readBoolean(String key) {
+    public boolean readBoolean(String key, boolean defaultValue) {
         String v = entries.get(key);
-        return v != null && Boolean.parseBoolean(v);
+        return v == null ? defaultValue : Boolean.parseBoolean(v);
     }
 
     @Override
-    public char readChar(String key) {
+    public char readChar(String key, char defaultValue) {
         String v = entries.get(key);
-        return v == null ? 0 : TextImporter.unescape(v).charAt(0);
+        return v == null ? defaultValue : TextImporter.unescape(v).charAt(0);
     }
 
     @Override
-    public String readString(String key) {
+    public String readString(String key, String defaultValue) {
         String v = entries.get(key);
-        if (v == null || v.equals("@null")) {
-            return null;
+        if (v == null) {
+            return defaultValue;
         }
-        return TextImporter.unescape(v);
+        return v.equals("@null") ? null : TextImporter.unescape(v);
     }
 
     @Override
@@ -106,10 +106,10 @@ public class TextInputCapsule implements InputCapsule {
     }
 
     @Override
-    public <T extends Enum> T readEnum(String key, Class<T> type) {
+    public <T extends Enum> T readEnum(String key, Class<T> type, T defaultValue) {
         String v = entries.get(key);
         if (v == null || v.equals("@null")) {
-            return null;
+            return defaultValue;
         }
         return (T) Enum.valueOf(type, v);
     }

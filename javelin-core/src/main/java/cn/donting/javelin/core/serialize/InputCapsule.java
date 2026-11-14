@@ -11,34 +11,40 @@ import java.util.ArrayList;
  *
  * <p>用于从序列化数据读取对象，按 key 读取保证字段顺序无关</p>
  *
+ * <p><b>缺键语义</b>：标量 / 字符串 / 枚举一律由调用方给默认值（{@code readFloat("k", 0.8f)}）——
+ * 「键不存在」与「存了零值」不再混淆，默认值取字段声明初值即读回退与字段初值一致。引用与
+ * 容器型读法（{@link #readSerializable} / 数组 / 列表 / JOML）缺键返 {@code null} 或恒等值
+ * （零向量 / 单位四元数 / 单位矩阵），不设默认值重载（避免共享实例别名）。</p>
+ *
  * @author: javelin
  * @create: 2026/4/8
  * @Version 1.0
  */
 public interface InputCapsule {
 
-    // 基本类型
-    byte readByte(String key);
+    // 基本类型（缺键返回传入的默认值）
+    byte readByte(String key, byte defaultValue);
 
-    short readShort(String key);
+    short readShort(String key, short defaultValue);
 
-    int readInt(String key);
+    int readInt(String key, int defaultValue);
 
-    long readLong(String key);
+    long readLong(String key, long defaultValue);
 
-    float readFloat(String key);
+    float readFloat(String key, float defaultValue);
 
-    double readDouble(String key);
+    double readDouble(String key, double defaultValue);
 
-    boolean readBoolean(String key);
+    boolean readBoolean(String key, boolean defaultValue);
 
-    char readChar(String key);
+    char readChar(String key, char defaultValue);
 
-    String readString(String key);
+    String readString(String key, String defaultValue);
 
     <T extends Serializable> T readSerializable(String key, Class<T> type);
 
-    <T extends Enum> T readEnum(String key, Class<T> type);
+    /** 读枚举：缺键返回 {@code defaultValue}（要「缺键 = 无」就显式传 null） */
+    <T extends Enum> T readEnum(String key, Class<T> type, T defaultValue);
 
     // 数组
     byte[] readByteArray(String key);

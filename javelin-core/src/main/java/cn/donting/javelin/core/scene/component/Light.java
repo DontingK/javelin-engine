@@ -108,10 +108,9 @@ public abstract class Light extends Component {
         if (c != null) {
             color = c;
         }
-        intensity = input.readFloat("intensity");
-        castShadow = input.readBoolean("castShadow");
-        int resolution = input.readInt("shadowResolution");
-        setShadowResolution(resolution > 0 ? resolution : DEFAULT_RESOLUTION);
+        intensity = input.readFloat("intensity", 1.0f);
+        castShadow = input.readBoolean("castShadow", false);
+        setShadowResolution(input.readInt("shadowResolution", DEFAULT_RESOLUTION));
     }
 
     /** 灯型枚举（引擎侧分流用；Inspector 不显——组件类型即答案） */

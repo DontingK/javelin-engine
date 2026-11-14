@@ -59,12 +59,9 @@ public class Image extends AbsAsset {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        width = input.readInt("width");
-        height = input.readInt("height");
-        Format f = input.readEnum("format", Format.class);
-        if (f != null) {
-            format = f;
-        }
+        width = input.readInt("width", 0);
+        height = input.readInt("height", 0);
+        format = input.readEnum("format", Format.class, null);
         pixels = input.readByteArray("pixels");
     }
 

@@ -295,22 +295,21 @@ public class Camera extends Component {
     @Override
     public void read(InputCapsule input) {
         super.read(input);
-        ProjectionType type = input.readEnum("projectionType", ProjectionType.class);
-        if (type != null) {
-            projectionType = type;
-        }
-        fov = input.readFloat("fov");
-        orthographicSize = input.readFloat("orthographicSize");
-        near = input.readFloat("near");
-        far = input.readFloat("far");
-        cullingMask = input.readInt("cullingMask");
+        projectionType = input.readEnum("projectionType", ProjectionType.class,
+                ProjectionType.PERSPECTIVE);
+        fov = input.readFloat("fov", 60.0f);
+        orthographicSize = input.readFloat("orthographicSize", 5.0f);
+        near = input.readFloat("near", 0.1f);
+        far = input.readFloat("far", 1000.0f);
+        cullingMask = input.readInt("cullingMask", LayerMask.everything());
         backgroundColor = input.readSerializable("backgroundColor", Color.class);
-        ClearFlags flags = input.readEnum("clearFlags", ClearFlags.class);
-        if (flags != null) {
-            clearFlags = flags;
+        clearFlags = input.readEnum("clearFlags", ClearFlags.class, ClearFlags.SKYBOX);
+        // viewportRect 默认 (0,0,1,1) 是字段初值：缺键保默认，不落 null（null 仅旧档遗留形态）
+        Rect rect = input.readSerializable("viewportRect", Rect.class);
+        if (rect != null) {
+            viewportRect = rect;
         }
-        viewportRect = input.readSerializable("viewportRect", Rect.class);
-        main = input.readBoolean("main");
-        depth = input.readFloat("depth");
+        main = input.readBoolean("main", false);
+        depth = input.readFloat("depth", 0f);
     }
 }
