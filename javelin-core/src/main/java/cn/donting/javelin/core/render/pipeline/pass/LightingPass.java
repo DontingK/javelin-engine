@@ -145,7 +145,7 @@ public class LightingPass implements RenderPass {
             pass.addTextureRead(albedo);
             pass.addTextureRead(normal);
             pass.addTextureRead(worldPos);
-            pass.addTextureRead(rs.shadowMap());
+            pass.addTextureRead(rs.shadowMapFor(view.name()));
             // set1 storage 读声明（本视口 cluster 套件：着色逐像素查询）
             for (Buffer b : rs.viewStorages(view.name())) {
                 pass.addBufferRead(b);

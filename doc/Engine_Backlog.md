@@ -82,7 +82,6 @@
 
 | ID | 待办 | 落点 | 归类 | 依赖/备注（加粗数字 = 施工序） |
 |----|------|------|------|-----------|
-| P4-03 | 阴影质量分级（PCF 软采样 → CSM 级联 → bias 精调 / per-object 开关 / stabilize） | 路线 §4-3 / 光照 §10 / **方案档 `Engine_Shadow_Quality_Design.md` v0.3** | 进行中 | **②**｜**步骤一（品质档 PCF / bias 调参面 / 设置窗口）2026-11-14 落码并用户实机验收关账**；**余 一-C per-object 开关**（`MeshRenderer.castShadow`/`receiveShadow` 检查器暴露 + `receiveShadow` 承载；G-Buffer `albedo.a` 契约变更）+ **步骤二 CSM**（单张 2×2 atlas + per-view 阴影资源族 + 纹素吸附） |
 | P4-10 | **TAA（AA 路线取代 MSAA，2026-11-13 用户拍板）**：相机投影抖动（Halton）+ 逐像素运动矢量（混合实现由 G-Buffer 世界位置 + 上帧 viewProj 反投影重建；前向实现无 G-Buffer 需另定）+ 历史缓冲 ping-pong + 重投影/邻域钳制防拖影 + 历史失效触发（切场景/相机跳变/热重载/resize）+ 锐化。**MSAA 已删（2026-11-13），空窗期**：在 TAA 落地前画面无抗锯齿 | 后处理档 §4.2 / 原 P4-07 | 待拍板 | **③**｜挂后处理链（Bloom/Tonemap 之前）；参考 `Babylon_Rendering_Reference` TAA 段 |
 | P4-04 | 天空盒环境光照（作 ambient 源：SH9 球谐 / mipmap 降采样，替换 ambient 常量） | 路线 §4-4 / 光照 §10 / 天空盒 §8 | 未开工 | **④**｜天空盒视觉面已备；DDGI 前的过渡 |
 | P4-09 | HDR→LDR 高亮截白真解（`.hdr` float 产物） | 天空盒 §1.2/§5 | 后置项 | 随 **④**｜随 P4-04 环境光批 |
@@ -92,7 +91,8 @@
 | P4-07 | ~~HYBRID 档 MSAA-GBuffer（现强制 1x）~~ **作废（2026-11-13）**：AA 路线改 TAA，不做 MSAA-GBuffer | 光照 §9 批次④-B | 作废 | 由 P4-10 取代 |
 
 > **移出记录（2026-11-14）**：**P4-01 后处理链（Bloom/Tonemap + HDR 切换点）** 完成并用户实机验收——步骤一（HDR 切换点 + Tonemap，含管线拆两实现类 + MSAA 移除）2026-11-13 落码、步骤二（Bloom，独立开关）2026-11-13 落码，2026-11-14 用户实机运行通过 → 已入 `Engine_Roadmap_Progress.md` §7 批次索引 + `Engine_Features.md` §2 验收状态（细节见 `Engine_PostProcess_Design.md` v0.4 §9/§9.6）。
-> **移出记录（2026-11-14，同日第二批）**：**P4-02 SSAO（四期施工序 ① = GI 第一步）** 步骤一/二同日落码、2026-11-14 用户实机验收通过（「看起来没问题了」）→ 已入 `Engine_Roadmap_Progress.md` §7 + `Engine_Features.md` §2.4（细节见 `Engine_SSAO_Design.md` v0.4 §9）。四期余 P4-03/04/05/06/08/09/10。
+> **移出记录（2026-11-14，同日第二批）**：**P4-02 SSAO（四期施工序 ① = GI 第一步）** 步骤一/二同日落码、2026-11-14 用户实机验收通过（「看起来没问题了」）→ 已入 `Engine_Roadmap_Progress.md` §7 + `Engine_Features.md` §2.4（细节见 `Engine_SSAO_Design.md` v0.4 §9）。
+> **移出记录（2026-11-14，同日第三批）**：**P4-03 阴影质量分级（四期施工序 ②）** 步骤一全件（品质档 PCF / bias 调参面 / per-object 开关 / 设置窗口）+ 步骤二 CSM 同日落码、2026-11-14 用户实机验收通过（步骤一「看起来没问题，我验收了」、一-C 与 CSM「看起来没问题了」）；随验两修（坑 #39 `RenderObject` 换代缓存、#40 阴影盒只收 caster）→ 已入 `Engine_Roadmap_Progress.md` §7 + `Engine_Features.md` §2.4（细节见 `Engine_Shadow_Quality_Design.md` v0.5 §9）。**余步骤三可选收尾**（D16/PCSS/逐级联剔除/DBG-03/多灯阴影，未单列条目）。四期余 P4-04/05/06/08/09/10。
 
 ## 4. RHI 遗留（跨期）
 

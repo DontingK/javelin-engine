@@ -1,6 +1,8 @@
 # 引擎阶段路线（Engine Roadmap）
 
-> 版本：v0.13（2026-11-14）
+> 版本：v0.15（2026-11-14）
+> v0.15 变更（2026-11-14）：**四期施工序 ② 阴影质量分级全件关账（步骤一 + 步骤二 CSM）**——CSM（lambda 切分 + per-view 资源族 + 单张 2×2 atlas + 纹素吸附）当日落码并用户实机验收通过；§4-3 与 §5 映射表四期行同步为「② 关账、余步骤三可选收尾，下一项 ③ TAA」。
+> v0.14 变更（2026-11-14）：**四期施工序 ② 阴影质量分级步骤一全件关账（含一-C per-object）**——`castShadow`/`receiveShadow` 检查器暴露 + `receiveShadow` 双档承载当日落码并用户实机验收通过（随验两修：坑 #39 `RenderObject` 换代缓存致运行期切换不生效、#40 阴影盒只收 caster 致影子被裁）；§4-3 与 §5 映射表四期行同步为「步骤一全件已验收，余 步骤二 CSM」。
 > v0.13 变更（2026-11-14）：**四期施工序 ② 阴影质量分级步骤一验收关账**——品质档 PCF（4/9 tap）+ bias 调参面 + 设置窗口当日落码并用户实机验收通过（随验修：注入段标量/向量乘错）；§4-3 与 §5 映射表四期行同步为「步骤一已验收，余 一-C per-object + 步骤二 CSM」。
 > v0.12 变更（2026-11-14）：**四期施工序 ② 阴影质量分级步骤一落码（待用户实测）**——品质档 PCF（4/9 tap）+ bias 调参面 + per-object 未做；§4-3 与 §5 映射表四期行同步为「方案已出、步骤一落码待验收」。
 > v0.11 变更（2026-11-14）：**四期施工序 ② 阴影质量分级出方案件**——新档 `Engine_Shadow_Quality_Design.md` v0.1（待拍板）：步骤一 PCF 4/9 tap 品质档 + bias 调参面 + per-object `castShadow`/`receiveShadow` 落地（零新底座）、步骤二 CSM（lambda 切分 + 单张 2×2 atlas + per-view 阴影资源族 + 纹素吸附）、步骤三可选收尾；§4-3 状态同步。
@@ -127,7 +129,7 @@
 
 1. **后处理链**（Bloom/Tonemap + **HDR 切换点**，管线档 4.6——四期第一候选：链式结构已落地，具体化零新底座）——**方案 `Engine_PostProcess_Design.md`；步骤一（HDR 切换点 + Tonemap）+ 步骤二（Bloom，独立开关）2026-11-13 落码、2026-11-14 用户实机验收通过；同日后处理参数接设置（着色器常量 → push 常量）+ 编辑器「项目设置」窗口（`Editor_ProjectSettings_Design.md`）同日落地、2026-11-14 用户实机验收通过**；
 2. **SSAO**（后处理链 Pass，管线档 4.6 挂点——**GI 第一步**，零新底座）——**施工序 ①**；**✅ 2026-11-14 落码并用户实机验收关账**（`Engine_SSAO_Design.md` v0.4）：不读深度改读 G-Buffer 世界位置+法线（零 RHI 改动、仅 HYBRID）、`SsaoPass` AO/双边模糊/合成三 Pass、`PostProcessNode.order()` 排序声明、`SsaoSettings` 三参数接项目设置窗口；
-3. **阴影质量分级**（PCF 软采样 → CSM 级联 → bias 精调/per-object 开关/stabilize，灯光档 §10——消费侧注入段与 shadowMap 底座三期已备，纯增量）——**施工序 ②**；**方案档 `Engine_Shadow_Quality_Design.md`（v0.3）**：**步骤一「一-A 品质档 PCF + 一-B bias 调参面 + 一-D 设置窗口」2026-11-14 落码并用户实机验收关账**（随验修：注入段标量/向量乘错致 shaderc 拒 `vec3 * vec2`）；**余 一-C per-object `castShadow`/`receiveShadow`（G-Buffer 契约变更）+ 步骤二 CSM（单张 2×2 atlas + per-view 阴影资源族 + 纹素吸附）+ 步骤三可选收尾**；
+3. **阴影质量分级**（PCF 软采样 → CSM 级联 → bias 精调/per-object 开关/stabilize，灯光档 §10——消费侧注入段与 shadowMap 底座三期已备，纯增量）——**施工序 ②**；**方案档 `Engine_Shadow_Quality_Design.md`（v0.5）**：**步骤一全件「一-A 品质档 PCF + 一-B bias 调参面 + 一-C per-object 开关 + 一-D 设置窗口」+ 步骤二 CSM（lambda 切分 + per-view 资源族 + 单张 2×2 atlas + 纹素吸附）2026-11-14 全部落码并用户实机验收关账**（随验两修：坑 #39 `RenderObject` 换代缓存致运行期切换不生效、#40 阴影盒只收 caster 致影子被裁）；**余 步骤三可选收尾（D16 / PCSS / 逐级联剔除 / DBG-03 / 多灯阴影）**——**② 关账，下一项 ③ TAA**；
 4. **天空盒环境光照**（天空盒作 ambient 源：SH9 球谐或 mipmap 降采样，替换灯光档 §3.3 ambient 常量——**DDGI 落地前的过渡环境光**；天空盒视觉面三期批次⑤已备）——**施工序 ④**（连带 P4-09 HDR 截白真解）；
 5. **探针实时 GI**（GI 目标态拍板 2026-10-28：**DDGI 路线**，团结引擎实时 GI / HDRP APV 产业验证）——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数（含第 4 项的过渡环境光）；探针采样前置 = **3D 纹理/纹理数组**（RHI 现仅 Texture2D——cubemap（三期批次⑤）同族先行，纹理数组随探针实装前核实）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档——**施工序 ⑥（需先补 RHI 底座：3D 纹理/纹理数组）**；
 6. **光线追踪**（光追方向 2026-10-28 记录）：**rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先**、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；**前置约束 = 三期批次①通用性红线**（灯光档 §9——Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口——四期 GI/RT 是该红线的第一复用方）——**施工序 ⑦（需先补 RHI 底座：AS / BDA / `GL_EXT_ray_query` 编译链）**。
@@ -146,7 +148,7 @@
 | 二期 | 阶段④ 剩余（.shader/.mat 资产格式 + javelin-tool）→ 并入编辑器基本前置 | 🔄 .shader 侧已落地（2026-09-26，e03c057）；.mat/AssetManager✅ 已落地（2026-10-23 用户实测验收通过） |
 | 二期 | 阶段⑤ 子系统 + 输入；**新增**：碰撞检查 / Ray / 编辑器基本（原计划未列，路线档补入） | 🔄 输入子系统 ✅（2026-09-27）；碰撞检查 v0.1 ✅ 全片单测（2026-10-06，场景级查询归 Ray 期）；Ray 侧 Camera.screenToRay ✅（2026-10-06）+ **L1 场景级 raycast ✅（2026-10-28 落地、2026-10-31 用户实测验收）**；编辑器基本 ✅ 主体验收收官（2026-10-14）——窗口层 / .scene 序列化 / Gizmo 拾取与拖拽 / 骨架全链 / 打包 JAR·AOT 双形态 / 三面板 Swing 实装 / 去 Web 化 M1~M6 / 拾取 ID-buffer / 资产链（.mat·贴图三层·纹理·meta 统一·热重载·坏 shader 兜底）/ 插件体系与 i18n 全量化 / 变换 Gizmo 三工具齐备 / 检查器组件增删——**逐批落地与验收明细见 `Engine_Roadmap_Progress.md` §2.4** |
 | 三期 | 灯光 + ShadowPass + SkyboxPass + Deferred 复用（clustered Forward+ 拍板 2026-10-28——五批实装：RHI SSBO/compute 底座→Light 组件收集→cluster 构建+Forward 消费→ShadowPass（单张硬影 2026-10-31 拍板、④-A/④-B 拆分 2026-11-01）→GBuffer/LightingPass（④-B 2026-11-08 落地、11-10 验收）；Engine_Lighting_Design v0.10 / Engine_RenderPipeline_Design v0.6 / Engine_Skybox_Design v0.4） | ✅ **批次①②③④-A④-B⑤全部落地并验收关账**（①~③ 2026-10-31/11-01 验收；④-A 2026-11-01 用户实机全项；⑤天空盒 2026-11-02/11-07 用户实机全链；④-B 2026-11-10 用户实机关账）——**三期全部收官**；批挂靠见 `Engine_Roadmap_Progress.md` §5 |
-| 四期 | 高质量渲染（2026-10-31 立项，§4 单点——后处理链/SSAO/阴影质量分级/天空盒环境光照/探针实时 GI（DDGI）/光追 rayQuery） | 🔄 **当前最高优先级主线（2026-11-14 拍板，跨期散件让位）**；**第 1 项后处理链（含参数可配 + 项目设置窗口）2026-11-14 验收通过**、**施工序 ① SSAO 2026-11-14 验收通过**；**施工序 ② P4-03 阴影质量分级：步骤一（品质档 PCF + bias 调参面 + 设置窗口）2026-11-14 验收关账，余 一-C per-object 与步骤二 CSM**；余项按 §4 施工序推进（逐项出方案 → 拍板 → 落码） |
+| 四期 | 高质量渲染（2026-10-31 立项，§4 单点——后处理链/SSAO/阴影质量分级/天空盒环境光照/探针实时 GI（DDGI）/光追 rayQuery） | 🔄 **当前最高优先级主线（2026-11-14 拍板，跨期散件让位）**；**第 1 项后处理链（含参数可配 + 项目设置窗口）2026-11-14 验收通过**、**施工序 ① SSAO 2026-11-14 验收通过**；**施工序 ② P4-03 阴影质量分级全件（步骤一 + 步骤二 CSM）2026-11-14 验收关账，余步骤三可选收尾**；**下一项 ③ TAA**；余项按 §4 施工序推进（逐项出方案 → 拍板 → 落码） |
 | 未定 | 阶段⑥ 物理 / 音频（选型拍板后各成阶段） | 未开始 |
 
 > **批挂靠归档（每批落哪期哪个阶段）与映射表明细版溯源** → `Engine_Roadmap_Progress.md` §5。

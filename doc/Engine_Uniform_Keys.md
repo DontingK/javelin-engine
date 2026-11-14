@@ -51,25 +51,28 @@
 | 6 | COMBINED_IMAGE_SAMPLER（批次④-B 实装；per-view） | `gbufferNormal` | G-Buffer 世界空间法线（R16G16B16A16_SFLOAT，归一）——LightingPass 用 `cam.view` 换算视空间 |
 | 7 | COMBINED_IMAGE_SAMPLER（批次④-B 实装；per-view） | `gbufferWorldPos` | G-Buffer 世界位置（R32G32B32A32_SFLOAT，**w=有效标志**：几何 1.0 / 清屏 0.0）——LightingPass 据此 discard 背景 |
 
-### 4-1. LightingParamsBlock 字段表（批次④-A 版；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
+### 4-1. LightingParamsBlock 字段表（**四期 CSM 版**；CPU=RenderingSystem.packLightingParams、GLSL=ShaderInjector fs 注入同源）
 
 | 字段 | GLSL 声明 | 偏移 | 类型 | 语义 |
 |------|-----------|------|------|------|
 | `lighting.directional` | `vec4[16]` | 0 | 256B | 8 盏 × 2 vec4：`[2i]`=（视空间传播方向 xyz + castShadow 标志 w）、`[2i+1]`=（rgb + intensity）；空位零填 |
 | `lighting.lightCounts` | `ivec4` | 256 | 16B | x=dirCount、y=pointCount（本视口 lightList 有效长度），zw 预留 |
 | `lighting.gridDim` | `ivec4` | 272 | 16B | xy=grid 维度（ceil(视口像素/16)）、z=Z 切片数（32）、w=tileSize（16）——批次③填真值 |
-| `lighting.zParams` | `vec4` | 288 | 16B | x=相机 near、y=far、**z=ortho 标志（正交=1：Z 线性切分分支）**、w 预留 |
-| `lighting.viewport` | `vec4` | 304 | 16B | **批次③新增**：视口帧缓冲区 x/y/w/h（Vulkan 左上原点，同 gl_FragCoord/RHIViewport——着色器 cell 定位用） |
+| `lighting.zParams` | `vec4` | 288 | 16B | x=相机 near、y=far、z=ortho 标志（正交=1）、**w=CSM 级联数（四期新增，1/2/4；采样按此遍历）** |
+| `lighting.viewport` | `vec4` | 304 | 16B | 视口帧缓冲区 x/y/w/h（Vulkan 左上原点，同 gl_FragCoord/RHIViewport——着色器 cell 定位用） |
 | `lighting.ambient` | `vec4` | 320 | 16B | 环境项（v0.x = 纯黑，Unity 口径 2026-11-01 拍板；真值源归四期天空盒环境光） |
-| `lighting.sunViewProj` | `mat4` | 336 | 64B | **批次④-A 新增**：主光 世界→光裁剪 正交矩阵（zZeroToOne：裁剪 z 映 [0,1]、NDC xy [-1,1]）——fs 阴影采样重建投影；无主光/关阴影时值不消费（castShadow 标志门控） |
-| `lighting.shadowParams` | `vec4` | 400 | 16B | **四期阴影质量分级新增（2026-11-14）**：x=品质档编码（`ShadowQuality.code()`：0 硬影单采样 / 1=4 tap 复现 3×3 / 2=9 tap 复现 5×5）、y=PCF 半径（纹素，核偏移缩放）、z=阴影强度（0~1）、w=参考深度偏移（**已折算的裁剪 z 增量** = 世界单位偏移 ÷ 光空间 z 范围） |
+| `lighting.sunViewProj[4]` | `mat4[4]` | 336 | 256B | **四期 CSM（2026-11-14）**：逐级联 主光 世界→光裁剪 正交矩阵（zZeroToOne；未用槽 = identity）。原单 `mat4 sunViewProj`（批次④-A @336）扩为数组 |
+| `lighting.cascadeSplits` | `vec4` | 592 | 16B | 各级联视空间 z 远界（`-viewPos.z` 选级联；超出末级联 = 恒受光）；未用槽 = 相机 far |
+| `lighting.shadowParams` | `vec4` | 608 | 16B | x=品质档编码（0 硬影 / 1=4 tap→3×3 / 2=9 tap→5×5）、y=PCF 半径（纹素）、z=阴影强度（0~1）、**w=参考深度偏移（世界单位，逐级联乘 `cascadeInvZ` 折算，四期改语义）** |
+| `lighting.shadowParams2` | `vec4` | 624 | 16B | **四期 CSM 新增**：x=atlas 每轴象限数（1 或 2）、y=atlas 边长（纹素）、z=级联混合带比例、w 预留 |
+| `lighting.cascadeInvZ` | `vec4` | 640 | 16B | **四期 CSM 新增**：逐级联 1/光空间 z 范围（参考深度偏移「世界单位→裁剪 z 增量」的除数） |
 
-- 块实需 **416B**，描述符 range/动态偏移步长 = 512B（256 对齐进取，416 仍在内——**四期阴影质量分级未改步长**）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 512B hostVisible 环形，与 UBO1 同奇偶（sunViewProj 扩块于 ambient 后串接 2026-11-01；shadowParams 于 sunViewProj 后串接 2026-11-14）；
+- 块实需 **656B**，描述符 range/动态偏移步长 = **768B**（256 对齐进取 3×；四期 CSM 由 512→768，2026-11-14）；缓冲 = 帧槽（frameSlots）× 相机块（MAX_CAMERAS）× 768B hostVisible 环形，与 UBO1 同奇偶；
 - lightList（binding1）：`vec4 lights[]`（std430，无名块）——16 float/灯布局语义归 `Engine_Lighting_Design.md` §3.1；**批次③起 per-view 缓冲**（首视口单缓冲口径作废——多视口挂账 BatchB 解除）；
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
 - shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
 - gbufferAlbedo/gbufferNormal/gbufferWorldPos（binding5/6/7，批次④-B）：LightingPass 全屏读 G-Buffer 三张（`RenderingSystem.frameStorageLayoutDesc` 与 `ShaderInjector` 的 G-Buffer 注入块同源）；G-Buffer 三张 per-view（与 depth 同尺码，resize 换绑并重建 set1 描述符集）；
-- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光阴影（批次④-A 门控 + 四期品质档 PCF），消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `javelinShadowTap(vec2, float)`（单 tap 深度比较，越界按受光）。
+- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光 CSM 阴影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3/§4）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `float javelinCascadeShadow(int cascade, vec3 worldPos)`（单级联：矩阵投影 + atlas 象限定位 + 品质档 PCF，核夹在象限内）与 `float javelinShadowTapC(vec2, float, vec2, vec2)`（单 tap 深度比较，夹取象限界）；级联选择 + 相邻混合带在 `javelinLighting` 内（四期 CSM 2026-11-14）。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 

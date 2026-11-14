@@ -120,16 +120,47 @@ public class ShaderImporterTest {
                 java.util.List.of(), "pcf.frag", "fs");
         assertTrue(injected.contains("vec4 shadowParams;"),
                 "光照段声明缺 shadowParams（阴影品质档/强度/半径/参考深度偏移通道）");
-        assertTrue(injected.contains("float javelinShadowTap("),
-                "光照段缺单 tap 深度比较辅助函数");
+        // 四期 CSM：多级联矩阵 + 切分 + atlas 参数 + 逐级联反深度
+        assertTrue(injected.contains("mat4 sunViewProj[4];"), "缺级联矩阵数组 sunViewProj[4]");
+        assertTrue(injected.contains("vec4 cascadeSplits;"), "缺级联切分通道");
+        assertTrue(injected.contains("vec4 shadowParams2;"), "缺 atlas 参数通道 shadowParams2");
+        assertTrue(injected.contains("vec4 cascadeInvZ;"), "缺逐级联反深度通道 cascadeInvZ");
+        assertTrue(injected.contains("float javelinShadowTapC("),
+                "缺单 tap 深度比较辅助函数（象限夹取）");
+        assertTrue(injected.contains("float javelinCascadeShadow("),
+                "缺单级联采样函数");
         assertTrue(injected.contains("lighting.shadowParams.x"),
                 "阴影采样未消费品质档编码");
-        assertTrue(injected.contains("pcfShadow /= 16.0;"),
+        assertTrue(injected.contains("return s / 16.0;"),
                 "缺 4 tap 复现 3×3 核（软影低档）");
-        assertTrue(injected.contains("pcfShadow /= 144.0;"),
+        assertTrue(injected.contains("return s / 144.0;"),
                 "缺 9 tap 复现 5×5 核（软影高档）");
         assertTrue(injected.contains("shadow = mix(1.0, pcfShadow, lighting.shadowParams.z);"),
                 "阴影强度未生效");
+    }
+
+    /**
+     * 注入段静态断言（四期阴影质量分级 §3.6）：per-object 接收阴影标志按变体承载——
+     * 材质 fs 走 push（{@code pc.receiveShadow}，声明含该字段）、全屏走 G-Buffer
+     * {@code albedo.a}（{@code texelFetch} 取回）；{@code javelinLighting} 采样分支门控
+     * 该标志。真实编译覆盖归 {@link #litShaderEndToEnd}（注入后 fs 走 shaderc）。
+     */
+    @Test
+    public void lightingStageInjectsReceiveShadowFlag() {
+        // 材质 fs（FORWARD 档）：push 变体——声明 PushBlock 含 receiveShadow + 门控生效
+        String material = ShaderInjector.inject("#version 450\nvoid main() {}\n",
+                java.util.List.of(), "recv.frag", "fs");
+        assertTrue(material.contains("float receiveShadow;"),
+                "PushBlock 未扩 receiveShadow 字段（FORWARD 档承载）");
+        assertTrue(material.contains("return pc.receiveShadow;"),
+                "材质 fs 未注入 push 变体 javelinReceiveShadow");
+        assertTrue(material.contains("&& javelinReceiveShadow() > 0.5)"),
+                "阴影采样分支未门控 per-object 接收标志");
+        // 全屏光照（HYBRID 档）：G-Buffer 变体
+        String fullscreen = ShaderInjector.injectLightingStage(
+                "#version 450\nvoid main() {}\n", "lighting.frag");
+        assertTrue(fullscreen.contains("texelFetch(gbufferAlbedo"),
+                "全屏未注入 G-Buffer 取回变体 javelinReceiveShadow（HYBRID 档承载）");
     }
 
     private static void assertValidSpirv(byte[] spirv) {

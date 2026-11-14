@@ -1,7 +1,9 @@
 # 引擎阴影质量分级设计（Engine Shadow Quality Design）
 
-> 版本：v0.3（**步骤一-A/-B/-D 2026-11-14 用户实机验收通过——步骤一首件关账**；一-C 与步骤二未做）
+> 版本：v0.5（**步骤一 + 步骤二 CSM 全部落码并 2026-11-14 用户实机验收通过——P4-03 关账**）
 > 日期：2026-11-14
+> v0.5 变更（2026-11-14）：**步骤二 CSM 落码并用户实机验收通过**——`ShadowMath.buildCascades`（lambda 切分 + 逐级联球拟合方形盒 + 纹素吸附 + up 稳定轴 + 逐级联 zRange）+ `CascadeParams`（相机基向量自建）；`RenderingSystem.viewShadows` per-view 资源族（atlas，≥2 级联 2×2）+ `computeShadow(cam)` 逐视口级联拟合 + `shadowMapFor/cascadeCount/atlasGrid/cascadeMatrix` 访问器；`ShadowPass` 改**逐视口单 Pass**（一次 CLEAR + 回调内逐级联切 viewport/scissor 象限）；UBO 扩 `sunViewProj[4]`/`cascadeSplits`/`shadowParams2`/`cascadeInvZ`（块 416→**656B**、步长 512→**768**）；注入段级联选择 + atlas 象限 uv + PCF 象限夹取 + 相邻级联混合带；`ShadowSettings` 增 `cascadeCount`(2)/`shadowDistance`(100)/`cascadeLambda`(0.5) + 设置窗口三项。**步骤二使 §3.6 的 caster∪receiver 盒并集退役**（级联盒拟相机视锥，天然含接收者）。**P4-03 关账**（步骤一 + 步骤二全件）；余步骤三可选收尾。
+> v0.4 变更（2026-11-14）：**一-C per-object 落码并用户实机验收通过**——`MeshRenderer.castShadow`/`receiveShadow` 补 `@InsField`（检查器可见）；`receiveShadow` 双档承载落地（FORWARD 走 push 空余位 @68、HYBRID 走 G-Buffer `albedo.a`，注入段 `javelinReceiveShadow()` 分变体、同一 `javelinLighting` 单源门控）。**随验两修**（两条坑，`Vulkan_Pitfalls.md` #39/#40）：① `RenderObject.castShadow` 换代时缓存 → 运行期切开关不生效、重启才生效（修=桥每帧 in-place 同步 castShadow/receiveShadow）；② 阴影正交盒只收 caster → 关地板投射致盒缩、立方体投影到地板的影子被盒外裁掉（修=盒体域改全体不透明对象 caster ∪ receiver + 1.0 外扩余量）。**步骤一全件关账**（一-A/-B/-C/-D 四件齐）。
 > v0.3 变更（2026-11-14）：**用户实机验收通过**（「看起来没问题，我验收了」）——步骤一（品质档 PCF + bias 调参面 + 设置窗口）关账；已入 `Engine_Roadmap_Progress.md` §7 批次索引 + `Engine_Features.md` §2.4 验收状态，Backlog P4-03 余「一-C per-object + 步骤二 CSM」。**随验修**（§9.2 第三条）：注入段标量/向量乘错（`vec2` 当标量 → 5×5 档 `vec3 * vec2` 编译拒、3×3 档静默改义），已改标量 `texelSize`。
 > v0.2 变更（2026-11-14）：**步骤一落码（一-A 品质档 PCF + 一-B bias 调参面 + 一-D 设置窗口；一-C per-object 未做）**——`ShadowQuality`/`ShadowSettings`（core settings）+ UBO 扩 `shadowParams`（实需 400→416B，步长 512 不变）+ 注入段 PCF（硬影单采样 / 4 tap÷16 复现 3×3 / 9 tap÷144 复现 5×5，Babylon 字面移植）+ 强度/参考深度偏移（`ShadowMath` 回填光空间 z 范围折算）+ `ShadowPass` bias 取设置并整批重建 PSO + 项目设置窗口「阴影」组 + 启动读盘/写盘 + 双语键；落点与一处口径细化见 §9。**未编译、未提交**（红线 1/13）。
 > v0.1 变更（2026-11-14）：**方案件（待拍板）**——§3 步骤一（PCF 品质档 + bias 调参面 + per-object 开关）、§4 步骤二（CSM：lambda 切分 + 单张 2×2 atlas + per-view 阴影资源族 + 纹素吸附）、§5 边界、§6 派发粒度、§7 验收口径、§8 十一条拍板点。
@@ -380,11 +382,51 @@ x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数）
 
 > **注入器改动 = 强制重导**：`ShaderInjector` 文本一变，已编译 `.shader` 产物（内置 Lit/default + 工程副本）须重导——启动期内置资产释放器按**内容比对**触发重导；旧产物不重导时注入段仍是单采样（画面「档位不生效」而非报错，排查先看 Library 产物时间）。
 
-### 9.4 未做（本批范围外）
+### 9.4 一-C per-object 落地（2026-11-14，接步骤一）
 
-- **一-C per-object 开关**：`MeshRenderer.castShadow`/`receiveShadow` 补 `@InsField` + `receiveShadow` 承载（FORWARD 走 push 空余位 / HYBRID 走 G-Buffer `albedo.a` + 契约回填）——独立成批；
-- **步骤二 CSM**（§4 全套：级联切分/atlas/per-view 资源族/纹素吸附）；
-- 步骤三可选收尾（D16 格式 / PCSS / 逐级联剔除 / DBG-03 可视化 / 多灯阴影）。
+> 用户「动手」批 ② 尾巴（一-C + 步骤二）；一-C 与步骤一同日验收关账。
+
+**改动（代码实证）**：
+
+| 件 | 落点 | 形态 |
+|----|------|------|
+| 检查器暴露 | `MeshRenderer.castShadow/receiveShadow` | 补 `@InsField`（`ins.meshRenderer.castShadow/receiveShadow` 双语键）——原为死字段全仓无 `@InsField` |
+| 桥同步 | `RenderObject` + `SceneRenderBridge` | `castShadow`/`receiveShadow` 去构造一次性、改**每帧 in-place 同步**（`RenderObject.castShadow(boolean)`/`receiveShadow(boolean)`，与 `world` 同节奏）——**随验修坑 #39**：原 `castShadow` 是 `final`、只在换代时读一次，运行期切开关不生效（重启才生效） |
+| FORWARD 承载 | `AbstractForwardPass.drawObject` + `RenderingSystem.PUSH_RECEIVE_SHADOW_OFFSET`(=68) | push 扩 `receiveShadow`（`PushBlock{mat4 model; float tpf; float receiveShadow;}`，68B ≤ `PUSH_SIZE` 80）；注入段读 `pc.receiveShadow` |
+| HYBRID 承载 | `Lit.shader` GBuffer `outAlbedo.a`（原恒 1.0） | 几何写 `pc.receiveShadow`（1/0）；全屏 `lighting.frag` 经 `texelFetch(gbufferAlbedo, ivec2(gl_FragCoord.xy), 0).a > 0.5` 取回（RGBA8：0.5→~0.502 判真可靠） |
+| 注入段单源 | `ShaderInjector` | `javelinReceiveShadow()` **分两变体**（材质 fs 读 push / 全屏读 G-Buffer），`javelinLighting` 采样分支加 `&& javelinReceiveShadow() > 0.5` 门控——**同一 LIGHTING_BLOCKS 常量，差异仅两变体函数**；`PushBlock` 声明加 `receiveShadow` |
+| 单测 | `ShaderImporterTest.lightingStageInjectsReceiveShadowFlag` | push 变体（`float receiveShadow;` + `pc.receiveShadow` + 门控）+ G-Buffer 变体（`texelFetch(gbufferAlbedo`）静态断言；真实编译归 `litShaderEndToEnd` |
+
+**随验修（两坑，`Vulkan_Pitfalls.md`）**：
+
+- **#39 `RenderObject` 换代时缓存组件字段**：`castShadow` 只在构造时读 → 运行期切开关消费端读陈旧值（重启才生效）。修 = 每帧 in-place 同步（判据：组件属性→渲染快照的字段，要么进换代判据、要么每帧同步，不能只构造读一次）。
+- **#40 阴影正交盒只收 caster**：关地板投射 → 盒缩成立方体范围 → 立方体投影到地板的影子被盒外裁掉（一全消失一消失一部分）。修 = 盒体域改**全体不透明对象（caster ∪ receiver）并集** + 1.0 世界单位外扩余量（`SHADOW_BOX_PADDING`）——**投影正交下盒覆盖接收者表面即覆盖其影子**；代价 = 盒变大精度略降，靠 CSM 视锥拟合找回。
+
+**验收口径（一-C，用户实机 2026-11-14）**：关 `castShadow` 的物体不投影、关 `receiveShadow` 的物体不接影，FORWARD / HYBRID 一致、运行期即时生效（不再重启才生效）。
+
+### 9.5 步骤二 CSM 落地（2026-11-14，P4-03 随此关账）
+
+**改动（代码实证）**：
+
+| 件 | 落点 | 形态 |
+|----|------|------|
+| 级联纯逻辑 | `ShadowMath.buildCascades` + `CascadeParams` | lambda 混合切分（`d_i = λ·near·(far/near)^(i/N) + (1-λ)·(near+(far-near)·i/N)`）；相机基向量**自建**（`forward/right=cross(f,up)/upn=cross(right,f)`，避 `viewProj` Y 翻转）；逐级联视锥段 8 角点（透视 `tan(fovY/2)` 缩放、正交 `orthographicSize`）→ **包围球**（8 角均值心）→ 半径即方形正交盒半宽（各向同性纹素，盒 `r + SNAP_SAFETY`）→ 球心光空间**纹素吸附**（`2r/resolution` 网格，抑相机移动/旋转抖动）；`upHint` 稳定轴沿用 `UP_SWITCH`；回填逐级联 zRange |
+| per-view 资源族 | `RenderingSystem.viewShadows`（`ViewShadow`：atlas 图 + 矩阵[4]/切分[4]/invZ[4]/res/count/grid） | `computeShadow(cam)` 逐视口拟合（`buildCascades`），分辨率/级联数变化即重建（旧图两帧退役）；atlas 边长 = `resolution × grid`（grid = count≥2?2:1，2 级联只占前两象限**保持正方形**——单纹素 u/v 同值，沿用标量 PCF）；对外 `shadowMapFor/shadowCascadeCount/shadowAtlasGrid/shadowCascadeMatrix` |
+| ShadowPass | 逐视口单 Pass（名 = `视口名 + ":Shadow"`） | atlas 一次 `CLEAR`；回调内逐级联 `cmd.setViewport/setScissor` 切象限（VIEWPORT/SCISSOR 动态态，同一 PSO），逐 caster 用该级联矩阵 push。**原「帧号幂等全局挂载」退役**（§4.4 取代） |
+| UBO | `packLightingParams` | `mat4 sunViewProj[4]` + `vec4 cascadeSplits` + `vec4 shadowParams2`（grid/atlasSize/blend/0）+ `vec4 cascadeInvZ`；`zParams.w` = 级联数；`shadowParams.w` 改**世界单位**（逐级联乘 `cascadeInvZ` 折算）；块 416→**656B**、步长 512→**768**（`LIGHTING_STRIDE`） |
+| 注入段 | `ShaderInjector.LIGHTING_BLOCKS` | 新增 `javelinCascadeShadow(int, vec3)`（矩阵投影 → atlas 象限 uv → 品质档 PCF，tap 夹在象限内 `javelinShadowTapC`）+ `javelinLighting` 内级联选择（按 `-viewPos.z` 遍历 `cascadeSplits`，超末级联恒受光）+ 相邻级联**混合带** mix（`shadowParams2.z`，只对非末级联） |
+| 设置面 | `ShadowSettings` + `ProjectSettingsWindow` | 级联数（1/2/4，缺省 2）/ 阴影距离（100）/ 切分 lambda（0.5），读写盘带缺键默认守卫；窗口三行 + i18n 双语 |
+| 单测 | `ShadowMathTest`（+5 例）、`JavelinSettingTest`（CSM 三项往返 + 旧档默认） | 切分单调/端点/均匀退、逐级联盒覆盖 8 角点 + zRange 正、亚纹素吸附（uv 稳定）、正交 w=1；设置往返 + 缺失默认 |
+
+**随验两修（不是新坑，属步骤一口径在步骤二下的收口）**：盒体改由相机视锥拟合后，§3.6 的「caster ∪ receiver 世界 AABB 并集 + 外扩」**退役**（级联盒拟相机视锥，接收者天然在可视域内，`#40` 的裁剪问题从根上消除）。
+
+**验收口径（步骤二，用户实机 2026-11-14「看起来没问题了」）**：级联数 1 与步骤一形态基本一致；2/4 级联近处影子更实、远处不劣化；相机移动/旋转边缘不抖（纹素吸附）；级联接缝无硬线（混合带）；超阴影距离恒受光无断层；设置窗口级联数/距离/切分即时生效；双视口各自正确；`logs/error` 零 ERROR。
+
+> **注入器改动 = 强制重导**（契约变更）：`.shader` 产物须重导（GLSL 动态索引 `mat4[4]` + 新字段）；旧产物不重导读新 UBO 偏移会错位（画面「无影/错影」而非报错，排查先看 Library 产物时间）。
+
+### 9.6 未做（步骤三可选收尾）
+
+- 阴影图 D16 格式档、PCSS（可变半径）、逐级联 caster 剔除（v1 每级联全量绘制）、DBG-03 shadowMap 可视化、多灯阴影（§5.5）。
 
 ---
 

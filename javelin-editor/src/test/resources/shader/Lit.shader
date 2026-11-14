@@ -88,7 +88,8 @@ Shader "Lit"
             layout(location = 2) out vec4 outWorldPos;
             void main() {
                 vec4 tex = texture(_MainTex, vUV);
-                outAlbedo = vec4(material._Color.rgb * tex.rgb, 1.0);
+                // albedo.a = per-object 接收阴影标志（四期 §3.6，HYBRID 档承载）
+                outAlbedo = vec4(material._Color.rgb * tex.rgb, pc.receiveShadow);
                 outNormal = vec4(normalize(vWorldNormal), 0.0);
                 // w = 有效标志（几何 1.0 / 清屏 0.0）：LightingPass 据此跳过背景像素
                 outWorldPos = vec4(vWorldPos, 1.0);

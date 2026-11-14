@@ -51,29 +51,9 @@ public class JavelinSetting implements Serializable {
     private boolean engineDebug = true;
 
     /**
-     * 后处理开关（Engine_PostProcess_Design §3.1）：默认关——链空 = 直通，画面与
-     * 改造前逐像素不变；开 = 链尾挂 Tonemap，HDR 生效（场景色写 lightingRT 经高光肩部
-     * 压到显示目标）。启动期消费填充链；运行期可经编辑器「工具」域命令切换并写盘。
-     */
-    private boolean postProcessing = false;
-
-    /**
-     * Bloom 开关（Engine_PostProcess_Design §3.7，独立于后处理）：默认关。开 = 后处理链中挂
-     * Bloom（Tonemap 之前，读未 tonemap 的 HDR 场景色）；与后处理（Tonemap）可分别开关。
-     * 启动期消费；运行期可经编辑器「工具」域命令切换并写盘。
-     */
-    private boolean bloom = false;
-
-    /**
-     * SSAO 开关（Engine_SSAO_Design §3.6，独立于后处理/Bloom）：默认关。开 = 后处理链中挂
-     * SSAO（Bloom 之前，读 G-Buffer 世界位置+法线算 AO 乘到 HDR 场景色上）。**仅 HYBRID 档
-     * 生效**（FORWARD 档无 G-Buffer，启动期忽略该开关并 warn）；启动期消费。
-     */
-    private boolean ssao = false;
-
-    /**
-     * 后处理参数（Bloom 阈值/肩部/强度 + Tonemap 肩部，Engine_PostProcess_Design §3.7/§9.8）：
-     * 独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link PostProcessSettings}）。
+     * 后处理设置（Engine_PostProcess_Design §3.7/§9.8）：**三效果开关**（Tonemap/Bloom/SSAO）
+     * + Bloom 阈值/软膝/强度 + Tonemap 肩部 + SSAO 参数。开关原散在本类顶层，2026-11-14 收拢
+     * 进本对象（与各自参数同域）。独立成对象以支持「缺键保默认」（见 {@link PostProcessSettings}）。
      */
     private PostProcessSettings postProcessSettings = new PostProcessSettings();
 
@@ -82,30 +62,6 @@ public class JavelinSetting implements Serializable {
      * §3.2）：独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link ShadowSettings}）。
      */
     private ShadowSettings shadowSettings = new ShadowSettings();
-
-    public boolean isPostProcessing() {
-        return postProcessing;
-    }
-
-    public void setPostProcessing(boolean postProcessing) {
-        this.postProcessing = postProcessing;
-    }
-
-    public boolean isBloom() {
-        return bloom;
-    }
-
-    public void setBloom(boolean bloom) {
-        this.bloom = bloom;
-    }
-
-    public boolean isSsao() {
-        return ssao;
-    }
-
-    public void setSsao(boolean ssao) {
-        this.ssao = ssao;
-    }
 
     public PostProcessSettings getPostProcessSettings() {
         return postProcessSettings;
@@ -209,9 +165,6 @@ public class JavelinSetting implements Serializable {
         output.write("maxFps",maxFps);
         output.write("renderPipeline",renderPipeline);
         output.write("engineDebug",engineDebug);
-        output.write("postProcessing",postProcessing);
-        output.write("bloom",bloom);
-        output.write("ssao",ssao);
         output.write("postProcessSettings",postProcessSettings);
         output.write("shadowSettings",shadowSettings);
     }
@@ -236,16 +189,22 @@ public class JavelinSetting implements Serializable {
         }
         // 缺键按协议既定行为读取（readBoolean 缺键= false）
         engineDebug = input.readBoolean("engineDebug");
-        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关=直通）——无迁移坑
-        postProcessing = input.readBoolean("postProcessing");
-        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
-        bloom = input.readBoolean("bloom");
-        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
-        ssao = input.readBoolean("ssao");
-        // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
+        // 后处理设置（三效果开关 + 参数）：旧文件无此键时保留默认（readSerializable 缺键返回 null）
         PostProcessSettings pps = input.readSerializable("postProcessSettings", PostProcessSettings.class);
         if (pps != null) {
             postProcessSettings = pps;
+        }
+        // 一次性迁移（2026-11-14 开关从本类顶层收拢进 PostProcessSettings）：旧文件把
+        // postProcessing/bloom/ssao 写在顶层，"true" 表示当时开启；新文件不再写这些键
+        // （post-move 文件读到 false → 无副作用），故只迁 true，实现「旧工程开关不丢」。
+        if (input.readBoolean("postProcessing")) {
+            postProcessSettings.setTonemapEnabled(true);
+        }
+        if (input.readBoolean("bloom")) {
+            postProcessSettings.setBloomEnabled(true);
+        }
+        if (input.readBoolean("ssao")) {
+            postProcessSettings.setSsaoEnabled(true);
         }
         // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
         ShadowSettings ss = input.readSerializable("shadowSettings", ShadowSettings.class);

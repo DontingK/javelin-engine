@@ -231,10 +231,13 @@ public final class SceneRenderBridge {
                 }
                 renderers.put(mr, ros);
             }
-            // 世界矩阵原地写（不换引用，帧描述存活期约束由单线程退化保证）
+            // 世界矩阵原地写（不换引用，帧描述存活期约束由单线程退化保证）+
+            // 投射/接收阴影标志每帧同步（四期 §3.6：组件运行期可切，不进换代判据）
             for (RenderObject ro : ros) {
                 if (ro != null) {
                     ro.world().set(mr.getNode().getTransform().getLocalToWorld());
+                    ro.castShadow(mr.isCastShadow());
+                    ro.receiveShadow(mr.isReceiveShadow());
                 }
             }
         }

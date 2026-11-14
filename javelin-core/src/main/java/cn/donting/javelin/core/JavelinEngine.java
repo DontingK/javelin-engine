@@ -15,6 +15,7 @@ import cn.donting.javelin.core.physics.query.Physics;
 import cn.donting.javelin.core.render.FrameDescription;
 import cn.donting.javelin.core.render.FrameLoop;
 import cn.donting.javelin.core.render.RenderView;
+import cn.donting.javelin.core.render.RenderSettings;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
@@ -330,6 +331,7 @@ public class JavelinEngine {
 
     /** shutdown 逆序：子系统 → frameLoop（含 waitIdle）→ 渲染系统 → device → instance → window */
     private void shutdown() {
+        RenderSettings.unbind();
         if (subsystemManager != null) {
             subsystemManager.shutdownAll();
         }
@@ -451,15 +453,15 @@ public class JavelinEngine {
         // SSAO 参数（半径/深度偏移/强度）下发（运行期可由「项目设置」窗口再调）
         SsaoSettings ssao = pps.getSsao();
         postProcessSetup.setSsaoParams(ssao.getRadius(), ssao.getBias(), ssao.getIntensity());
-        if (setting.isPostProcessing()) {
+        if (pps.isTonemapEnabled()) {
             postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.TONEMAP, true);
         }
-        if (setting.isBloom()) {
+        if (pps.isBloomEnabled()) {
             postProcessSetup.setEnabled(pipeline.postProcess(), PostProcessSetup.BLOOM, true);
         }
         // SSAO（Engine_SSAO_Design §3.6/§3.8）：依赖 G-Buffer，**仅 HYBRID 档可挂**——
         // FORWARD 档忽略该开关并 warn（不静默）；参数起步用组合根缺省，接项目设置窗口归步骤二
-        if (setting.isSsao()) {
+        if (pps.isSsaoEnabled()) {
             if (setting.getRenderPipeline() == PipelineProfile.FORWARD) {
                 log.warn("SSAO 需要 G-Buffer，FORWARD 档不支持——本次忽略 ssao 开关（HYBRID 档生效）");
             } else {
@@ -470,6 +472,8 @@ public class JavelinEngine {
         // §3.2）：启动期下发到渲染系统；运行期可由「项目设置」窗口再调（前三项与偏移每帧
         // 进 UBO 即时生效，bias 两项触发 ShadowPass 重建 PSO）
         renderingSystem.setShadowSettings(setting.getShadowSettings());
+        // 渲染设置门面绑定（RenderSettings：背景/后处理/阴影的统一读写入口）
+        RenderSettings.bind(setting, postProcessSetup, pipeline);
         return pipeline;
     }
 

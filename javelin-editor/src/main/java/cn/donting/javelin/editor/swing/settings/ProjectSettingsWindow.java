@@ -1,9 +1,9 @@
 package cn.donting.javelin.editor.swing.settings;
 
 import cn.donting.javelin.core.math.Color;
+import cn.donting.javelin.core.render.RenderSettings;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
-import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.JavelinSetting;
@@ -19,7 +19,6 @@ import cn.donting.javelin.editor.swing.inspector.widget.ColorField;
 import cn.donting.javelin.editor.swing.inspector.widget.InsFormat;
 import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
 import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
-import cn.donting.javelin.rhi.data.RHIClearColor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -180,81 +179,66 @@ public final class ProjectSettingsWindow extends JDialog {
         pane.add(formRow("projectSettings.ssao", ssaoCheck));
 
         pane.add(formRow("projectSettings.bloomThreshold",
-                numberInput(pps.getBloomThreshold(), 0f, 10f, 0.05f, v -> {
-                    pps.setBloomThreshold(v);
-                    applyBloomParams(editor, pps);
-                })));
+                numberInput(pps.getBloomThreshold(), 0f, 10f, 0.05f,
+                        v -> apply(() -> RenderSettings.setBloomThreshold(v)))));
         pane.add(formRow("projectSettings.bloomKnee",
-                numberInput(pps.getBloomKnee(), 0f, 2f, 0.05f, v -> {
-                    pps.setBloomKnee(v);
-                    applyBloomParams(editor, pps);
-                })));
+                numberInput(pps.getBloomKnee(), 0f, 2f, 0.05f,
+                        v -> apply(() -> RenderSettings.setBloomKnee(v)))));
         pane.add(formRow("projectSettings.bloomIntensity",
-                numberInput(pps.getBloomIntensity(), 0f, 5f, 0.05f, v -> {
-                    pps.setBloomIntensity(v);
-                    applyBloomParams(editor, pps);
-                })));
+                numberInput(pps.getBloomIntensity(), 0f, 5f, 0.05f,
+                        v -> apply(() -> RenderSettings.setBloomIntensity(v)))));
         pane.add(formRow("projectSettings.tonemapKnee",
-                numberInput(pps.getTonemapKnee(), 0f, 1f, 0.05f, v -> {
-                    pps.setTonemapKnee(v);
-                    applyTonemapKnee(editor, v);
-                })));
+                numberInput(pps.getTonemapKnee(), 0f, 1f, 0.05f,
+                        v -> apply(() -> RenderSettings.setTonemapKnee(v)))));
 
         // —— SSAO 参数（开关见上方后处理组）——
         SsaoSettings ssao = pps.getSsao();
         pane.add(formRow("projectSettings.ssaoRadius",
-                numberInput(ssao.getRadius(), 0.01f, 5f, 0.05f, v -> {
-                    ssao.setRadius(v);
-                    applySsaoParams(editor, ssao);
-                })));
+                numberInput(ssao.getRadius(), 0.01f, 5f, 0.05f,
+                        v -> apply(() -> RenderSettings.setSsaoRadius(v)))));
         pane.add(formRow("projectSettings.ssaoBias",
-                numberInput(ssao.getBias(), 0f, 0.5f, 0.005f, v -> {
-                    ssao.setBias(v);
-                    applySsaoParams(editor, ssao);
-                })));
+                numberInput(ssao.getBias(), 0f, 0.5f, 0.005f,
+                        v -> apply(() -> RenderSettings.setSsaoBias(v)))));
         pane.add(formRow("projectSettings.ssaoIntensity",
-                numberInput(ssao.getIntensity(), 0f, 2f, 0.05f, v -> {
-                    ssao.setIntensity(v);
-                    applySsaoParams(editor, ssao);
-                })));
+                numberInput(ssao.getIntensity(), 0f, 2f, 0.05f,
+                        v -> apply(() -> RenderSettings.setSsaoIntensity(v)))));
 
-        // —— 阴影（Engine_Shadow_Quality_Design §3.7）——
+        // —— 阴影（Engine_Shadow_Quality_Design §3.7；写入经 RenderSettings 门面）——
         pane.add(sectionLabel("projectSettings.section.shadow"));
         ShadowSettings shadow = setting.getShadowSettings();
 
         JeSelect qualitySelect = new JeSelect(qualityOptions(), shadow.getQuality().name(),
-                value -> {
-                    shadow.setQuality(ShadowQuality.valueOf(value));
-                    applyShadowSettings(editor, shadow);
-                });
+                value -> apply(() -> RenderSettings.setShadowQuality(ShadowQuality.valueOf(value))));
         pane.add(formRow("projectSettings.shadowQuality", qualitySelect));
 
         pane.add(formRow("projectSettings.shadowStrength",
-                numberInput(shadow.getStrength(), 0f, 1f, 0.05f, v -> {
-                    shadow.setStrength(v);
-                    applyShadowSettings(editor, shadow);
-                })));
+                numberInput(shadow.getStrength(), 0f, 1f, 0.05f,
+                        v -> apply(() -> RenderSettings.setShadowStrength(v)))));
         pane.add(formRow("projectSettings.shadowPcfRadius",
-                numberInput(shadow.getPcfRadius(), 0f, 4f, 0.1f, v -> {
-                    shadow.setPcfRadius(v);
-                    applyShadowSettings(editor, shadow);
-                })));
+                numberInput(shadow.getPcfRadius(), 0f, 4f, 0.1f,
+                        v -> apply(() -> RenderSettings.setShadowPcfRadius(v)))));
         pane.add(formRow("projectSettings.shadowDepthOffset",
-                numberInput(shadow.getRefDepthOffset(), 0f, 1f, 0.01f, v -> {
-                    shadow.setRefDepthOffset(v);
-                    applyShadowSettings(editor, shadow);
-                })));
+                numberInput(shadow.getRefDepthOffset(), 0f, 1f, 0.01f,
+                        v -> apply(() -> RenderSettings.setShadowRefDepthOffset(v)))));
         pane.add(formRow("projectSettings.shadowBiasConstant",
-                numberInput(shadow.getBiasConstant(), 0f, 10f, 0.1f, v -> {
-                    shadow.setBiasConstant(v);
-                    applyShadowSettings(editor, shadow);
-                })));
+                numberInput(shadow.getBiasConstant(), 0f, 10f, 0.1f,
+                        v -> apply(() -> RenderSettings.setShadowBiasConstant(v)))));
         pane.add(formRow("projectSettings.shadowBiasSlope",
-                numberInput(shadow.getBiasSlope(), 0f, 10f, 0.1f, v -> {
-                    shadow.setBiasSlope(v);
-                    applyShadowSettings(editor, shadow);
-                })));
+                numberInput(shadow.getBiasSlope(), 0f, 10f, 0.1f,
+                        v -> apply(() -> RenderSettings.setShadowBiasSlope(v)))));
         pane.add(hintLabel(EditorLang.text("projectSettings.shadowBiasHint")));
+
+        // —— CSM 级联（四期阴影质量分级 §4.8）——
+        JeSelect cascadeSelect = new JeSelect(cascadeOptions(), String.valueOf(shadow.getCascadeCount()),
+                value -> apply(() -> RenderSettings.setShadowCascadeCount(Integer.parseInt(value))));
+        pane.add(formRow("projectSettings.shadowCascades", cascadeSelect));
+        pane.add(formRow("projectSettings.shadowDistance",
+                numberInput(shadow.getShadowDistance(), 5f, 1000f, 5f,
+                        v -> apply(() -> RenderSettings.setShadowDistance(v)))));
+        pane.add(formRow("projectSettings.shadowCascadeLambda",
+                numberInput(shadow.getCascadeLambda(), 0f, 1f, 0.05f,
+                        v -> apply(() -> RenderSettings.setShadowCascadeLambda(v)))));
+        pane.add(hintLabel(EditorLang.text("projectSettings.shadowCascadeHint")));
 
         pane.add(javax.swing.Box.createVerticalGlue());
         return pane;
@@ -266,6 +250,18 @@ public final class ProjectSettingsWindow extends JDialog {
         addQualityOption(options, ShadowQuality.HARD, "projectSettings.shadowQuality.hard");
         addQualityOption(options, ShadowQuality.SOFT_LOW, "projectSettings.shadowQuality.softLow");
         addQualityOption(options, ShadowQuality.SOFT_HIGH, "projectSettings.shadowQuality.softHigh");
+        return options;
+    }
+
+    /** CSM 级联数下拉（value = "1"/"2"/"4"，label 走语言包） */
+    private static java.util.List<InspectorFieldVo.Option> cascadeOptions() {
+        java.util.List<InspectorFieldVo.Option> options = new java.util.ArrayList<>();
+        for (int n : new int[]{1, 2, 4}) {
+            InspectorFieldVo.Option option = new InspectorFieldVo.Option();
+            option.value = String.valueOf(n);
+            option.label = EditorLang.text("projectSettings.shadowCascades." + n);
+            options.add(option);
+        }
         return options;
     }
 
@@ -338,24 +334,31 @@ public final class ProjectSettingsWindow extends JDialog {
                 && setup.isEnabled(pipeline.postProcess(), id);
     }
 
-    /** 后处理/Bloom 开关：即时切链 + 落 setting + 写盘（失败弹框 → 由调用方回滚勾选） */
-    private boolean applyToggle(JavelinEditor editor, String id, boolean on) {
-        if (editor == null) {
+    /** 门面调用包错误显性化（红线 15：异常弹框，不静默吞） */
+    private void apply(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            LOGGER.error("渲染设置应用失败", e);
+            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
+        }
+    }
+
+    /**
+     * 后处理/Bloom/SSAO 开关：经 {@link RenderSettings} 门面即时切链（内部同步 setting + 下发
+     * 组合根）。失败弹框 → 由调用方回滚勾选。
+     */
+    private boolean applyToggle(JavelinEditor editor, String id, boolean on) {        if (editor == null) {
             showError(EditorLang.text("projectSettings.editorMissing"));
             return false;
         }
         try {
-            PostProcessSetup setup = editor.postProcessSetup();
-            RenderPipeline pipeline = editor.renderPipeline();
-            if (setup != null && pipeline != null) {
-                setup.setEnabled(pipeline.postProcess(), id, on);
-            }
             if (PostProcessSetup.TONEMAP.equals(id)) {
-                editor.setting().setPostProcessing(on);
+                RenderSettings.setPostProcessingEnabled(on);
             } else if (PostProcessSetup.BLOOM.equals(id)) {
-                editor.setting().setBloom(on);
+                RenderSettings.setBloomEnabled(on);
             } else if (PostProcessSetup.SSAO.equals(id)) {
-                editor.setting().setSsao(on);
+                RenderSettings.setSsaoEnabled(on);
             }
             return true;
         } catch (RuntimeException e) {
@@ -365,7 +368,7 @@ public final class ProjectSettingsWindow extends JDialog {
         }
     }
 
-    /** 背景清屏色：即时下发（管线清屏 sink + 后处理节点）+ 落 setting + 写盘 */
+    /** 背景清屏色：经 {@link RenderSettings} 门面（内部同步 setting + 下发管线/后处理两处） */
     private void onBackgroundChanged(String wire) {
         JavelinEditor editor = JavelinEditor.getInstance();
         if (editor == null) {
@@ -377,90 +380,9 @@ public final class ProjectSettingsWindow extends JDialog {
             return;
         }
         try {
-            editor.setting().setBackgroundColor(new Color(parts[0], parts[1], parts[2], parts[3]));
-            RHIClearColor clear = new RHIClearColor(parts[0], parts[1], parts[2], parts[3]);
-            RenderPipeline pipeline = editor.renderPipeline();
-            if (pipeline != null) {
-                pipeline.setClearColor(clear);
-            }
-            PostProcessSetup setup = editor.postProcessSetup();
-            if (setup != null) {
-                setup.setClearColor(clear);
-            }
+            RenderSettings.setBackgroundColor(new Color(parts[0], parts[1], parts[2], parts[3]));
         } catch (RuntimeException e) {
             LOGGER.error("背景清屏色应用失败", e);
-            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
-        }
-    }
-
-    /** Bloom 参数：即时下发 + 写盘 */
-    private void applyBloomParams(JavelinEditor editor, PostProcessSettings pps) {
-        if (editor == null) {
-            showError(EditorLang.text("projectSettings.editorMissing"));
-            return;
-        }
-        try {
-            PostProcessSetup setup = editor.postProcessSetup();
-            if (setup != null) {
-                setup.setBloomParams(pps.getBloomThreshold(), pps.getBloomKnee(), pps.getBloomIntensity());
-            }
-        } catch (RuntimeException e) {
-            LOGGER.error("Bloom 参数应用失败", e);
-            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
-        }
-    }
-
-    /** Tonemap 肩部：即时下发 + 写盘 */
-    private void applyTonemapKnee(JavelinEditor editor, float knee) {
-        if (editor == null) {
-            showError(EditorLang.text("projectSettings.editorMissing"));
-            return;
-        }
-        try {
-            PostProcessSetup setup = editor.postProcessSetup();
-            if (setup != null) {
-                setup.setTonemapKnee(knee);
-            }
-        } catch (RuntimeException e) {
-            LOGGER.error("Tonemap 肩部应用失败", e);
-            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
-        }
-    }
-
-    /**
-     * 阴影参数：即时下发渲染系统（Engine_Shadow_Quality_Design §3.2）——品质档/强度/
-     * PCF 半径/参考深度偏移下一帧进 UBO 生效，bias 两项由 {@code ShadowPass} 检测变化后
-     * 重建 PSO（旧管线两帧退役）。
-     */
-    private void applyShadowSettings(JavelinEditor editor, ShadowSettings shadow) {
-        if (editor == null) {
-            showError(EditorLang.text("projectSettings.editorMissing"));
-            return;
-        }
-        try {
-            RenderingSystem rs = editor.renderingSystem();
-            if (rs != null) {
-                rs.setShadowSettings(shadow);
-            }
-        } catch (RuntimeException e) {
-            LOGGER.error("阴影参数应用失败", e);
-            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
-        }
-    }
-
-    /** SSAO 参数：即时下发 + 写盘 */
-    private void applySsaoParams(JavelinEditor editor, SsaoSettings ssao) {
-        if (editor == null) {
-            showError(EditorLang.text("projectSettings.editorMissing"));
-            return;
-        }
-        try {
-            PostProcessSetup setup = editor.postProcessSetup();
-            if (setup != null) {
-                setup.setSsaoParams(ssao.getRadius(), ssao.getBias(), ssao.getIntensity());
-            }
-        } catch (RuntimeException e) {
-            LOGGER.error("SSAO 参数应用失败", e);
             showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
         }
     }
@@ -481,9 +403,7 @@ public final class ProjectSettingsWindow extends JDialog {
                     ? new BinaryImporter(file).importData(JavelinSetting.class)
                     : new JavelinSetting();
             fileSetting.setBackgroundColor(live.getBackgroundColor());
-            fileSetting.setPostProcessing(live.isPostProcessing());
-            fileSetting.setBloom(live.isBloom());
-            fileSetting.setSsao(live.isSsao());
+            // 后处理设置（三效果开关 + 参数）整体覆写（开关 2026-11-14 已收进 PostProcessSettings）
             fileSetting.setPostProcessSettings(live.getPostProcessSettings());
             fileSetting.setShadowSettings(live.getShadowSettings());
             new BinaryExporter(file).export(fileSetting);

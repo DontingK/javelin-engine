@@ -38,7 +38,9 @@ public class MeshRenderer extends Component implements Renderable {
     private Mesh mesh;
     @InsField(label = "ins.meshRenderer.materials")
     private ArrayList<Material> materials = new ArrayList<>();
+    @InsField(label = "ins.meshRenderer.castShadow")
     private boolean castShadow = true;
+    @InsField(label = "ins.meshRenderer.receiveShadow")
     private boolean receiveShadow = true;
 
     public Mesh getMesh() {

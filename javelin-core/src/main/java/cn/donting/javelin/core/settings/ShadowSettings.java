@@ -33,6 +33,12 @@ public class ShadowSettings implements Serializable {
     private float biasConstant = 2.0f;
     /** PSO 静态 depth bias 斜率项（随面斜率增大，批次④-A 起步值 1.5） */
     private float biasSlope = 1.5f;
+    /** CSM 级联数（1/2/4；1 = 退化为单张，与步骤一形态同源。缺省 2） */
+    private int cascadeCount = 2;
+    /** 阴影距离（世界单位；超出恒受光。缺省 100） */
+    private float shadowDistance = 100.0f;
+    /** 级联切分 lambda 混合系数（0=均匀、1=对数；缺省 0.5） */
+    private float cascadeLambda = 0.5f;
 
     public ShadowQuality getQuality() {
         return quality;
@@ -85,6 +91,33 @@ public class ShadowSettings implements Serializable {
         this.biasSlope = Math.max(biasSlope, 0.0f);
     }
 
+    public int getCascadeCount() {
+        return cascadeCount;
+    }
+
+    /** 级联数仅接受 1/2/4（其余忽略，保持现值） */
+    public void setCascadeCount(int cascadeCount) {
+        if (cascadeCount == 1 || cascadeCount == 2 || cascadeCount == 4) {
+            this.cascadeCount = cascadeCount;
+        }
+    }
+
+    public float getShadowDistance() {
+        return shadowDistance;
+    }
+
+    public void setShadowDistance(float shadowDistance) {
+        this.shadowDistance = Math.max(shadowDistance, 0.1f);
+    }
+
+    public float getCascadeLambda() {
+        return cascadeLambda;
+    }
+
+    public void setCascadeLambda(float cascadeLambda) {
+        this.cascadeLambda = Math.min(Math.max(cascadeLambda, 0.0f), 1.0f);
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("quality", quality);
@@ -93,6 +126,9 @@ public class ShadowSettings implements Serializable {
         output.write("refDepthOffset", refDepthOffset);
         output.write("biasConstant", biasConstant);
         output.write("biasSlope", biasSlope);
+        output.write("cascadeCount", cascadeCount);
+        output.write("shadowDistance", shadowDistance);
+        output.write("cascadeLambda", cascadeLambda);
     }
 
     @Override
@@ -107,5 +143,16 @@ public class ShadowSettings implements Serializable {
         refDepthOffset = input.readFloat("refDepthOffset");
         biasConstant = input.readFloat("biasConstant");
         biasSlope = input.readFloat("biasSlope");
+        // CSM 三项：旧文件缺键读 0 → 按合法性守卫保默认（级联数 0 不进 1/2/4；
+        // 距离 0 会致全暗，钳默认；lambda 0 合法仅越界归 0.5）
+        setCascadeCount(input.readInt("cascadeCount"));
+        float distance = input.readFloat("shadowDistance");
+        if (distance > 0.0f) {
+            shadowDistance = distance;
+        }
+        float lambda = input.readFloat("cascadeLambda");
+        if (lambda >= 0.0f && lambda <= 1.0f) {
+            cascadeLambda = lambda;
+        }
     }
 }

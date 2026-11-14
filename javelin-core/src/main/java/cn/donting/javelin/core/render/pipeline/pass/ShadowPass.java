@@ -39,20 +39,19 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 主光阴影深度 Pass（Engine_Lighting_Design §4.5，批次④：单张硬影）。
+ * 主光阴影深度 Pass（Engine_Lighting_Design §4.5 批次④ → 四期 CSM）。
  *
  * <p><b>覆盖制</b>（PickPass 同构先例）：不消费材质 shader 的 Pass 声明——用户
  * shader 零阴影声明负担，default.shader 兜底不受牵连。着色器装载走资产导入链
  * （2026-11-01 拍板）：内置 {@code builtin-asset-core/shadow/shadow.vert/.frag}
  * 源码经 SpvShaderImporter 编译 SPIR-V 落 Library，本 Pass 经
- * {@link AssetManager#loadAsset} 按路径加载（EditGridAppState 内置资产按路径
- * 加载先例；tool 内嵌 spv 路线同日推翻）。全局单张 shadowMap（2048² D32，
- * 非视口归属）CLEAR 后绘制全部 shadowCasters，depth-only 无颜色附件。</p>
+ * {@link AssetManager#loadAsset} 按路径加载。depth-only 无颜色附件。</p>
  *
- * <p><b>全局 Pass、per-view 幂等挂载</b>（拍板 2026-11-01）：buildGraph 按视口循环调用，
- * 本 Pass 以帧号门控——本帧首个视口 addToGraph 时挂载一次，后续视口跳过
- * （PickSystem.beginFrame 同款幂等先例）。恒清空 shadowMap：主光不投影
- * （无/关阴影/无 caster）时只清不画——全图深度 1.0 采样恒受光，图结构不随光照态抖动。</p>
+ * <p><b>per-view、逐级联</b>（四期 CSM §4.7）：每视口挂一 Pass（Pass 名 = 视口名 + ":Shadow"），
+ * 写该视口自己的 shadowMap atlas（cascadeCount≥2 时 2×2、每象限一级联）；atlas 一次 CLEAR 后
+ * 回调内逐级联 {@code setViewport/setScissor} 切象限绘制（VIEWPORT/SCISSOR 动态态，同一 PSO
+ * 复用）。恒清空：主光不投影（无/关阴影/无 caster）时只清不画——全图深度 1.0 采样恒受光，
+ * 图结构不随光照态抖动。</p>
  *
  * <p><b>PSO</b>：无描述符集（vs 只消费 push），push 布局 128B 专属（lightViewProj@0 +
  * model@64，非引擎材质 80B 布局）；depthBias 静态两项取阴影设置（改设置即整批重建，
@@ -78,8 +77,6 @@ public class ShadowPass implements RenderPass {
             .order(ByteOrder.LITTLE_ENDIAN);
     private final float[] lightViewProjTmp = new float[16];
     private final float[] worldTmp = new float[16];
-    /** 幂等挂载门控（本帧已挂载的帧号；buildGraph per-view 循环重复调用） */
-    private long lastAddedFrame = -1;
     private boolean shadowLogged;
     /** 当前 PSO 批次建库时用的 depth bias 两项（设置变化即整批重建；NaN = 尚未建库） */
     private float builtBiasConstant = Float.NaN;
@@ -108,44 +105,45 @@ public class ShadowPass implements RenderPass {
 
     @Override
     public void addToGraph(RenderGraphBuilder graph, PipelineContext ctx) {
-        long frameIndex = ctx.frame().frameIndex();
-        // 全局 Pass 幂等：本帧首视口挂载一次（多视口共享同一张 shadowMap）
-        if (frameIndex == lastAddedFrame) {
-            return;
-        }
-        if (frameIndex < lastAddedFrame) {
-            // 帧号回退（理论上不发生）：重挂避免整帧无影
-            log.warn("ShadowPass 帧号回退: {} < {}，重新挂载", frameIndex, lastAddedFrame);
-        }
-        lastAddedFrame = frameIndex;
-
         RenderingSystem rs = ctx.renderingSystem();
-        // caster 集取首视口列表（收集序覆盖全部 castShadow 不透明对象——cullingMask
-        // 差异致盒欠盖的风险由收集域超集口径兜底，RenderingSystem.computeShadow 注释）
         RenderView view = ctx.view();
         List<RenderObject> casters = view.list().shadowCasters();
-        // 视口随 shadowMap 实际尺寸（分辨率随主光组件参数可变，按需重建）
-        Texture shadowMap = rs.shadowMap();
-        int shadowMapSize = shadowMap.desc().width();
-        graph.addGraphicsPass("Shadow", pass -> {
-            pass.addDepthOutput(shadowMap, RHILoadOp.CLEAR,
+        int cascadeCount = rs.shadowCascadeCount(view.name());
+        int grid = rs.shadowAtlasGrid(view.name());
+        Texture atlas = rs.shadowMapFor(view.name());
+        int atlasSize = atlas.desc().width();
+        int quadSize = atlasSize / grid;
+        // 逐视口一 Pass（CSM §4.7）：atlas 一次 CLEAR，回调内逐级联切 viewport/scissor 绘制
+        // 到各象限（VIEWPORT/SCISSOR 是动态态，同一 PSO 复用）。Pass 名含视口名保全局唯一。
+        graph.addGraphicsPass(view.name() + ":Shadow", pass -> {
+            pass.addDepthOutput(atlas, RHILoadOp.CLEAR,
                     new RHIClearDepthStencil(1.0f, 0));
-            pass.setViewport(new RHIViewport(0.0f, 0.0f, shadowMapSize, shadowMapSize, 0.0f, 1.0f));
-            pass.setScissor(new RHIScissor(0, 0, shadowMapSize, shadowMapSize));
+            pass.setViewport(new RHIViewport(0.0f, 0.0f, atlasSize, atlasSize, 0.0f, 1.0f));
+            pass.setScissor(new RHIScissor(0, 0, atlasSize, atlasSize));
             pass.setRenderCallback(cmd -> {
-                // 恒挂载（保 shadowMap 写者存在 + 图结构稳定）：阴影关/无 caster 只清不画
+                // 恒挂载（保 atlas 写者存在 + 图结构稳定）：阴影关/无 caster 只清不画
                 // ——全图深度 1.0 采样恒受光；着色侧 castShadow 标志同步门控采样分支
                 ensurePipelineBias(rs);
+                if (!shadowLogged) {
+                    shadowLogged = true;
+                    log.info("首帧 Shadow 回调: 视口[{}] sunActive={} casters={} 级联={} atlas={}² grid={}",
+                            view.name(), rs.shadowSunActive(), casters.size(),
+                            cascadeCount, atlasSize, grid);
+                }
                 if (!rs.shadowSunActive() || casters.isEmpty()) {
                     return;
                 }
-                if (!shadowLogged) {
-                    shadowLogged = true;
-                    log.info("首帧 Shadow 回调执行: casters={}", casters.size());
-                }
-                float[] lightViewProj = rs.sunViewProj().get(lightViewProjTmp);
-                for (RenderObject ro : casters) {
-                    drawCaster(cmd, ro, lightViewProj);
+                for (int c = 0; c < cascadeCount; c++) {
+                    int col = c % grid;
+                    int row = c / grid;
+                    int qx = col * quadSize;
+                    int qy = row * quadSize;
+                    cmd.setViewport(new RHIViewport(qx, qy, quadSize, quadSize, 0.0f, 1.0f));
+                    cmd.setScissor(new RHIScissor(qx, qy, quadSize, quadSize));
+                    float[] lightViewProj = rs.shadowCascadeMatrix(view.name(), c).get(lightViewProjTmp);
+                    for (RenderObject ro : casters) {
+                        drawCaster(cmd, ro, lightViewProj);
+                    }
                 }
             });
         });

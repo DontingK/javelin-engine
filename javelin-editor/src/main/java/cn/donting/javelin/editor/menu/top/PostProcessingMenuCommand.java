@@ -1,6 +1,6 @@
 package cn.donting.javelin.editor.menu.top;
 
-import cn.donting.javelin.core.render.pipeline.PostProcessChain;
+import cn.donting.javelin.core.render.RenderSettings;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
@@ -57,11 +57,11 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
             LOGGER.warn("编辑器渲染管线未就绪，后处理开关不可用");
             return;
         }
-        PostProcessChain chain = pipeline.postProcess();
-        boolean next = !setup.isEnabled(chain, PostProcessSetup.TONEMAP);
+        boolean next = !setup.isEnabled(pipeline.postProcess(), PostProcessSetup.TONEMAP);
         try {
-            // 链装配要惰性创建 Tonemap 并装载内置着色器产物——缺失/坏产物属异常态，弹框不静默
-            setup.setEnabled(chain, PostProcessSetup.TONEMAP, next);
+            // 经渲染设置门面切换（内部同步 setting + 切链）；链装配要惰性创建 Tonemap 并装载
+            // 内置着色器产物——缺失/坏产物属异常态，弹框不静默
+            RenderSettings.setPostProcessingEnabled(next);
         } catch (RuntimeException e) {
             LOGGER.error("后处理链装配失败: enabled={}", next, e);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
@@ -70,7 +70,6 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
                     EditorLang.text("tools.postProcessing"), JOptionPane.ERROR_MESSAGE));
             return;
         }
-        editor.setting().setPostProcessing(next);
         LOGGER.info("后处理链切至 {}", next ? "开（HDR Tonemap）" : "关（直通）");
         persist(editor, next);
     }
@@ -83,7 +82,7 @@ public final class PostProcessingMenuCommand extends TopMenuCommand {
             JavelinSetting setting = settingFile.exists()
                     ? new BinaryImporter(settingFile).importData(JavelinSetting.class)
                     : new JavelinSetting();
-            setting.setPostProcessing(enabled);
+            setting.getPostProcessSettings().setTonemapEnabled(enabled);
             new BinaryExporter(settingFile).export(setting);
         } catch (Exception e) {
             LOGGER.error("后处理开关写盘失败: {}", enabled, e);

@@ -1,8 +1,9 @@
 # 引擎渲染设计（Engine Rendering Design）
 
-> 版本：v0.2
-> 日期：2026-09-24
+> 版本：v0.3
+> 日期：2026-09-24（v0.3 补 2026-11-14）
 > 说明：引擎侧渲染交接专档——**场景怎么变成 RHI 的输入**：RenderingSystem 注册表与每帧收集、RenderView/RenderList/RenderObject/FrameDescription 字段级定义（逻辑线程与渲染线程的交接契约，RHI 27.2）、与 RHI FrameLoop 的调用关系、Y 翻转落点（已拍板：投影矩阵）。
+> v0.3 变更（2026-11-14）：**新增 §11 渲染设置门面 `RenderSettings`**——背景/后处理/阴影的统一读写入口（静态门面，形态对齐 Input/Time），把「改哪个对象、调哪个方法」的分散路由内聚一处。
 > v0.2 变更（2026-09-25）：**场景渲染接入落地**——SceneRenderBridge pull 翻译层
 > （Camera→RenderCamera、MeshRenderer→RenderObject，阶段②遗留接线关闭）；
 > RenderObject 持 Material（4.2 内置无光照取舍关闭，材质桥 = Engine_Material_Design §4）。
@@ -172,11 +173,41 @@ mainLoop 每帧（Engine_Design 2.1）：
 | Mesh / VertexLayout | `Engine_Assets_Design.md` | RenderObject.mesh 的资产定义 |
 
 ## 10. 待定（P2）
-
 - Transform 快照语义（双线程前置，第 8.2）；
 - 遮挡剔除、GPU Instancing、LOD（Scene 8）；
 - 材质系统接入后 RenderObject 字段替换（4.2）；~~UBO1 槽内布局重排~~（灯光改走 set 1，2026-10-23 拍板，UBO1 槽不再扩排）；
 - 相机后处理配置（每视口 PostProcessChain 差异）、环境/天空盒快照。
+
+## 11. 渲染设置门面 RenderSettings（2026-11-14）
+
+**问题**：渲染设置此前分散四种改法、语义不一致——后处理开关与参数必须经 `PostProcessSetup`
+下发（改 `JavelinSetting` 无效），阴影直接改 `ShadowSettings` 活实例即生效，背景清屏色要
+同时下发管线与后处理节点两处。调用方须知道「改哪个对象 + 调哪个方法」。
+
+**方案**：`cn.donting.javelin.core.render.RenderSettings` 静态门面（形态对齐 `Input`/`Time`），
+引擎初始化后 `bind(setting, postProcessSetup, pipeline)`、`shutdown` 时 `unbind()`；
+**真值源不变**（`JavelinSetting`，持久化单点），门面写入即同步 setting 字段 + 下发对应子系统，
+差异全在门面内消化。
+
+| API 组 | 方法（节选） | 内部路由 |
+|--------|--------------|----------|
+| 背景 | `setBackgroundColor(Color)` / `background()` | setting + `pipeline.setClearColor` + `postProcessSetup.setClearColor` |
+| 后处理开关 | `setPostProcessingEnabled/isPostProcessingEnabled`、`setBloomEnabled/isBloomEnabled`、`setSsaoEnabled/isSsaoEnabled` | setting 布尔 + `postProcessSetup.setEnabled(chain, id, on)`（SSAO 仅 HYBRID，FORWARD 忽略并 warn） |
+| 后处理参数 | `setBloom(t,k,i)` / `setBloomThreshold|Knee|Intensity`、`setTonemapKnee`、`setSsao(r,b,i)` / `setSsaoRadius|Bias|Intensity`（+ getter） | setting 嵌套对象 + `postProcessSetup.setXxx` |
+| 阴影 | 扁平 `setShadowQuality/Strength/PcfRadius/RefDepthOffset/BiasConstant/BiasSlope/CascadeCount/Distance/CascadeLambda`（+ getter）；`shadow()` 返回 live 实例供批量/链式 | 写 `setting.getShadowSettings()` 活实例（引擎持有的同一实例，改即生效） |
+| 只读 | `pipelineProfile()` | `pipeline.profile()` |
+
+**约定**：① 未 bind 即调用抛 `IllegalStateException`（不静默）；② 门面不落盘——持久化仍走
+项目设置保存链；③ 范围限渲染域（背景/后处理/阴影），窗口域（vsync/maxFps/分辨率）不在本门面。
+
+**配套收拢（2026-11-14）**：Tonemap/Bloom/SSAO **三效果开关**原散在 `JavelinSetting` 顶层，
+已收进 `PostProcessSettings`（`tonemapEnabled`/`bloomEnabled`/`ssaoEnabled`，与各自参数同域；
+命名避与嵌套 `ssao` 参数对象撞名）；旧设置文件顶层 `postProcessing/bloom/ssao` 由
+`JavelinSetting.read` **一次性迁移**（只迁 true，新文件不写顶层键）。
+
+**消费方**：编辑器「项目设置」窗口已整体改为经门面写入（原 `applyShadowSettings`/`applyBloomParams`/
+`applySsaoParams`/`applyTonemapKnee`/`applyToggle`/背景路由收敛为门面调用，异常统一弹框）；
+「工具」域菜单命令（`tools.postProcessing`/`tools.bloom`）亦改走门面。
 
 ---
 

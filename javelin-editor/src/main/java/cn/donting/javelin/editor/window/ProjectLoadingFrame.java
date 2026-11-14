@@ -137,9 +137,7 @@ public class ProjectLoadingFrame extends JFrame {
             if (loaded.getBackgroundColor() != null) {
                 setting.setBackgroundColor(loaded.getBackgroundColor());
             }
-            setting.setPostProcessing(loaded.isPostProcessing());
-            setting.setBloom(loaded.isBloom());
-            setting.setSsao(loaded.isSsao());
+            // 后处理设置（三效果开关 + 参数）整体覆写（开关 2026-11-14 已收进 PostProcessSettings）
             if (loaded.getPostProcessSettings() != null) {
                 setting.setPostProcessSettings(loaded.getPostProcessSettings());
             }

@@ -1,7 +1,6 @@
 package cn.donting.javelin.core.render;
 
 import cn.donting.javelin.core.Time;
-import cn.donting.javelin.core.physics.collision.Aabb;
 import cn.donting.javelin.core.render.material.Material;
 import cn.donting.javelin.core.render.material.MaterialBlock;
 import cn.donting.javelin.core.render.material.MaterialProperty;
@@ -101,9 +100,18 @@ public final class RenderingSystem implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(RenderingSystem.class);
 
-    /** 内置着色程序 push constants 声明范围：mat4 model(64B) + float tpf(4B)，按 4 对齐取 80 */
+    /**
+     * 内置着色程序 push constants 声明范围：mat4 model(64B) + float tpf(4B) +
+     * float receiveShadow(4B)，按 4 对齐取 80。
+     */
     public static final int PUSH_SIZE = 80;
     public static final int PUSH_TPF_OFFSET = 64;
+    /**
+     * per-object 阴影接收标志位（四期阴影质量分级 §3.6，FORWARD 档承载）：
+     * 注入段读 {@code pc.receiveShadow}，1=接影 / 0=不接影；本批前该位为 padding（恒 0），
+     * 旧产物不重导时读到 0 = 全场景不接影——故注入器改动须强制重导。
+     */
+    public static final int PUSH_RECEIVE_SHADOW_OFFSET = 68;
 
     /** 单帧支持的最大相机数（UBO1 槽内相机块数） */
     public static final int MAX_CAMERAS = 4;
@@ -124,10 +132,14 @@ public final class RenderingSystem implements AutoCloseable {
     private static final int SLOT_SIZE = TIME_OFFSET + 256;
 
     // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
-    /** LightingParamsBlock 帧槽步长（std140 实需 320B，256 对齐进取；动态偏移单位） */
-    static final int LIGHTING_STRIDE = 512;
-    /** LightingParamsBlock 实需尺寸（方向光 256 + counts/grid/zParams/viewport/ambient 各 16 + sunViewProj 64 + shadowParams 16，批次④阴影段 + 四期阴影质量分级 §3.3） */
-    static final int LIGHTING_BLOCK_BYTES = 416;
+    /** LightingParamsBlock 帧槽步长（std140 实需 656B，256 对齐进取 768；动态偏移单位，四期 CSM §4.6） */
+    static final int LIGHTING_STRIDE = 768;
+    /**
+     * LightingParamsBlock 实需尺寸（四期 CSM §4.6）：方向光 256 + counts/grid/zParams/viewport/ambient
+     * 各 16（80）+ sunViewProj[4] 256 + cascadeSplits 16 + shadowParams 16 + shadowParams2 16
+     * + cascadeInvZ 16 = 656。
+     */
+    static final int LIGHTING_BLOCK_BYTES = 656;
     /**
      * 环境项（rgb + 强度）：v0.x = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
      * 用户拍板；原 0.15 中性灰占位作废）。真值源 = 天空盒环境光照，归四期第 4 项
@@ -135,8 +147,11 @@ public final class RenderingSystem implements AutoCloseable {
      */
     private static final float[] AMBIENT_COLOR = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    // ── 主光阴影（批次④，Engine_Lighting_Design §4.5：全局单张 2048² 硬影）──
-    /** shadowMap 缺省边长（构造期初建；实际分辨率随主光组件参数按需重建——ensureShadowMap） */
+    // ── 主光阴影（批次④ → 四期 CSM，Engine_Lighting_Design §4.5 / Engine_Shadow_Quality_Design §4）──
+    /**
+     * 阴影图缺省单级联边长（主光组件 {@code shadowResolution} 缺省值；实际分辨率随组件参数
+     * 按需重建，per-view atlas 边长 = 分辨率 × grid）。原「全局单张 2048²」口径已被 CSM per-view 取代。
+     */
     public static final int SHADOW_MAP_SIZE = 2048;
 
     private final Device device;
@@ -166,28 +181,53 @@ public final class RenderingSystem implements AutoCloseable {
     /** 索引池序列化暂存（poolUsed int；小端直写 hostVisible） */
     private ByteBuffer poolPack;
 
-    // 主光阴影资源（批次④）：shadowMap 全局单张 + 深度比较采样器（set1 binding4 消费）。
-    // shadowMap 非终态——分辨率随主光组件参数可变（computeShadow 里 ensureShadowMap
-    // 按需重建、旧图两帧退役，per-view set binding4 重指）
-    private Texture shadowMap;
-    private int shadowMapResolution;
+    // 主光阴影资源（批次④→四期 CSM）：per-view 资源族 + 深度比较采样器（set1 binding4 消费）。
+    // CSM 级联依赖各相机视锥 → shadowMap 由「全局单张」改 per-view（computeShadow(cam) 每帧
+    // 拟合；分辨率/级联数变化即重建、旧图两帧退役）。多级联共图 = atlas（cascadeCount≥2 时 2×2）。
+    private final Map<String, ViewShadow> viewShadows = new HashMap<>();
     private final Sampler shadowSampler;
     /** G-Buffer 采样器（HYBRID 档 LightingPass 消费；逐像素一一对应，NEAREST + CLAMP） */
     private final Sampler gbufferSampler;
-    /** 主光 世界→光裁剪 正交矩阵（帧首 collectFrame 重算；无主光/关阴影时值不消费——fs 侧 castShadow 标志门控） */
-    private final Matrix4f sunViewProj = new Matrix4f();
-    /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据 */
+    /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据（全局，与视口无关） */
     private boolean shadowSunActive;
-    /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项，Engine_Shadow_Quality_Design §3.2） */
+    /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项/CSM 级联三项，Engine_Shadow_Quality_Design §3.2/§4.8） */
     private ShadowSettings shadowSettings = new ShadowSettings();
-    /** 光空间 z 范围回填暂存（纯逻辑 out 参数数组；帧路径 exclusive，预分配复用） */
-    private final float[] shadowZRangeTmp = new float[1];
-    /** 末帧光空间 z 范围（世界单位，正交盒深度；参考深度偏移折算除数；未生效时保持初值） */
-    private float shadowZRange = 1.0f;
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
-    private final Aabb shadowWorldBounds = new Aabb();
-    private final Aabb casterBoundsTmp = new Aabb();
-    private final float[] sunViewProjTmp = new float[16];
+    /** 逐级联光空间 z 范围回填暂存（CSM，1/zRange 折算除数来源） */
+    private final float[] shadowZRangeTmp = new float[4];
+    /** CSM 级联混合带比例（相邻级联接缝软化；Babylon cascadeBlendPercentage 口径） */
+    private static final float SHADOW_CASCADE_BLEND = 0.1f;
+    /** 矩阵→float[] 拆解暂存 */
+    private final float[] matTmp = new float[16];
+    /** CSM 相机参数复用暂存（帧路径 exclusive） */
+    private final ShadowMath.CascadeParams cascadeParams = new ShadowMath.CascadeParams();
+
+    /**
+     * 每视口阴影资源（Engine_Shadow_Quality_Design §4.4）：级联共图 atlas + 逐级联
+     * 矩阵/切分/光空间 z 范围（参考深度偏移逐级联折算）。渲染域私有。
+     */
+    private static final class ViewShadow {
+        Texture map;
+        int resolution;
+        int cascadeCount;
+        /** atlas 每轴象限数（1 = 单张；2 = 2×2，cascadeCount 2 时只占前两象限） */
+        int grid;
+        int atlasSize;
+        final Matrix4f[] matrices = new Matrix4f[4];
+        final float[] splits = new float[4];
+        /** 1 / 光空间 z 范围（各级联正交盒深度；参考深度偏移折算除数） */
+        final float[] invZ = new float[4];
+
+        ViewShadow() {
+            for (int i = 0; i < 4; i++) {
+                matrices[i] = new Matrix4f();
+            }
+        }
+
+        void dispose() {
+            map.dispose();
+        }
+    }
 
     // 视口天空盒（批次⑤）：RHI cubemap 纹理引用——skyboxAsset 非空时本系统持有
     // （setSkybox(CubemapImage) 懒上传产物）并负责退役/关闭释放；为空时调用方持有
@@ -300,18 +340,10 @@ public final class RenderingSystem implements AutoCloseable {
                 frameSlots * MAX_CAMERAS * LIGHTING_STRIDE, Set.of(BufferUsage.UNIFORM),
                 MemoryPreference.hostVisibleCoherent()), null);
 
-        // 主光阴影资源（批次④）：全局单张深度图（DEPTH + SAMPLED 双 usage：Pass 写、
-        // set1 binding4 采样）+ 深度比较采样器。LINEAR=硬件双线性 PCF：比较采样器配
-        // LINEAR 滤波时 4 纹素比较结果按双线性权重平均，一次采样免费 2x2 软化——
-        // 2026-11-01 用户实机验收「边缘块状锯齿」反馈换装（NEAREST 硬取样作废；
-        // 3x3/5x5 邻域 PCF 归四期）。CLAMP_TO_EDGE 盒界外边缘纹素深度恒 1.0 采出
-        // 受光、compare LESS=未遮挡即 1.0
-        this.shadowMapResolution = SHADOW_MAP_SIZE;
-        this.shadowMap = device.createTexture(new TextureDesc(
-                TextureType.TYPE_2D, depthFormat(), shadowMapResolution, shadowMapResolution,
-                1, 1, 1, SampleCount.COUNT_1,
-                Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.SAMPLED),
-                MemoryPreference.deviceLocal()), null);
+        // 主光阴影采样器（深度比较）：shadowMap 由 per-view 资源族按需创建（computeShadow(cam)），
+        // 此处只建常驻比较采样器。LINEAR=硬件双线性 PCF：比较采样器配 LINEAR 滤波时 4 纹素
+        // 比较结果按双线性权重平均，一次采样免费 2x2 软化（2026-11-01 实机边缘块状锯齿反馈
+        // 换装，NEAREST 作废）；CLAMP_TO_EDGE 盒界外深度恒 1.0 采出受光、compare LESS 未遮挡=1.0
         this.shadowSampler = device.createSampler(new SamplerDesc(
                 Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
@@ -346,6 +378,10 @@ public final class RenderingSystem implements AutoCloseable {
             retire(depthTextures.remove(camera.name()));
             retire(pickIdTextures.remove(camera.name()));
             retire(pickDepthTextures.remove(camera.name()));
+            ViewShadow viewShadow = viewShadows.remove(camera.name());
+            if (viewShadow != null) {
+                retire(viewShadow.map);
+            }
             retire(lightingRtTextures.remove(camera.name()));
             retirePostRts(camera.name());
             retireBloomRts(camera.name());
@@ -766,12 +802,12 @@ public final class RenderingSystem implements AutoCloseable {
         int lightSlotBase = (int) (frameIndex % frameSlots) * MAX_CAMERAS * LIGHTING_STRIDE;
         float tpf = Time.getDeltaTime();
         sortCamerasByDepth();
-        computeShadow();
 
         List<RenderView> views = new ArrayList<>();
         int camIndex = 0;
         for (RenderCamera cam : sortedCameras) {
             cam.recalculate();
+            computeShadow(cam);   // per-view 级联拟合（四期 CSM：依赖各相机视锥）
             int camOffset = slotBase + camIndex * CAMERA_STRIDE;
             uboBuffer.writeAligned(camOffset, FloatBuffer.wrap(cam.viewProj().get(new float[16])));
             // CameraBlock.view（批次③）：vs 传视空间位置/法线插值（Lit 类受光着色器）
@@ -883,9 +919,85 @@ public final class RenderingSystem implements AutoCloseable {
      * castShadow 标志仅在主光为真时生效（ShadowPass 只服务主光）。无线性剔除——
      * shadowCasters 盒盖全场景拍板，场景规模裁剪归 CSM 期。
      */
-    private void computeShadow() {
-        // 主光裁决：最强激活方向光（castShadow 位不参与裁决——关阴影主光仍占槽 0，
-        // 着色侧 w=0 跳采样，本帧不画 ShadowPass）
+    /**
+     * 主光阴影帧收集（四期 CSM §4.4，**per-view**）：主光裁决（全局一致，与 LightCollector
+     * 同口径——最强激活方向光，tie 取列表序首个）→ 逐视口按自己视锥拟合级联盒
+     * （{@link ShadowMath#buildCascades}）→ 建/换 per-view shadowMap atlas。级联依赖各相机
+     * 视锥，故 shadowMap 由「全局单张」改 per-view。级联数 1 时退化为「相机视锥拟合的单张」。
+     *
+     * <p>caster 集 = 全体 castShadow 不透明对象（不按视口 cullingMask 过滤，超集保守）。
+     * castShadow 标志仅在主光为真时生效；主光关影时矩阵置恒受光、ShadowPass 只清 atlas。</p>
+     */
+    private void computeShadow(RenderCamera cam) {
+        RenderLight sun = resolveSun();
+        shadowSunActive = sun != null && sun.isCastShadow();
+        ShadowSettings shadow = shadowSettings;
+        int count = shadow.getCascadeCount();
+        int resolution = sun != null ? sun.shadowResolution() : SHADOW_MAP_SIZE;
+        // atlas：级联数≥2 用 2×2（2 级联只占前两象限，atlas 保持正方形——单纹素尺度 u/v 同值）
+        int grid = count >= 2 ? 2 : 1;
+        int atlasSize = resolution * grid;
+
+        ViewShadow vs = viewShadows.get(cam.name());
+        if (vs != null && (vs.resolution != resolution || vs.cascadeCount != count)) {
+            viewShadows.remove(cam.name());
+            retire(vs.map);   // 旧图两帧退役
+            vs = null;
+        }
+        if (vs == null) {
+            vs = new ViewShadow();
+            vs.resolution = resolution;
+            vs.cascadeCount = count;
+            vs.grid = grid;
+            vs.atlasSize = atlasSize;
+            vs.map = device.createTexture(new TextureDesc(
+                    TextureType.TYPE_2D, depthFormat(), atlasSize, atlasSize,
+                    1, 1, 1, SampleCount.COUNT_1,
+                    Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.SAMPLED),
+                    MemoryPreference.deviceLocal()), null);
+            viewShadows.put(cam.name(), vs);
+            // 已建视口 set1 binding4 重指新图（新建视口走 viewLightsFor 常规链，读的已是新图）
+            ViewLighting vl = viewLights.get(cam.name());
+            if (vl != null) {
+                vl.set.update(DescriptorUpdate.sampledTexture(4, vs.map, shadowSampler));
+            }
+            log.info("视口阴影图创建: camera[{}] {}²×级联 {} → atlas {}²（grid {}）",
+                    cam.name(), resolution, count, atlasSize, grid);
+        }
+
+        if (!shadowSunActive) {
+            // 关影态：矩阵置恒受光（不消费），ShadowPass 只清 atlas
+            for (int i = 0; i < 4; i++) {
+                vs.matrices[i].identity();
+                vs.splits[i] = cam.farZ();
+                vs.invZ[i] = 1.0f;
+            }
+            return;
+        }
+        for (int i = 0; i < 4; i++) {
+            vs.splits[i] = cam.farZ();   // 未用槽兜底（采样循环只走到 count）
+        }
+        // 级联拟合（相机基向量自建，避 viewProj 的 Y 翻转）
+        ShadowMath.CascadeParams cp = cascadeParams;
+        cp.position.set(cam.position());
+        cp.forward.set(cam.target()).sub(cam.position()).normalize();
+        cp.up.set(cam.up());
+        cp.fovY = cam.fovY();
+        cp.orthographicSize = cam.orthographicSize();
+        cp.aspect = cam.viewportHeight() > 0
+                ? (float) cam.viewportWidth() / cam.viewportHeight() : 1.0f;
+        cp.nearZ = cam.nearZ();
+        cp.farZ = Math.min(cam.farZ(), Math.max(shadow.getShadowDistance(), cam.nearZ() + 1e-3f));
+        cp.orthographic = cam.projectionType() == ProjectionType.ORTHOGRAPHIC;
+        ShadowMath.buildCascades(sun.worldDir(), cp, shadow.getCascadeLambda(), count, resolution,
+                vs.matrices, vs.splits, shadowZRangeTmp);
+        for (int i = 0; i < count; i++) {
+            vs.invZ[i] = 1.0f / Math.max(shadowZRangeTmp[i], 1e-4f);
+        }
+    }
+
+    /** 主光裁决：最强激活方向光（castShadow 位不参与——关阴影主光仍占槽 0，着色侧跳采样） */
+    private RenderLight resolveSun() {
         RenderLight sun = null;
         float sunIntensity = Float.NEGATIVE_INFINITY;
         for (RenderLight light : lights) {
@@ -895,42 +1007,7 @@ public final class RenderingSystem implements AutoCloseable {
                 sun = light;
             }
         }
-        shadowSunActive = sun != null && sun.isCastShadow();
-        if (!shadowSunActive) {
-            return;   // 矩阵值不消费：主光槽 castShadow=0 → fs 采样分支整段跳过
-        }
-        // 主光阴影图分辨率随组件参数（Inspector 编辑即时生效——按需重建，旧图两帧退役）
-        ensureShadowMap(sun.shadowResolution());
-
-        // caster 世界包围盒并集（本地 bounds 行和公式精确值 × world；空集兜底 -1..1
-        // 保矩阵有限——shadowMap 全清后采样恒受光，画面语义不变）
-        Vector3f min = shadowWorldBounds.getMin();
-        Vector3f max = shadowWorldBounds.getMax();
-        min.set(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE);
-        max.set(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE);
-        boolean anyCaster = false;
-        for (RenderObject ro : renderers) {
-            if (!ro.isCastShadow() || ro.isTransparent()) {
-                continue;
-            }
-            ro.mesh().getBounds().transform(ro.world(), casterBoundsTmp);
-            Vector3f cMin = casterBoundsTmp.getMin();
-            Vector3f cMax = casterBoundsTmp.getMax();
-            min.x = Math.min(min.x, cMin.x);
-            min.y = Math.min(min.y, cMin.y);
-            min.z = Math.min(min.z, cMin.z);
-            max.x = Math.max(max.x, cMax.x);
-            max.y = Math.max(max.y, cMax.y);
-            max.z = Math.max(max.z, cMax.z);
-            anyCaster = true;
-        }
-        if (!anyCaster) {
-            min.set(-1.0f, -1.0f, -1.0f);
-            max.set(1.0f, 1.0f, 1.0f);
-        }
-        ShadowMath.buildSunViewProj(sun.worldDir(), shadowWorldBounds, sunViewProj, shadowZRangeTmp);
-        // 光空间 z 范围（正交盒深度）：着色侧参考深度偏移（世界单位）→ 裁剪 z 增量的除数
-        shadowZRange = Math.max(shadowZRangeTmp[0], 1e-4f);
+        return sun;
     }
 
     /** 主光阴影是否本帧生效（主光存在且 castShadow；ShadowPass 挂点判据） */
@@ -938,14 +1015,34 @@ public final class RenderingSystem implements AutoCloseable {
         return shadowSunActive;
     }
 
-    /** 主光 世界→光裁剪 正交矩阵（ShadowPass push 消费；仅 shadowSunActive 时有效） */
-    public Matrix4f sunViewProj() {
-        return sunViewProj;
+    /** 每视口阴影资源（四期 CSM；私有——对外走下面基本访问器） */
+    private ViewShadow shadowView(String cameraName) {
+        ViewShadow vs = viewShadows.get(cameraName);
+        if (vs == null) {
+            throw new IllegalStateException("视口阴影资源缺失: camera[" + cameraName
+                    + "]（帧收集必须先于图构建执行）");
+        }
+        return vs;
     }
 
-    /** 全局单张 shadowMap（ShadowPass 深度输出 / Forward Pass 图声明采样读） */
-    public Texture shadowMap() {
-        return shadowMap;
+    /** 本视口 shadowMap atlas（ShadowPass 深度输出 / Forward·Lighting Pass 图声明采样读） */
+    public Texture shadowMapFor(String cameraName) {
+        return shadowView(cameraName).map;
+    }
+
+    /** 本视口级联数（1/2/4） */
+    public int shadowCascadeCount(String cameraName) {
+        return shadowView(cameraName).cascadeCount;
+    }
+
+    /** 本视口 atlas 每轴象限数（1 或 2；ShadowPass 象限定位用） */
+    public int shadowAtlasGrid(String cameraName) {
+        return shadowView(cameraName).grid;
+    }
+
+    /** 本视口第 cascade 级联的 世界→光裁剪 矩阵（ShadowPass push 消费） */
+    public Matrix4f shadowCascadeMatrix(String cameraName, int cascade) {
+        return shadowView(cameraName).matrices[cascade];
     }
 
     /**
@@ -1005,37 +1102,12 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
-     * shadowMap 按需重建（分辨率变化时）：新图即时替换、旧图两帧退役（GPU in-flight
-     * 安全）；已建视口的 set1 binding4 重指新图（新建视口走 viewLightsFor 常规链，
-     * 读的已是新图）。图句柄变化经 Opaque/Transparent 的 addTextureRead 进
-     * structureHash 自动失效图缓存。
-     */
-    private void ensureShadowMap(int resolution) {
-        if (shadowMap != null && shadowMapResolution == resolution) {
-            return;
-        }
-        if (shadowMap != null) {
-            Texture retired = shadowMap;
-            retireResource(retired::dispose);
-            log.info("shadowMap 分辨率切换: {} -> {}（旧图两帧退役）", shadowMapResolution, resolution);
-        }
-        shadowMapResolution = resolution;
-        shadowMap = device.createTexture(new TextureDesc(
-                TextureType.TYPE_2D, depthFormat(), resolution, resolution,
-                1, 1, 1, SampleCount.COUNT_1,
-                Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.SAMPLED),
-                MemoryPreference.deviceLocal()), null);
-        for (ViewLighting vl : viewLights.values()) {
-            vl.set.update(DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler));
-        }
-    }
-
-    /**
      * LightingParamsBlock 打包（std140，与 ShaderInjector 注入声明同源）：
      * directional[8]×2vec4（槽 0=主光，视空间方向）/ ivec4 counts / ivec4 gridDim
-     * （批次③：xy=维度 z=Z 切片数 w=tileSize）/ vec4 zParams（near/far/ortho 标志）/
-     * vec4 viewport（帧缓冲左上原点+尺寸，gl_FragCoord 同源）/ vec4 ambient。
-     * 主光阴影段批次④扩块。字段详表=Engine_Uniform_Keys §4-1。
+     * （批次③：xy=维度 z=Z 切片数 w=tileSize）/ vec4 zParams（near/far/ortho 标志/级联数）/
+     * vec4 viewport（帧缓冲左上原点+尺寸，gl_FragCoord 同源）/ vec4 ambient /
+     * sunViewProj[4] + cascadeSplits + shadowParams + shadowParams2 + cascadeInvZ（四期 CSM §4.6）。
+     * 字段详表=Engine_Uniform_Keys §4-1。
      */
     private void packLightingParams(int offset, RenderCamera cam, int gridX, int gridY) {
         lightingPack.clear();
@@ -1062,26 +1134,41 @@ public final class RenderingSystem implements AutoCloseable {
         lightingPack.putInt(0).putInt(0);   // counts.zw 预留
         lightingPack.putInt(gridX).putInt(gridY)
                 .putInt(ClusterBuilder.Z_SLICES).putInt(ClusterBuilder.TILE_SIZE);   // gridDim
+        ViewShadow vs = shadowView(cam.name());
         lightingPack.putFloat(cam.nearZ()).putFloat(cam.farZ())
                 .putFloat(cam.projectionType() == ProjectionType.ORTHOGRAPHIC ? 1.0f : 0.0f)
-                .putFloat(0.0f);   // zParams：正交=Z 线性切分分支标志
+                .putFloat(vs.cascadeCount);   // zParams：正交=Z 线性切分；w=级联数（CSM §4.6）
         lightingPack.putFloat(cam.viewportX()).putFloat(cam.viewportY())
                 .putFloat(cam.viewportWidth()).putFloat(cam.viewportHeight());   // viewport
         lightingPack.putFloat(AMBIENT_COLOR[0]).putFloat(AMBIENT_COLOR[1])
                 .putFloat(AMBIENT_COLOR[2]).putFloat(AMBIENT_COLOR[3]);
-        // 主光阴影段（批次④）：sunViewProj（世界→光裁剪，fs 采样重建 shadow UV 消费；
-        // 无主光/关阴影时值不消费——w=castShadow 标志门控）
-        for (float v : sunViewProj.get(sunViewProjTmp)) {
-            lightingPack.putFloat(v);
+        // 级联矩阵段（四期 CSM §4.6，@336）：sunViewProj[4]（世界→光裁剪，逐级联；未用槽
+        // 写 identity——采样循环只走到 cascadeCount）
+        for (int c = 0; c < 4; c++) {
+            for (float v : vs.matrices[c].get(matTmp)) {
+                lightingPack.putFloat(v);
+            }
         }
-        // 阴影参数段（四期阴影质量分级 §3.3，@400）：x=品质档编码（ShadowQuality.code()）
-        // / y=PCF 半径（纹素）/ z=阴影强度 / w=参考深度偏移（已折算的裁剪 z 增量——
-        // 正交光空间里常数 z 偏移 = 常数世界距离，世界单位偏移除以光空间 z 范围）
+        // cascadeSplits（@592）：各级联视空间 z 远界（超出末级联恒受光）
+        for (int c = 0; c < 4; c++) {
+            lightingPack.putFloat(vs.splits[c]);
+        }
+        // shadowParams（@608）：x=品质档编码 / y=PCF 半径（纹素）/ z=阴影强度 /
+        // w=参考深度偏移（**世界单位**，逐级联乘 cascadeInvZ 折算成裁剪 z 增量）
         ShadowSettings shadow = shadowSettings;
         lightingPack.putFloat(shadow.getQuality().code())
                 .putFloat(shadow.getPcfRadius())
                 .putFloat(shadow.getStrength())
-                .putFloat(shadow.getRefDepthOffset() / shadowZRange);
+                .putFloat(shadow.getRefDepthOffset());
+        // shadowParams2（@624）：x=atlas 每轴象限数 / y=atlas 边长 / z=级联混合带比例 / w=0
+        lightingPack.putFloat(vs.grid)
+                .putFloat(vs.atlasSize)
+                .putFloat(SHADOW_CASCADE_BLEND)
+                .putFloat(0.0f);
+        // cascadeInvZ（@640）：逐级联 1/光空间 z 范围（参考深度偏移折算除数）
+        for (int c = 0; c < 4; c++) {
+            lightingPack.putFloat(vs.invZ[c]);
+        }
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }
@@ -1374,7 +1461,7 @@ public final class RenderingSystem implements AutoCloseable {
                 DescriptorUpdate.storageBuffer(1, lightList),
                 DescriptorUpdate.storageBuffer(2, clusterGrid),
                 DescriptorUpdate.storageBuffer(3, clusterIndices),
-                DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler),
+                DescriptorUpdate.sampledTexture(4, shadowMapFor(cameraName), shadowSampler),
                 DescriptorUpdate.sampledTexture(5, gbufferAlbedo, gbufferSampler),
                 DescriptorUpdate.sampledTexture(6, gbufferNormal, gbufferSampler),
                 DescriptorUpdate.sampledTexture(7, gbufferWorldPos, gbufferSampler)});
@@ -1640,7 +1727,8 @@ public final class RenderingSystem implements AutoCloseable {
         viewLights.values().forEach(ViewLighting::dispose);
         viewLights.clear();
         lightingBuffer.dispose();
-        shadowMap.dispose();
+        viewShadows.values().forEach(ViewShadow::dispose);
+        viewShadows.clear();
         shadowSampler.dispose();
         gbufferSampler.dispose();
         samplers.values().forEach(Sampler::dispose);

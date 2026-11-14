@@ -43,8 +43,32 @@ public final class ShaderInjector {
                 mat4 view;
             } cam;""";
     private static final String PUSH_BLOCK =
-            "layout(push_constant) uniform PushBlock { mat4 model; float tpf; } pc;";
+            "layout(push_constant) uniform PushBlock { mat4 model; float tpf; float receiveShadow; } pc;";
     private static final String ENGINE_BLOCKS = CAMERA_BLOCK + "\n" + PUSH_BLOCK;
+
+    /**
+     * per-object 接收阴影标志取法（四期 §3.6）——按注入变体不同：
+     *
+     * <ul>
+     *   <li><b>材质 fs</b>（FORWARD 档）：读 push 空余位 {@code pc.receiveShadow}
+     *       （{@code RenderingSystem.PUSH_RECEIVE_SHADOW_OFFSET=68}）——逐物体绘制天然
+     *       per-draw；PushBlock 已注入，直接读。</li>
+     *   <li><b>全屏光照</b>（HYBRID 档）：LightingPass 无物体身份，标志经 G-Buffer
+     *       {@code albedo.a} 逐像素传回（GBuffer 几何 Pass 写 1/0），按 gl_FragCoord
+     *       像素坐标 texelFetch 取。albedo 为 RGBA8，0.5→~0.502 &gt; 0.5 判真可靠</li>
+     * </ul>
+     *
+     * <p>{@code javelinLighting} 内不区分变体（同一常量），只调本辅助函数——故 LIGHTING_BLOCKS
+     * 两档同源，差异仅在这两个变体常量。</p>
+     */
+    private static final String RECEIVE_SHADOW_PUSH = """
+            float javelinReceiveShadow() {
+                return pc.receiveShadow;
+            }""";
+    private static final String RECEIVE_SHADOW_GBUFFER = """
+            float javelinReceiveShadow() {
+                return texelFetch(gbufferAlbedo, ivec2(gl_FragCoord.xy), 0).a > 0.5 ? 1.0 : 0.0;
+            }""";
 
     /**
      * set1 光照声明 + 光照段函数（只注入 fs，Engine_Lighting_Design §3.3/§3.4/§6/§7
@@ -74,8 +98,11 @@ public final class ShaderInjector {
                 vec4 zParams;
                 vec4 viewport;
                 vec4 ambient;
-                mat4 sunViewProj;
+                mat4 sunViewProj[4];
+                vec4 cascadeSplits;
                 vec4 shadowParams;
+                vec4 shadowParams2;
+                vec4 cascadeInvZ;
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
@@ -88,12 +115,72 @@ public final class ShaderInjector {
             };
             layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
 
-            // 单 tap 深度比较（越界按受光 1.0——与阴影盒外语义一致，避免软核在盒边缘硬切）
-            float javelinShadowTap(vec2 tuv, float refZ) {
-                if (tuv.x < 0.0 || tuv.x > 1.0 || tuv.y < 0.0 || tuv.y > 1.0) {
+            // per-object 接收阴影标志（变体实现见 RECEIVE_SHADOW_PUSH / RECEIVE_SHADOW_GBUFFER）
+            float javelinReceiveShadow();
+
+            // 单 tap 深度比较（夹取到象限界内——PCF 核不跨 atlas 象限渗漏）
+            float javelinShadowTapC(vec2 tuv, float refZ, vec2 qmin, vec2 qmax) {
+                return texture(shadowMap, vec3(clamp(tuv, qmin, qmax), refZ));
+            }
+
+            // 单级联阴影因子（四期 CSM §4.5/§4.6）：该级联矩阵投影 → atlas 象限定位 →
+            // 品质档 PCF（核夹在象限内）。shadowParams.w = 参考深度偏移（世界单位），
+            // cascadeInvZ[c] = 1/光空间 z 范围（逐级联折算成裁剪 z 增量）。盒外=受光。
+            float javelinCascadeShadow(int cascade, vec3 worldPos) {
+                vec3 proj = (lighting.sunViewProj[cascade] * vec4(worldPos, 1.0)).xyz;
+                if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0
+                        || proj.z < 0.0 || proj.z > 1.0) {
                     return 1.0;
                 }
-                return texture(shadowMap, vec3(tuv, refZ));
+                float grid = lighting.shadowParams2.x;
+                float atlasSize = lighting.shadowParams2.y;
+                float quad = 1.0 / grid;
+                int col = cascade - (cascade / int(grid)) * int(grid);
+                int row = cascade / int(grid);
+                vec2 quadOrigin = vec2(float(col), float(row)) * quad;
+                vec2 uv = quadOrigin + (proj.xy * 0.5 + 0.5) * quad;
+                float refZ = proj.z + lighting.shadowParams.w * lighting.cascadeInvZ[cascade];
+                int pcfMode = int(lighting.shadowParams.x);
+                float pcfRadius = lighting.shadowParams.y;
+                if (pcfMode <= 0 || pcfRadius <= 0.0) {
+                    return texture(shadowMap, vec3(uv, refZ));
+                }
+                // MJP 亚纹素权重（Babylon shadowsFragmentFunctions.fx:382/443）：4 tap 复现 3×3、
+                // 9 tap 复现 5×5 高斯；texelSize = 1/atlas 边长（正方形 atlas，跨级联一致）
+                float texelSize = 1.0 / atlasSize;
+                vec2 qmin = quadOrigin + vec2(texelSize * 0.5);
+                vec2 qmax = quadOrigin + vec2(quad) - vec2(texelSize * 0.5);
+                vec2 uvT = uv * atlasSize + 0.5;
+                vec2 st = fract(uvT);
+                vec2 base = (floor(uvT) - 0.5) * texelSize;
+                if (pcfMode == 1) {
+                    vec2 uvw0 = 3.0 - 2.0 * st;
+                    vec2 uvw1 = 1.0 + 2.0 * st;
+                    vec2 u = vec2((2.0 - st.x) / uvw0.x - 1.0, st.x / uvw1.x + 1.0) * texelSize * pcfRadius;
+                    vec2 v = vec2((2.0 - st.y) / uvw0.y - 1.0, st.y / uvw1.y + 1.0) * texelSize * pcfRadius;
+                    float s = uvw0.x * uvw0.y * javelinShadowTapC(base + vec2(u.x, v.x), refZ, qmin, qmax)
+                            + uvw1.x * uvw0.y * javelinShadowTapC(base + vec2(u.y, v.x), refZ, qmin, qmax)
+                            + uvw0.x * uvw1.y * javelinShadowTapC(base + vec2(u.x, v.y), refZ, qmin, qmax)
+                            + uvw1.x * uvw1.y * javelinShadowTapC(base + vec2(u.y, v.y), refZ, qmin, qmax);
+                    return s / 16.0;
+                }
+                vec2 uvw0 = 4.0 - 3.0 * st;
+                vec2 uvw1 = vec2(7.0);
+                vec2 uvw2 = 1.0 + 3.0 * st;
+                vec3 u = vec3((3.0 - 2.0 * st.x) / uvw0.x - 2.0, (3.0 + st.x) / uvw1.x,
+                        st.x / uvw2.x + 2.0) * texelSize * pcfRadius;
+                vec3 v = vec3((3.0 - 2.0 * st.y) / uvw0.y - 2.0, (3.0 + st.y) / uvw1.y,
+                        st.y / uvw2.y + 2.0) * texelSize * pcfRadius;
+                float s = uvw0.x * uvw0.y * javelinShadowTapC(base + vec2(u.x, v.x), refZ, qmin, qmax)
+                        + uvw1.x * uvw0.y * javelinShadowTapC(base + vec2(u.y, v.x), refZ, qmin, qmax)
+                        + uvw2.x * uvw0.y * javelinShadowTapC(base + vec2(u.z, v.x), refZ, qmin, qmax)
+                        + uvw0.x * uvw1.y * javelinShadowTapC(base + vec2(u.x, v.y), refZ, qmin, qmax)
+                        + uvw1.x * uvw1.y * javelinShadowTapC(base + vec2(u.y, v.y), refZ, qmin, qmax)
+                        + uvw2.x * uvw1.y * javelinShadowTapC(base + vec2(u.z, v.y), refZ, qmin, qmax)
+                        + uvw0.x * uvw2.y * javelinShadowTapC(base + vec2(u.x, v.z), refZ, qmin, qmax)
+                        + uvw1.x * uvw2.y * javelinShadowTapC(base + vec2(u.y, v.z), refZ, qmin, qmax)
+                        + uvw2.x * uvw2.y * javelinShadowTapC(base + vec2(u.z, v.z), refZ, qmin, qmax);
+                return s / 144.0;
             }
 
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
@@ -102,69 +189,30 @@ public final class ShaderInjector {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);
                     float shadow = 1.0;
-                    // 主光单张硬影（批次④）+ 品质档 PCF（四期阴影质量分级 §3.4）：槽 0
-                    // castShadow 位门控；sunViewProj 正交投影（z 映 [0,1]），NDC xy×0.5+0.5
-                    // 成采样 UV；盒外/越深度界=受光。compare LESS：参考深度（像素到光深度）
-                    // < 纹素深度（最近遮挡面）= 1.0
-                    if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
-                        vec3 proj = (lighting.sunViewProj * vec4(worldPos, 1.0)).xyz;
-                        if (proj.x >= -1.0 && proj.x <= 1.0
-                                && proj.y >= -1.0 && proj.y <= 1.0
-                                && proj.z >= 0.0 && proj.z <= 1.0) {
-                            vec2 uv = proj.xy * 0.5 + 0.5;
-                            // 参考深度偏移（世界单位，CPU 侧按光空间 z 范围折算成裁剪 z 增量）：
-                            // 正交光空间里常数 z 偏移 = 常数世界距离，抗彼得潘宁的细调项
-                            float refZ = proj.z + lighting.shadowParams.w;
-                            int pcfMode = int(lighting.shadowParams.x);
-                            float pcfRadius = lighting.shadowParams.y;
-                            float pcfShadow;
-                            if (pcfMode <= 0 || pcfRadius <= 0.0) {
-                                // 硬影档：单次比较采样（硬件 2×2 比较双线性仍在）
-                                pcfShadow = javelinShadowTap(uv, refZ);
-                            } else {
-                                // MJP 亚纹素权重（Babylon shadowsFragmentFunctions.fx:382/443）：
-                                // 4 tap 复现 3×3、9 tap 复现 5×5 高斯——权重和 16/144 已含分布
-                                // 归一，故直接除常数；PCF 半径按纹素缩放核偏移（Babylon 同式
-                                // 全程用「1/边长」标量——阴影图为正方形，x/y 纹素尺度相同）
-                                vec2 texSize = vec2(textureSize(shadowMap, 0));
-                                float texelSize = 1.0 / texSize.x;
-                                vec2 uvT = uv * texSize + 0.5;   // 纹素中心坐标
-                                vec2 st = fract(uvT);            // 亚纹素偏移
-                                vec2 base = (floor(uvT) - 0.5) * texelSize;
-                                if (pcfMode == 1) {
-                                    vec2 uvw0 = 3.0 - 2.0 * st;
-                                    vec2 uvw1 = 1.0 + 2.0 * st;
-                                    vec2 u = vec2((2.0 - st.x) / uvw0.x - 1.0,
-                                            st.x / uvw1.x + 1.0) * texelSize * pcfRadius;
-                                    vec2 v = vec2((2.0 - st.y) / uvw0.y - 1.0,
-                                            st.y / uvw1.y + 1.0) * texelSize * pcfRadius;
-                                    pcfShadow =
-                                            uvw0.x * uvw0.y * javelinShadowTap(base + vec2(u.x, v.x), refZ)
-                                            + uvw1.x * uvw0.y * javelinShadowTap(base + vec2(u.y, v.x), refZ)
-                                            + uvw0.x * uvw1.y * javelinShadowTap(base + vec2(u.x, v.y), refZ)
-                                            + uvw1.x * uvw1.y * javelinShadowTap(base + vec2(u.y, v.y), refZ);
-                                    pcfShadow /= 16.0;
-                                } else {
-                                    vec2 uvw0 = 4.0 - 3.0 * st;
-                                    vec2 uvw1 = vec2(7.0);
-                                    vec2 uvw2 = 1.0 + 3.0 * st;
-                                    vec3 u = vec3((3.0 - 2.0 * st.x) / uvw0.x - 2.0,
-                                            (3.0 + st.x) / uvw1.x,
-                                            st.x / uvw2.x + 2.0) * texelSize * pcfRadius;
-                                    vec3 v = vec3((3.0 - 2.0 * st.y) / uvw0.y - 2.0,
-                                            (3.0 + st.y) / uvw1.y,
-                                            st.y / uvw2.y + 2.0) * texelSize * pcfRadius;
-                                    pcfShadow =
-                                            uvw0.x * uvw0.y * javelinShadowTap(base + vec2(u.x, v.x), refZ)
-                                            + uvw1.x * uvw0.y * javelinShadowTap(base + vec2(u.y, v.x), refZ)
-                                            + uvw2.x * uvw0.y * javelinShadowTap(base + vec2(u.z, v.x), refZ)
-                                            + uvw0.x * uvw1.y * javelinShadowTap(base + vec2(u.x, v.y), refZ)
-                                            + uvw1.x * uvw1.y * javelinShadowTap(base + vec2(u.y, v.y), refZ)
-                                            + uvw2.x * uvw1.y * javelinShadowTap(base + vec2(u.z, v.y), refZ)
-                                            + uvw0.x * uvw2.y * javelinShadowTap(base + vec2(u.x, v.z), refZ)
-                                            + uvw1.x * uvw2.y * javelinShadowTap(base + vec2(u.y, v.z), refZ)
-                                            + uvw2.x * uvw2.y * javelinShadowTap(base + vec2(u.z, v.z), refZ);
-                                    pcfShadow /= 144.0;
+                    // 主光 CSM 阴影（四期 §4.5）：槽 0 castShadow 位门控 + per-object
+                    // javelinReceiveShadow（§3.6）；按 -viewPos.z 选级联（超出末级联恒受光），
+                    // 相邻级联混合带内 mix 两张（接缝软化）
+                    if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5
+                            && javelinReceiveShadow() > 0.5) {
+                        int cc = int(lighting.zParams.w);
+                        float dist = -viewPos.z;
+                        int idx = -1;
+                        for (int k = 0; k < cc; k++) {
+                            if (dist < lighting.cascadeSplits[k]) {
+                                idx = k;
+                                break;
+                            }
+                        }
+                        if (idx >= 0) {
+                            float pcfShadow = javelinCascadeShadow(idx, worldPos);
+                            float splitFar = lighting.cascadeSplits[idx];
+                            float blendPct = lighting.shadowParams2.z;
+                            if (idx + 1 < cc && blendPct > 0.0) {
+                                float blendStart = splitFar * (1.0 - blendPct);
+                                if (dist > blendStart) {
+                                    float t = (dist - blendStart) / max(splitFar - blendStart, 1e-6);
+                                    pcfShadow = mix(pcfShadow,
+                                            javelinCascadeShadow(idx + 1, worldPos), t);
                                 }
                             }
                             // 阴影强度：1 = 原强度；0 = 视觉等同关影（遮挡处保留 1-strength）
@@ -260,7 +308,9 @@ public final class ShaderInjector {
         injected.append("\n// ── engine injected lighting stage (auto-generated, do not write) ──\n");
         injected.append(CAMERA_BLOCK).append('\n');
         injected.append(LIGHTING_BLOCKS).append('\n');
+        // G-Buffer 三采样声明必须先于 RECEIVE_SHADOW_GBUFFER 函数体（其读 gbufferAlbedo）
         injected.append(GBUFFER_BLOCKS).append('\n');
+        injected.append(RECEIVE_SHADOW_GBUFFER).append('\n');
         injected.append("// ── injection end ──\n");
         injected.append(body, versionEnd, body.length());
         return injected.toString();
@@ -289,6 +339,7 @@ public final class ShaderInjector {
         // set1 光照声明只入 fs（消费在片元；vs 声明未用 binding 反增布局面）
         if ("fs".equals(stageName)) {
             injected.append(LIGHTING_BLOCKS).append('\n');
+            injected.append(RECEIVE_SHADOW_PUSH).append('\n');
         }
         appendMaterialDeclaration(injected, properties);
         injected.append("// ── injection end ──\n");

@@ -86,4 +86,132 @@ public class ShadowMathTest {
             }
         }
     }
+
+    // ═══ CSM（四期阴影质量分级 §4.2） ═══
+
+    /** lambda 混合切分：单调递增、端点 = near/far；lambda=0 退均匀、lambda=1 退对数 */
+    @Test
+    public void cascadeSplitsMonotonicAndEndpoints() {
+        float near = 0.1f, far = 100.0f;
+        for (float lambda : new float[]{0.0f, 0.5f, 1.0f}) {
+            float[] splits = new float[4];
+            ShadowMath.buildCascades(new Vector3f(0.4f, -0.8f, 0.2f).normalize(),
+                    camera(new Vector3f()), lambda, 4, 2048, newMatrixArray(4), splits, null);
+            assertTrue(splits[0] > near, "首级联远界应 > near: " + splits[0]);
+            for (int i = 1; i < 4; i++) {
+                assertTrue(splits[i] > splits[i - 1],
+                        "切分应严格递增: " + splits[i - 1] + " → " + splits[i]);
+            }
+            assertTrue(Math.abs(splits[3] - far) < 1e-3f,
+                    "末级联远界应 = far，实际: " + splits[3]);
+        }
+        // lambda=0 → 均匀（等间距）
+        float[] uniform = new float[4];
+        Matrix4f[] m = newMatrixArray(4);
+        ShadowMath.buildCascades(new Vector3f(0.4f, -0.8f, 0.2f).normalize(),
+                camera(new Vector3f()), 0.0f, 4, 2048, m, uniform, null);
+        float step = (far - near) / 4.0f;
+        for (int i = 0; i < 4; i++) {
+            assertTrue(Math.abs(uniform[i] - (near + step * (i + 1))) < 1e-3f,
+                    "lambda=0 应均匀切分，级联 " + i + " 实际: " + uniform[i]);
+        }
+    }
+
+    /** 逐级联盒子覆盖对应视锥段 8 角点（NDC xy [-1,1] / z [0,1]）——拟合正确性判据 */
+    @Test
+    public void cascadeBoxesCoverSliceCorners() {
+        ShadowMath.CascadeParams cam = camera(new Vector3f(1.0f, 2.0f, 3.0f));
+        Vector3f dir = new Vector3f(0.4f, -0.8f, 0.2f).normalize();
+        int n = 4;
+        Matrix4f[] mats = newMatrixArray(n);
+        float[] splits = new float[n];
+        float[] zRanges = new float[n];
+        ShadowMath.buildCascades(dir, cam, 0.5f, n, 2048, mats, splits, zRanges);
+        for (int c = 0; c < n; c++) {
+            assertTrue(zRanges[c] > 0.0f && Float.isFinite(zRanges[c]),
+                    "级联 " + c + " 光空间 z 范围应有限且为正: " + zRanges[c]);
+        }
+        float dNear = cam.nearZ;
+        Vector4f p = new Vector4f();
+        for (int c = 0; c < n; c++) {
+            assertTrue(mats[c].isFinite(), "级联矩阵含非有限值");
+            for (Vector3f corner : sliceCorners(cam, dNear, splits[c])) {
+                p.set(corner.x, corner.y, corner.z, 1.0f);
+                mats[c].transform(p);
+                assertTrue(p.x >= -1.0f - 1e-3f && p.x <= 1.0f + 1e-3f, "级联 " + c + " 角点 x 越界: " + p.x);
+                assertTrue(p.y >= -1.0f - 1e-3f && p.y <= 1.0f + 1e-3f, "级联 " + c + " 角点 y 越界: " + p.y);
+                assertTrue(p.z >= -1e-3f && p.z <= 1.0f + 1e-3f, "级联 " + c + " 角点 z 越界: " + p.z);
+            }
+            dNear = splits[c];
+        }
+    }
+
+    /** 纹素吸附稳定化：相机微移（远小于一纹素）→ 固定世界点的阴影图 uv 基本不动（边缘不抖） */
+    @Test
+    public void texelSnapAbsorbsSubTexelCameraMove() {
+        Vector3f dir = new Vector3f(0.4f, -0.8f, 0.2f).normalize();
+        Matrix4f[] a = newMatrixArray(1);
+        Matrix4f[] b = newMatrixArray(1);
+        ShadowMath.buildCascades(dir, camera(new Vector3f(0.0f, 5.0f, 0.0f)), 0.5f, 1, 2048, a, null, null);
+        // 0.001 世界单位 << 单纹素（r≈ (far-near)·tan(30°) ≈ 57 → 纹素≈0.056）
+        ShadowMath.buildCascades(dir, camera(new Vector3f(0.001f, 5.0f, 0.0f)), 0.5f, 1, 2048, b, null, null);
+        Vector4f p1 = a[0].transform(new Vector4f(0.0f, 0.0f, -40.0f, 1.0f));
+        Vector4f p2 = b[0].transform(new Vector4f(0.0f, 0.0f, -40.0f, 1.0f));
+        float du = Math.abs(p1.x - p2.x) * 0.5f;
+        float dv = Math.abs(p1.y - p2.y) * 0.5f;
+        assertTrue(du < 1e-3f && dv < 1e-3f,
+                "亚纹素位移应被吸附吸收，uv 漂移过大: du=" + du + " dv=" + dv);
+    }
+
+    /** 级联矩阵正交判定：w 恒 1（无透视除失真） */
+    @Test
+    public void cascadeOrthographicNoPerspective() {
+        Matrix4f[] mats = newMatrixArray(2);
+        ShadowMath.buildCascades(new Vector3f(0.3f, -0.9f, 0.1f).normalize(),
+                camera(new Vector3f()), 0.5f, 2, 2048, mats, null, null);
+        Vector4f p = mats[0].transform(new Vector4f(123.4f, -57.8f, 9.9f, 1.0f));
+        assertTrue(Math.abs(p.w - 1.0f) < 1e-5f, "级联矩阵 w 恒 1，实际: " + p.w);
+    }
+
+    private static Matrix4f[] newMatrixArray(int n) {
+        Matrix4f[] m = new Matrix4f[n];
+        for (int i = 0; i < n; i++) {
+            m[i] = new Matrix4f();
+        }
+        return m;
+    }
+
+    /** 测试用相机：前向 -Z、上 +Y、60° 视场、16:9、近远 0.1/100 */
+    private static ShadowMath.CascadeParams camera(Vector3f position) {
+        ShadowMath.CascadeParams cam = new ShadowMath.CascadeParams();
+        cam.position.set(position);
+        cam.forward.set(0.0f, 0.0f, -1.0f);
+        cam.up.set(0.0f, 1.0f, 0.0f);
+        cam.fovY = (float) Math.toRadians(60.0);
+        cam.aspect = 16.0f / 9.0f;
+        cam.nearZ = 0.1f;
+        cam.farZ = 100.0f;
+        return cam;
+    }
+
+    /** 测试侧独立复算视锥段 8 角点（与实现同式，用于覆盖断言） */
+    private static java.util.List<Vector3f> sliceCorners(ShadowMath.CascadeParams cam,
+                                                         float dNear, float dFar) {
+        Vector3f f = new Vector3f(cam.forward).normalize();
+        Vector3f right = new Vector3f(f).cross(cam.up).normalize();
+        Vector3f upn = new Vector3f(right).cross(f).normalize();
+        float tanHalf = (float) Math.tan(cam.fovY * 0.5f);
+        java.util.List<Vector3f> out = new java.util.ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            float d = i == 0 ? dNear : dFar;
+            float sy = tanHalf * d;
+            float sx = sy * cam.aspect;
+            for (int j = 0; j < 4; j++) {
+                float ex = (j == 0 || j == 3) ? -sx : sx;
+                float ey = (j < 2) ? -sy : sy;
+                out.add(new Vector3f(f).mul(d).add(cam.position).fma(ex, right).fma(ey, upn));
+            }
+        }
+        return out;
+    }
 }

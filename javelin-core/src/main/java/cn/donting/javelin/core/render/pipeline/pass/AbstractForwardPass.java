@@ -27,7 +27,7 @@ public abstract class AbstractForwardPass implements RenderPass {
     /**
      * 单个物体绘制：PSO 按材质 shader 的本管线 Pass 名（shaderPassName()，
      * 严格制 2026-10-17）+ layout 切换 → 顶点缓冲 →
-     * set 2 材质描述符集 → push constants（model mat4 + tpf）→ drawIndexed。
+     * set 2 材质描述符集 → push constants（model mat4 + tpf + receiveShadow）→ drawIndexed。
      */
     protected void drawObject(CommandBuffer cmd, RenderingSystem rs, RenderObject ro, float tpf) {
         cmd.bindPipeline(rs.pipelineFor(ro.material(), ro.mesh().layout(), ro.mesh().getTopology(),
@@ -39,7 +39,10 @@ public abstract class AbstractForwardPass implements RenderPass {
             pushData.putFloat(v);
         }
         pushData.putFloat(RenderingSystem.PUSH_TPF_OFFSET, tpf);
-        pushData.limit(RenderingSystem.PUSH_TPF_OFFSET + Float.BYTES);
+        // per-object 阴影接收标志（四期 §3.6，FORWARD 档承载）：注入段 javelinLighting
+        // 读 pc.receiveShadow 门控接影分支
+        pushData.putFloat(RenderingSystem.PUSH_RECEIVE_SHADOW_OFFSET, ro.isReceiveShadow() ? 1.0f : 0.0f);
+        pushData.limit(RenderingSystem.PUSH_RECEIVE_SHADOW_OFFSET + Float.BYTES);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
         MeshDraw.drawIndexed(cmd, ro.mesh(), ro.submesh());

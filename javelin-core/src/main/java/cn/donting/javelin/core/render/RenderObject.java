@@ -20,7 +20,12 @@ public class RenderObject {
     private final Mesh mesh;
     private final Material material;
     private final Matrix4f world = new Matrix4f();
-    private final boolean castShadow;
+    /**
+     * 是否投射主光阴影（Engine_Shadow_Quality_Design §3.6）：桥每帧 in-place 同步
+     * （与 world 同节奏）——运行时改 {@code MeshRenderer.castShadow} 即时生效，
+     * 不进换代判据（否则改开关不重建 RenderObject，标志陈旧）。
+     */
+    private boolean castShadow;
     /** 渲染对象层级掩码（来源 Node.layer；与相机 cullingMask 相交才可见） */
     private final int layerMask;
     /** 属主组件（MeshRenderer；GPU 拾取 ID→对象映射的数据面，null = 直注册 Demo 对象） */
@@ -29,6 +34,11 @@ public class RenderObject {
     private final int submesh;
     /** 帧内拾取 ID（PickPass 录制期赋值，0 = 未分配；帧生命周期，无持久语义） */
     private int pickId;
+    /**
+     * 是否接收主光阴影（Engine_Shadow_Quality_Design §3.6）：桥每帧同步（in-place 写，
+     * 与 world 同节奏），FORWARD 走 push / HYBRID 走 G-Buffer albedo.a 承载。
+     */
+    private boolean receiveShadow = true;
 
     public RenderObject(Mesh mesh, Material material, boolean castShadow) {
         this(mesh, material, castShadow, ~0, null, 0);
@@ -73,6 +83,20 @@ public class RenderObject {
 
     public boolean isCastShadow() {
         return castShadow;
+    }
+
+    /** 投射阴影标志（桥每帧 in-place 同步；构造值仅作初值） */
+    public void castShadow(boolean castShadow) {
+        this.castShadow = castShadow;
+    }
+
+    public boolean isReceiveShadow() {
+        return receiveShadow;
+    }
+
+    /** 接收阴影标志（桥每帧 in-place 同步；默认 true = 旧行为） */
+    public void receiveShadow(boolean receiveShadow) {
+        this.receiveShadow = receiveShadow;
     }
 
     public int layerMask() {
