@@ -32,11 +32,20 @@ public interface PostProcessNode extends RenderPass {
 
     /**
      * 终节点标志（链序规则）：true = 恒置链尾（如 Tonemap——Bloom/SSAO 等须读未经它处理的
-     * HDR 缓冲）。展开按「非终节点保持注册序 → 终节点」稳定重排，不依赖注册顺序。
+     * HDR 缓冲）。展开按「非终节点按 {@link #order()} 升序 → 终节点」稳定重排。
      */
     default boolean isTerminal() {
         return false;
     }
+
+    /**
+     * 链内位置声明（非终节点间排序用；Engine_SSAO_Design §3.5）：升序 = 由先到后执行
+     * （SSAO=10 在 Bloom=20 之前），同序保持注册序。终节点（{@link #isTerminal()}）恒置链尾、
+     * 不看本值——位置由节点自带声明，链序不依赖用户的开关先后。
+     */
+    default int order() {
+        return 0;
+    } 
 
     /** 清屏色下发（组合根在管线换清屏色时同步；默认 no-op，需清屏的节点覆盖） */
     default void setClearColor(RHIClearColor clearColor) {

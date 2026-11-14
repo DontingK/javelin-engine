@@ -24,6 +24,8 @@ public class PostProcessSettings implements Serializable {
     private float bloomIntensity = 0.5f;
     /** Tonemap 高光肩部起点（≤ 该值逐像素不变、> 该值指数压向 1.0） */
     private float tonemapKnee = 0.8f;
+    /** SSAO 参数（半径/偏移/强度；嵌套对象同为由「缺键保默认」——见 SsaoSettings 类注释） */
+    private SsaoSettings ssao = new SsaoSettings();
 
     public float getBloomThreshold() {
         return bloomThreshold;
@@ -57,12 +59,24 @@ public class PostProcessSettings implements Serializable {
         this.tonemapKnee = tonemapKnee;
     }
 
+    public SsaoSettings getSsao() {
+        return ssao;
+    }
+
+    public void setSsao(SsaoSettings ssao) {
+        if (ssao == null) {
+            throw new IllegalArgumentException("ssao must not be null");
+        }
+        this.ssao = ssao;
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("bloomThreshold", bloomThreshold);
         output.write("bloomKnee", bloomKnee);
         output.write("bloomIntensity", bloomIntensity);
         output.write("tonemapKnee", tonemapKnee);
+        output.write("ssao", ssao);
     }
 
     @Override
@@ -72,5 +86,10 @@ public class PostProcessSettings implements Serializable {
         bloomKnee = input.readFloat("bloomKnee");
         bloomIntensity = input.readFloat("bloomIntensity");
         tonemapKnee = input.readFloat("tonemapKnee");
+        // SSAO 参数是后补字段：旧文件无此键 → readSerializable 返 null → 保默认（嵌套对象先例）
+        SsaoSettings loaded = input.readSerializable("ssao", SsaoSettings.class);
+        if (loaded != null) {
+            ssao = loaded;
+        }
     }
 }

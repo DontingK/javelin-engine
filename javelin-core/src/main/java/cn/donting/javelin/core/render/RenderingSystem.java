@@ -111,6 +111,11 @@ public final class RenderingSystem implements AutoCloseable {
      * （lightingRT / 后处理中间 RT）与**场景材质 PSO 的颜色附件**同用此格式。
      */
     public static final Format HDR_SCENE_COLOR_FORMAT = Format.R16G16B16A16_SFLOAT;
+    /**
+     * SSAO 单通道 AO 格式（Engine_SSAO_Design §3.4）：AO 值域 [0,1]、半分辨率，8 位足够
+     * （带宽优先）；若实机出现带状再换 {@code R16_SFLOAT}（一行改动）。
+     */
+    public static final Format SSAO_AO_FORMAT = Format.R8_UNORM;
     /** 相机块步长：必须满足 minUniformBufferOffsetAlignment（256B，RHI 19.5-1） */
     private static final int CAMERA_STRIDE = 256;
     /** 槽内布局：相机块 × MAX_CAMERAS，其后 256B 时间块（timeSec/tpf，引擎私有约定） */
@@ -239,6 +244,8 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> postRtTextures = new HashMap<>();
     // 每视口 Bloom 多级 RT（Engine_PostProcess_Design §3.7；尺寸递减 1/2..1/16，key = cameraName#b级）
     private final Map<String, Texture> bloomRtTextures = new HashMap<>();
+    // 每视口 SSAO RT（Engine_SSAO_Design §3.4；半分辨率 R8，key = cameraName#s序：0=AO 原始，1=模糊后）
+    private final Map<String, Texture> ssaoRtTextures = new HashMap<>();
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
@@ -335,6 +342,7 @@ public final class RenderingSystem implements AutoCloseable {
             retire(lightingRtTextures.remove(camera.name()));
             retirePostRts(camera.name());
             retireBloomRts(camera.name());
+            retireSsaoRts(camera.name());
         }
     }
 
@@ -623,6 +631,24 @@ public final class RenderingSystem implements AutoCloseable {
                 MemoryPreference.deviceLocal()), null);
     }
 
+    /**
+     * 每视口 SSAO RT（Engine_SSAO_Design §3.4）：index 0 = AO 原始值（模糊后 AO 归步骤二）。
+     * 半分辨率（交换链尺寸 &gt;&gt; 1）、{@link #SSAO_AO_FORMAT}。与 lightingRtFor/bloomRtFor
+     * 同模式（视口独立、resize 换绑、惰性创建、removeCamera 回收）；SSAO 关闭时不创建。
+     */
+    public Texture ssaoRtFor(String cameraName, int index) {
+        return ssaoRtTextures.computeIfAbsent(cameraName + "#s" + index,
+                n -> createSsaoViewTexture(Math.max(1, depthWidth >> 1), Math.max(1, depthHeight >> 1)));
+    }
+
+    /** 按尺寸创建 SSAO 单通道纹理（半分辨率 AO） */
+    private Texture createSsaoViewTexture(int width, int height) {
+        return device.createTexture(new TextureDesc(TextureType.TYPE_2D,
+                SSAO_AO_FORMAT, width, height, 1, 1, 1, SampleCount.COUNT_1,
+                Set.of(TextureUsage.COLOR_ATTACHMENT, TextureUsage.SAMPLED),
+                MemoryPreference.deviceLocal()), null);
+    }
+
     /** 退役某视口的全部后处理中间 RT（removeCamera 用；retire 两帧后销毁） */
     private void retirePostRts(String cameraName) {
         String prefix = cameraName + "#";
@@ -640,6 +666,19 @@ public final class RenderingSystem implements AutoCloseable {
     private void retireBloomRts(String cameraName) {
         String prefix = cameraName + "#b";
         Iterator<Map.Entry<String, Texture>> it = bloomRtTextures.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Texture> entry = it.next();
+            if (entry.getKey().startsWith(prefix)) {
+                retire(entry.getValue());
+                it.remove();
+            }
+        }
+    }
+
+    /** 退役某视口的全部 SSAO RT（removeCamera 用；retire 两帧后销毁） */
+    private void retireSsaoRts(String cameraName) {
+        String prefix = cameraName + "#s";
+        Iterator<Map.Entry<String, Texture>> it = ssaoRtTextures.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String, Texture> entry = it.next();
             if (entry.getKey().startsWith(prefix)) {
@@ -1386,6 +1425,7 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(lightingRtTextures);
             disposeAll(postRtTextures);
             disposeAll(bloomRtTextures);
+            disposeAll(ssaoRtTextures);
             // set1 per-view 描述符集引用 G-Buffer 纹理（binding5/6/7）——纹理换绑即重建
             // 描述符集（视口像素尺寸可能未变，不能只靠 viewLightsFor 的尺寸判据）
             if (!viewLights.isEmpty()) {
@@ -1545,6 +1585,7 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(lightingRtTextures);
         disposeAll(postRtTextures);
         disposeAll(bloomRtTextures);
+        disposeAll(ssaoRtTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）

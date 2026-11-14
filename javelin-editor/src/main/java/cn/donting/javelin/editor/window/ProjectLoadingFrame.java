@@ -139,6 +139,7 @@ public class ProjectLoadingFrame extends JFrame {
             }
             setting.setPostProcessing(loaded.isPostProcessing());
             setting.setBloom(loaded.isBloom());
+            setting.setSsao(loaded.isSsao());
             if (loaded.getPostProcessSettings() != null) {
                 setting.setPostProcessSettings(loaded.getPostProcessSettings());
             }

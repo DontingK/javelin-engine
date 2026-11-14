@@ -65,6 +65,13 @@ public class JavelinSetting implements Serializable {
     private boolean bloom = false;
 
     /**
+     * SSAO 开关（Engine_SSAO_Design §3.6，独立于后处理/Bloom）：默认关。开 = 后处理链中挂
+     * SSAO（Bloom 之前，读 G-Buffer 世界位置+法线算 AO 乘到 HDR 场景色上）。**仅 HYBRID 档
+     * 生效**（FORWARD 档无 G-Buffer，启动期忽略该开关并 warn）；启动期消费。
+     */
+    private boolean ssao = false;
+
+    /**
      * 后处理参数（Bloom 阈值/肩部/强度 + Tonemap 肩部，Engine_PostProcess_Design §3.7/§9.8）：
      * 独立成对象以支持「缺键保默认」（浮点无 null 哨兵，见 {@link PostProcessSettings}）。
      */
@@ -84,6 +91,14 @@ public class JavelinSetting implements Serializable {
 
     public void setBloom(boolean bloom) {
         this.bloom = bloom;
+    }
+
+    public boolean isSsao() {
+        return ssao;
+    }
+
+    public void setSsao(boolean ssao) {
+        this.ssao = ssao;
     }
 
     public PostProcessSettings getPostProcessSettings() {
@@ -179,6 +194,7 @@ public class JavelinSetting implements Serializable {
         output.write("engineDebug",engineDebug);
         output.write("postProcessing",postProcessing);
         output.write("bloom",bloom);
+        output.write("ssao",ssao);
         output.write("postProcessSettings",postProcessSettings);
     }
 
@@ -206,6 +222,8 @@ public class JavelinSetting implements Serializable {
         postProcessing = input.readBoolean("postProcessing");
         // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
         bloom = input.readBoolean("bloom");
+        // 旧设置文件缺键 readBoolean=false，恰为本字段默认语义（关）——无迁移坑
+        ssao = input.readBoolean("ssao");
         // 旧设置文件无此键时保留默认（readSerializable 缺键返回 null）
         PostProcessSettings pps = input.readSerializable("postProcessSettings", PostProcessSettings.class);
         if (pps != null) {

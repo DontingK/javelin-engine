@@ -2,6 +2,7 @@ package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.pipeline.pass.BloomPass;
+import cn.donting.javelin.core.render.pipeline.pass.SsaoPass;
 import cn.donting.javelin.core.render.pipeline.pass.TonemapPass;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.data.RHIClearColor;
@@ -20,6 +21,7 @@ public final class PostProcessSetup {
     /** 效果 id（{@link #node}/{@link #setEnabled}/{@link #isEnabled} 用） */
     public static final String TONEMAP = "tonemap";
     public static final String BLOOM = "bloom";
+    public static final String SSAO = "ssao";
 
     private final Device device;
     private final AssetManager assetManager;
@@ -29,9 +31,14 @@ public final class PostProcessSetup {
     private float bloomKnee = 0.4f;
     private float bloomIntensity = 0.5f;
     private float tonemapKnee = 0.8f;
+    /** SSAO 参数（Engine_SSAO_Design §3.6：步骤一为组合根缺省，步骤二接项目设置窗口） */
+    private float ssaoRadius = 0.5f;
+    private float ssaoBias = 0.02f;
+    private float ssaoIntensity = 1.0f;
     /** 已创建即常驻；null = 尚未创建（必然不在链上） */
     private TonemapPass tonemap;
     private BloomPass bloom;
+    private SsaoPass ssao;
 
     public PostProcessSetup(Device device, AssetManager assetManager) {
         this.device = device;
@@ -56,6 +63,14 @@ public final class PostProcessSetup {
             }
             return bloom;
         }
+        if (SSAO.equals(id)) {
+            if (ssao == null) {
+                ssao = new SsaoPass(device, assetManager);
+                ssao.setClearColor(clearColor);
+                ssao.setParams(ssaoRadius, ssaoBias, ssaoIntensity);
+            }
+            return ssao;
+        }
         throw new IllegalArgumentException("未知后处理节点 id: " + id);
     }
 
@@ -74,7 +89,16 @@ public final class PostProcessSetup {
 
     /** 链上是否已挂该节点（**不触发创建**——未创建必然不在链上） */
     public boolean isEnabled(PostProcessChain chain, String id) {
-        PostProcessNode node = TONEMAP.equals(id) ? tonemap : BLOOM.equals(id) ? bloom : null;
+        PostProcessNode node;
+        if (TONEMAP.equals(id)) {
+            node = tonemap;
+        } else if (BLOOM.equals(id)) {
+            node = bloom;
+        } else if (SSAO.equals(id)) {
+            node = ssao;
+        } else {
+            node = null;
+        }
         return node != null && chain.nodes().contains(node);
     }
 
@@ -89,6 +113,9 @@ public final class PostProcessSetup {
         }
         if (bloom != null) {
             bloom.setClearColor(clearColor);
+        }
+        if (ssao != null) {
+            ssao.setClearColor(clearColor);
         }
     }
 
@@ -107,6 +134,16 @@ public final class PostProcessSetup {
         this.tonemapKnee = knee;
         if (tonemap != null) {
             tonemap.setKnee(knee);
+        }
+    }
+
+    /** SSAO 参数下发（半径/偏移/强度；同上：已创建即时、后创建补发） */
+    public void setSsaoParams(float radius, float bias, float intensity) {
+        this.ssaoRadius = radius;
+        this.ssaoBias = bias;
+        this.ssaoIntensity = intensity;
+        if (ssao != null) {
+            ssao.setParams(radius, bias, intensity);
         }
     }
 }

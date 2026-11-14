@@ -160,6 +160,12 @@ public class BloomPass implements PostProcessNode {
         return "Bloom";
     }
 
+    /** 链内位置：SSAO(10) 之后、终节点（Tonemap）之前（Engine_SSAO_Design §3.5——不依赖开关先后） */
+    @Override
+    public int order() {
+        return 20;
+    }
+
     @Override
     public void addToGraph(RenderGraphBuilder graph, PipelineContext ctx, Texture input, Texture output) {
         RenderView view = ctx.view();

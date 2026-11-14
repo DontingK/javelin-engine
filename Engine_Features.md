@@ -91,6 +91,7 @@
 | overlay 挂点（DebugText / RenderStats，buildFrameGraph） | ✅ | ✅ 用户实测（2026-09-27） |
 | **渲染管线拆分（2026-11-13，结构重构）**：`AbstractRenderPipeline`（共用骨架：单条有序 Pass 列表 + 场景 Pass 身份集 + 后处理链 + 清屏/Pass 管理 + 链展开模板）+ `DefaultHybridRenderPipeline`（混合独用）+ `ForwardRenderPipeline`（纯前向独立类）；`RenderPipeline` 接口补 `setClearColor`/`setPostProcessingEnabled`/`postProcessingEnabled`、`profile()` 改身份常量；**启动期**由 `JavelinSetting.renderPipeline` 选实现类、**运行期不再切档**（删 `setProfile` 与「工具｜混合渲染」菜单）；编辑器固定 HYBRID；`JavelinSetting.renderPipeline` 默认改 HYBRID | ✅（2026-11-13） | —（结构重构，随混合/前向链路验收） |
 | **HYBRID 档（Deferred 复用，三期批次④-B，2026-11-08 落地）**：`GBufferPass`（消费 `Pass GBuffer` 同名桶剔透明——三张 MRT = albedo RGBA8 / 世界法线 RGBA16F / 世界位置 RGBA32F+w 有效标志；复用本视口 depth；`registerPassColorFormats` 按 shader Pass 名给 PSO 三格式）+ `LightingPass`（覆盖制全屏三角形；frag 带 `//@javelinLighting` 标记 → 导入期注入相机块+光照段函数+G-Buffer 三采样——**与材质 Forward fs 同一 `javelinLighting` 常量**，同一 set1 cluster/shadow；背景按 worldPos.w<0.5 discard；无深度附件；**清屏职责自 OpaqueForward 移交**）+ set1 扩 binding5/6/7（G-Buffer 三采样 per-view，NEAREST/CLAMP 采样器；resize 换绑并重建 set1）+ ~~`PipelineProfile` 双 Pass 列表（`setProfile` 运行期切；两档同步）~~ **2026-11-13 拆为两个独立实现类、启动期选定（见上「渲染管线拆分」行）** + `JavelinSetting.renderPipeline` 持久化 + 引擎启动消费 + ~~HYBRID 强制 1x（MSAA-GBuffer 归四期）~~ **MSAA 已移除（2026-11-13）** + ~~编辑器 `tools.renderPipeline` 命令~~ **已删（2026-11-13）** + 内置 Lit.shader/default.shader 各补 `Pass GBuffer`（default 保 HYBRID 下紫色错误显性化）+ ShaderImporterTest 补 GBuffer pass 断言；**不引入 lightingRT/HDR/Composite**（四期第 1 项；lit 后续见「后处理链步骤一」行） | ✅（2026-11-08） | ✅ 用户实测（2026-11-10：HYBRID 档光照正常、与 FORWARD 两路一致；随验坑 Pitfalls #35——set0 相机块 stageFlags VERTEX-only 致 LightingPass fs 读 cam.view 读零全黑，修=ALL_GRAPHICS 超集） |
+| **SSAO（四期施工序 ① = GI 第一步，2026-11-14 落地）**：`SsaoPass`（链中节点，单节点内 3 个覆盖制全屏 Pass = AO 计算半分辨率 / 双边模糊（**保边权用视空间 z 差**——掠射面下世界位置距离会拒绝平滑）/ 合成 `scene × mix(1, AO, intensity)`）+ **不读深度**、读 G-Buffer 世界位置（w=有效标志）+ 世界法线（**零 RHI 改动，仅 HYBRID 档**；深度采样三缺口实证见档 §2.1）+ `RenderingSystem.ssaoRtFor(view, index)`（per-view 半分辨率 `R8_UNORM` RT 族，8 处生命周期照 `bloomRtFor`）+ 内置 `builtin-asset-core/postprocess/ssao*.vert\|frag` 走 SpvShader 导入链 + **链序声明 `PostProcessNode.order()`**（SSAO=10/Bloom=20，AO 恒在泛光之前、不依赖开关先后）+ 开关 `JavelinSetting.ssao` + **新 `SsaoSettings`**（半径/深度偏移/强度，嵌套对象保缺键默认，接项目设置窗口三行）+ FORWARD 档忽略并 warn + i18n 双语键 → `Engine_SSAO_Design.md` v0.4 | ✅（2026-11-14） | ✅ 用户实机（2026-11-14「看起来没问题了」；口径档 §9.3） |
 | 视锥剔除 | ⬜ 后置优化（Aabb/Mesh.bounds 已备） | — |
 
 ### 2.5 资产（assets）
@@ -309,6 +310,8 @@
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
 > **当前挂账 0 项**（2026-11-14）。
+>
+> （**2026-11-14 验收销账：SSAO（步骤一 + 步骤二）**（§2.4 行）——四期施工序 ① 首件：`SsaoPass` 三覆盖制 Pass（AO 计算 / 双边模糊 / 合成）、不读深度改读 G-Buffer 世界位置+法线（仅 HYBRID）、半分辨率 `R8_UNORM` AO RT 族、`PostProcessNode.order()` 排序声明、`JavelinSetting.ssao` + `SsaoSettings` 三参数接项目设置窗口、FORWARD 档忽略并 warn。**验收口径 = `Engine_SSAO_Design.md` §9.3**：默认关逐像素不变；开后有接触阴影、平面不脏、天空不暗、**模糊后无可辨噪点**（步骤一无模糊的噪点为设计内，步骤二消除）；三参数即时生效；双视口不串、overlay 不受影响；先开 Bloom 再开 SSAO 时 AO 仍在 Bloom 前；重启保持；`logs/error` 零 ERROR。用户实机 2026-11-14 验收通过。）
 >
 > （**2026-11-14 验收销账：项目设置窗口 + 后处理参数可配**（§2 行）——非模态「图形\|后处理」设置窗口（`ProjectSettingsWindow`，Edit → Project Settings）；后处理参数常量→push（`PostProcessSettings`）、`BloomPass`/`TonemapPass` push 扩宽、`PostProcessSetup` 参数下发、编辑器启动读项目文件。**验收口径 = `Editor_ProjectSettings_Design.md` §3/§4**：窗口开合、两个开关与各参数即时生效、背景色即时、关窗重开值保持、重启编辑器仍保持、打包运行时一致、`logs/error` 零 ERROR。用户实机 2026-11-14 验收通过。）
 >

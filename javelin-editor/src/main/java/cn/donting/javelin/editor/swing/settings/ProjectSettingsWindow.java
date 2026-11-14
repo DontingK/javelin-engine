@@ -8,6 +8,7 @@ import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.PostProcessSettings;
 import cn.donting.javelin.core.settings.SettingManager;
+import cn.donting.javelin.core.settings.SsaoSettings;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.inspector.InspectorFieldVo;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -164,6 +165,16 @@ public final class ProjectSettingsWindow extends JDialog {
         });
         pane.add(formRow("projectSettings.bloom", bloomCheck));
 
+        JCheckBox ssaoCheck = new JCheckBox();
+        ssaoCheck.setSelected(isNodeEnabled(editor, PostProcessSetup.SSAO));
+        ssaoCheck.addActionListener(e -> {
+            boolean on = ssaoCheck.isSelected();
+            if (!applyToggle(editor, PostProcessSetup.SSAO, on)) {
+                ssaoCheck.setSelected(!on);
+            }
+        });
+        pane.add(formRow("projectSettings.ssao", ssaoCheck));
+
         pane.add(formRow("projectSettings.bloomThreshold",
                 numberInput(pps.getBloomThreshold(), 0f, 10f, 0.05f, v -> {
                     pps.setBloomThreshold(v);
@@ -183,6 +194,24 @@ public final class ProjectSettingsWindow extends JDialog {
                 numberInput(pps.getTonemapKnee(), 0f, 1f, 0.05f, v -> {
                     pps.setTonemapKnee(v);
                     applyTonemapKnee(editor, v);
+                })));
+
+        // —— SSAO 参数（开关见上方后处理组）——
+        SsaoSettings ssao = pps.getSsao();
+        pane.add(formRow("projectSettings.ssaoRadius",
+                numberInput(ssao.getRadius(), 0.01f, 5f, 0.05f, v -> {
+                    ssao.setRadius(v);
+                    applySsaoParams(editor, ssao);
+                })));
+        pane.add(formRow("projectSettings.ssaoBias",
+                numberInput(ssao.getBias(), 0f, 0.5f, 0.005f, v -> {
+                    ssao.setBias(v);
+                    applySsaoParams(editor, ssao);
+                })));
+        pane.add(formRow("projectSettings.ssaoIntensity",
+                numberInput(ssao.getIntensity(), 0f, 2f, 0.05f, v -> {
+                    ssao.setIntensity(v);
+                    applySsaoParams(editor, ssao);
                 })));
 
         pane.add(javax.swing.Box.createVerticalGlue());
@@ -266,6 +295,8 @@ public final class ProjectSettingsWindow extends JDialog {
                 editor.setting().setPostProcessing(on);
             } else if (PostProcessSetup.BLOOM.equals(id)) {
                 editor.setting().setBloom(on);
+            } else if (PostProcessSetup.SSAO.equals(id)) {
+                editor.setting().setSsao(on);
             }
             return true;
         } catch (RuntimeException e) {
@@ -337,6 +368,23 @@ public final class ProjectSettingsWindow extends JDialog {
         }
     }
 
+    /** SSAO 参数：即时下发 + 写盘 */
+    private void applySsaoParams(JavelinEditor editor, SsaoSettings ssao) {
+        if (editor == null) {
+            showError(EditorLang.text("projectSettings.editorMissing"));
+            return;
+        }
+        try {
+            PostProcessSetup setup = editor.postProcessSetup();
+            if (setup != null) {
+                setup.setSsaoParams(ssao.getRadius(), ssao.getBias(), ssao.getIntensity());
+            }
+        } catch (RuntimeException e) {
+            LOGGER.error("SSAO 参数应用失败", e);
+            showError(EditorLang.text("projectSettings.writeFailed", String.valueOf(e.getMessage())));
+        }
+    }
+
     /**
      * 写盘（本页管理字段 load-modify-save 进项目 {@code Game/javelinSettings.settings}）：
      * 只覆写图形/后处理字段，文件里的非本页字段（标题/尺寸/vsync…）原样保留。
@@ -355,6 +403,7 @@ public final class ProjectSettingsWindow extends JDialog {
             fileSetting.setBackgroundColor(live.getBackgroundColor());
             fileSetting.setPostProcessing(live.isPostProcessing());
             fileSetting.setBloom(live.isBloom());
+            fileSetting.setSsao(live.isSsao());
             fileSetting.setPostProcessSettings(live.getPostProcessSettings());
             new BinaryExporter(file).export(fileSetting);
         } catch (Exception e) {

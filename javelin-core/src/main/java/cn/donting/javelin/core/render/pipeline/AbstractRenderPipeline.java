@@ -10,6 +10,7 @@ import cn.donting.javelin.rhi.data.RHIClearColor;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
@@ -122,15 +123,22 @@ public abstract class AbstractRenderPipeline implements RenderPipeline {
         }
     }
 
-    /** 链序：终节点（如 Tonemap）恒置链尾（Bloom/SSAO 须读未经它处理的 HDR 缓冲，§3.5——不依赖注册序） */
+    /**
+     * 链序：非终节点按 {@link PostProcessNode#order()} 升序（同序保持注册序——{@code List.sort}
+     * 稳定），终节点（如 Tonemap）恒置链尾（Bloom/SSAO 须读未经它处理的 HDR 缓冲，§3.5）。
+     * 节点自带位置声明，故链序不依赖用户开关先后（Engine_SSAO_Design §3.5）。
+     */
     private List<PostProcessNode> orderedChain() {
         List<PostProcessNode> nodes = postProcess.nodes();
         List<PostProcessNode> ordered = new ArrayList<>(nodes.size());
+        List<PostProcessNode> middle = new ArrayList<>(nodes.size());
         for (PostProcessNode node : nodes) {
             if (!node.isTerminal()) {
-                ordered.add(node);
+                middle.add(node);
             }
         }
+        middle.sort(Comparator.comparingInt(PostProcessNode::order));
+        ordered.addAll(middle);
         for (PostProcessNode node : nodes) {
             if (node.isTerminal()) {
                 ordered.add(node);
