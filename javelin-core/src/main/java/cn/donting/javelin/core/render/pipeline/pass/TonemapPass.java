@@ -59,9 +59,8 @@ import java.util.Set;
  * 导入链（内置 {@code builtin-asset-core/postprocess/tonemap.vert/.frag} 经 SpvShaderImporter
  * 编译）。整屏大三角形按本视口 viewport/scissor 限定范围。</p>
  *
- * <p><b>清屏职责接管</b>：本 Pass 恒写显示终点（colorTarget），承担原场景 Pass 的
- * CLEAR + isRegionClear + scissor 语义。HDR 下 stacking 相机（DEPTH_ONLY/DONT_CLEAR）
- * 亦按整视口 CLEAR 独立输出——每视口 HDR 缓冲不承载跨相机颜色叠加（§4.3 v1 边界）。</p>
+ * <p><b>清屏语义</b>：对自身输出恒 CLEAR（锐化在链上时输出是中间 RT，显示目标的清屏由锐化接管；
+ * 锐化关闭时本 Pass 即链尾、输出就是显示目标，语义与降级前一致）。</p>
  *
  * <p><b>描述符</b>：set0 为本 Pass 专属单纹理布局（binding0 组合采样器，链输入）；无相机块
  * （tonemap 不需要相机数据）、push 常量 vec4 params（x = KNEE 肩部起点，运行期由「项目设置」调）。</p>
@@ -153,10 +152,19 @@ public class TonemapPass implements PostProcessNode {
         return "Tonemap";
     }
 
-    /** 终节点：Tonemap 恒置链尾（Bloom/SSAO 等须读未 tonemap 的 HDR 缓冲，§3.5） */
+    /**
+     * 非终节点（2026-11-15 随锐化 P4-11 降级）：锐化接在它之后做 LDR 锐化，终节点身份交给链尾。
+     * 链尾按「链内最后一个节点写 colorTarget」判定，故锐化关闭时本 Pass 仍是最后节点、照样直出。
+     */
     @Override
     public boolean isTerminal() {
-        return true;
+        return false;
+    }
+
+    /** 链内位置：HDR 域各节点（SSAO=10 / TAA=15 / Bloom=20）之后、终节点（锐化）之前 */
+    @Override
+    public int order() {
+        return 40;
     }
 
     @Override
@@ -166,7 +174,8 @@ public class TonemapPass implements PostProcessNode {
         RHIClearColor clear = view.clearColor() != null ? view.clearColor() : clearColor;
         boolean regionClear = AbstractForwardPass.isRegionClear(view, output);
         graph.addGraphicsPass(view.name() + "_Tonemap", pass -> {
-            // 恒清屏：HDR 生效时每视口独立输出（stacking 的跨相机 LOAD 叠加不成立，§4.3）
+            // 恒清屏：HDR 生效时每视口独立输出（stacking 的跨相机 LOAD 叠加不成立，§4.3）；
+            // 锐化在链上时这里清的是中间 RT，显示目标由锐化 CLEAR
             if (regionClear) {
                 pass.addColorOutput(output, RHILoadOp.CLEAR, clear, view.scissor());
             } else {

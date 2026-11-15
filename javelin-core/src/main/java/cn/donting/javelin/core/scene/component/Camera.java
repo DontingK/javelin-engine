@@ -3,12 +3,11 @@ package cn.donting.javelin.core.scene.component;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.input.Input;
 import cn.donting.javelin.core.JavelinEngine;
-import cn.donting.javelin.core.inspector.InsField;
-import cn.donting.javelin.core.inspector.InsHeader;
-import cn.donting.javelin.core.inspector.InsLayerMask;
+import cn.donting.javelin.core.inspector.*;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.physics.Ray;
+import cn.donting.javelin.core.render.AntialiasingMode;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.ProjectionType;
 import cn.donting.javelin.core.scene.Layer;
@@ -35,25 +34,35 @@ public class Camera extends Component {
 
     @InsField(label = "ins.camera.projection")
     private ProjectionType projectionType = ProjectionType.PERSPECTIVE;
-    /** 垂直视场角（度；仅透视投影。渲染侧换算弧度） */
+    /**
+     * 垂直视场角（度；仅透视投影。渲染侧换算弧度）
+     */
     @InsField(label = "ins.camera.fov")
     private float fov = 60.0f;
-    /** 正交半高（世界单位；仅正交投影） */
+    /**
+     * 正交半高（世界单位；仅正交投影）
+     */
     @InsField(label = "ins.camera.orthoSize")
     private float orthographicSize = 5.0f;
     @InsField(label = "ins.camera.nearClip")
     private float near = 0.1f;
     @InsField(label = "ins.camera.farClip")
     private float far = 1000.0f;
-    /** 裁剪掩码：按位对应 Layer，默认全可见（LayerMask.everything） */
+    /**
+     * 裁剪掩码：按位对应 Layer，默认全可见（LayerMask.everything）
+     */
     @InsLayerMask
     @InsField(label = "ins.camera.cullingMask")
     private int cullingMask = LayerMask.everything();
-    /** 相机背景色（null = 跟随引擎全局背景色 JavelinSetting.backgroundColor；Inspector 编辑即物化显式值） */
+    /**
+     * 相机背景色（null = 跟随引擎全局背景色 JavelinSetting.backgroundColor；Inspector 编辑即物化显式值）
+     */
     @InsField(label = "ins.camera.backgroundColor")
     private Color backgroundColor;
-    /** 清屏标志（默认 SKYBOX 对齐 Unity；场景无 skybox 资产时 Opaque 回退纯色清屏——
-     * backgroundColor 照旧消费；DEPTH_ONLY 供叠加相机；2026-11-04 随批次⑤步骤三翻默认） */
+    /**
+     * 清屏标志（默认 SKYBOX 对齐 Unity；场景无 skybox 资产时 Opaque 回退纯色清屏——
+     * backgroundColor 照旧消费；DEPTH_ONLY 供叠加相机；2026-11-04 随批次⑤步骤三翻默认）
+     */
     @InsField(label = "ins.camera.clearFlags")
     private ClearFlags clearFlags = ClearFlags.SKYBOX;
     /**
@@ -66,9 +75,23 @@ public class Camera extends Component {
     private Rect viewportRect = new Rect(0.0f, 0.0f, 1.0f, 1.0f);
     // main 不入 Inspector：引擎侧 main 消费未落地，不摆无生效语义的死开关
     private boolean main;
-    /** 渲染深度（值越大越晚渲染，可覆盖在小值相机画面之上——小地图/画中画用） */
+    /**
+     * 渲染深度（值越大越晚渲染，可覆盖在小值相机画面之上——小地图/画中画用）
+     */
     @InsField(label = "ins.camera.depth")
     private float depth;
+
+    /**
+     * 抗锯齿模式（相机级；Unity HDRP Camera Frame Settings 口径）。
+     * 选 TAA 时下方内联展开 {@link #taaSetting} 四项参数（{@code @InsFieldGroup}：
+     * keys 命中即显示 value 指向的嵌套组，空串 = 该取值下不显示）；仅 HYBRID 档生效。
+     */
+    @InsField(label = "ins.camera.antialiasing")
+    @InsFieldGroup(keys = {"OFF", "TAA"}, value = {"", "taaSetting"}, label = "ins.camera.taaSetting")
+    private AntialiasingMode antialiasing = AntialiasingMode.OFF;
+
+    /** TAA 四项参数组（不受 @InsField 闸门：只作为 antialiasing 的条件子组内联出现） */
+    private TaaSetting taaSetting = new TaaSetting();
 
     // screenToRay 复用缓冲（运行态不落盘、单线程每查复用）
     private Vector3f rayOrigin = new Vector3f();
@@ -85,7 +108,9 @@ public class Camera extends Component {
         this.projectionType = projectionType;
     }
 
-    /** 垂直视场角（度） */
+    /**
+     * 垂直视场角（度）
+     */
     public float getFov() {
         return fov;
     }
@@ -94,7 +119,9 @@ public class Camera extends Component {
         this.fov = fov;
     }
 
-    /** 正交半高（世界单位，orthoHeight = 2 * size；仅正交投影） */
+    /**
+     * 正交半高（世界单位，orthoHeight = 2 * size；仅正交投影）
+     */
     public float getOrthographicSize() {
         return orthographicSize;
     }
@@ -119,7 +146,9 @@ public class Camera extends Component {
         this.far = far;
     }
 
-    /** 裁剪掩码（按位对应 Layer；配合 {@link LayerMask} 组合） */
+    /**
+     * 裁剪掩码（按位对应 Layer；配合 {@link LayerMask} 组合）
+     */
     public int getCullingMask() {
         return cullingMask;
     }
@@ -128,7 +157,9 @@ public class Camera extends Component {
         this.cullingMask = cullingMask;
     }
 
-    /** 按层级集合设置裁剪掩码 */
+    /**
+     * 按层级集合设置裁剪掩码
+     */
     public void setCullingMask(Layer... layers) {
         this.cullingMask = LayerMask.of(layers);
     }
@@ -149,7 +180,9 @@ public class Camera extends Component {
         this.clearFlags = clearFlags;
     }
 
-    /** 视口归一化矩形；null = 默认全屏 */
+    /**
+     * 视口归一化矩形；null = 默认全屏
+     */
     public Rect getViewportRect() {
         return viewportRect;
     }
@@ -158,13 +191,81 @@ public class Camera extends Component {
         this.viewportRect = viewportRect;
     }
 
-    /** 渲染深度：值越大越晚渲染（同值保持声明序），覆盖关系由此决定 */
+    /**
+     * 渲染深度：值越大越晚渲染（同值保持声明序），覆盖关系由此决定
+     */
     public float getDepth() {
         return depth;
     }
 
     public void setDepth(float depth) {
         this.depth = depth;
+    }
+
+    /**
+     * 抗锯齿模式（相机级；OFF / TAA）
+     */
+    public AntialiasingMode getAntialiasing() {
+        return antialiasing;
+    }
+
+    public void setAntialiasing(AntialiasingMode antialiasing) {
+        this.antialiasing = antialiasing == null ? AntialiasingMode.OFF : antialiasing;
+    }
+
+    /**
+     * TAA 参数组（四项；Inspector 内经 {@code @InsFieldGroup} 条件展开）
+     */
+    public TaaSetting getTaaSetting() {
+        return taaSetting;
+    }
+
+    public void setTaaSetting(TaaSetting taaSetting) {
+        this.taaSetting = taaSetting != null ? taaSetting : new TaaSetting();
+    }
+
+    /**
+     * TAA 配套锐化强度（0~1，0 = 直出）
+     */
+    public float getSharpenStrength() {
+        return taaSetting.getSharpenStrength();
+    }
+
+    public void setSharpenStrength(float sharpenStrength) {
+        taaSetting.setSharpenStrength(sharpenStrength);
+    }
+
+    /**
+     * 历史锐化（0 = 双线性 / 1 = 全 Catmull-Rom）
+     */
+    public float getHistorySharpening() {
+        return taaSetting.getHistorySharpening();
+    }
+
+    public void setHistorySharpening(float historySharpening) {
+        taaSetting.setHistorySharpening(historySharpening);
+    }
+
+    /**
+     * 防闪烁（0~1，映射 3×3 邻域钳制强度）
+     */
+    public float getAntiFlickering() {
+        return taaSetting.getAntiFlickering();
+    }
+
+    public void setAntiFlickering(float antiFlickering) {
+        taaSetting.setAntiFlickering(antiFlickering);
+    }
+
+    /**
+     * 速度抑制（0~1）
+     */
+    public float getSpeedRejection() {
+        return taaSetting.getSpeedRejection();
+    }
+
+    public void setSpeedRejection(float speedRejection) {
+        taaSetting.setSpeedRejection(speedRejection);
     }
 
     public boolean isMain() {
@@ -189,7 +290,7 @@ public class Camera extends Component {
      * @param screenY 屏幕像素 y（原点左上）
      * @param out     输出射线（origin=相机世界位置，direction 归一化）
      * @return out
-     * @throws IllegalStateException 引擎未启动（无渲染表面尺寸）/ 相机未挂节点
+     * @throws IllegalStateException         引擎未启动（无渲染表面尺寸）/ 相机未挂节点
      * @throws UnsupportedOperationException 正交投影（后置）
      */
     public Ray screenToRay(float screenX, float screenY, Ray out) {
@@ -208,23 +309,23 @@ public class Camera extends Component {
      *
      * <p>坐标约定：screenX/Y 为渲染目标像素坐标（原点左上、y 向下——本引擎鼠标
      * 坐标口径；Unity 左下原点的差异在内部吸收）；归一化经 viewportRect
-     *（null = 全屏），视口外的点映射到 NDC [−1,1] 之外（射线指向视锥外，
+     * （null = 全屏），视口外的点映射到 NDC [−1,1] 之外（射线指向视锥外，
      * 调用方按需先判包含）。符号口径（渲染侧同源）：<b>屏幕右向 = forward×up</b>
-     *（RH：面向 +Z 屏幕右 = −X——EditorCameraAppState 2026-10-04 实测修正同源，
+     * （RH：面向 +Z 屏幕右 = −X——EditorCameraAppState 2026-10-04 实测修正同源，
      * 拾取换算必守，用 localX 会左右镜像）；投影已含 Vulkan Y 翻转
-     *（view +y 上 ↔ NDC −y），屏幕顶 = NDC −1 = 视线上方。</p>
+     * （view +y 上 ↔ NDC −y），屏幕顶 = NDC −1 = 视线上方。</p>
      *
      * <p>尺寸显式版：单测/离屏渲染目标/坐标空间与渲染表面不同源（如编辑器画布逻辑
      * 坐标）时用本重载。</p>
      *
-     * @param screenX     屏幕像素 x（渲染目标坐标）
-     * @param screenY     屏幕像素 y（原点左上）
-     * @param targetWidth 渲染目标宽（与 screenX/Y 同坐标系，须 &gt; 0）
+     * @param screenX      屏幕像素 x（渲染目标坐标）
+     * @param screenY      屏幕像素 y（原点左上）
+     * @param targetWidth  渲染目标宽（与 screenX/Y 同坐标系，须 &gt; 0）
      * @param targetHeight 渲染目标高（须 &gt; 0）
-     * @param out         输出射线（origin=相机世界位置，direction 归一化）
+     * @param out          输出射线（origin=相机世界位置，direction 归一化）
      * @return out
      * @throws UnsupportedOperationException 正交投影（后置）
-     * @throws IllegalStateException 相机未挂节点（无世界位姿）
+     * @throws IllegalStateException         相机未挂节点（无世界位姿）
      */
     public Ray screenToRay(float screenX, float screenY, float targetWidth, float targetHeight, Ray out) {
         if (projectionType != ProjectionType.PERSPECTIVE) {
@@ -290,6 +391,8 @@ public class Camera extends Component {
         output.write("viewportRect", viewportRect);
         output.write("main", main);
         output.write("depth", depth);
+        output.write("antialiasing", antialiasing);
+        output.write("taaSetting", taaSetting);
     }
 
     @Override
@@ -311,5 +414,17 @@ public class Camera extends Component {
         }
         main = input.readBoolean("main", false);
         depth = input.readFloat("depth", 0f);
+        // 抗锯齿与 TAA 参数组（旧场景缺键 = 关闭 TAA / 默认参数，行为与项目设置时代一致）
+        antialiasing = input.readEnum("antialiasing", AntialiasingMode.class, AntialiasingMode.OFF);
+        TaaSetting group = input.readSerializable("taaSetting", TaaSetting.class);
+        if (group != null) {
+            taaSetting = group;
+        } else {
+            // 兼容相机级首版（四项曾平铺在本组件上，尚未提交的一版）——键在则迁移，缺则保默认
+            taaSetting.setSharpenStrength(input.readFloat("sharpenStrength", 0.87f));
+            taaSetting.setHistorySharpening(input.readFloat("historySharpening", 1.0f));
+            taaSetting.setAntiFlickering(input.readFloat("antiFlickering", 0.0f));
+            taaSetting.setSpeedRejection(input.readFloat("speedRejection", 1.0f));
+        }
     }
 }

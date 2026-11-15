@@ -1,6 +1,7 @@
 package cn.donting.javelin.editor.inspector;
 
 import cn.donting.javelin.core.inspector.InsField;
+import cn.donting.javelin.core.inspector.InsFieldGroup;
 import cn.donting.javelin.core.inspector.InsFloatRange;
 import cn.donting.javelin.core.inspector.InsIntRange;
 import cn.donting.javelin.core.math.Color;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -267,5 +269,178 @@ public class InspectorMetaTest extends EditorLangTestBase {
         assertTrue(assertThrows(IllegalStateException.class,
                 () -> InspectorMeta.readProperty(new Fixture(), "bogus"))
                 .getMessage().contains("bogus"));
+    }
+
+    // ── @InsFieldGroup 条件子组 ─────────────────────────────
+
+    /** 条件子组夹具：枚举控制器 + 嵌套参数容器（容器自身无 @InsField，只在命中时内联） */
+    public static final class Grouped {
+
+        public static final class Sub {
+            @InsField(label = "test.subA")
+            @InsFloatRange(min = 0f, max = 1f, step = 0.01f)
+            private float a = 0.25f;
+
+            public float getA() {
+                return a;
+            }
+
+            public void setA(float a) {
+                this.a = a;
+            }
+        }
+
+        @InsField(label = "test.mode")
+        @InsFieldGroup(keys = {"HARD", "SOFT_HIGH"}, value = {"", "sub"})
+        private ShadowQuality mode = ShadowQuality.HARD;
+
+        private Sub sub = new Sub();
+
+        public ShadowQuality getMode() {
+            return mode;
+        }
+
+        public void setMode(ShadowQuality mode) {
+            this.mode = mode;
+        }
+
+        public Sub getSub() {
+            return sub;
+        }
+
+        public void setSub(Sub sub) {
+            this.sub = sub;
+        }
+    }
+
+    /** 长度不等的注解声明即构建期抛错（显式意图不静默吞） */
+    public static final class BadGroup {
+        @InsField(label = "test.badMode")
+        @InsFieldGroup(keys = {"HARD"}, value = {})
+        private ShadowQuality mode = ShadowQuality.HARD;
+
+        public ShadowQuality getMode() {
+            return mode;
+        }
+
+        public void setMode(ShadowQuality mode) {
+            this.mode = mode;
+        }
+    }
+
+    /** 带折叠组头的条件子组夹具（label i18n 键 + 默认收起） */
+    public static final class LabeledGroup {
+
+        public static final class Sub {
+            @InsField(label = "test.labSubA")
+            @InsFloatRange(min = 0f, max = 1f, step = 0.01f)
+            private float a = 1f;
+
+            public float getA() {
+                return a;
+            }
+
+            public void setA(float a) {
+                this.a = a;
+            }
+        }
+
+        @InsField(label = "test.labMode")
+        @InsFieldGroup(keys = {"HARD"}, value = {"sub"}, label = "test.groupLabelKey",
+                collapsed = true)
+        private ShadowQuality mode = ShadowQuality.HARD;
+
+        private Sub sub = new Sub();
+
+        public ShadowQuality getMode() {
+            return mode;
+        }
+
+        public void setMode(ShadowQuality mode) {
+            this.mode = mode;
+        }
+
+        public Sub getSub() {
+            return sub;
+        }
+
+        public void setSub(Sub sub) {
+            this.sub = sub;
+        }
+    }
+
+    /** 滑条标记贴到非 FLOAT 字段即构建期抛（滑条提交浮点串，INT 回解必失败） */
+    public static final class SliderOnInt {
+        @InsField(label = "test.sliderInt")
+        @InsIntRange(min = 0, max = 8, step = 1)
+        @cn.donting.javelin.core.inspector.InsSlider
+        private int amount = 1;
+
+        public int getAmount() {
+            return amount;
+        }
+
+        public void setAmount(int amount) {
+            this.amount = amount;
+        }
+    }
+
+    /** 子组字段以「容器.字段」并入清单，携带控制字段与显示条件值 */
+    @Test
+    public void groupFieldsCarryParentAndShowKeys() {
+        InspectorMeta.PropMeta subA = InspectorMeta.findPropOrNull(Grouped.class, "sub.a");
+        assertNotNull(subA, "条件子组的嵌套字段应并入清单");
+        assertEquals(InspectorValueType.FLOAT, subA.valueType);
+        assertEquals("mode", subA.parentField);
+        assertEquals(List.of("SOFT_HIGH"), subA.showKeys);
+        assertEquals("sub", subA.hostPath);
+
+        // 容器本身无 @InsField → 不产生独立行
+        assertNull(InspectorMeta.findPropOrNull(Grouped.class, "sub"));
+    }
+
+    /** 嵌套字段读写走容器实例（get/set 同一条路径） */
+    @Test
+    public void groupFieldReadWriteTraversesContainer() throws TipException {
+        Grouped host = new Grouped();
+        InspectorMeta.PropMeta subA = InspectorMeta.findProp(Grouped.class, "sub.a");
+        assertEquals(0.25f, (Float) subA.get(host), 1e-6f);
+        subA.set(host, InspectorMeta.parseValue(subA, "0.6"));
+        assertEquals(0.6f, host.getSub().getA(), 1e-6f);
+    }
+
+    /** 容器为空是异常态（不静默返 null / 不静默丢弃写入） */
+    @Test
+    public void nullContainerThrows() {
+        Grouped host = new Grouped();
+        host.setSub(null);
+        InspectorMeta.PropMeta subA = InspectorMeta.findPropOrNull(Grouped.class, "sub.a");
+        assertThrows(IllegalStateException.class, () -> subA.get(host));
+    }
+
+    /** keys/value 长度不一致 → 构建期抛 */
+    @Test
+    public void groupKeyValueLengthMismatchThrows() {
+        assertThrows(IllegalStateException.class, () -> InspectorMeta.propsOf(BadGroup.class, false));
+    }
+
+    /** 组头文案与初始收起态随子字段下发；未给 label 的组保持平铺（groupLabel=null） */
+    @Test
+    public void groupHeaderLabelAndCollapsedFlow() {
+        InspectorMeta.PropMeta labeled = InspectorMeta.findPropOrNull(LabeledGroup.class, "sub.a");
+        assertNotNull(labeled);
+        assertEquals(EditorLang.text("test.groupLabelKey"), labeled.groupLabel);
+        assertTrue(labeled.groupCollapsed);
+
+        InspectorMeta.PropMeta plain = InspectorMeta.findPropOrNull(Grouped.class, "sub.a");
+        assertNull(plain.groupLabel, "未给 label 的子组不渲染组头（平铺）");
+        assertFalse(plain.groupCollapsed);
+    }
+
+    /** @InsSlider 只允许 FLOAT（贴 INT 即构建期抛） */
+    @Test
+    public void sliderOnNonFloatThrows() {
+        assertThrows(IllegalStateException.class,
+                () -> InspectorMeta.propsOf(SliderOnInt.class, false));
     }
 }

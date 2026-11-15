@@ -35,6 +35,18 @@ public class RenderCamera {
     /** 渲染深度：值越大越晚渲染（collectFrame 按此升序稳定排序；同值保持注册序） */
     private float depth;
 
+    // ── 抗锯齿（相机级；SceneRenderBridge 每帧从 Camera 组件同步）──
+    /** 抗锯齿模式（OFF = 不抖动/不累积/不锐化） */
+    private AntialiasingMode antialiasing = AntialiasingMode.OFF;
+    /** TAA 配套锐化强度（RCAS，0~1；0 = 直出） */
+    private float sharpenStrength = 0.87f;
+    /** 历史锐化（0 = 双线性 / 1 = 全 Catmull-Rom） */
+    private float historySharpening = 1.0f;
+    /** 防闪烁（0~1，映射 3×3 邻域钳制强度） */
+    private float antiFlickering = 0.0f;
+    /** 速度抑制（0~1；1 = 0.5 纹素起降权，等价已验收口径） */
+    private float speedRejection = 1.0f;
+
     private final Vector3f position = new Vector3f(0.0f, 0.0f, 5.0f);
     private final Vector3f target = new Vector3f(0.0f, 0.0f, 0.0f);
     private final Vector3f up = new Vector3f(0.0f, 1.0f, 0.0f);
@@ -175,6 +187,52 @@ public class RenderCamera {
         this.viewportY = y;
         this.viewportWidth = width;
         this.viewportHeight = height;
+    }
+
+    /** 抗锯齿模式（相机级；TAA 需要 G-Buffer 世界位置、仅 HYBRID 档） */
+    public AntialiasingMode antialiasing() {
+        return antialiasing;
+    }
+
+    public void setAntialiasing(AntialiasingMode antialiasing) {
+        this.antialiasing = antialiasing == null ? AntialiasingMode.OFF : antialiasing;
+    }
+
+    /** 本相机是否启用 TAA（链成员与抖动注入的统一判据） */
+    public boolean taaEnabled() {
+        return antialiasing == AntialiasingMode.TAA;
+    }
+
+    public float sharpenStrength() {
+        return sharpenStrength;
+    }
+
+    public void setSharpenStrength(float sharpenStrength) {
+        this.sharpenStrength = sharpenStrength;
+    }
+
+    public float historySharpening() {
+        return historySharpening;
+    }
+
+    public void setHistorySharpening(float historySharpening) {
+        this.historySharpening = historySharpening;
+    }
+
+    public float antiFlickering() {
+        return antiFlickering;
+    }
+
+    public void setAntiFlickering(float antiFlickering) {
+        this.antiFlickering = antiFlickering;
+    }
+
+    public float speedRejection() {
+        return speedRejection;
+    }
+
+    public void setSpeedRejection(float speedRejection) {
+        this.speedRejection = speedRejection;
     }
 
     public int viewportX() {

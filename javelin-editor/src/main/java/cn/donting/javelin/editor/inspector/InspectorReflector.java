@@ -185,6 +185,8 @@ public final class InspectorReflector {
         vo.enabled = component.isEnabled();
         vo.required = required;
         vo.fields = new ArrayList<>();
+        // 条件子组的组头只挂在组内首行（其余行 groupLabel 清空，避免重复渲染组头）
+        List<String> groupSeen = new ArrayList<>();
         for (InspectorMeta.PropMeta prop : InspectorMeta.propsOf(component.getClass())) {
             if ("enabled".equals(prop.fieldName)) {
                 continue;
@@ -194,7 +196,13 @@ public final class InspectorReflector {
                 vo.fields.addAll(assetListFieldVos(component, prop));
                 continue;
             }
-            vo.fields.add(InspectorMeta.fieldVo(component, prop));
+            InspectorFieldVo fieldVo = InspectorMeta.fieldVo(component, prop);
+            if (fieldVo.parentField != null && !groupSeen.contains(fieldVo.parentField)) {
+                groupSeen.add(fieldVo.parentField);
+            } else if (fieldVo.parentField != null) {
+                fieldVo.groupLabel = null;
+            }
+            vo.fields.add(fieldVo);
         }
         return vo;
     }

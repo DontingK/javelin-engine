@@ -257,6 +257,22 @@
 > `StringListField`（数组=定长带序号列 / List=行尾 +/− 可增删）与 `TagListField`（`@InsTagList`：名字只读、只增删、
 > `Untagged` 删除置灰）；③ `InspectorFieldVo`/`PropMeta` 加 `listRenamable`，`FieldRowFactory` 据此分派 →
 > `Editor_ProjectSettings_Design.md` v0.3。
+> v0.27（2026-11-15，未实机验收）：**条件子组 `@InsFieldGroup`**——字段取值为 keys[i] 时内联显示 value[i]
+> 指定的同宿内容器字段（容器内部 `@InsField` 字段成为子行；空串 = 不显示）。`InspectorMeta` 递归展开为
+> `容器.子字段` 命名的 `PropMeta`（`hostPath` 记容器路径、`parentField`+`showKeys` 记显示条件），get/set 经容器
+> 实例往返（容器为空即抛，不静默兜底）；keys/value 等长与嵌套深度（上限 3）构建期校验。`ComponentSection`
+> 按父枚举行 `JeSelect` 选中值成对显隐组内 label 与控件（GridBag 忽略不可见组件 → 整行塌缩），父值变化即时
+> 生效、面板重建时按 VO 重新求值。首例 = `Camera.antialiasing`（OFF/TAA）条件展开 `TaaSetting` 四项
+> （`Engine_TAA_Design.md` §9.6 同批）。同批新增 **`@InsSlider` 滑条行**——FLOAT 字段贴本注解且配
+> `@InsFloatRange` 时渲染「滑条 + 数字框」（`JeSliderField`：按注解 step 换算刻度、拖动即提交、与数字框
+> 双向同步互相抑制上报；数字框固定 58px 宽、滑条占满余量）；**贴 `@InsSlider` 却无范围即构建期抛错**
+> （无范围可滑，显式意图不静默）。
+> v0.28（2026-11-15，未实机验收）：**条件子组可折叠（Unity 口径）**——`@InsFieldGroup` 增 `label()`（组头
+> i18n 键，空 = 不渲染组头、子行平铺）与 `collapsed()`（初始收起态）。`ComponentSection` 在组首行上方插一整行宽
+> 的扁平组头按钮（`▾` 展开 / `▸` 收起，点击 `setVisible` 切换组内行并 `revalidate`）；显隐口径变**与关系**：
+> 父值命中 **且** 未收起才显示组内行，组头自身只随父值命中（OFF 时组头也隐）。组头信息挂在**组首行**上
+> （`InspectorReflector.collectComponent` 按 `parentField` 首次出现下发、其余行清空，防重复渲染）；
+> 折叠态为面板内运行态，重建后回落注解默认值。首例 = `Camera` 的「TAA 设置」组。
 
 ## 1. 总则
 

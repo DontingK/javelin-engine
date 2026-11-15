@@ -164,6 +164,12 @@ public final class SceneRenderBridge {
             rc.setCullingMask(camera.getCullingMask());
             rc.setDepth(camera.getDepth());
             rc.setClearFlags(camera.getClearFlags());
+            // 抗锯齿（相机级；Engine_TAA_Design §3.2——抖动/历史/锐化均按本视口生效）
+            rc.setAntialiasing(camera.getAntialiasing());
+            rc.setSharpenStrength(camera.getSharpenStrength());
+            rc.setHistorySharpening(camera.getHistorySharpening());
+            rc.setAntiFlickering(camera.getAntiFlickering());
+            rc.setSpeedRejection(camera.getSpeedRejection());
             if (camera.getBackgroundColor() != null) {
                 Color background = camera.getBackgroundColor();
                 rc.setClearColor(new RHIClearColor(background.r, background.g, background.b, background.a));

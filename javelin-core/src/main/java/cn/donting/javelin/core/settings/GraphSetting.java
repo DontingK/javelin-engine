@@ -42,6 +42,9 @@ public class GraphSetting implements Serializable {
     @SettingGroup(label = "projectSettings.section.shadow")
     private ShadowSettings shadowSettings = new ShadowSettings();
 
+    // 抗锯齿（TAA）与锐化不再在项目设置里：已迁到相机（Unity HDRP Camera Frame Settings 口径，
+    // 2026-11-15 用户拍板「直接删除、搬到相机上」——不同相机可有不同抗锯齿与锐化）
+
     public PipelineProfile getRenderPipeline() {
         return renderPipeline;
     }

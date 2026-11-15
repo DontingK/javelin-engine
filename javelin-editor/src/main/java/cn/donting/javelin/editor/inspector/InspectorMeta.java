@@ -3,11 +3,13 @@ package cn.donting.javelin.editor.inspector;
 import cn.donting.javelin.core.assets.Asset;
 import cn.donting.javelin.core.inspector.InsEnumLabel;
 import cn.donting.javelin.core.inspector.InsField;
+import cn.donting.javelin.core.inspector.InsFieldGroup;
 import cn.donting.javelin.core.inspector.InsFloatRange;
 import cn.donting.javelin.core.inspector.InsIntRange;
 import cn.donting.javelin.core.inspector.InsLayerMask;
 import cn.donting.javelin.core.inspector.InsRotation;
 import cn.donting.javelin.core.inspector.InsShadowResolution;
+import cn.donting.javelin.core.inspector.InsSlider;
 import cn.donting.javelin.core.inspector.InsTagList;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
@@ -57,6 +59,12 @@ public final class InspectorMeta {
     /** 浮点显示精度：最多 4 位小数（与前端 JeNumberInput precision 默认值同口径） */
     private static final int DISPLAY_DECIMALS = 4;
 
+    /** 条件字段组最大嵌套深度（@InsFieldGroup 容器可再套容器；防自引用爆栈） */
+    private static final int MAX_GROUP_DEPTH = 3;
+
+    /** 嵌套字段路径分隔符（fieldName = "容器.子字段"，回写定位与 propsOf 查找同用） */
+    public static final char NESTED_SEPARATOR = '.';
+
     /** 字段元数据缓存（类 → 属性清单；类结构运行期不变，首次访问构建一次）。严格/宽容各一份 */
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> STRICT_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> LENIENT_CACHE = new ConcurrentHashMap<>();
@@ -78,7 +86,110 @@ public final class InspectorMeta {
      */
     public static List<PropMeta> propsOf(Class<?> clazz, boolean strict) {
         ConcurrentHashMap<Class<?>, List<PropMeta>> cache = strict ? STRICT_CACHE : LENIENT_CACHE;
-        return cache.computeIfAbsent(clazz, c -> buildProps(c, strict));
+        return cache.computeIfAbsent(clazz, c -> buildProps(c, strict, "", null, null, null, null,
+                false, 0));
+    }
+
+    /**
+     * 字段清单构建（含 {@code @InsFieldGroup} 条件子组的递归展开）。
+     *
+     * @param prefix      嵌套字段名前缀（顶层空串；子组为 {@code "容器."}）
+     * @param hostPath    嵌套容器字段路径（顶层 null = 宿主自身）
+     * @param parentField 控制本组的字段名（顶层/非分组 null）
+     * @param showKeys    显示条件值集合（非分组 null）
+     * @param depth       嵌套深度（防 @InsFieldGroup 自引用）
+     */
+    private static List<PropMeta> buildProps(Class<?> clazz, boolean strict, String prefix,
+                                             String hostPath, String parentField,
+                                             List<String> showKeys, String groupLabel,
+                                             boolean groupCollapsed, int depth) {
+        if (depth > MAX_GROUP_DEPTH) {
+            throw new IllegalStateException(EditorLang.text("inspector.build.groupDepthExceeded",
+                    clazz.getSimpleName(), MAX_GROUP_DEPTH));
+        }
+        Map<String, Method> zeroParam = new HashMap<>();
+        Map<String, List<Method>> oneParam = new HashMap<>();
+        for (Method method : clazz.getMethods()) {
+            Class<?>[] params = method.getParameterTypes();
+            if (params.length == 0) {
+                zeroParam.putIfAbsent(method.getName(), method);
+            } else if (params.length == 1) {
+                oneParam.computeIfAbsent(method.getName(), k -> new ArrayList<>()).add(method);
+            }
+        }
+        List<PropMeta> props = new ArrayList<>();
+        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+                    continue;
+                }
+                PropMeta prop = buildProp(field, zeroParam, oneParam, strict, prefix,
+                        hostPath, parentField, showKeys, groupLabel, groupCollapsed);
+                if (prop != null) {
+                    props.add(prop);
+                }
+                InsFieldGroup group = field.getAnnotation(InsFieldGroup.class);
+                if (group != null) {
+                    // 控制字段行之后紧跟其条件子组（声明序即面板序）
+                    props.addAll(groupedProps(clazz, field, group, strict, prefix, hostPath, depth));
+                }
+            }
+        }
+        return props;
+    }
+
+    /**
+     * {@code @InsFieldGroup} 展开：keys[i] 命中 → 显示 value[i] 指定的同宿主字段
+     * （必须是嵌套对象容器，其内部 {@code @InsField} 字段成为子行；空串 = 不显示）。
+     */
+    private static List<PropMeta> groupedProps(Class<?> clazz, Field controller, InsFieldGroup group,
+                                               boolean strict, String prefix, String hostPath, int depth) {
+        String owner = clazz.getSimpleName() + "." + controller.getName();
+        String[] keys = group.keys();
+        String[] values = group.value();
+        if (keys.length != values.length) {
+            throw new IllegalStateException(EditorLang.text("inspector.build.groupLengthMismatch",
+                    owner, keys.length, values.length));
+        }
+        // 同一容器可被多个 key 触发：按容器聚合显示条件
+        Map<String, List<String>> byContainer = new HashMap<>();
+        for (int i = 0; i < keys.length; i++) {
+            String container = values[i];
+            if (container == null || container.isBlank()) {
+                continue;
+            }
+            byContainer.computeIfAbsent(container.trim(), k -> new ArrayList<>()).add(keys[i]);
+        }
+        List<PropMeta> props = new ArrayList<>();
+        String parentFieldName = prefix + controller.getName();
+        // 组头（label 空 = 不渲染组头、子行平铺）
+        String groupLabel = group.label().isBlank() ? null : EditorLang.text(group.label());
+        for (Map.Entry<String, List<String>> entry : byContainer.entrySet()) {
+            Field container = findField(clazz, entry.getKey());
+            if (container == null) {
+                throw new IllegalStateException(EditorLang.text("inspector.build.groupContainerMissing",
+                        owner, entry.getKey()));
+            }
+            String childHostPath = hostPath == null
+                    ? container.getName()
+                    : hostPath + NESTED_SEPARATOR + container.getName();
+            props.addAll(buildProps(container.getType(), strict, childHostPath + NESTED_SEPARATOR,
+                    childHostPath, parentFieldName, entry.getValue(), groupLabel, group.collapsed(),
+                    depth + 1));
+        }
+        return props;
+    }
+
+    /** 沿类层级按名查找声明字段（不存在返回 null） */
+    private static Field findField(Class<?> clazz, String name) {
+        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                if (field.getName().equals(name)) {
+                    return field;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -114,34 +225,11 @@ public final class InspectorMeta {
         return fieldsAnnotatedWith(clazz, InsField.class);
     }
 
-    private static List<PropMeta> buildProps(Class<?> clazz, boolean strict) {
-        Map<String, Method> zeroParam = new HashMap<>();
-        Map<String, List<Method>> oneParam = new HashMap<>();
-        for (Method method : clazz.getMethods()) {
-            Class<?>[] params = method.getParameterTypes();
-            if (params.length == 0) {
-                zeroParam.putIfAbsent(method.getName(), method);
-            } else if (params.length == 1) {
-                oneParam.computeIfAbsent(method.getName(), k -> new ArrayList<>()).add(method);
-            }
-        }
-        List<PropMeta> props = new ArrayList<>();
-        for (Class<?> c = clazz; c != null && c != Object.class; c = c.getSuperclass()) {
-            for (Field field : c.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
-                    continue;
-                }
-                PropMeta prop = buildProp(field, zeroParam, oneParam, strict);
-                if (prop != null) {
-                    props.add(prop);
-                }
-            }
-        }
-        return props;
-    }
-
     private static PropMeta buildProp(Field field, Map<String, Method> zeroParam,
-                                      Map<String, List<Method>> oneParam, boolean strict) {
+                                      Map<String, List<Method>> oneParam, boolean strict,
+                                      String prefix, String hostPath, String parentField,
+                                      List<String> showKeys, String groupLabel,
+                                      boolean groupCollapsed) {
         if (!field.isAnnotationPresent(InsField.class)) {
             return null;
         }
@@ -165,6 +253,10 @@ public final class InspectorMeta {
                 : findSetter(oneParam.get("set" + cap), field.getType());
         if (getter == null || setter == null) {
             throw new IllegalStateException(EditorLang.text("inspector.build.missingAccessors", owner));
+        }
+        // @InsSlider 只支持 FLOAT（滑条提交浮点串，INT 字段回解必失败 → 配置错误当场抛）
+        if (field.isAnnotationPresent(InsSlider.class) && type != InspectorValueType.FLOAT) {
+            throw new IllegalStateException(EditorLang.text("inspector.build.sliderNotFloat", owner));
         }
         Class<?> enumType = null;
         List<InspectorFieldVo.Option> options = null;
@@ -197,9 +289,10 @@ public final class InspectorMeta {
         Class<? extends Asset> assetType = type == InspectorValueType.GUID_ASSET
                 ? field.getType().asSubclass(Asset.class)
                 : type == InspectorValueType.GUID_ASSET_LIST ? assetListElementType(field) : null;
-        return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),
-                enumType, options, assetType, field.getType(),
-                !field.isAnnotationPresent(InsTagList.class));
+        return new PropMeta(prefix + field.getName(), displayName(field), type, getter, setter,
+                rangeOf(field), enumType, options, assetType, field.getType(),
+                !field.isAnnotationPresent(InsTagList.class), hostPath, parentField, showKeys,
+                field.isAnnotationPresent(InsSlider.class), groupLabel, groupCollapsed);
     }
 
     /** 按字段名查元数据（未贴/未映射/不存在返回 null） */
@@ -240,6 +333,21 @@ public final class InspectorMeta {
             }
         }
         throw new IllegalStateException(EditorLang.text("inspector.reflect.readFailed", fieldName));
+    }
+
+    /**
+     * 按点路径 getter 读属性（{@code "taaSetting.sharpenStrength"}）：逐段走
+     * {@link #readProperty}，中途实例为 null 即抛（容器为空是真异常，不静默兜底）。
+     */
+    public static Object readPath(Object host, String path) {
+        Object node = host;
+        for (String segment : path.split("\\" + NESTED_SEPARATOR)) {
+            node = node != null ? readProperty(node, segment) : null;
+            if (node == null) {
+                throw new IllegalStateException(EditorLang.text("inspector.reflect.nestedNull", path));
+            }
+        }
+        return node;
     }
 
     /**
@@ -288,6 +396,12 @@ public final class InspectorMeta {
         }
         vo.range = prop.range;
         vo.options = prop.options;
+        // 条件子组（@InsFieldGroup）：控件层据此按父字段当前值决定显隐
+        vo.parentField = prop.parentField;
+        vo.showKeys = prop.showKeys;
+        vo.slider = prop.slider;
+        vo.groupLabel = prop.groupLabel;
+        vo.groupCollapsed = prop.groupCollapsed;
         return vo;
     }
 
@@ -739,12 +853,26 @@ public final class InspectorMeta {
         public final Class<?> declaredType;
         /** STRING_LIST 元素名是否可编辑（false = @InsTagList：名字只读、只增删） */
         public final boolean listRenamable;
+        /** 嵌套容器字段路径（null = 字段直接在宿主上；非 null = 先取该路径的实例再读写） */
+        public final String hostPath;
+        /** 条件子组的控制字段名（null = 常显；非 null = 父字段值命中 {@link #showKeys} 才显示） */
+        public final String parentField;
+        /** 条件子组的显示条件值（{@code @InsFieldGroup.keys} 里指向本容器的那些值） */
+        public final List<String> showKeys;
+        /** 滑条行（{@code @InsSlider}：FLOAT 按「滑条 + 数字框」渲染，必须有范围） */
+        public final boolean slider;
+        /** 条件子组的组头文案（null = 无组头，子行平铺——{@code @InsFieldGroup.label()} 空时） */
+        public final String groupLabel;
+        /** 条件子组初始是否收起（{@code @InsFieldGroup.collapsed()}） */
+        public final boolean groupCollapsed;
 
         private PropMeta(String fieldName, String displayName, InspectorValueType valueType,
                          Method getter, Method setter, InspectorFieldVo.Range range,
                          Class<?> enumType, List<InspectorFieldVo.Option> options,
                          Class<? extends Asset> assetType, Class<?> declaredType,
-                         boolean listRenamable) {
+                         boolean listRenamable, String hostPath, String parentField,
+                         List<String> showKeys, boolean slider, String groupLabel,
+                         boolean groupCollapsed) {
             this.fieldName = fieldName;
             this.displayName = displayName;
             this.valueType = valueType;
@@ -756,11 +884,22 @@ public final class InspectorMeta {
             this.assetType = assetType;
             this.declaredType = declaredType;
             this.listRenamable = listRenamable;
+            this.hostPath = hostPath;
+            this.parentField = parentField;
+            this.showKeys = showKeys;
+            this.slider = slider;
+            this.groupLabel = groupLabel;
+            this.groupCollapsed = groupCollapsed;
+        }
+
+        /** 读写目标实例（嵌套字段先解引用容器；容器为空即抛，不静默兜底） */
+        private Object target(Object host) {
+            return hostPath == null ? host : readPath(host, hostPath);
         }
 
         public Object get(Object host) {
             try {
-                return getter.invoke(host);
+                return getter.invoke(target(host));
             } catch (IllegalAccessException | InvocationTargetException e) {
                 throw new IllegalStateException(EditorLang.text("inspector.reflect.readFailed", fieldName), e);
             }
@@ -768,7 +907,7 @@ public final class InspectorMeta {
 
         public void set(Object host, Object value) {
             try {
-                setter.invoke(host, value);
+                setter.invoke(target(host), value);
             } catch (IllegalAccessException | InvocationTargetException e) {
                 throw new IllegalStateException(EditorLang.text("inspector.reflect.writeFailed", fieldName), e);
             }

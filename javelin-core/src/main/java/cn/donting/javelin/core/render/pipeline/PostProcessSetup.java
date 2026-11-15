@@ -2,7 +2,9 @@ package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.render.pipeline.pass.BloomPass;
+import cn.donting.javelin.core.render.pipeline.pass.SharpenPass;
 import cn.donting.javelin.core.render.pipeline.pass.SsaoPass;
+import cn.donting.javelin.core.render.pipeline.pass.TaaPass;
 import cn.donting.javelin.core.render.pipeline.pass.TonemapPass;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.data.RHIClearColor;
@@ -22,6 +24,8 @@ public final class PostProcessSetup {
     public static final String TONEMAP = "tonemap";
     public static final String BLOOM = "bloom";
     public static final String SSAO = "ssao";
+    public static final String TAA = "taa";
+    public static final String SHARPEN = "sharpen";
 
     private final Device device;
     private final AssetManager assetManager;
@@ -39,6 +43,8 @@ public final class PostProcessSetup {
     private TonemapPass tonemap;
     private BloomPass bloom;
     private SsaoPass ssao;
+    private TaaPass taa;
+    private SharpenPass sharpen;
 
     public PostProcessSetup(Device device, AssetManager assetManager) {
         this.device = device;
@@ -71,6 +77,20 @@ public final class PostProcessSetup {
             }
             return ssao;
         }
+        if (TAA.equals(id)) {
+            if (taa == null) {
+                taa = new TaaPass(device, assetManager);
+                taa.setClearColor(clearColor);
+            }
+            return taa;
+        }
+        if (SHARPEN.equals(id)) {
+            if (sharpen == null) {
+                sharpen = new SharpenPass(device, assetManager);
+                sharpen.setClearColor(clearColor);
+            }
+            return sharpen;
+        }
         throw new IllegalArgumentException("未知后处理节点 id: " + id);
     }
 
@@ -96,6 +116,10 @@ public final class PostProcessSetup {
             node = bloom;
         } else if (SSAO.equals(id)) {
             node = ssao;
+        } else if (TAA.equals(id)) {
+            node = taa;
+        } else if (SHARPEN.equals(id)) {
+            node = sharpen;
         } else {
             node = null;
         }
@@ -116,6 +140,12 @@ public final class PostProcessSetup {
         }
         if (ssao != null) {
             ssao.setClearColor(clearColor);
+        }
+        if (taa != null) {
+            taa.setClearColor(clearColor);
+        }
+        if (sharpen != null) {
+            sharpen.setClearColor(clearColor);
         }
     }
 

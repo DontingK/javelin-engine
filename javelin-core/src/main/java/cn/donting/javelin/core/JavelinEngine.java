@@ -99,6 +99,8 @@ public class JavelinEngine {
     private PostProcessSetup postProcessSetup;
     /** FORWARD 档忽略 SSAO 的 warn 一次性标记（applyRenderSettings 高频调用，不刷日志） */
     private boolean ssaoForwardWarned;
+    /** FORWARD 档忽略 TAA 的 warn 一次性标记（同上口径） */
+    private boolean taaForwardWarned;
     /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
     private PickSystem pickSystem;
 
@@ -310,6 +312,8 @@ public class JavelinEngine {
                 sceneRenderBridge.sync(scene, renderingSystem, backbuffer);
             }
             FrameDescription desc = renderingSystem.collectFrame(frameLoop.frameCounter(), backbuffer);
+            // 相机级抗锯齿：链成员按本帧相机状态同步（任一相机启用 TAA 才挂 TAA + 锐化）
+            syncCameraAntialiasing(desc);
             // HDR 生效（后处理链非空）时场景色写本视口 lightingRT，链尾 Tonemap 写显示终点
             boolean hdr = renderPipeline.usesHdrSceneTarget();
             // 场景色格式随 HDR 切换（材质 PSO 颜色附件须为 RGBA16F——格式变化即失效 PSO 缓存）
@@ -340,7 +344,10 @@ public class JavelinEngine {
 
     /**
      * 图形设置单点下发：把 {@code setting.graphSettings} 的当前值推给运行中的渲染链——后处理
-     * 参数、背景清屏色双 sink、三效果链成员按开关标志增删（FORWARD 档忽略 SSAO 并 warn 一次）。
+     * 参数、背景清屏色双 sink、效果链成员按开关标志增删（FORWARD 档忽略 SSAO 并 warn 一次）。
+     *
+     * <p>抗锯齿（TAA + 配套锐化）是相机级设置，不在本方法内：链成员由
+     * {@link #syncCameraAntialiasing} 每帧按相机状态同步。</p>
      *
      * <p>启动期在 {@link #initialize()} 调一次完成初始下发；运行期改过设置字段（设置面板的
      * 反射写 / 工具菜单开关）后调用本方法即生效。阴影不在此列——渲染系统持 live 实例、每帧
@@ -369,6 +376,39 @@ public class JavelinEngine {
             ssaoForwardWarned = true;
         }
         applyPostProcessNode(PostProcessSetup.SSAO, ssaoEnabled && !forward);
+        // 抗锯齿（TAA + 配套锐化）是相机级设置：链成员按本帧相机状态每帧同步，
+        // 见 buildFrameGraph → syncCameraAntialiasing（此处不处理）
+    }
+
+    /**
+     * 相机级抗锯齿的链成员同步（每帧 collectFrame 之后调）：任一相机启用 TAA → 挂 TAA 与
+     * 配套锐化节点，否则摘掉（摘掉后不再创建历史 RT、不再抖动）。
+     *
+     * <p>逐视口的实际行为（关=直拷）由 TaaPass / SharpenPass 按相机设置判定，本方法只决定
+     * 节点在不在链上（链成员影响 HDR 切换与惰性创建）。</p>
+     */
+    private void syncCameraAntialiasing(FrameDescription desc) {
+        if (postProcessSetup == null || renderPipeline == null || renderingSystem == null) {
+            return;
+        }
+        boolean anyTaa = false;
+        for (RenderView view : desc.views()) {
+            if (renderingSystem.taaViewEnabled(view.name())) {
+                anyTaa = true;
+                break;
+            }
+        }
+        boolean forward = renderPipeline.profile() == PipelineProfile.FORWARD;
+        if (anyTaa && forward && !taaForwardWarned) {
+            log.warn("TAA 需要 G-Buffer 世界位置，FORWARD 档不支持——忽略相机抗锯齿（HYBRID 档生效）");
+            taaForwardWarned = true;
+        }
+        boolean taaActive = anyTaa && !forward;
+        applyPostProcessNode(PostProcessSetup.TAA, taaActive);
+        // 锐化是 TAA 的配套（Unity 口径：抗锯齿关闭即不锐化），与 TAA 同生同灭
+        applyPostProcessNode(PostProcessSetup.SHARPEN, taaActive);
+        // 铁律：TAA 不在链上必须停抖（否则白白亚像素抖动、静态画面也会变糊）
+        renderingSystem.setTaaJitterEnabled(taaActive);
     }
 
     /**
@@ -536,6 +576,10 @@ public class JavelinEngine {
         }
         this.scene = scene;
         Physics.setScene(scene);
+        if (renderingSystem != null) {
+            // 切场景 = 历史语义断裂（旧场景的历史色对新场景是错的），TAA 从当前帧重新累积
+            renderingSystem.invalidateTaaAll();
+        }
     }
 
     /** 当前场景（start() 调用前/未设置时为 null） */

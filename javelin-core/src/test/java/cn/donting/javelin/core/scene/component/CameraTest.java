@@ -1,5 +1,6 @@
 package cn.donting.javelin.core.scene.component;
 
+import cn.donting.javelin.core.render.AntialiasingMode;
 import cn.donting.javelin.core.render.ProjectionType;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.physics.Ray;
@@ -158,5 +159,33 @@ public class CameraTest {
 
         assertEquals(1.0f, ray.getDirection().length(), EPS);
         assertTrue(ray.getDirection().z > 0.0f, "identity 相机的任意屏幕点视向 z 分量恒正");
+    }
+
+    /** 抗锯齿是相机级设置（Unity HDRP 口径，2026-11-15 从项目设置迁来） */
+    @Test
+    void antialiasingDefaultsMatchAcceptedBehavior() {
+        Camera camera = cameraOnNode();
+        // 默认关闭（与项目设置时代 enabled=false 一致）
+        assertEquals(AntialiasingMode.OFF, camera.getAntialiasing());
+        assertEquals(0.87f, camera.getSharpenStrength(), EPS);
+        assertEquals(1.0f, camera.getHistorySharpening(), EPS);
+        assertEquals(0.0f, camera.getAntiFlickering(), EPS);
+        // 1.0 = 0.5 纹素起降权（等价已验收的 smoothstep(0.5, 2.0)）
+        assertEquals(1.0f, camera.getSpeedRejection(), EPS);
+
+        camera.setAntialiasing(AntialiasingMode.TAA);
+        camera.setSharpenStrength(0.5f);
+        camera.setHistorySharpening(0.0f);
+        camera.setAntiFlickering(0.75f);
+        camera.setSpeedRejection(0.0f);
+        assertEquals(AntialiasingMode.TAA, camera.getAntialiasing());
+        assertEquals(0.5f, camera.getSharpenStrength(), EPS);
+        assertEquals(0.0f, camera.getHistorySharpening(), EPS);
+        assertEquals(0.75f, camera.getAntiFlickering(), EPS);
+        assertEquals(0.0f, camera.getSpeedRejection(), EPS);
+
+        // null 归一为 OFF（不落非法态）
+        camera.setAntialiasing(null);
+        assertEquals(AntialiasingMode.OFF, camera.getAntialiasing());
     }
 }

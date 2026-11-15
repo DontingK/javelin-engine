@@ -4,21 +4,26 @@ import cn.donting.javelin.core.scene.Node;
 import cn.donting.javelin.editor.inspector.ComponentInspectorVo;
 import cn.donting.javelin.editor.inspector.InspectorFieldVo;
 import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
+import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
 import cn.donting.javelin.editor.swing.inspector.widget.CollapsiblePanel;
 import cn.donting.javelin.editor.swing.inspector.widget.ScrubDragger;
 import cn.donting.javelin.editor.swing.SvgIcon;
 
 import javax.swing.Icon;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -80,8 +85,27 @@ public class ComponentSection extends JComponent {
         // 顶对齐（§9 拍板）：RECT 两行形态下 label 与多行控件顶部对齐；
         // 单行控件视觉差 1~2px 可接受（Web 版同口径未用 baseline）
         gbc.anchor = GridBagConstraints.NORTHWEST;
+        // 条件子组（@InsFieldGroup）：父字段名 → 该组状态（组头 + 组内行，成组显隐/折叠）
+        Map<String, GroupState> groups = new LinkedHashMap<>();
         int row = 0;
         for (InspectorFieldVo field : vo.fields) {
+            // 组头行（组首行携带；占整行宽，点击折叠）——插在该组第一行之前
+            if (field.parentField != null && field.groupLabel != null) {
+                GroupState state = groups.computeIfAbsent(field.parentField, k -> new GroupState());
+                state.collapsed = field.groupCollapsed;
+                JButton header = groupHeader(field.groupLabel, state, panel);
+                gbc.gridy = row++;
+                gbc.gridx = 0;
+                gbc.gridwidth = 2;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.weightx = 1;
+                gbc.insets = new Insets(2, 0, 1, 0);
+                panel.add(header, gbc);
+                // 复位单列布局
+                gbc.gridwidth = 1;
+                gbc.weightx = 0;
+                state.header = header;
+            }
             FieldEditor editor = FieldRowFactory.create(field, value ->
                     commit.commit(owner, vo.component, field.fieldName, field.valueType, value));
             editors.put(field.fieldName, editor);
@@ -100,10 +124,97 @@ public class ComponentSection extends JComponent {
             gbc.fill = GridBagConstraints.HORIZONTAL;
             gbc.weightx = 1;
             gbc.insets = new Insets(1, 0, 1, 0);
-            panel.add(editor.editorComponent(), gbc);
+            JComponent editorComponent = editor.editorComponent();
+            panel.add(editorComponent, gbc);
+            if (field.parentField != null) {
+                // 同组多行共享（label 与控件各一个 cell）——GridBag 忽略不可见组件，成组隐去即整行塌缩
+                GroupState state = groups.computeIfAbsent(field.parentField, k -> new GroupState());
+                state.showKeys = field.showKeys;
+                state.members.add(fieldLabel);
+                state.members.add(editorComponent);
+            }
             row++;
         }
+        bindGroupVisibility(panel, vo, groups);
         return panel;
+    }
+
+    /**
+     * 折叠组头（Unity 口径）：扁平按钮 + 三角箭头，点击在收起/展开间切换；
+     * 初始收起态取 {@code @InsFieldGroup.collapsed()}，文本前缀随态更新。
+     */
+    private JButton groupHeader(String label, GroupState state, JPanel panel) {
+        JButton header = new JButton();
+        header.setHorizontalAlignment(SwingConstants.LEFT);
+        header.setOpaque(false);
+        header.setContentAreaFilled(false);
+        header.setBorderPainted(false);
+        header.setFocusPainted(false);
+        header.setMargin(new Insets(2, 0, 2, 0));
+        applyHeaderText(header, label, state.collapsed);
+        header.addActionListener(e -> {
+            state.collapsed = !state.collapsed;
+            applyHeaderText(header, label, state.collapsed);
+            refreshGroup(state);
+            panel.revalidate();
+            panel.repaint();
+        });
+        return header;
+    }
+
+    /** 组头文本（▾ 展开 / ▸ 收起） */
+    private static void applyHeaderText(JButton header, String label, boolean collapsed) {
+        header.setText((collapsed ? "▸ " : "▾ ") + label);
+    }
+
+    /**
+     * 条件子组显隐绑定：父枚举行（{@link JeSelect}）选中值变化 → 整组（含组头）显隐；
+     * 组头点击 → 折叠切换（两条件与关系：父值命中且未收起才显示组内行）。
+     */
+    private void bindGroupVisibility(JPanel panel, ComponentInspectorVo vo,
+                                     Map<String, GroupState> groups) {
+        for (Map.Entry<String, GroupState> entry : groups.entrySet()) {
+            GroupState state = entry.getValue();
+            String parentValue = vo.fields.stream()
+                    .filter(f -> entry.getKey().equals(f.fieldName))
+                    .map(f -> f.value)
+                    .findFirst().orElse(null);
+            state.parentValue = parentValue;
+            refreshGroup(state);
+            FieldEditor parentEditor = editors.get(entry.getKey());
+            if (parentEditor instanceof JeSelect select) {
+                select.addActionListener(e -> {
+                    Object selected = select.getSelectedItem();
+                    String value = selected instanceof InspectorFieldVo.Option option ? option.value : null;
+                    state.parentValue = value;
+                    refreshGroup(state);
+                    panel.revalidate();
+                    panel.repaint();
+                });
+            }
+        }
+    }
+
+    /** 组显隐：组头随父值命中；组内行还要求未收起 */
+    private static void refreshGroup(GroupState state) {
+        boolean parentOn = state.parentValue != null && state.showKeys != null
+                && state.showKeys.contains(state.parentValue);
+        if (state.header != null) {
+            state.header.setVisible(parentOn);
+        }
+        boolean show = parentOn && !state.collapsed;
+        for (JComponent member : state.members) {
+            member.setVisible(show);
+        }
+    }
+
+    /** 条件子组运行态（组头 / 组内行 / 显示条件 / 折叠态） */
+    private static final class GroupState {
+        private final List<JComponent> members = new ArrayList<>();
+        private List<String> showKeys;
+        private String parentValue;
+        private JButton header;
+        private boolean collapsed;
     }
 
     /** 组内字段控件（按字段名；无此字段 null——Transform 定点刷新用） */

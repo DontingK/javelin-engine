@@ -293,6 +293,36 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> bloomRtTextures = new HashMap<>();
     // 每视口 SSAO RT（Engine_SSAO_Design §3.4；半分辨率 R8，key = cameraName#s序：0=AO 原始，1=模糊后）
     private final Map<String, Texture> ssaoRtTextures = new HashMap<>();
+    // 每视口 TAA 历史色（Engine_TAA_Design §3.4；RGBA16F 全帧 ping-pong，key = cameraName#t序：0/1）
+    private final Map<String, Texture> taaRtTextures = new HashMap<>();
+    // 每视口 TAA 历史状态（上帧抖动后 viewProj + 帧号；TaaPass 重投影与失效判据的来源）
+    private final Map<String, TaaHistory> taaHistories = new HashMap<>();
+    /** TAA 投影抖动开关：仅 TAA 在链上才抖（RenderingSystem 不认链，由 JavelinEngine 下发）；相机级再叠加 */
+    private boolean taaJitterEnabled;
+    /** 抖动幅度（像素；内部常量 0.5 = thinTAA 同款半像素，满幅会把画面拉糊；不暴露给相机） */
+    private static final float TAA_JITTER_SCALE = 0.5f;
+    /** 历史权重（内部常量 0.95 = 1 - Babylon thinTAA `factor` 0.05；不暴露给相机） */
+    private static final float TAA_BLEND_WEIGHT = 0.95f;
+    /** Halton(2,3) 前 8 相亚像素偏移（基值已减 0.5，值域 [-0.5,0.5] 像素；frameIndex 取相） */
+    private static final float[] TAA_JITTER_X =
+            {0.0f, -0.25f, 0.25f, -0.375f, 0.125f, -0.125f, 0.375f, -0.4375f};
+    private static final float[] TAA_JITTER_Y =
+            {-0.166667f, 0.166667f, -0.388889f, -0.055556f, 0.277778f, -0.277778f, 0.055556f, 0.388889f};
+    /** 抖动矩阵复用暂存（NDC 平移 T × P × V；帧路径 exclusive） */
+    private final Matrix4f jitterMatrix = new Matrix4f();
+    /** 写 UBO 的抖动后 viewProj 暂存（避免每帧分配数组） */
+    private final float[] jitteredViewProjTmp = new float[16];
+    /** 本帧抖动像素偏移暂存 {x,y} */
+    private final float[] jitterPixel = new float[2];
+    /** 相机位姿变化容差（未抖动 viewProj 逐元素比较；thinTAA 口径：移动即丢历史、停抖） */
+    private static final float TAA_MOVE_EPS = 1e-5f;
+    /** 位姿比较暂存（帧路径 exclusive） */
+    private final float[] taaRawA = new float[16];
+    private final float[] taaRawB = new float[16];
+    /** 抖动注入首帧诊断（一次性） */
+    private boolean taaJitterLogged;
+    /** 历史失效告警（一次性，定位「抖动未被平均」） */
+    private boolean taaMissingValidLogged;
     // 退役纹理（removeCamera 无 waitIdle 时机保证，两帧后 dispose）
     private final List<RetiredTexture> retiredTextures = new ArrayList<>();
     // 退役渲染资源（资产热重载对账：PSO/布局/set+UBO，两帧语义同 retiredTextures）
@@ -386,6 +416,8 @@ public final class RenderingSystem implements AutoCloseable {
             retirePostRts(camera.name());
             retireBloomRts(camera.name());
             retireSsaoRts(camera.name());
+            retireTaaRts(camera.name());
+            taaHistories.remove(camera.name());
         }
     }
 
@@ -731,6 +763,138 @@ public final class RenderingSystem implements AutoCloseable {
         }
     }
 
+    // ═══ TAA 历史色与状态面（TaaPass 消费） ═══
+
+    /**
+     * 每视口 TAA 历史色 RT（Engine_TAA_Design §3.4）：index 0/1 = ping-pong 两代。
+     * 全帧尺寸、{@link #HDR_SCENE_COLOR_FORMAT}；与 lightingRtFor 同模式（resize 换绑、
+     * 惰性创建、removeCamera 回收）；TAA 关闭时不创建。
+     */
+    public Texture taaRtFor(String cameraName, int index) {
+        return taaRtTextures.computeIfAbsent(cameraName + "#t" + index,
+                n -> createHdrViewTexture());
+    }
+
+    /** 退役某视口的全部 TAA 历史 RT（removeCamera 用；retire 两帧后销毁） */
+    private void retireTaaRts(String cameraName) {
+        String prefix = cameraName + "#t";
+        Iterator<Map.Entry<String, Texture>> it = taaRtTextures.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Texture> entry = it.next();
+            if (entry.getKey().startsWith(prefix)) {
+                retire(entry.getValue());
+                it.remove();
+            }
+        }
+    }
+
+    /**
+     * 上一帧抖动后 viewProj（此视口）；相机未收集过返回 null。
+     *
+     * <p>只读视图——调用方不得修改，重投影参数由 TaaPass 拷进自己的参数块。</p>
+     */
+    public Matrix4f taaPrevViewProj(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? null : history.prevJitteredViewProj;
+    }
+
+    /** 历史可用判据：本视口上一帧恰好是 {@code frameIndex - 1}（中间断帧即视为失效） */
+    public boolean taaHistoryValid(String cameraName, long frameIndex) {
+        TaaHistory history = taaHistories.get(cameraName);
+        // 相机本帧与上一帧都须启用 TAA（关闭期间历史 RT 不更新，帧号连续也不可用）；
+        // 相机移动帧不混（thinTAA disableOnCameraMove：factor=1）；断帧亦失效
+        boolean valid = history != null && history.taaEnabled && history.prevTaaEnabled
+                && history.prevFrame == frameIndex - 1 && !history.cameraMoved;
+        if (!valid && frameIndex > 1 && history != null && history.taaEnabled
+                && !history.cameraMoved && !taaMissingValidLogged) {
+            taaMissingValidLogged = true;
+            log.warn("TAA 历史失效（该帧直出当前帧）: 相机[{}] frame={} prevFrame={}",
+                    cameraName, frameIndex, history.prevFrame);
+        }
+        return valid;
+    }
+
+    /** 本视口本帧是否启用 TAA（按相机设置；TaaPass/SharpenPass 按视口判定） */
+    public boolean taaViewEnabled(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history != null && history.taaEnabled;
+    }
+
+    /** 本视口 TAA 历史权重（内部常量 0.95；参数来自相机级设置之外的固定口径） */
+    public float taaViewBlendWeight(String cameraName) {
+        return TAA_BLEND_WEIGHT;
+    }
+
+    /** 本视口历史锐化（0 = 双线性 / 1 = 全 Catmull-Rom；相机级参数） */
+    public float taaViewHistorySharpening(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? 1.0f : history.historySharpening;
+    }
+
+    /** 本视口 3×3 邻域钳制强度（0 = 关；相机「防闪烁」0~1 映射到 0~2） */
+    public float taaViewClampScale(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? 0.0f : history.clampScale;
+    }
+
+    /** 本视口速度降权起始阈值（纹素；0 = 不抑制；相机「速度抑制」换算） */
+    public float taaViewSpeedThreshold(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? 0.0f : history.speedThreshold;
+    }
+
+    /** 本视口锐化强度（相机级；相机未启用 TAA 时 0 = 直出） */
+    public float sharpenStrengthFor(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null || !history.taaEnabled ? 0.0f : history.sharpenStrength;
+    }
+
+    /** 失效某视口历史（切场景等语义边界；下一帧从当前帧重新起累积） */
+    public void invalidateTaa(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        if (history != null) {
+            history.prevFrame = Long.MIN_VALUE;
+            history.lastFrame = Long.MIN_VALUE;
+        }
+    }
+
+    /** 失效全部视口历史（切场景调用；`prevTaaEnabled` 一并复位 → 重新启用首帧必直出） */
+    public void invalidateTaaAll() {
+        taaHistories.values().forEach(hist -> {
+            hist.prevFrame = Long.MIN_VALUE;
+            hist.lastFrame = Long.MIN_VALUE;
+            hist.prevTaaEnabled = false;
+        });
+    }
+
+    /** TAA 抖动开关（TAA 不在链上必须关——否则白白引入亚像素抖动与糊） */
+    public void setTaaJitterEnabled(boolean enabled) {
+        this.taaJitterEnabled = enabled;
+    }
+
+    /**
+     * 本视口本帧**实际施加**的 TAA 抖动像素偏移（写入 out[2]）：TaaPass copy Pass 去抖消费。
+     *
+     * <p>必须是 writeCameraBlock 真正用过的值——关闭抖动、相机未启用 TAA 或相机移动帧
+     *（thinTAA 口径停抖）时恒 0，否则 copy 会按相位值平移一张本来没抖的画面，凭空糊一层。
+     * 按相机名取值：多相机时各视口的抖动量不同，不能共用一个全局暂存。</p>
+     */
+    public void taaJitterFor(String cameraName, float[] out) {
+        TaaHistory history = taaHistories.get(cameraName);
+        if (history == null) {
+            out[0] = 0.0f;
+            out[1] = 0.0f;
+            return;
+        }
+        out[0] = history.appliedJitter[0];
+        out[1] = history.appliedJitter[1];
+    }
+
+    /** 帧环形槽数（TaaPass 参数块按此分槽，与 UBO1 同奇偶） */
+    public int frameSlots() {
+        return frameSlots;
+    }
+
     /**
      * 登记 shader Pass 名的 PSO 颜色附件格式列表（HYBRID 的 "GBuffer" = 三张 MRT）。
      * 未登记的 Pass 名走单张 {@link #colorAttachmentFormat()}（Forward 族现状）。
@@ -809,10 +973,7 @@ public final class RenderingSystem implements AutoCloseable {
             cam.recalculate();
             computeShadow(cam);   // per-view 级联拟合（四期 CSM：依赖各相机视锥）
             int camOffset = slotBase + camIndex * CAMERA_STRIDE;
-            uboBuffer.writeAligned(camOffset, FloatBuffer.wrap(cam.viewProj().get(new float[16])));
-            // CameraBlock.view（批次③）：vs 传视空间位置/法线插值（Lit 类受光着色器）
-            uboBuffer.writeAligned(camOffset + 64,
-                    FloatBuffer.wrap(cam.view().get(new float[16])));
+            writeCameraBlock(cam, camOffset, frameIndex);
             // 灯收集（每视口：方向光视空间方向 + lightList 各自正确——批次③ per-view
             // 三缓冲落位，批次②「首视口一份」挂账解除）
             lightCollector.collect(lights, cam.view(), cam.proj(),
@@ -1535,6 +1696,108 @@ public final class RenderingSystem implements AutoCloseable {
         }
     }
 
+    // ═══ TAA（Engine_TAA_Design §3.2/§3.4） ═══
+
+    /**
+     * 写本视口 CameraBlock（viewProj + view）：TAA 开启时 viewProj 按 Halton 相位做亚像素
+     * NDC 平移（T × P × V），并登记进历史表供下一帧重投影；关闭时写原矩阵。
+     *
+     * <p>抖动只影响本 UBO——{@code computeShadow} / 灯收集 / 簇构建均已在本调用之前用
+     * 未抖动矩阵完成（顺序由 {@code collectFrame} 保证）。</p>
+     */
+    private void writeCameraBlock(RenderCamera cam, int cameraOffset, long frameIndex) {
+        Matrix4f raw = cam.viewProj();
+        TaaHistory history = taaHistories.computeIfAbsent(cam.name(), n -> new TaaHistory());
+        // 位姿判定先行：移动帧不抖动（thinTAA: disableOnCameraMove —— 移动中抖动只会被直出放大）
+        boolean moved = isTaaCameraMoved(history, raw);
+        history.cameraMoved = moved;
+        history.curRawViewProj.set(raw);
+        // 本视口抗锯齿生效参数快照（TaaPass / SharpenPass 在 buildGraph 期按视口读）
+        history.taaEnabled = cam.taaEnabled();
+        history.sharpenStrength = cam.sharpenStrength();
+        history.historySharpening = cam.historySharpening();
+        // 防闪烁 0~1 → 3×3 AABB 钳制强度 0~2（0 = 关，thinTAA clampHistory 口径）
+        history.clampScale = 2.0f * cam.antiFlickering();
+        // 速度抑制 0~1 → 降权起始阈值（纹素；1 = 0.5 纹素起降权＝已验收口径，0 = 不抑制）
+        history.speedThreshold = cam.speedRejection() <= 0.0f
+                ? 0.0f
+                : Math.max(0.25f, 2.5f - 2.0f * cam.speedRejection());
+        Matrix4f effective = raw;
+        // 抖动按相机：本视口启用 TAA 且未移动才抖（相机关闭时整幅不抖，链路照常直出）
+        if (taaJitterEnabled && history.taaEnabled && !moved) {
+            taaJitterPixels(frameIndex, TAA_JITTER_SCALE, jitterPixel);
+            applyTaaJitter(raw, jitterPixel[0], jitterPixel[1],
+                    cam.viewportWidth(), cam.viewportHeight(), jitterMatrix);
+            effective = jitterMatrix;
+            history.appliedJitter[0] = jitterPixel[0];
+            history.appliedJitter[1] = jitterPixel[1];
+        } else {
+            history.appliedJitter[0] = 0.0f;
+            history.appliedJitter[1] = 0.0f;
+        }
+        effective.get(jitteredViewProjTmp);
+        uboBuffer.writeAligned(cameraOffset, FloatBuffer.wrap(jitteredViewProjTmp));
+        // CameraBlock.view（批次③）：vs 传视空间位置/法线插值（Lit 类受光着色器）
+        uboBuffer.writeAligned(cameraOffset + 64,
+                FloatBuffer.wrap(cam.view().get(new float[16])));
+        updateTaaHistory(cam.name(), history, effective, frameIndex);
+        if (history.taaEnabled && !taaJitterLogged) {
+            taaJitterLogged = true;
+            log.info("TAA 抖动注入首帧: 相机[{}] frame={} moved={} 相位={} 抖动像素=({}, {}) 视口={}x{} "
+                            + "历史帧号 prev/last={}/{}",
+                    cam.name(), frameIndex, moved, (int) (frameIndex % TAA_JITTER_X.length),
+                    String.format("%.3f", history.appliedJitter[0]),
+                    String.format("%.3f", history.appliedJitter[1]),
+                    cam.viewportWidth(), cam.viewportHeight(),
+                    history.prevFrame, history.lastFrame);
+        }
+    }
+
+    /** 相机位姿是否变化（未抖动 viewProj 逐元素比较；首帧视为移动 → 直出当前帧） */
+    private boolean isTaaCameraMoved(TaaHistory history, Matrix4f raw) {
+        if (history.lastFrame == Long.MIN_VALUE) {
+            return true;
+        }
+        raw.get(taaRawA);
+        history.curRawViewProj.get(taaRawB);
+        for (int i = 0; i < taaRawA.length; i++) {
+            if (Math.abs(taaRawA[i] - taaRawB[i]) > TAA_MOVE_EPS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Halton(2,3) 相位取点：帧号取相 × 幅度缩放 → 像素偏移（写入 out，避免分配） */
+    static void taaJitterPixels(long frameIndex, float scale, float[] out) {
+        int phase = (int) (frameIndex % TAA_JITTER_X.length);
+        out[0] = TAA_JITTER_X[phase] * scale;
+        out[1] = TAA_JITTER_Y[phase] * scale;
+    }
+
+    /**
+     * NDC 亚像素平移后的 viewProj（T × P × V）：单像素 NDC 跨度 = 2/W、2/H。
+     * 偏移为 0 时结果与原矩阵逐元素相等（单测锁定 JOML 方向与乘法顺序）。
+     */
+    static Matrix4f applyTaaJitter(Matrix4f viewProj, float pixelX, float pixelY,
+                                   int viewWidth, int viewHeight, Matrix4f out) {
+        return out.identity()
+                .translate(2.0f * pixelX / Math.max(1, viewWidth),
+                        2.0f * pixelY / Math.max(1, viewHeight), 0.0f)
+                .mul(viewProj);
+    }
+
+    /** 历史登记：本帧矩阵移入 prev，帧号错一帧（TaaPass 按 prevFrame == frameIndex-1 判可用） */
+    private void updateTaaHistory(String cameraName, TaaHistory history, Matrix4f effectiveViewProj,
+                                  long frameIndex) {
+        history.prevJitteredViewProj.set(history.curJitteredViewProj);
+        history.curJitteredViewProj.set(effectiveViewProj);
+        history.prevFrame = history.lastFrame;
+        history.lastFrame = frameIndex;
+        // 本帧启用状态滚入「上一帧」——关闭期间历史 RT 不更新，重新启用首帧必须判失效
+        history.prevTaaEnabled = history.taaEnabled;
+    }
+
     /**
      * 交换链尺寸变化 → 深度纹理全部换绑，旧纹理当场显式释放。
      * 尺寸变化仅发生于交换链 recreate 之后（w/h 读自 swapChain），recreate 首行
@@ -1557,6 +1820,12 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(postRtTextures);
             disposeAll(bloomRtTextures);
             disposeAll(ssaoRtTextures);
+            disposeAll(taaRtTextures);
+            // 历史纹理换代：帧号一并作废（否则下一帧把新空纹理当历史采样）
+            taaHistories.values().forEach(history -> {
+                history.prevFrame = Long.MIN_VALUE;
+                history.lastFrame = Long.MIN_VALUE;
+            });
             // set1 per-view 描述符集引用 G-Buffer 纹理（binding5/6/7）——纹理换绑即重建
             // 描述符集（视口像素尺寸可能未变，不能只靠 viewLightsFor 的尺寸判据）
             if (!viewLights.isEmpty()) {
@@ -1712,6 +1981,7 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(postRtTextures);
         disposeAll(bloomRtTextures);
         disposeAll(ssaoRtTextures);
+        disposeAll(taaRtTextures);
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）
@@ -1796,6 +2066,33 @@ public final class RenderingSystem implements AutoCloseable {
             this.disposeAction = disposeAction;
             this.frame = frame;
         }
+    }
+
+    /** 每视口 TAA 历史（抖动后 viewProj 两代 + 帧号 + 本帧生效的抗锯齿参数快照；渲染域私有） */
+    private static final class TaaHistory {
+        /** 上一帧抖动后 viewProj（TaaPass 重投影基准） */
+        final Matrix4f prevJitteredViewProj = new Matrix4f();
+        /** 本帧抖动后 viewProj（下一帧滚入 prev） */
+        final Matrix4f curJitteredViewProj = new Matrix4f();
+        /** 未抖动 viewProj（上一帧）——相机位姿判据（thinTAA: 移动即丢历史、停抖） */
+        final Matrix4f curRawViewProj = new Matrix4f();
+        /** 本帧相机是否在移动（块混合 = 直出当前帧） */
+        boolean cameraMoved = true;
+        /** 上一帧本视口的帧号（可用判据 = frameIndex - 1） */
+        long prevFrame = Long.MIN_VALUE;
+        /** 本帧（最近一次收集）帧号 */
+        long lastFrame = Long.MIN_VALUE;
+        /** 本帧是否启用 TAA（相机级设置；关 = 不抖、不累积、不锐化） */
+        boolean taaEnabled;
+        /** 上一帧是否启用 TAA（关闭期间历史 RT 不更新，重新启用首帧须判失效） */
+        boolean prevTaaEnabled;
+        /** 本帧实际施加的抖动像素偏移（启用且未移动才非 0；copy 去抖按它平移） */
+        final float[] appliedJitter = new float[2];
+        /** 本帧生效的抗锯齿参数快照（相机设置） */
+        float sharpenStrength;
+        float historySharpening = 1.0f;
+        float clampScale;
+        float speedThreshold;
     }
 
     /** 退役纹理条目（stamp = 退役时最近一次已收集的帧号） */

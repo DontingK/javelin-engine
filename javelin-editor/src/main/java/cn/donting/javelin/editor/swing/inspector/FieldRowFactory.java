@@ -7,6 +7,7 @@ import cn.donting.javelin.editor.swing.inspector.widget.AssetInput;
 import cn.donting.javelin.editor.swing.inspector.widget.ColorField;
 import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
 import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
+import cn.donting.javelin.editor.swing.inspector.widget.JeSliderField;
 import cn.donting.javelin.editor.swing.inspector.widget.JeTextInput;
 import cn.donting.javelin.editor.swing.inspector.widget.LayerMaskField;
 import cn.donting.javelin.editor.swing.inspector.widget.StringListField;
@@ -46,6 +47,14 @@ public final class FieldRowFactory {
         switch (type) {
             case INT:
             case FLOAT: {
+                if (vo.slider) {
+                    // @InsSlider：滑条 + 数字框（无范围的滑条没意义 → 显式抛，不静默降级成输入框）
+                    if (vo.range == null) {
+                        throw new IllegalStateException(EditorLang.text(
+                                "inspector.row.sliderRangeMissing", vo.fieldName));
+                    }
+                    return new JeSliderField(vo.value, vo.range, commit);
+                }
                 JeNumberInput input = new JeNumberInput(vo.value, type == InspectorValueType.INT,
                         vo.range, commit);
                 if (vo.range != null) {

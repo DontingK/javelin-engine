@@ -1,7 +1,10 @@
 # 引擎后处理设计（Engine Post Process Design）
 
-> 版本：v0.7（**三效果开关收拢进 `PostProcessSettings` 2026-11-14**；v0.1~v0.6 见沿革）
-> 日期：2026-11-13（v0.7 补 2026-11-14）
+> 版本：v0.9（**链成员支持「相机级设置每帧驱动」（TAA/锐化参数挂在 `Camera` 上），2026-11-15 用户实机验收通过**；v0.8 = 链尾锐化 + Tonemap 降级；v0.1~v0.7 见沿革）
+>
+> v0.9 变更（2026-11-15）：**TAA 与锐化的开关/参数从项目设置迁到 `Camera` 组件**（Unity HDRP Camera Frame Settings 口径），`TaaSettings` / `SharpenSettings` 两设置类删除。链机制新增一种驱动形态：`JavelinEngine.syncCameraAntialiasing(desc)` 在 `collectFrame` 之后**每帧**按本帧相机状态增删 `TAA` / `SHARPEN` 两节点（任一相机启用即挂，同生同灭）；链成员切换仍走 `applyPostProcessNode`（状态一致即跳过，惰性创建不受影响）。逐视口的实际行为由节点自己判（未启用 = 直拷 / 强度 0）。设计记录见 `Engine_TAA_Design.md` §9.5。
+> 日期：2026-11-13（v0.8 补 2026-11-15）
+> v0.8 变更（2026-11-15）：**链尾锐化 `SharpenPass`（`Engine_Backlog.md` P4-11）+ Tonemap 从「恒置链尾的终节点」降级为 `order()=40` 的普通节点**——锐化为新终节点（LDR 后 3×3 RCAS，照 Babylon `fsr1Sharpen` 移植；位置对齐 Babylon DefaultRenderingPipeline「imageProcessing 之后、FXAA 之前」），接管显示目标清屏；`TonemapPass` 在锐化在链上时写中间 RT，锐化关闭时仍为链尾直出（按「最后一个节点写 colorTarget」判定）。落点与理由见 `Engine_TAA_Design.md` §9.4。
 > v0.7 变更（2026-11-14）：**三个效果开关（Tonemap/Bloom/SSAO）从 `JavelinSetting` 顶层收拢进 `PostProcessSettings`**（`tonemapEnabled`/`bloomEnabled`/`ssaoEnabled`，与各自参数同域；命名避与嵌套 `ssao` 参数对象撞名）；旧设置文件顶层 `postProcessing/bloom/ssao` 由 `JavelinSetting.read` 一次性迁移（只迁 true）；配套新增渲染设置门面 `RenderSettings`（`Engine_Rendering_Design.md` §11），窗口与「工具」菜单命令改走门面。沿革：v0.1 方案件 / v0.2 步骤一 / v0.3 管线拆两实现类 + MSAA 移除 + 曲线换装 / v0.4 步骤二 Bloom / v0.5 管线解耦 / v0.6 后处理参数接设置。
 > 说明：四期第 1 项（`Engine_Roadmap.md` §4-1）「后处理链（Bloom/Tonemap + HDR 切换点）」的设计方案——HDR 场景颜色、后处理链形态、Tonemap/Bloom 落点、与管线实现/AA（TAA 方向）/多相机的交互。**v0.1 方案件（8 条拍板点见 §7）；v0.2 = 按建议默认落「步骤一（HDR 切换点 + Tonemap）」，实装记录见 §9；v0.3 = 同日管线拆成两个独立实现类（链入共用基类 `AbstractRenderPipeline`、两管线同享）+ MSAA 从引擎/编辑器/设置层移除（AA 空窗至 TAA）+ **Tonemap 曲线由 ACES 换为「高光肩部」**（实机反馈「发灰/不纯」，§9.5），§2/§3.5/§4.2/§7/§8/§9 同步；v0.4 = 步骤二 Bloom（**独立开关**，与 Tonemap 解耦；4 级降采样 + 帐篷核模糊 + 上采样累加，§3.7/§9.6）。**
 > 职责边界：
@@ -113,7 +116,7 @@ public interface PostProcessNode extends RenderPass {
 
 - **清屏职责接管**：Tonemap 写 `colorTarget` 时承担原场景 Pass 那套 `CLEAR/LOAD` + `isRegionClear` + `scissor` 语义（**同一段判定逻辑从场景 Pass 平移到 Tonemap**）——多相机分屏（区域清屏）、stacking（LOAD）、单相机全屏（全屏 CLEAR）三态照旧成立；
 - **曲线**：v1 实装 = **高光肩部（≤KNEE 逐像素不变、>KNEE 指数肩部压向 1.0）**——**2026-11-13 实机反馈「开了发灰、不纯」后由 ACES 近似换装**（原因与数据见 §9.5）；肩部起点 KNEE 为着色器内常量，后续接设置；
-- **位置固定为链尾**：Bloom 必须读**未 tonemap** 的 HDR 缓冲，故 Tonemap 恒最后（`isTerminal()=true`，展开时稳定重排到链尾，不依赖注册顺序）。
+- **链内位置**：`order()=40`（HDR 域各节点 SSAO=10 / TAA=15 / Bloom=20 之后，Bloom 必须读**未 tonemap** 的 HDR 缓冲）。**2026-11-15 随锐化（P4-11）由「恒置链尾的终节点」降级为普通节点**——终节点身份交给链尾锐化（`SharpenPass`，LDR 后 3×3 RCAS），本 Pass 在锐化在链上时写中间 RT；锐化关闭时它仍是链内最后节点、照样直出（展开按「最后一个节点写 colorTarget」判定，见 TAA 档 §9.4）。
 
 ### 3.6 `CompositePass`：v1 收窄（不实装）
 

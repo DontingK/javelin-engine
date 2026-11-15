@@ -182,4 +182,9 @@ public class JavelinSettingTest {
         assertEquals(100.0f, r.getShadowDistance(), 1e-6f);
         assertEquals(0.5f, r.getCascadeLambda(), 1e-6f);
     }
+
+    /**
+     * 抗锯齿（TAA）与锐化已迁到相机（Camera 组件字段，2026-11-15）：项目设置侧不再有
+     * taaSettings / sharpenSettings 两组，读写盘与缺键判定的覆盖随之移出本文件。
+     */
 }
