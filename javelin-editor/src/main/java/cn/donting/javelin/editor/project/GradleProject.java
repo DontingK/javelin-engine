@@ -2,6 +2,7 @@ package cn.donting.javelin.editor.project;
 
 
 import cn.donting.javelin.core.scene.GameScene;
+import cn.donting.javelin.core.scene.Tag;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.settings.*;
 import cn.donting.javelin.core.settings.*;
@@ -559,36 +560,24 @@ public class GradleProject extends Project {
 
     public static void createDefaultSettings(File projectEditorDir, File projectDirFile) throws IOException {
         LOGGER.info("创建默认设置");
-        //创建layer
         File settingDir = new File(projectDirFile, "Game");
-        File file = new File(settingDir, SettingManager.LAYER_SETTINGS_FILE);
+        // 图层 / 标签默认值内置在 javelinSettings.settings 里（2026-11-15 并入，不再各写一个文件）
         LayerSettings layerSettings = new LayerSettings();
         layerSettings.getLayerNames()[0] = "Default";
         layerSettings.getLayerNames()[1] = "TransparentFX";
         layerSettings.getLayerNames()[2] = "Ignore Raycast";
         layerSettings.getLayerNames()[4] = "Water";
         layerSettings.getLayerNames()[5] = "UI";
-        BinaryExporter binaryExporter = new BinaryExporter(file);
-        binaryExporter.export(layerSettings);
-
-        //创建tag
         TagSettings tagSettings = new TagSettings();
-        tagSettings.add("Untagged");
-        file = new File(settingDir, SettingManager.TAG_SETTINGS_FILE);
-        binaryExporter = new BinaryExporter(file);
-        binaryExporter.export(tagSettings);
+        tagSettings.add(Tag.UNTAGGED);
 
-        //创建javelin Setting
+        //创建javelin Setting（唯一设置文件：图层/标签/场景等全在这里）
         JavelinSetting javelinSetting = new JavelinSetting();
-        file = new File(settingDir, SettingManager.JAVELIN_SETTINGS_FILE);
-        binaryExporter = new BinaryExporter(file);
+        javelinSetting.setLayerSettings(layerSettings);
+        javelinSetting.setTagSettings(tagSettings);
+        File file = new File(settingDir, SettingManager.JAVELIN_SETTINGS_FILE);
+        BinaryExporter binaryExporter = new BinaryExporter(file);
         binaryExporter.export(javelinSetting);
-
-        //创建game Setting
-        GameSettings gameSettings = new GameSettings();
-        file = new File(settingDir, SettingManager.GAME_SETTINGS_FILE);
-        binaryExporter = new BinaryExporter(file);
-        binaryExporter.export(gameSettings);
 
         //创建项目设置
         File projectSettingsFile = new File(projectEditorDir, "project.settings");

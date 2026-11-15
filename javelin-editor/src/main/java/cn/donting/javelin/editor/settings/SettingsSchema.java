@@ -3,6 +3,7 @@ package cn.donting.javelin.editor.settings;
 import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.serialize.Serializable;
 import cn.donting.javelin.core.settings.Setting;
+import cn.donting.javelin.core.settings.SettingAsset;
 import cn.donting.javelin.core.settings.SettingGroup;
 import cn.donting.javelin.core.settings.SettingHint;
 import cn.donting.javelin.core.settings.SettingRestart;
@@ -25,6 +26,7 @@ import java.util.List;
  * <p><b>声明面全在设置类</b>：{@link SettingGroup}（对象 = 整组；标量 = 由此开组；未贴的标量归
  * 最近一次开的分组，页面开头则开页面默认组）、{@link InsField}（行 + 标签键）、
  * {@link SettingHint}（行后提示行）、{@link SettingSelect}（int 离散值下拉）、
+ * {@link SettingAsset}（guid 串字段 → 资产选择器，存 guid）、
  * {@link SettingRestart}（只读 + 不入持久化）。新增设置项只改设置类字段 + 注解，面板与持久化
  * 自动跟随。</p>
  *
@@ -223,7 +225,18 @@ public final class SettingsSchema {
             vo.options = selectOptions(select);
         }
         boolean readOnly = field.isAnnotationPresent(SettingRestart.class);
-        current.entries.add(Entry.row(new Item(host, prop, vo, readOnly, select != null)));
+        SettingAsset asset = field.getAnnotation(SettingAsset.class);
+        boolean guidAsset = asset != null;
+        if (guidAsset) {
+            // guid 串字段按资产选择器下发（回写仍是原 String setter，存 guid）
+            if (prop.valueType != InspectorValueType.STRING) {
+                throw new IllegalStateException(EditorLang.text("settings.schema.assetNeedsString",
+                        host.getClass().getSimpleName(), field.getName()));
+            }
+            vo.valueType = InspectorValueType.GUID_ASSET.name();
+            vo.assetType = asset.value();
+        }
+        current.entries.add(Entry.row(new Item(host, prop, vo, readOnly, select != null, guidAsset)));
         if (!readOnly) {
             writableRows++;
             if (depth == 1) {
@@ -292,14 +305,17 @@ public final class SettingsSchema {
         public final boolean readOnly;
         /** 显式下拉逃生口（回写走 int setter，而非值类型通道） */
         private final boolean explicitSelect;
+        /** 资产 guid 串行（{@link SettingAsset}：wire 是 guid，None 清空为 null） */
+        private final boolean guidAsset;
 
         private Item(Object host, InspectorMeta.PropMeta prop, InspectorFieldVo vo,
-                     boolean readOnly, boolean explicitSelect) {
+                     boolean readOnly, boolean explicitSelect, boolean guidAsset) {
             this.host = host;
             this.prop = prop;
             this.vo = vo;
             this.readOnly = readOnly;
             this.explicitSelect = explicitSelect;
+            this.guidAsset = guidAsset;
         }
 
         /** 字段名（宿主上的声明名；断言与排障用） */
@@ -309,7 +325,16 @@ public final class SettingsSchema {
 
         /** 回写字段值（wire 串经通道解析后走 setter；解析失败抛 TipException） */
         public void write(String wire) throws TipException {
-            prop.set(host, explicitSelect ? InspectorMeta.parseInt(wire) : InspectorMeta.parseValue(prop, wire));
+            if (explicitSelect) {
+                prop.set(host, InspectorMeta.parseInt(wire));
+                return;
+            }
+            if (guidAsset) {
+                // 资产选择器：wire 即 guid，None/空串 = 清空（字段置 null）
+                prop.set(host, wire == null || wire.isBlank() ? null : wire.trim());
+                return;
+            }
+            prop.set(host, InspectorMeta.parseValue(prop, wire));
         }
     }
 }

@@ -7,7 +7,7 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * 窗口设置：尺寸 / 标题 / 垂直同步 / 帧率上限（2026-11-14 从 {@link JavelinSetting} 根字段迁入）。
+ * 窗口设置：尺寸 / 标题 / 垂直同步 / 帧率上限。
  *
  * <p>引擎启动期消费（建窗、swapchain 呈现模式、帧末限帧）；编辑器启动链会覆盖 vsync 与
  * maxFps（恒关 vsync + maxFps 限帧，Vulkan_Pitfalls #21），故编辑器侧不是用户可改项——

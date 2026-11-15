@@ -301,9 +301,10 @@ public class Node extends ObjectId implements Serializable {
         ArrayList<String> names = input.readArrayString("tagNames");
         tags = new ArrayList<>();
         if (names != null) {
-            for (String tagName : names) {
-                if (tagName != null) {
-                    tags.add(Tag.of(tagName));
+            for (String name : names) {
+                Tag tag = Tag.of(name);
+                if(tag!=null){
+                    tags.add(tag);
                 }
             }
         }
@@ -314,10 +315,10 @@ public class Node extends ObjectId implements Serializable {
     }
 
     /**
-     * 索引读回（Layer.of(int) 越界抛 AIOOBE，兜底 DEFAULT；layers 数组长度 31）。
+     * 索引读回（Layer.of(int) 越界抛 IllegalArgumentException，兜底 DEFAULT）。
      */
     private static Layer readLayer(int index) {
-        if (index >= 0 && index < 31) {
+        if (index >= 0 && index < Layer.COUNT) {
             return Layer.of(index);
         }
         return Layer.DEFAULT;

@@ -4,6 +4,7 @@ import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.SettingManager;
+import cn.donting.javelin.core.scene.LayerAndTagManger;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.inspector.InspectorMeta;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -182,12 +183,17 @@ public final class ProjectSettingsWindow extends JDialog {
 
     // ---------- 行为（即时生效 + 写盘） ----------
 
-    /** 行改动生效：交引擎单点下发（背景清屏色 / 后处理参数 / 开关链；渲染设置域的唯一通道） */
+    /** 行改动生效：渲染设置单点下发 + Layer/Tag 注册表同步（层名/标签清单即时可见） */
     private void apply() {
         JavelinEditor editor = JavelinEditor.getInstance();
-        if (editor != null) {
-            editor.applyRenderSettings();
+        if (editor == null) {
+            return;
         }
+        editor.applyRenderSettings();
+        JavelinSetting live = editor.setting();
+        LayerAndTagManger.applyLayers(live.getLayerSettings());
+        // 已删除标签从场景节点上摘引用（页改动是整表回写，差集由管理器判定）
+        LayerAndTagManger.applyTags(live.getTagSettings(), editor.getEditorGameScene());
     }
 
     /**

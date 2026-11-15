@@ -31,6 +31,16 @@ public class InspectorFieldVo {
     public String assetName;
     /** 声明资产类型（GUID_ASSET 类型字段：AssetInput 接受范围与回写 loadGuid 类型；其他类型 null） */
     public Class<? extends Asset> assetType;
+    /**
+     * STRING_LIST 是否可增删（List 字段 true、数组字段 false——层号固定不可移位；
+     * 其他值类型恒 false）
+     */
+    public boolean listResizable;
+    /**
+     * STRING_LIST 元素名是否可编辑（true = 普通可编辑行；false = 名字只读、只增删，
+     * 来源 @InsTagList——Tag 以名字为身份，改名等于另一个标签）
+     */
+    public boolean listRenamable = true;
 
     /** 滑条范围元数据（INT 场景三值为注解整型原值，渲染取整由 valueType 决定） */
     public static class Range {

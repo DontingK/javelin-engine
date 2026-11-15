@@ -1,4 +1,4 @@
-# 检查器（Inspector）设计（v0.25，2026-11-11 预览加「查看」按钮 + 可缩放图片查看窗）
+# 检查器（Inspector）设计（v0.26，2026-11-15 Layer/Tag 注册表单点 + STRING_LIST 通道）
 
 > 定位：`javelin-editor` 选中对象检查器面板（Node/资产文件经注册器统一接管，§11）——Java 反射收集字段清单（`InspectorReflector`，
 > @InsField 显式闸门 + 读 getter 写 setter 铁律不变），M4 Swing 面板直调消费。
@@ -250,6 +250,13 @@
 > 拖拽平移（屏幕坐标算增量防漂移）、适应窗口（不放大超 1:1）、1:1 复位，底部工具条实时显示百分比。放大用最近邻
 > 保持像素锐利、缩小用双线性。**零 core 改动、仍只读 Library 产物**（红线 17——大图由已装载的 Image /
 > CubemapImage 像素解码，不读源文件）。
+> v0.26（2026-11-15，用户实测验收通过）：**Layer/Tag 注册表单点 + STRING_LIST 通道**——① 下拉选项不再有静态
+> 缓存（原 `InspectorMeta.LAYER_NAMES` / `InspectorReflector.TAG_OPTIONS` 删除），Layer 读 `Layer` 注册表、Tag 读
+> `TagSettings` 清单 + `Tag.UNTAGGED` 注入，注册表由 `LayerAndTagManger` 单点投影（§8）；② 新增
+> `InspectorValueType.STRING_LIST` 通道（wire = 元素逐行 `\n` 拼接、空表 null）+ 两个控件
+> `StringListField`（数组=定长带序号列 / List=行尾 +/− 可增删）与 `TagListField`（`@InsTagList`：名字只读、只增删、
+> `Untagged` 删除置灰）；③ `InspectorFieldVo`/`PropMeta` 加 `listRenamable`，`FieldRowFactory` 据此分派 →
+> `Editor_ProjectSettings_Design.md` v0.3。
 
 ## 1. 总则
 
@@ -421,14 +428,19 @@ Tag 走专用通道因 `List<Tag>` 塞不进「字段名 + setter + 字符串」
 
 ## 8. 注册表与设置源（Layer/Tag）
 
-- Layer 下拉选项：`SettingManager.loadLayerSettings()` **直读**（InspectorReflector
-  LAYER_NAMES 静态缓存），31 槽按索引投影、未命名槽位=空串前端不渲染（"Layer i"
-  占位兜底已删，2026-10-11 拍板只显有名层）；
-- Tag 下拉选项：`SettingManager.loadTagSettings()`（TAG_OPTIONS 静态缓存）+ "Untagged"
-  常驻注入（Unity 内建口径）；节点自持 tag 前端兜底并入选项（自定义 tag 保显示）；
-- 运行目录：`JavelinEditor` 构造期设 `core.runtime.dir` = 项目根 → 设置读
-  `<项目根>/Settings/`；**项目模板（GradleProject.createDefaultSettings）当前写
-  `Game/` 目录与其未合——设置管线遗留，接通前 Layer 下拉空**。
+- **单点 = `LayerAndTagManger`**（2026-11-15 重构）：`applyLayers(LayerSettings)` 按索引把层名
+  投影到 `Layer` 注册表（索引与实例不变，改名只改 `name`）；`applyTags(TagSettings, scene)`
+  把设置清单同步进 `Tag` 注册表，设置里消失的名字出表并从场景节点上摘引用。引擎构造期投影
+  一次（`JavelinEngine` 构造），设置窗改动后增量刷新 → **Layer 改名 / Tag 增删即时生效**，
+  检查器下拉不再有第二份静态缓存（原 `LAYER_NAMES` / `TAG_OPTIONS` 已删）；
+- Layer 下拉选项：`InspectorMeta.layerNames()` 直读 `Layer` 注册表，`Layer.COUNT` 槽按索引投影、
+  未命名槽位=空串不渲染（只显有名层，2026-10-11 拍板）；
+- Tag 下拉选项：`TagSettings` 清单（`LayerAndTagManger.tagNames`）+ `Tag.UNTAGGED` 常驻注入
+  （Unity 内建口径，不可删除）；节点自持 tag 前端兜底并入选项（自定义 tag 保显示）；
+- **Tag 只增删不改名**：`Tag` 以名字为身份（`equals/hashCode` 按 name），改名等于另一个标签、
+  已引用节点不会跟着变，故设置面板不给改名（`@InsTagList` → 名字只读、逐行删除 + 弹框新增）；
+- **未注册即抛**：`Tag.of(name)` 只认注册表，缺名字直接 `IllegalStateException`；检查器回写先
+  过 `isTagRegistered` 转 `TipException`（面板提示可见）。
 
 ## 9. UI 规范
 

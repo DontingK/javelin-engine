@@ -78,7 +78,7 @@ public class SsaoSettings implements Serializable {
 
     @Override
     public void read(InputCapsule input) {
-        // 默认值 = 字段声明初值：缺键即字段默认（旧文件挂在后处理下，由 GraphSetting 迁移接上）
+        // 默认值 = 字段声明初值：缺键即字段默认
         enabled = input.readBoolean("enabled", false);
         radius = input.readFloat("radius", 0.5f);
         bias = input.readFloat("bias", 0.02f);

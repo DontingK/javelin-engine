@@ -9,7 +9,7 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * 图形设置（项目设置「图形」页根，2026-11-14 从 {@link JavelinSetting} 根字段迁入）。
+ * 图形设置（项目设置「图形」页根）：管线档位 / 背景清屏色 / 后处理 / 环境光遮蔽 / 阴影。
  *
  * <p>分组即字段：管线档位与背景清屏色两个标量各自开组，后处理 / 环境光遮蔽 / 阴影三个
  * 参数对象各成一组（面板按 {@link SettingGroup} 标题展开，声明序即面板序）。</p>
@@ -126,24 +126,6 @@ public class GraphSetting implements Serializable {
         SsaoSettings ssao = input.readSerializable("ssaoSettings", SsaoSettings.class);
         if (ssao != null) {
             ssaoSettings = ssao;
-        } else {
-            // 旧文件（SSAO 独立成组前）：开关与参数挂在 postProcessSettings 下，一次性迁移
-            adoptLegacySsao();
-        }
-    }
-
-    /**
-     * 旧档迁移（2026-11-14 SSAO 从 {@link PostProcessSettings} 迁出独立成组）：把旧文件挂在
-     * 后处理下的开关与参数接到本组；新文件取不到东西（已迁空），无副作用。
-     */
-    void adoptLegacySsao() {
-        SsaoSettings legacySsao = postProcessSettings.takeLegacySsao();
-        if (legacySsao != null) {
-            ssaoSettings = legacySsao;
-        }
-        Boolean legacyEnabled = postProcessSettings.takeLegacySsaoEnabled();
-        if (legacyEnabled != null) {
-            ssaoSettings.setEnabled(legacyEnabled);
         }
     }
 }

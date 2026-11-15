@@ -9,6 +9,8 @@ import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
 import cn.donting.javelin.editor.swing.inspector.widget.JeSelect;
 import cn.donting.javelin.editor.swing.inspector.widget.JeTextInput;
 import cn.donting.javelin.editor.swing.inspector.widget.LayerMaskField;
+import cn.donting.javelin.editor.swing.inspector.widget.StringListField;
+import cn.donting.javelin.editor.swing.inspector.widget.TagListField;
 import cn.donting.javelin.editor.swing.inspector.widget.VectorRow;
 
 import javax.swing.JCheckBox;
@@ -72,6 +74,9 @@ public final class FieldRowFactory {
                 return new ColorField(vo.value, commit);
             case LAYER_MASK:
                 return new LayerMaskField(vo.value, vo.options, commit);
+            case STRING_LIST:
+                // 字符串列表行：数组型定长带序号、List 型可增删；@InsTagList = 名字只读、只增删
+                return vo.listRenamable ? new StringListField(vo, commit) : new TagListField(vo, commit);
             case GUID_ASSET:
             case GUID_ASSET_LIST:
                 // 资产列表行（GUID_ASSET_LIST）= 收集面已展开为元素行，控件与

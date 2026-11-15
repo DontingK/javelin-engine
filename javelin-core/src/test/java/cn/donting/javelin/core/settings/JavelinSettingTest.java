@@ -1,8 +1,8 @@
 package cn.donting.javelin.core.settings;
 
-import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
+import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
 import org.junit.jupiter.api.Test;
@@ -10,14 +10,15 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * JavelinSetting 序列化 round-trip：windowSettings（嵌套 WindowSetting）+ backgroundColor
- * （嵌套 Color）+ renderPipeline（枚举档，全取值）+ postProcessSettings / shadowSettings
- * （嵌套对象）+ 旧档根键一次性迁移（窗口五项 / 顶层三效果开关）。
+ * JavelinSetting 序列化 round-trip：五域一律嵌套对象（窗口 / 图形 / 图层 / 标签 / 调试开关），
+ * 缺键即字段声明初值。
  */
 public class JavelinSettingTest {
 
@@ -37,6 +38,7 @@ public class JavelinSettingTest {
         source.getGraphSettings().getPostProcessSettings().setTonemapEnabled(true);
         source.getGraphSettings().getSsaoSettings().setEnabled(true);
         source.getGraphSettings().getSsaoSettings().setRadius(1.1f);
+        source.getSceneSetting().setDefaultSceneGuid("guid-scene-1");
 
         File file = tempDir.resolve("javelin.settings").toFile();
         new BinaryExporter(file).export(source);
@@ -45,92 +47,58 @@ public class JavelinSettingTest {
         assertEquals(1920, restored.getWindowSettings().getWidth());
         assertEquals(1080, restored.getWindowSettings().getHeight());
         assertEquals("Test", restored.getWindowSettings().getTitle());
-        assertTrue(!restored.getWindowSettings().isVsync());
+        assertFalse(restored.getWindowSettings().isVsync());
         assertEquals(240, restored.getWindowSettings().getMaxFps());
         assertEquals(Color.fromHex("#1A2B3C"), restored.getGraphSettings().getBackgroundColor());
         assertEquals(PipelineProfile.FORWARD, restored.getGraphSettings().getRenderPipeline());
         assertTrue(restored.getGraphSettings().getPostProcessSettings().isTonemapEnabled());
         assertTrue(restored.getGraphSettings().getSsaoSettings().isEnabled());
         assertEquals(1.1f, restored.getGraphSettings().getSsaoSettings().getRadius(), 1e-6f);
+        assertEquals("guid-scene-1", restored.getSceneSetting().getDefaultSceneGuid());
     }
 
+    /** 各域缺键 → 保字段声明初值（嵌套对象 null 判定，不做平铺根键的兼容读取） */
     @Test
-    public void defaultsRemainWhenFileHasNoColorOrVsync() throws Exception {
-        // 模拟旧设置文件（backgroundColor/vsync/renderPipeline 键尚未写入）：read 后保默认
-        File file = tempDir.resolve("legacy.settings").toFile();
+    public void missingNestedSettingsFallBackToDefaults() throws Exception {
+        File file = tempDir.resolve("sparse.settings").toFile();
         new BinaryExporter(file).export(new JavelinSetting() {
             @Override
             public void write(OutputCapsule output) {
-                // 只写旧字段，模拟旧版本产物
-                output.write("width", 800);
-                output.write("height", 600);
-                output.write("title", "Legacy");
+                output.write("engineDebug", false);
             }
         });
         JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
-        // 窗口五项迁自旧档根键（width/height/title 有值，vsync/maxFps 缺键取默认）
-        assertEquals(800, restored.getWindowSettings().getWidth());
-        assertEquals(600, restored.getWindowSettings().getHeight());
-        assertEquals("Legacy", restored.getWindowSettings().getTitle());
+
+        assertEquals(1080, restored.getWindowSettings().getWidth());
+        assertEquals(720, restored.getWindowSettings().getHeight());
+        assertEquals("Javelin Engine 5", restored.getWindowSettings().getTitle());
         assertTrue(restored.getWindowSettings().isVsync());
         assertEquals(144, restored.getWindowSettings().getMaxFps());
         assertEquals(new Color(0.05f, 0.05f, 0.08f, 1f), restored.getGraphSettings().getBackgroundColor());
-        // 默认管线 = HYBRID（2026-11-13 主口径改向）；缺键保默认
         assertEquals(PipelineProfile.HYBRID, restored.getGraphSettings().getRenderPipeline());
-        // 旧文件缺 postProcessing 键 → 迁移读取 false、嵌套开关默认（关 = 直通）
-        assertTrue(!restored.getGraphSettings().getPostProcessSettings().isTonemapEnabled());
+        assertFalse(restored.getGraphSettings().getPostProcessSettings().isTonemapEnabled());
+        assertFalse(restored.getGraphSettings().getSsaoSettings().isEnabled());
+        assertFalse(restored.isEngineDebug(), "未知键不受影响，已知键照读");
     }
 
-    /**
-     * 一次性迁移（2026-11-14 窗口五项迁入 WindowSetting）：旧文件根键
-     * {@code width/height/title/vsync/maxFps} 读后全部进嵌套对象。
-     */
+    /** 图层 / 标签（并入唯一设置文件）：数组与列表 round-trip */
     @Test
-    public void legacyRootWindowFieldsMigrateIntoWindowSetting() throws Exception {
-        File file = tempDir.resolve("legacy-window.settings").toFile();
-        new BinaryExporter(file).export(new JavelinSetting() {
-            @Override
-            public void write(OutputCapsule output) {
-                output.write("width", 1600);
-                output.write("height", 900);
-                output.write("title", "Legacy Window");
-                output.write("vsync", false);
-                output.write("maxFps", 90);
-            }
-        });
-        JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
-        WindowSetting window = restored.getWindowSettings();
-        assertEquals(1600, window.getWidth());
-        assertEquals(900, window.getHeight());
-        assertEquals("Legacy Window", window.getTitle());
-        assertTrue(!window.isVsync(), "旧根 vsync=false 应迁入");
-        assertEquals(90, window.getMaxFps());
-    }
+    public void layerAndTagSettingsRoundTrip() throws Exception {
+        JavelinSetting source = new JavelinSetting();
+        source.getLayerSettings().getLayerNames()[0] = "Default";
+        source.getLayerSettings().getLayerNames()[5] = "UI";
+        source.getTagSettings().add("Untagged");
+        source.getTagSettings().add("Enemy");
 
-    /**
-     * 一次性迁移（2026-11-14 开关收拢进 PostProcessSettings）：旧文件顶层
-     * {@code postProcessing/bloom/ssao}=true → 读后迁进嵌套开关（旧工程开关不丢）；
-     * 新文件不写顶层键（读到 false 无副作用）。
-     */
-    @Test
-    public void legacyTopLevelTogglesMigrateIntoPostProcessSettings() throws Exception {
-        File file = tempDir.resolve("legacy-toggles.settings").toFile();
-        new BinaryExporter(file).export(new JavelinSetting() {
-            @Override
-            public void write(OutputCapsule output) {
-                output.write("width", 800);
-                output.write("height", 600);
-                output.write("title", "Legacy");
-                output.write("postProcessing", true);
-                output.write("bloom", true);
-                output.write("ssao", true);
-            }
-        });
+        File file = tempDir.resolve("layer-tag.settings").toFile();
+        new BinaryExporter(file).export(source);
         JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);
-        assertTrue(restored.getGraphSettings().getPostProcessSettings().isTonemapEnabled(), "旧顶层 postProcessing 应迁入嵌套");
-        assertTrue(restored.getGraphSettings().getPostProcessSettings().isBloomEnabled(), "旧顶层 bloom 应迁入嵌套");
-        assertTrue(restored.getGraphSettings().getSsaoSettings().isEnabled(),
-                "旧顶层 ssao 应迁入独立组");
+
+        String[] names = restored.getLayerSettings().getLayerNames();
+        assertEquals(31, names.length, "层槽位数不变");
+        assertEquals("Default", names[0]);
+        assertEquals("UI", names[5]);
+        assertEquals(List.of("Untagged", "Enemy"), restored.getTagSettings().getTags());
     }
 
     @Test
@@ -190,16 +158,14 @@ public class JavelinSettingTest {
         }
     }
 
-    /** 旧设置文件无 shadowSettings 键 → 保默认（缺键 null 判定，非读 0） */
+    /** 缺 shadowSettings 键 → 保默认（嵌套对象 null 判定，非读 0） */
     @Test
-    public void shadowSettingsDefaultsRemainOnLegacyFile() throws Exception {
-        File file = tempDir.resolve("legacy-shadow.settings").toFile();
+    public void shadowSettingsDefaultsRemainWhenNestedKeyMissing() throws Exception {
+        File file = tempDir.resolve("sparse-shadow.settings").toFile();
         new BinaryExporter(file).export(new JavelinSetting() {
             @Override
             public void write(OutputCapsule output) {
-                output.write("width", 800);
-                output.write("height", 600);
-                output.write("title", "Legacy");
+                output.write("engineDebug", true);
             }
         });
         JavelinSetting restored = new BinaryImporter(file).importData(JavelinSetting.class);

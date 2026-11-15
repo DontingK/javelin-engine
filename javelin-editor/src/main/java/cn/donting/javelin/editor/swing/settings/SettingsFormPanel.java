@@ -11,6 +11,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextArea;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
@@ -19,9 +20,8 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Insets;
 import java.awt.Rectangle;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.util.function.Consumer;
 
 /**
@@ -95,15 +95,16 @@ public final class SettingsFormPanel {
         return label;
     }
 
-    /** 说明行（次要色）——标签按可用宽度软换行，长提示不撑出横向滚动条 */
-    private static JLabel hintLabel(String text) {
-        return new HintLabel(text);
+    /** 说明行（次要色）——只读文本区原生软换行，长提示不撑出横向滚动条 */
+    private static JComponent hintLabel(String text) {
+        return new HintArea(text);
     }
 
-    /** 表单行：label 固定列宽 + 控件占余宽（4px 列间隔，行高收紧） */
+    /** 表单行：label 固定列宽 + 控件占余宽（4px 列间隔，行高收紧；label 顶对齐，多行列表控件不悬空） */
     private static JPanel row(String name, JComponent control) {
         JPanel row = new JPanel(new BorderLayout(4, 0));
         JLabel label = new JLabel(name);
+        label.setVerticalAlignment(SwingConstants.TOP);
         label.setPreferredSize(new Dimension(LABEL_WIDTH, label.getPreferredSize().height));
         row.add(label, BorderLayout.WEST);
         row.add(control, BorderLayout.CENTER);
@@ -150,57 +151,49 @@ public final class SettingsFormPanel {
     }
 
     /**
-     * 说明行标签：宽度随面板拉伸，按可用宽度用 HTML 软换行。
+     * 说明行：只读软换行文本区（JTextArea 原生换行，不再用 HTML 手算宽度）。
      *
-     * <p>JLabel 自身不换行——长提示（尤其英文文案）会把文本撑出可视区被裁掉。容器宽度由
-     * {@link FormPane} 钉在视口宽度上，这里按该宽度重排即可（宽度不变则跳过，避免布局回声）。</p>
+     * <p>HTML JLabel 的换行宽度要自己按像素算、高度又是按那个宽度取的快照，窗口/滚动条一变就
+     * 容易算出半行被裁。JTextArea 的换行由视图按**实际宽度**决定，这里只把 preferred 高度改成
+     * 按父容器当前宽度现算——布局每次取一次，行数与高度天然一致。</p>
      */
-    private static final class HintLabel extends JLabel {
+    private static final class HintArea extends JTextArea {
 
-        /** 最小换行宽度（窗口很窄时仍留可读宽度） */
-        private static final int MIN_WRAP_WIDTH = 120;
-
-        private final String rawText;
-        private int wrapWidth = -1;
-
-        private HintLabel(String rawText) {
-            this.rawText = rawText;
-            setText(rawText);
+        private HintArea(String text) {
+            super(text);
+            setLineWrap(true);
+            setWrapStyleWord(true);
+            setEditable(false);
+            setFocusable(false);
+            setOpaque(false);
+            setBorder(null);
+            setMargin(new Insets(0, 0, 2, 0));
+            setFont(UIManager.getFont("Label.font"));
             setForeground(UIManager.getColor("Label.disabledForeground"));
-            setBorder(new EmptyBorder(0, 0, 2, 0));
             setAlignmentX(Component.LEFT_ALIGNMENT);
-            setVerticalAlignment(SwingConstants.TOP);
-            setMinimumSize(new Dimension(0, 0));
-            refreshMaxSize();
-            addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    applyWrap(getWidth());
-                }
-            });
         }
 
-        /**
-         * 只放开宽度、高度钉在首选高度：宽度放开才能被 BoxLayout 拉到面板宽度去换行；
-         * 高度若也放开，纵向富余空间会被摊给它（内容不满一屏时行下留大空档，照 row 行同款）。
-         */
-        private void refreshMaxSize() {
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-        }
-
-        private void applyWrap(int width) {
-            if (width <= 0 || width == wrapWidth) {
-                return;
+        /** 按父容器当前宽度算换行后的高度（JTextArea 自身不会按宽度给 preferred） */
+        @Override
+        public Dimension getPreferredSize() {
+            int width = getParent() != null ? getParent().getWidth() : getWidth();
+            if (width > 0) {
+                setSize(width, Short.MAX_VALUE);
             }
-            wrapWidth = width;
-            setText("<html><body style='width:" + Math.max(MIN_WRAP_WIDTH, width - 4) + "px'>"
-                    + escapeHtml(rawText) + "</body></html>");
-            refreshMaxSize();
+            Dimension size = super.getPreferredSize();
+            return new Dimension(width > 0 ? width : size.width, size.height);
         }
 
-        /** HTML 转义（提示文案含 & < > 时按字面量显示） */
-        private static String escapeHtml(String text) {
-            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        /** 宽度放开（由 BoxLayout 拉伸）、高度钉在当前换行结果 */
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+        }
+
+        /** 高度不可压：压扁就会裁行 */
+        @Override
+        public Dimension getMinimumSize() {
+            return new Dimension(0, getPreferredSize().height);
         }
     }
 }

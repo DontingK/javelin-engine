@@ -15,9 +15,8 @@ import cn.donting.javelin.core.serialize.Serializable;
  * {@code PostProcessSetup} 下发到 BloomPass/TonemapPass（push 常量），运行期可调。字段级
  * 缺键回退由 {@link InputCapsule} 的默认值重载负责（默认值 = 字段声明初值）。</p>
  *
- * <p><b>SSAO 已迁出（2026-11-14）</b>：开关与参数归 {@link SsaoSettings}（独立成组，挂在
- * {@link GraphSetting#getSsaoSettings()}）；旧文件挂在本组下的 {@code ssaoEnabled}/{@code ssao}
- * 由 {@link #takeLegacySsao()}/{@link #takeLegacySsaoEnabled()} 一次性交给 GraphSetting。</p>
+ * <p><b>SSAO 不在此域</b>：开关与参数归 {@link SsaoSettings}（独立成组，挂在
+ * {@link GraphSetting#getSsaoSettings()}）。</p>
  */
 @Reflective
 public class PostProcessSettings implements Serializable {
@@ -44,13 +43,6 @@ public class PostProcessSettings implements Serializable {
     @InsField(label = "projectSettings.tonemapKnee")
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
     private float tonemapKnee = 0.8f;
-
-    /**
-     * 迁移专用（2026-11-14 SSAO 迁出本类）：旧文件把开关与参数挂在本组下，read 时暂存、
-     * 由 {@link GraphSetting} 取走后置空；write 不产出这两个键。下版删。
-     */
-    private Boolean legacySsaoEnabled;
-    private SsaoSettings legacySsao;
 
     public boolean isTonemapEnabled() {
         return tonemapEnabled;
@@ -100,20 +92,6 @@ public class PostProcessSettings implements Serializable {
         this.tonemapKnee = tonemapKnee;
     }
 
-    /** 取走旧文件挂在本组的 SSAO 参数（一次性；取后置空，新文件恒 null） */
-    SsaoSettings takeLegacySsao() {
-        SsaoSettings value = legacySsao;
-        legacySsao = null;
-        return value;
-    }
-
-    /** 取走旧文件挂在本组的 SSAO 开关（一次性；缺键或已取走恒 null） */
-    Boolean takeLegacySsaoEnabled() {
-        Boolean value = legacySsaoEnabled;
-        legacySsaoEnabled = null;
-        return value;
-    }
-
     @Override
     public void write(OutputCapsule output) {
         output.write("tonemapEnabled", tonemapEnabled);
@@ -133,9 +111,5 @@ public class PostProcessSettings implements Serializable {
         bloomKnee = input.readFloat("bloomKnee", 0.4f);
         bloomIntensity = input.readFloat("bloomIntensity", 0.5f);
         tonemapKnee = input.readFloat("tonemapKnee", 0.8f);
-        // 迁移专用：旧文件 SSAO 开关/参数挂在本组下（现归 SsaoSettings 独立成组），
-        // 读到即暂存、由 GraphSetting 取走；新文件缺这两个键 → 保持 null
-        legacySsaoEnabled = input.readBoolean("ssaoEnabled", false) ? Boolean.TRUE : null;
-        legacySsao = input.readSerializable("ssao", SsaoSettings.class);
     }
 }

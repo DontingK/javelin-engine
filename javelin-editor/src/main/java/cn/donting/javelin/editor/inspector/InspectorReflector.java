@@ -4,10 +4,12 @@ import cn.donting.javelin.core.assets.Asset;
 import cn.donting.javelin.core.inspector.InsHeader;
 import cn.donting.javelin.core.obj.ObjectId;
 import cn.donting.javelin.core.scene.Component;
+import cn.donting.javelin.core.scene.LayerAndTagManger;
 import cn.donting.javelin.core.scene.Node;
 import cn.donting.javelin.core.scene.Tag;
 import cn.donting.javelin.core.scene.component.Transform;
-import cn.donting.javelin.core.settings.SettingManager;
+import cn.donting.javelin.core.JavelinEngine;
+import cn.donting.javelin.core.settings.TagSettings;
 import cn.donting.javelin.editor.exception.TipException;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -50,10 +52,7 @@ import java.util.List;
 public final class InspectorReflector {
 
     /** Unity 内建默认 Tag（空 tag 节点的显示值，注册表常驻选项） */
-    private static final String UNTAGGED = "Untagged";
-
-    /** Tag 注册表名缓存（TagSettings 一次性加载避免逐次快照磁盘 IO；Layer 静态注册表同口径） */
-    private static List<String> TAG_OPTIONS;
+    private static final String UNTAGGED = Tag.UNTAGGED;
 
     private InspectorReflector() {
     }
@@ -168,6 +167,9 @@ public final class InspectorReflector {
         }
         tags.clear();
         if (!UNTAGGED.equals(value)) {
+            if (!LayerAndTagManger.isTagRegistered(value)) {
+                throw new TipException(EditorLang.key("inspector.apply.tagNotRegistered", value));
+            }
             tags.add(Tag.of(value));
         }
     }
@@ -248,21 +250,15 @@ public final class InspectorReflector {
         return names;
     }
 
-    /** Tag 注册表名列表（TagSettings 投影，null/空白剔除；"Untagged" 兜底常驻） */
+    /** Tag 注册表名列表（设置清单投影，改名/增删随设置窗即时生效；"Untagged" 兜底常驻） */
     private static List<String> tagOptions() {
-        if (TAG_OPTIONS == null) {
-            List<String> names = new ArrayList<>();
-            for (String name : SettingManager.loadTagSettings().getTags()) {
-                if (name != null && !name.isBlank()) {
-                    names.add(name);
-                }
-            }
-            if (!names.contains(UNTAGGED)) {
-                names.add(0, UNTAGGED);
-            }
-            TAG_OPTIONS = names;
+        JavelinEngine engine = JavelinEngine.getInstance();
+        TagSettings tagSettings = engine != null ? engine.setting().getTagSettings() : new TagSettings();
+        List<String> names = LayerAndTagManger.tagNames(tagSettings);
+        if (!names.contains(UNTAGGED)) {
+            names.add(0, UNTAGGED);
         }
-        return TAG_OPTIONS;
+        return names;
     }
 
     private static InspectorValueType parseType(String valueType) throws TipException {

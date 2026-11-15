@@ -1,10 +1,14 @@
 package cn.donting.javelin.editor.settings;
 
+import cn.donting.javelin.core.inspector.InsField;
+import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.settings.GraphSetting;
-import cn.donting.javelin.core.settings.InsField;
 import cn.donting.javelin.core.settings.JavelinSetting;
+import cn.donting.javelin.core.settings.LayerSettings;
+import cn.donting.javelin.core.settings.SceneSetting;
 import cn.donting.javelin.core.settings.Setting;
 import cn.donting.javelin.core.settings.SettingSelect;
+import cn.donting.javelin.core.settings.TagSettings;
 import cn.donting.javelin.core.settings.WindowSetting;
 import cn.donting.javelin.editor.exception.TipException;
 import cn.donting.javelin.editor.inspector.InspectorValueType;
@@ -28,23 +32,93 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code @InsField}/{@code @SettingHint}/{@code @SettingSelect}/{@code @SettingRestart} 展开成
  * 「分组 → 行」、持久化清单排除只读字段、回写落设置实例、坏声明即抛。
  *
- * <p>页根 = {@link GraphSetting}（图形）与 {@link WindowSetting}（窗口），声明序即导航序。</p>
+ * <p>页根 = {@link GraphSetting}（图形）、{@link WindowSetting}（窗口）、{@link LayerSettings}
+ * （图层）、{@link TagSettings}（标签）、{@link SceneSetting}（场景），声明序即导航序。</p>
  */
 public class SettingsSchemaTest extends EditorLangTestBase {
 
-    /** 页清单：两页按 JavelinSetting 字段声明序（图形在前），窗口页只写不读 */
+    /** 页清单：五页按 JavelinSetting 字段声明序（图形在前），窗口/场景页只写不读，图层/标签页即时生效 */
     @Test
     public void pagesComeFromSettingsRootInDeclarationOrder() {
         List<SettingsSchema> pages = SettingsSchema.pagesOf(new JavelinSetting());
-        assertEquals(2, pages.size());
-        assertEquals(List.of("projectSettings.category.graphics", "projectSettings.category.window"),
-                List.of(pages.get(0).labelKey(), pages.get(1).labelKey()));
-        assertEquals(List.of("graphSettings", "windowSettings"),
-                List.of(pages.get(0).fieldName(), pages.get(1).fieldName()));
+        assertEquals(5, pages.size());
+        assertEquals(List.of("projectSettings.category.graphics", "projectSettings.category.window",
+                        "projectSettings.category.layers", "projectSettings.category.tags",
+                        "projectSettings.category.scene"),
+                List.of(pages.get(0).labelKey(), pages.get(1).labelKey(),
+                        pages.get(2).labelKey(), pages.get(3).labelKey(), pages.get(4).labelKey()));
+        assertEquals(List.of("graphSettings", "windowSettings", "layerSettings", "tagSettings", "sceneSetting"),
+                List.of(pages.get(0).fieldName(), pages.get(1).fieldName(),
+                        pages.get(2).fieldName(), pages.get(3).fieldName(), pages.get(4).fieldName()));
         assertTrue(pages.get(0).editorStartup());
         assertFalse(pages.get(1).editorStartup(), "窗口页是编辑器运行环境：只写不读");
+        assertTrue(pages.get(2).editorStartup(), "图层页即时生效：改名经 LayerAndTagManger 投影注册表");
+        assertTrue(pages.get(3).editorStartup(), "标签页即时生效：增删经 LayerAndTagManger 同步注册表");
+        assertFalse(pages.get(4).editorStartup(), "场景页只写不读：启动场景由打包运行时消费");
         assertTrue(pages.get(0).root() instanceof GraphSetting);
         assertTrue(pages.get(1).root() instanceof WindowSetting);
+        assertTrue(pages.get(2).root() instanceof LayerSettings);
+        assertTrue(pages.get(3).root() instanceof TagSettings);
+        assertTrue(pages.get(4).root() instanceof SceneSetting);
+    }
+
+    /** 图层页：字符串数组按 STRING_LIST 定长下发（带层号、不可增删），整表 setter 回写 */
+    @Test
+    public void layerPageUsesFixedStringList() throws TipException {
+        LayerSettings layers = new LayerSettings();
+        layers.getLayerNames()[0] = "Default";
+        SettingsSchema.Item names = findItem(SettingsSchema.of(layers), "layerNames");
+        assertEquals(InspectorValueType.STRING_LIST.name(), names.vo.valueType);
+        assertFalse(names.vo.listResizable, "数组型定长：层号不可移位");
+        String[] wire = names.vo.value.split("\n", -1);
+        assertEquals(31, wire.length, "槽位数即数组长度");
+        assertEquals("Default", wire[0]);
+
+        StringBuilder edited = new StringBuilder();
+        for (int i = 0; i < 31; i++) {
+            if (i > 0) {
+                edited.append('\n');
+            }
+            if (i == 0) {
+                edited.append("Default");
+            } else if (i == 30) {
+                edited.append("Ground");
+            }
+        }
+        names.write(edited.toString());
+        assertEquals(31, layers.getLayerNames().length, "长度仍为 31");
+        assertEquals("Ground", layers.getLayerNames()[30]);
+    }
+
+    /** 标签页：List 型可增删（listResizable）但名字不可改（listRenamable=false，@InsTagList），整表回写走 setTags */
+    @Test
+    public void tagPageUsesResizableStringList() throws TipException {
+        TagSettings tags = new TagSettings();
+        tags.add("Untagged");
+        SettingsSchema.Item item = findItem(SettingsSchema.of(tags), "tags");
+        assertEquals(InspectorValueType.STRING_LIST.name(), item.vo.valueType);
+        assertTrue(item.vo.listResizable, "List 型可增删");
+        assertFalse(item.vo.listRenamable, "Tag 以名字为身份：面板只增删、不给改名");
+        assertEquals("Untagged", item.vo.value);
+
+        item.write("Untagged\nEnemy");
+        assertEquals(List.of("Untagged", "Enemy"), tags.getTags());
+    }
+
+    /** 场景页：guid 串字段经 @SettingAsset 下发为资产选择器（存 guid，None 清空） */
+    @Test
+    public void scenePageUsesGuidAssetPicker() throws TipException {
+        SceneSetting scene = new SceneSetting();
+        scene.setDefaultSceneGuid("guid-scene");
+        SettingsSchema.Item item = findItem(SettingsSchema.of(scene), "defaultSceneGuid");
+        assertEquals(InspectorValueType.GUID_ASSET.name(), item.vo.valueType);
+        assertEquals(GameScene.class, item.vo.assetType);
+        assertEquals("guid-scene", item.vo.value);
+
+        item.write("guid-other");
+        assertEquals("guid-other", scene.getDefaultSceneGuid());
+        item.write(null);
+        assertNull(scene.getDefaultSceneGuid(), "None 清空为 null");
     }
 
     /** 只写不读的页绑项目文件实例：页值来自文件，编辑不碰编辑器活实例 */

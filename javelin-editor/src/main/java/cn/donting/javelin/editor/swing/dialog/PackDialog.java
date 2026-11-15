@@ -2,7 +2,6 @@ package cn.donting.javelin.editor.swing.dialog;
 
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
-import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.core.settings.WindowSetting;
@@ -305,14 +304,14 @@ public class PackDialog extends JDialog {
                 appendLog(EditorLang.text("pack.startupSceneNoMeta", startupScene));
                 return;
             }
-            File gameFile = new File(project.getGameDir(), SettingManager.GAME_SETTINGS_FILE);
-            GameSettings gameSettings = gameFile.exists()
-                    ? new BinaryImporter(gameFile).importData(GameSettings.class)
-                    : new GameSettings();
-            gameSettings.setDefaultSceneGuid(meta.getGuid());
-            new BinaryExporter(gameFile).export(gameSettings);
+            File settingFile = new File(project.getGameDir(), SettingManager.JAVELIN_SETTINGS_FILE);
+            JavelinSetting setting = settingFile.exists()
+                    ? new BinaryImporter(settingFile).importData(JavelinSetting.class)
+                    : new JavelinSetting();
+            setting.getSceneSetting().setDefaultSceneGuid(meta.getGuid());
+            new BinaryExporter(settingFile).export(setting);
             appendLog(EditorLang.text("pack.startupSceneWritten",
-                    SettingManager.GAME_SETTINGS_FILE, startupScene, meta.getGuid()));
+                    SettingManager.JAVELIN_SETTINGS_FILE, startupScene, meta.getGuid()));
         } catch (Exception e) {
             appendLog(EditorLang.text("pack.startupSceneWriteFailed", e.getMessage()));
         }

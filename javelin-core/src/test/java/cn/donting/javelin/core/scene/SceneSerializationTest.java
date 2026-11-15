@@ -15,6 +15,7 @@ import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
+import cn.donting.javelin.core.settings.TagSettings;
 import org.joml.Vector3f;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -149,6 +150,10 @@ public class SceneSerializationTest {
         child.setName("child");
         // setParent 挂到已入场景父节点下：自动入场景（onParentChanged → attachSubtree）
         child.getTransform().setParent(root.getTransform());
+        // Tag 以名字为身份、只认注册表：先经设置投影注册（未注册时 Tag.of 直接抛）
+        TagSettings tagSettings = new TagSettings();
+        tagSettings.add("test-tag");
+        LayerAndTagManger.applyTags(tagSettings, null);
         child.getTags().add(Tag.of("test-tag"));
 
         File file = new File(tempDir, "structure.bin");

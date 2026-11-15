@@ -46,4 +46,11 @@ public enum InspectorValueType {
      * （materials[i]），回写经整列表 setter（InspectorReflector.applyAssetList）。
      */
     GUID_ASSET_LIST,
+    /**
+     * 字符串列表字段（String[] / List&lt;String&gt;，如 LayerSettings.layerNames、
+     * TagSettings.tags）：wire = 元素逐行拼接（{@code \n} 分隔，空列表为 null），
+     * 控件为竖向 N 行文本框。数组型=定长带序号列、不可增删（层号不可移位）；
+     * List 型=可增删。
+     */
+    STRING_LIST,
 }

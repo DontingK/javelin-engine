@@ -55,7 +55,7 @@
 | 2 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染）——**让位四期，四期满档后再议** |
 | 3 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
 | ~~4~~ | ~~**P4-01 后处理链（Bloom/Tonemap + HDR）**~~ | **✅ 2026-11-14 完成并验收**（步骤一 HDR+Tonemap 2026-11-13、步骤二 Bloom 同日落码，用户实机运行通过）→ 已移出本表，见 §3 移出记录 |
-| 5 | **BUG 余项** | §13 余 `updateIndex` 热点（BUG-02）、`MainFrame.width()` 语义（BUG-05）、Layer 下拉空（BUG-08，依赖 ED-07 设置管线合流） |
+| 5 | **BUG 余项** | §13 余 `updateIndex` 热点（BUG-02）、`MainFrame.width()` 语义（BUG-05）（Layer 下拉空 BUG-08 已于 2026-11-15 随设置投影清账移出） |
 | 6 | **HOT-02 `.mat`/`.texture`/`.smesh` 文件级 reload 恢复** | 外部手改资产自动生效；**须先拍板真值源优先序**（内存即真值 vs 盘面改动），拍板前不动 |
 
 > DBG-01（dbg-1 校验层回调 + engineDebug 开关）2026-11-11 建档时列本表首位，**2026-11-12 落地并验收**，已移出本表。
@@ -178,7 +178,7 @@
 | ED-04 | 多视口（各自相机各自 swapchain，RHI 侧扩展） | Swing | 后置项 | RHI 联动 |
 | ED-05 | Game 视图工具区（显示比例/缩放/Stats 一族，Unity 口径） | 编辑器 / Swing | 后置项 | — |
 | ED-06 | Inspector 字段贡献者（插件侧） | Swing | 后置项 | 随插件体系 |
-| ED-07 | Inspector 暂缓族：Collider 字段、多 tag 展示与编辑、同节点多实例组件收集形态、可空值「清回 null」UI、订阅 nodeRenamed、设置管线合流（`Game/`→`Settings/`） | Inspector §10 | 后置项 | — |
+| ED-07 | Inspector 暂缓族：Collider 字段、多 tag 展示与编辑、同节点多实例组件收集形态、可空值「清回 null」UI、订阅 nodeRenamed（设置管线合流已随 Layer/Tag 投影于 2026-11-15 清账） | Inspector §10 | 后置项 | — |
 | ED-08 | Inspector 遗留：project 面板高亮跨域同步（订阅 ProjectSelectEvent）、`.smesh` 等其余资产检查器按需注册、注入后 GLSL 查看（Unity "Show compiled code" 等价物） | Inspector §11 | 后置项 | — |
 | ED-09 | Inspector 细节：折叠态重建复位（无记忆）、label 超 96px 截断、候选分组/分类/按类名搜索/顶栏 Component 菜单、AddComponent 菜单项扩容 | Inspector §11/§13 | 后置项 | — |
 | ED-10 | 脚本资产检查器 + 脚本功能本体 | Inspector §11 | 后置项 | 与 HOT-12 同域 |
@@ -238,11 +238,11 @@
 | BUG-05 | `MainFrame.width()` 语义与 GLFW 不同（逻辑像素 vs framebuffer 像素；按窗口宽高的逻辑须留意 dpi） | 编辑器 §9 | 已知问题 | — |
 | BUG-06 | 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受） | 编辑器 §9 / 原 功能清单 §7 | 已拍板接受 | 不修，记录 |
 | BUG-07 | Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘） | 原 功能清单 §7 | 已知问题 | 后调 |
-| BUG-08 | Layer 下拉空（设置管线遗留：`Game/` 与其未合，接通前下拉无内容） | Inspector（节点头段） | 已知问题 | 与 ED-07 设置管线合流同源 |
 | BUG-09 | 退出期 `vkDestroyDevice` 报 46 个对象未销毁（VVL 05137；首 10 个为 VkDeviceMemory），`CleanerRegistry.flush()` 已跑仍剩 → 逐笔账未查 | 坑 #37 | 已知问题 | 已确认子项 = RHI-12 交换链 view；查账手法 = 抬高 `duplicate_message_limit` 看全列表 + 按 handle 反查创建点 |
 
 > 另有一批存量问题（描述符池 / FrameArena / backbuffer 哈希等）登记在 §4 RHI 遗留，性质同属 bug 类（RHI-03 / RHI-05 / RHI-06），不在此重复登记。
 
+> **移出记录（2026-11-15）**：**BUG-08**（Layer 下拉空）——根因是设置 → 注册表断链（编辑器启动不读 Layer/Tag 页、检查器另存两份静态缓存）；`LayerAndTagManger` 收口 + `JavelinEngine` 构造期投影 + 两份缓存删除后，下拉读的是注册表现值；随 Layer/Tag 体系批次验收。
 > **移出记录（2026-11-12 零散债务小批）**：**BUG-01**（`loadScene` 失败路径 NPE）**复核为过期条目**——四处 null 守卫早已落地（`JavelinEditor.onInitialize` 场景未就绪跳过装配 + `EditGridAppState` / `TransformGizmoAppState` / `DebugLineAppState`）；**BUG-04**（`SettingsManager` javadoc 悬空引用）同属过期——该引用全仓零命中、现引 `PreferencesDialog`；**BUG-03**（加载页假等待）已修——`ProjectLoadingFrame` 改「补足最短可见时长」（原为在引导链耗时之上额外 +2s）。
 
 ## 14. 待复核（疑文档残留，非真待办）

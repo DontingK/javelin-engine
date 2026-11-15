@@ -2,9 +2,7 @@ package cn.donting.javelin.editor.settings;
 
 import cn.donting.javelin.editor.swing.dialog.PreferencesDialog;
 import cn.donting.javelin.core.serialize.Serializable;
-import cn.donting.javelin.core.serialize.binary.BinaryExporter;
 import cn.donting.javelin.core.serialize.binary.BinaryImporter;
-import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.project.Project;
 import cn.donting.javelin.editor.serializable.TextExporter;
@@ -18,8 +16,8 @@ import java.io.IOException;
 /**
  * 设置管理器。
  *
- * <p>负责项目设置（{@link ProjectSettings}）和游戏设置（{@link GameSettings}）的加载与保存。
- * 编辑器全局设置（{@link EditorSettings}）由本类提供加载入口，但由
+ * <p>负责项目设置（{@link ProjectSettings}）的加载与保存（场景/窗口/图形等引擎设置已在
+ * {@code JavelinSetting} 单文件里，不经本类）。编辑器全局设置（{@link EditorSettings}）由本类提供加载入口，但由
  * {@link PreferencesDialog} 负责写入，以避免项目运行期间
  * 覆盖新建项目目录等全局偏好。</p>
  *
@@ -31,7 +29,6 @@ public class SettingsManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(SettingsManager.class);
 
     private static final String PROJECT_SETTINGS_FILE = "project.settings";
-    private static final String GAME_SETTINGS_FILE = "game.settings";
     private static final String EDITOR_SETTINGS_FILE = "editor.settings";
     private static final File EDITOR_SETTINGS_DIR = new File(System.getProperty("user.home"), ".javelin");
     private static final File EDITOR_SETTINGS_PATH = new File(EDITOR_SETTINGS_DIR, EDITOR_SETTINGS_FILE);
@@ -39,7 +36,6 @@ public class SettingsManager {
     private final Project project;
 
     private ProjectSettings projectSettings;
-    private GameSettings gameSettings;
     private EditorSettings editorSettings;
 
     /**
@@ -70,7 +66,6 @@ public class SettingsManager {
 
     private void loadSettings() {
         this.projectSettings = loadOrCreate(ProjectSettings.class, PROJECT_SETTINGS_FILE, project.getEditorDir());
-        this.gameSettings = loadOrCreate(GameSettings.class, GAME_SETTINGS_FILE, project.getGameDir());
         this.editorSettings = loadOrCreate(EditorSettings.class, EDITOR_SETTINGS_FILE, EDITOR_SETTINGS_DIR);
     }
 
@@ -114,16 +109,6 @@ public class SettingsManager {
         }
     }
 
-    public void saveGameSettings() {
-        File file = new File(project.getGameDir(), GAME_SETTINGS_FILE);
-        try {
-            new BinaryExporter(file).export(gameSettings);
-            LOGGER.debug("保存游戏设置: {}", file);
-        } catch (IOException e) {
-            LOGGER.error("保存游戏设置失败: {}", file, e);
-        }
-    }
-
     public void saveEditorSettings() {
         File file = new File(EDITOR_SETTINGS_DIR, EDITOR_SETTINGS_FILE);
         try {
@@ -136,10 +121,6 @@ public class SettingsManager {
 
     public ProjectSettings getProjectSettings() {
         return projectSettings;
-    }
-
-    public GameSettings getGameSettings() {
-        return gameSettings;
     }
 
     public EditorSettings getEditorSettings() {

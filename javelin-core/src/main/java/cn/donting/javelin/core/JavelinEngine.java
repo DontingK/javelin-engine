@@ -24,14 +24,13 @@ import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
 import cn.donting.javelin.core.scene.GameScene;
+import cn.donting.javelin.core.scene.LayerAndTagManger;
 import cn.donting.javelin.core.scene.Scene;
 import cn.donting.javelin.core.scene.SceneRenderBridge;
 import cn.donting.javelin.core.scene.component.Camera;
-import cn.donting.javelin.core.settings.GameSettings;
 import cn.donting.javelin.core.settings.GraphSetting;
 import cn.donting.javelin.core.settings.JavelinSetting;
 import cn.donting.javelin.core.settings.PostProcessSettings;
-import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.core.settings.SsaoSettings;
 import cn.donting.javelin.core.settings.WindowSetting;
 import cn.donting.javelin.core.subsystem.SubsystemManager;
@@ -120,6 +119,9 @@ public class JavelinEngine {
 
     public JavelinEngine(JavelinSetting setting) {
         this.setting = setting;
+        // Layer/Tag 注册表投影（启动一次；设置窗改动经 LayerAndTagManger 增量刷新）
+        LayerAndTagManger.applyLayers(setting.getLayerSettings());
+        LayerAndTagManger.applyTags(setting.getTagSettings(), null);
         engineInstance = this;
     }
 
@@ -515,8 +517,7 @@ public class JavelinEngine {
     }
 
     protected Scene loadScene(){
-        GameSettings gameSettings = SettingManager.loadGameSettings();
-        String sceneGuid = gameSettings.getDefaultSceneGuid();
+        String sceneGuid = setting.getSceneSetting().getDefaultSceneGuid();
         return assetManager.loadGuid(sceneGuid, GameScene.class);
     }
 

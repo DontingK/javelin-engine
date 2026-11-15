@@ -25,7 +25,7 @@ public class NodeInspectorVo {
     public String nodeName;
     /** 节点 Layer 索引（0~30 = Layer.getValue()；Unity 口径单层，勿按位掩码 getMask() 语义取值） */
     public int layer;
-    /** Layer 名列表（SettingManager 直读投影，索引=层号；空串=未命名槽位，下拉只显示非空） */
+    /** Layer 名列表（引擎设置对象的层名投影，索引=层号；空串=未命名槽位，下拉只显示非空） */
     public List<String> layerNames;
     /** 节点 tags 名列表（Node.tags 投影，头部 Tag 下拉当前值；空列表显示内建默认 "Untagged"） */
     public List<String> tags;

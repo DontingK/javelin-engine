@@ -8,10 +8,10 @@ import cn.donting.javelin.core.inspector.InsIntRange;
 import cn.donting.javelin.core.inspector.InsLayerMask;
 import cn.donting.javelin.core.inspector.InsRotation;
 import cn.donting.javelin.core.inspector.InsShadowResolution;
+import cn.donting.javelin.core.inspector.InsTagList;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
 import cn.donting.javelin.core.scene.Layer;
-import cn.donting.javelin.core.settings.SettingManager;
 import cn.donting.javelin.editor.JavelinEditor;
 import cn.donting.javelin.editor.exception.TipException;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -51,8 +51,8 @@ import java.util.concurrent.ConcurrentHashMap;
  **/
 public final class InspectorMeta {
 
-    /** Layer 注册表长度（Layer.of 索引合法区间 [0, 31)） */
-    private static final int LAYER_COUNT = 31;
+    /** Layer 注册表长度（Layer.of 索引合法区间 [0, COUNT)） */
+    private static final int LAYER_COUNT = Layer.COUNT;
 
     /** 浮点显示精度：最多 4 位小数（与前端 JeNumberInput precision 默认值同口径） */
     private static final int DISPLAY_DECIMALS = 4;
@@ -60,9 +60,6 @@ public final class InspectorMeta {
     /** 字段元数据缓存（类 → 属性清单；类结构运行期不变，首次访问构建一次）。严格/宽容各一份 */
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> STRICT_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Class<?>, List<PropMeta>> LENIENT_CACHE = new ConcurrentHashMap<>();
-
-    /** Layer 名缓存（LayerSettings 一次性直读避免逐次快照磁盘 IO；与 Layer 静态注册表同口径） */
-    private static List<String> LAYER_NAMES;
 
     private InspectorMeta() {
     }
@@ -160,8 +157,10 @@ public final class InspectorMeta {
         String cap = capitalize(field.getName());
         Method getter = zeroParam.containsKey("get" + cap) ? zeroParam.get("get" + cap)
                 : zeroParam.get("is" + cap);
-        // 资产列表通道 setter 放宽：参数 List 可从字段类型赋值（setMaterials(List) ← ArrayList 字段）
+        // 列表通道 setter 放宽：参数 List 可从字段类型赋值（setMaterials(List) ← ArrayList 字段；
+        // STRING_LIST 的 List 字段同理，数组字段仍走精确匹配）
         Method setter = type == InspectorValueType.GUID_ASSET_LIST
+                || (type == InspectorValueType.STRING_LIST && !field.getType().isArray())
                 ? findListSetter(oneParam.get("set" + cap), field.getType())
                 : findSetter(oneParam.get("set" + cap), field.getType());
         if (getter == null || setter == null) {
@@ -199,7 +198,8 @@ public final class InspectorMeta {
                 ? field.getType().asSubclass(Asset.class)
                 : type == InspectorValueType.GUID_ASSET_LIST ? assetListElementType(field) : null;
         return new PropMeta(field.getName(), displayName(field), type, getter, setter, rangeOf(field),
-                enumType, options, assetType);
+                enumType, options, assetType, field.getType(),
+                !field.isAnnotationPresent(InsTagList.class));
     }
 
     /** 按字段名查元数据（未贴/未映射/不存在返回 null） */
@@ -281,6 +281,11 @@ public final class InspectorMeta {
             vo.assetName = guidAssetLabel(current);
             vo.assetType = prop.assetType;
         }
+        if (prop.valueType == InspectorValueType.STRING_LIST) {
+            // List 型可增删，数组型定长（层号不可移位）；@InsTagList = 只增删不改名
+            vo.listResizable = !prop.declaredType.isArray();
+            vo.listRenamable = prop.listRenamable;
+        }
         vo.range = prop.range;
         vo.options = prop.options;
         return vo;
@@ -330,6 +335,9 @@ public final class InspectorMeta {
                 // 三态：字段无资产→null（前端 "None"）；guid 空（内存创建）→空串
                 // （前端禁用态标记，不可回写）；有 guid→guid 原串（显示名另走 assetName）
                 return guidWire(value);
+            case STRING_LIST:
+                // 元素逐行拼接（null 元素按空行）；空列表 → null（区别于「一个空元素」）
+                return stringListWire(value);
             default:
                 // 暂缓类型不应出现在收集面（类型映射已挡）
                 return null;
@@ -341,6 +349,9 @@ public final class InspectorMeta {
         if (value == null) {
             if (prop.valueType == InspectorValueType.GUID_ASSET) {
                 return null; // None=清空合法（Unity 口径：MeshRenderer 材质可空）
+            }
+            if (prop.valueType == InspectorValueType.STRING_LIST) {
+                return emptyStringList(prop); // 空列表合法（标签页可删到空）
             }
             throw new TipException(EditorLang.key("inspector.apply.valueEmpty", prop.fieldName));
         }
@@ -386,6 +397,9 @@ public final class InspectorMeta {
                 return new Rect(xywh[0], xywh[1], xywh[2], xywh[3]);
             case LAYER_MASK:
                 return parseInt(value);
+            case STRING_LIST:
+                // 逐行解析（首尾空行保留：数组型长度即槽位数）；元素去首尾空白
+                return parseStringList(prop, value);
             case GUID_ASSET:
                 // guid wire → 声明类型实例（loadGuid 共享缓存，同 .scene 序列化口径）；
                 // 空串=内存创建不可回写；guid 未索引即资产不存在，拒绝防静默置 null
@@ -448,6 +462,43 @@ public final class InspectorMeta {
         return guid != null && !guid.isBlank() ? guid : "";
     }
 
+    /** 字符串列表 → wire（元素逐行拼接；空列表返回 null，单元素空串仍写成一行） */
+    private static String stringListWire(Object value) {
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        if (value instanceof String[] array) {
+            for (String element : array) {
+                if (count++ > 0) {
+                    sb.append('\n');
+                }
+                sb.append(element != null ? element : "");
+            }
+        } else if (value instanceof List<?> list) {
+            for (Object element : list) {
+                if (count++ > 0) {
+                    sb.append('\n');
+                }
+                sb.append(element != null ? element : "");
+            }
+        }
+        return count == 0 ? null : sb.toString();
+    }
+
+    /** wire → 字符串列表容器（按字段声明类型选 String[] / ArrayList） */
+    private static Object parseStringList(PropMeta prop, String value) {
+        String[] lines = value.split("\n", -1);
+        ArrayList<String> elements = new ArrayList<>(lines.length);
+        for (String line : lines) {
+            elements.add(line.trim());
+        }
+        return prop.declaredType.isArray() ? elements.toArray(new String[0]) : elements;
+    }
+
+    /** 空字符串列表容器（按字段声明类型） */
+    private static Object emptyStringList(PropMeta prop) {
+        return prop.declaredType.isArray() ? new String[0] : new ArrayList<String>();
+    }
+
     /**
      * GUID 资产显示名：guid 经 {@link JavelinEditor#getAssetManager()} 反查源路径
      * 取尾名去后缀（Unity 资产名口径）；反查失败兜底 guid 原串。内存创建（guid 空）
@@ -480,18 +531,13 @@ public final class InspectorMeta {
                 .toPlainString();
     }
 
-    /** Layer 名列表（SettingManager 直读投影，索引=层号；未命名槽位=空串，前端下拉只显示有名槽位） */
+    /** Layer 名列表（Layer 注册表投影，索引=层号；空串=未命名槽位，前端下拉只显示有名槽位） */
     public static List<String> layerNames() {
-        if (LAYER_NAMES == null) {
-            String[] settings = SettingManager.loadLayerSettings().getLayerNames();
-            List<String> names = new ArrayList<>(LAYER_COUNT);
-            for (int i = 0; i < LAYER_COUNT; i++) {
-                String name = i < settings.length ? settings[i] : null;
-                names.add(name != null && !name.isBlank() ? name : "");
-            }
-            LAYER_NAMES = names;
+        List<String> names = new ArrayList<>(LAYER_COUNT);
+        for (int i = 0; i < LAYER_COUNT; i++) {
+            names.add(Layer.of(i).getName());
         }
-        return LAYER_NAMES;
+        return names;
     }
 
     /** 枚举显示名：实现 {@link InsEnumLabel} 的 getLabel() 返回 i18n 键经 EditorLang 解析，否则兜底常量名 */
@@ -634,8 +680,16 @@ public final class InspectorMeta {
             return InspectorValueType.INT;
         }
         if (type == ArrayList.class || type == List.class) {
-            // 资产列表通道（2026-10-29）：泛型实参为 Asset 子类才可检查，其余列表不映射
-            return assetListElementType(field) != null ? InspectorValueType.GUID_ASSET_LIST : null;
+            // 资产列表通道（2026-10-29）：泛型实参为 Asset 子类才可检查；字符串列表
+            // （2026-11-15，STRING_LIST）：泛型实参为 String；其余列表不映射
+            if (assetListElementType(field) != null) {
+                return InspectorValueType.GUID_ASSET_LIST;
+            }
+            return isStringElements(field) ? InspectorValueType.STRING_LIST : null;
+        }
+        if (type == String[].class) {
+            // 字符串数组（TextRender/层名等 ASCII 清单）：STRING_LIST 定长形态
+            return InspectorValueType.STRING_LIST;
         }
         if (Asset.class.isAssignableFrom(type)) {
             return InspectorValueType.GUID_ASSET;
@@ -653,6 +707,12 @@ public final class InspectorMeta {
             return cls.asSubclass(Asset.class);
         }
         return null;
+    }
+
+    /** 列表字段元素为 String（STRING_LIST 判据；非参数化/其他元素类型返回 false） */
+    private static boolean isStringElements(Field field) {
+        return field.getGenericType() instanceof ParameterizedType parameterized
+                && parameterized.getActualTypeArguments()[0] == String.class;
     }
 
     private static String capitalize(String name) {
@@ -675,11 +735,16 @@ public final class InspectorMeta {
         public final List<InspectorFieldVo.Option> options;
         /** 声明资产类型（GUID_ASSET 字段；其他类型 null） */
         public final Class<? extends Asset> assetType;
+        /** 字段声明类型（STRING_LIST 回写时选 String[] / List 容器；其他类型仅作诊断） */
+        public final Class<?> declaredType;
+        /** STRING_LIST 元素名是否可编辑（false = @InsTagList：名字只读、只增删） */
+        public final boolean listRenamable;
 
         private PropMeta(String fieldName, String displayName, InspectorValueType valueType,
                          Method getter, Method setter, InspectorFieldVo.Range range,
                          Class<?> enumType, List<InspectorFieldVo.Option> options,
-                         Class<? extends Asset> assetType) {
+                         Class<? extends Asset> assetType, Class<?> declaredType,
+                         boolean listRenamable) {
             this.fieldName = fieldName;
             this.displayName = displayName;
             this.valueType = valueType;
@@ -689,6 +754,8 @@ public final class InspectorMeta {
             this.enumType = enumType;
             this.options = options;
             this.assetType = assetType;
+            this.declaredType = declaredType;
+            this.listRenamable = listRenamable;
         }
 
         public Object get(Object host) {
