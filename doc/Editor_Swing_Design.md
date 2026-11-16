@@ -542,6 +542,28 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
    重排（树结构不动）；M5 塌缩/拖拽重组前必须先落 RHI surface 重建。
 7. **图标资产迁移**：web `public/icon` 复制进 editor resources，路径常量单点收口；jsvg
    渲染线程口径（现 SvgIcon 已在 EDT 使用，无新问题）。
+8. **检查器颜色行被压成一条线（2026-11-16 未解，见 Backlog BUG-10）**：症状 = 相机
+   `backgroundColor` 与环境光 `AmbientSetting.color` 两行的色块只剩 3px 高
+   （`ColorField.paintComponent` 里 `getHeight()==3`，色块画成一条横线）。已证实 / 已排除：
+   - **控件自身无缺陷**：`ColorField` 的 `getPreferredSize()` 恒返回 `max(宽,32)×18`
+     （`BLOCK_HEIGHT`），色块按 `getHeight()-1` 自绘；硬编码尺寸类调用（`setLayout(null)` /
+     `setBounds` / `setSize(new Dimension`）全项目零命中。
+   - **压扁机理实锤（合成环境实测）**：`GridBagLayout` 在「容器实际高度 < pref」时按各控件
+     minimum 尺寸压缩行；颜色行是 `JButton` 子类、`BasicButtonUI`/FlatLaf 给的 minimum 高度
+     ≈0，于是独吞全部压缩。把 fieldsPanel 高度直接设为 pref，颜色行立刻回 18px。
+   - **合成链路复现到的前因**：子组显隐切换只 `revalidate()` 内层面板，而
+     `Container.getPreferredSize()` 在 `valid` 时直接返回缓存的 `prefSize`——外层
+     `InsScrollablePanel` 与 `JViewport` 仍报「折叠态」高度（实测：section 77/pref 148、
+     content pref 卡在 79、fieldsPanel 53/pref 124、ColorField 0 或 8px）。逐级
+     `invalidate()` 后立即恢复 18px。据此新增
+     `CollapsiblePanel.refreshLayoutAfterVisibility(...)`（组显隐与整段折叠共用）。
+   - **未解点**：上述修正入库后**用户实机症状未消**（仍为 3px）→ 真机链路与合成链路存在
+     差异。待查方向：真机 `NodeInspectorContent` 的父容器/滚动结构是否确实等于
+     `InsScrollablePanel` + BoxLayout + JScrollPane；该 section 是否走了另一条重建路径；
+     FlatLaf 下 `JButton` 的 minimum 与 GridBag 压缩分配；HiDPI 缩放是否参与。
+   - **回归钩子**：`javelin-editor/src/test/java/cn/donting/javelin/editor/swing/inspector/
+     InspectorRowHeightTest`（4 条用例：相机静态 / 环境光预置展开 / 切 CONSTANT 实机路径 /
+     短视口；修前「切 CONSTANT」红，失败消息会打出整条链路各级尺寸）。
 
 ## 11. 依赖变更
 

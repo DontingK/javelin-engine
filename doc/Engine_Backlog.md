@@ -251,8 +251,11 @@
 | BUG-06 | 窗口拖拽 resize 期画面非等比拉伸、松手即愈（2026-10-17 拍板接受） | 编辑器 §9 / 原 功能清单 §7 | 已拍板接受 | 不修，记录 |
 | BUG-07 | Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘） | 原 功能清单 §7 | 已知问题 | 后调 |
 | BUG-09 | 退出期 `vkDestroyDevice` 报 46 个对象未销毁（VVL 05137；首 10 个为 VkDeviceMemory），`CleanerRegistry.flush()` 已跑仍剩 → 逐笔账未查 | 坑 #37 | 已知问题 | 已确认子项 = RHI-12 交换链 view；查账手法 = 抬高 `duplicate_message_limit` 看全列表 + 按 handle 反查创建点 |
+| BUG-10 | **检查器颜色行被压成一条线**：`ColorField`（`JButton` 子类，pref 高 18）在相机 `backgroundColor` 与环境光 `AmbientSetting.color` 两行只剩 3px（用户 debug `paintComponent` 里 `getHeight()==3`）；切父枚举展开子组后出现 | 编辑器 `§10.8`（2026-11-16 新增）/ 回归用例 `InspectorRowHeightTest` | 已知问题 | 压扁机理已实锤（GridBag 矮于 pref 时按 minimum 压缩行，颜色行 minimum≈0 独吞）；`CollapsiblePanel.refreshLayoutAfterVisibility` 已作废祖先 pref 缓存（合成链路 8px→18px 已修），**但实机症状未消**，待查真机链路差异 |
 
 > 另有一批存量问题（描述符池 / FrameArena / backbuffer 哈希等）登记在 §4 RHI 遗留，性质同属 bug 类（RHI-03 / RHI-05 / RHI-06），不在此重复登记。
+
+> **新增记录（2026-11-16）**：**BUG-10**（检查器颜色行被压成一条线）——排查细节、已实锤机理与已排除项见 `doc/Editor_Swing_Design.md §10.8`；回归钩子 `InspectorRowHeightTest`（4 条用例，合成链路已绿）。**实机症状未消，条目保持开启**。
 
 > **移出记录（2026-11-15）**：**BUG-08**（Layer 下拉空）——根因是设置 → 注册表断链（编辑器启动不读 Layer/Tag 页、检查器另存两份静态缓存）；`LayerAndTagManger` 收口 + `JavelinEngine` 构造期投影 + 两份缓存删除后，下拉读的是注册表现值；随 Layer/Tag 体系批次验收。
 > **移出记录（2026-11-12 零散债务小批）**：**BUG-01**（`loadScene` 失败路径 NPE）**复核为过期条目**——四处 null 守卫早已落地（`JavelinEditor.onInitialize` 场景未就绪跳过装配 + `EditGridAppState` / `TransformGizmoAppState` / `DebugLineAppState`）；**BUG-04**（`SettingsManager` javadoc 悬空引用）同属过期——该引用全仓零命中、现引 `PreferencesDialog`；**BUG-03**（加载页假等待）已修——`ProjectLoadingFrame` 改「补足最短可见时长」（原为在引导链耗时之上额外 +2s）。

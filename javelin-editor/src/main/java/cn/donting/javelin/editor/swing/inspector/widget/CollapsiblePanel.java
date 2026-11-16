@@ -78,7 +78,7 @@ public class CollapsiblePanel extends JComponent {
         return collapsed;
     }
 
-    /** 折叠切换（箭头朝向 + content 显隐；revalidate/repaint 由布局链生效） */
+    /** 折叠切换（箭头朝向 + content 显隐；重排走 {@link #refreshLayoutAfterVisibility}） */
     public void setCollapsed(boolean collapse) {
         if (collapsed == collapse) {
             return;
@@ -86,8 +86,34 @@ public class CollapsiblePanel extends JComponent {
         collapsed = collapse;
         header.setCollapsedVisual(collapse);
         content.setVisible(!collapse);
-        revalidate();
+        refreshLayoutAfterVisibility(this);
         repaint();
+    }
+
+    /**
+     * 显隐变化后的重排（2026-11-16 实机 bug 修正）：变更组件标脏 + 祖先链逐级
+     * {@code invalidate()}，再由最近的 validate root 统一校验。
+     *
+     * <p>只 {@code revalidate()} 自身是不够的：{@code Container#getPreferredSize()} 在
+     * {@code valid} 时直接返回缓存的 prefSize，展开子组后外层 {@code InsScrollablePanel}
+     * 与 {@code JViewport} 仍报「折叠态」的高度，viewport 于是只给一个比 pref 矮的格子；
+     * {@code GridBagLayout} 在容器矮于 pref 时按各控件 minimum 尺寸压缩行，而颜色块
+     * （{@link ColorField}，{@code JButton} 子类）minimum 高度≈0，独吞压缩被榨成一条 3px
+     * 横线。回归口径见 {@code InspectorRowHeightTest}。</p>
+     */
+    public static void refreshLayoutAfterVisibility(JComponent changed) {
+        changed.invalidate();
+        JComponent validateRoot = null;
+        java.awt.Component parent = changed.getParent();
+        while (parent instanceof JComponent ancestor) {
+            if (ancestor.isValidateRoot()) {
+                validateRoot = ancestor;
+                break;
+            }
+            ancestor.invalidate();
+            parent = ancestor.getParent();
+        }
+        (validateRoot != null ? validateRoot : changed).revalidate();
     }
 
     /** 可折叠开关（false = 固定分组：点击不折叠、无 hover、隐藏箭头） */
@@ -100,7 +126,7 @@ public class CollapsiblePanel extends JComponent {
         if (!collapsible) {
             setCollapsed(false);
         }
-        revalidate();
+        refreshLayoutAfterVisibility(this);
         repaint();
     }
 

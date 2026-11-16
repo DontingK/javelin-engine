@@ -156,8 +156,7 @@ public class ComponentSection extends JComponent {
             state.collapsed = !state.collapsed;
             applyHeaderText(header, label, state.collapsed);
             refreshGroup(state);
-            panel.revalidate();
-            panel.repaint();
+            relayoutAfterVisibility(panel);
         });
         return header;
     }
@@ -188,8 +187,7 @@ public class ComponentSection extends JComponent {
                     String value = selected instanceof InspectorFieldVo.Option option ? option.value : null;
                     state.parentValue = value;
                     refreshGroup(state);
-                    panel.revalidate();
-                    panel.repaint();
+                    relayoutAfterVisibility(panel);
                 });
             }
         }
@@ -206,6 +204,24 @@ public class ComponentSection extends JComponent {
         for (JComponent member : state.members) {
             member.setVisible(show);
         }
+    }
+
+    /**
+     * 组显隐变化后的重排：内层面板标脏 + 祖先链逐级 {@code invalidate()}，再由最近的
+     * validate root 重新校验（实现与整段折叠共用 {@link CollapsiblePanel#refreshLayoutAfterVisibility}）。
+     *
+     * <p>只 {@code revalidate()} 内层面板是不够的（2026-11-16 实机 bug 的根因）：
+     * {@code Container#getPreferredSize()} 在 {@code valid} 时直接返回缓存的 prefSize，
+     * 展开子组后外层的 {@code InsScrollablePanel} 与 {@code JViewport} 仍报「折叠态」的高度，
+     * viewport 于是只给内层面板一个比 pref 矮的格子；{@code GridBagLayout} 在容器矮于 pref 时
+     * 按各控件 minimum 尺寸压缩行，而颜色行是 {@link javax.swing.JButton} 子类
+     * （{@link cn.donting.javelin.editor.swing.inspector.widget.ColorField}，minimum 高度≈0），
+     * 独吞全部压缩，色块被压成一条 3px 的横线。
+     * 回归口径见 {@code InspectorRowHeightTest}。</p>
+     */
+    private static void relayoutAfterVisibility(JComponent panel) {
+        CollapsiblePanel.refreshLayoutAfterVisibility(panel);
+        panel.repaint();
     }
 
     /** 条件子组运行态（组头 / 组内行 / 显示条件 / 折叠态） */
