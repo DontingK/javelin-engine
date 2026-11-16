@@ -130,6 +130,7 @@ DEFAULT_SHADER_PATH 语义不变（默认材质的 shader 来源路径）。
 - **消费**：管线 Pass 经 `RenderPass.shaderPassName()`（新接口方法，默认 "Forward"）声明自己消费的 Pass 名——`GizmoPass` 取 `passObjects("Gizmo")`，**身份过滤与双画一并废除**（gizmo.shader 无 Forward → 主通道不画它，GizmoPass 是唯一绘制）；
 - **PSO 取用**同键：`pipelineFor(..., passName)`，`Shader.pass(name)` 直查无回退，`forwardPass()` 已删除；
 - **HYBRID 档不透明几何 = `Pass GBuffer`（批次④-B，2026-11-08）**：内置 `Lit.shader`/`default.shader` 各增 `Pass GBuffer`（三张 MRT 输出：基色 / 世界法线 / 世界位置+w=1）；HYBRID 档 `GBufferPass` 消费 `passObjects("GBuffer")` 同名桶——**不透明材质须声明该 Pass**，未声明者不进桶、不绘制（收集期 WARN 显性化，红线 15）；`surfaceType=TRANSPARENT` 的物体即使声明也不写 G-Buffer（GBufferPass 剔透明），仍走 Forward 桶。同一 Shader 声明双 Pass（Forward + GBuffer）通吃两档与两种面型；
+- **非光照（Unlit）语义另立一等声明**（2026-11-16，四期施工序 ⑤）：`.shader` 顶层 `LightingModel Unlit` → 不进 G-Buffer、不注入光照段、走 `UnlitForwardPass` 直出；完整形态见 `Engine_Material_LightingModel_Design.md`（本档 §4.2 的 GBuffer 契约只对 `Lit` 生效）；
 - shadowCasters 桶暂保留（阴影后置），ShadowCaster 声明制落地时并入 passes；
 - 存量合规（当日核查）：default/editor-grid/demo 全 `Pass Forward`，gizmo `Pass Gizmo`，轴线诊断线复用 editor-grid（Forward，主通道可被遮挡——诊断语义正确）。
 

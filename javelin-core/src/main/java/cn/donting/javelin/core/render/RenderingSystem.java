@@ -1,15 +1,18 @@
 package cn.donting.javelin.core.render;
 
 import cn.donting.javelin.core.Time;
+import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.render.material.Material;
 import cn.donting.javelin.core.render.material.MaterialBlock;
 import cn.donting.javelin.core.render.material.MaterialProperty;
 import cn.donting.javelin.core.render.material.MaterialPropertyType;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
+import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.PassState;
 import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
+import cn.donting.javelin.core.render.pipeline.pass.GBufferPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.CubemapImage;
@@ -141,11 +144,13 @@ public final class RenderingSystem implements AutoCloseable {
      */
     static final int LIGHTING_BLOCK_BYTES = 656;
     /**
-     * 环境项（rgb + 强度）：v0.x = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
-     * 用户拍板；原 0.15 中性灰占位作废）。真值源 = 天空盒环境光照，归四期第 4 项
-     * （SH9/mipmap 降采样，灯光档 §3.3/§10）。
+     * 环境项（rgb + 强度）：v0.x 起由 `Environment.ambientMode` 推送（四期 P4-04 步骤一
+     * 的常量档）；`OFF`/无环境组件 = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
+     * 用户拍板）。天空盒球谐（SH9）环境光为后续步骤（灯光档 §3.3/§10）。
      */
-    private static final float[] AMBIENT_COLOR = {0.0f, 0.0f, 0.0f, 1.0f};
+    private final Color ambientColor = new Color(0.0f, 0.0f, 0.0f, 1.0f);
+    /** 环境项强度（着色端 ambient.rgb * ambient.a 的 a） */
+    private float ambientIntensity = 0.0f;
 
     // ── 主光阴影（批次④ → 四期 CSM，Engine_Lighting_Design §4.5 / Engine_Shadow_Quality_Design §4）──
     /**
@@ -1042,18 +1047,27 @@ public final class RenderingSystem implements AutoCloseable {
             // Pass 名即阶段归属（严格制，拍板 2026-10-17）："Forward" → 前向主通道按
             // 材质面型分桶；其他声明名 → 自定义 Pass 桶（管线有则消费、无则忽略）；
             // 无 Forward 声明不进主通道（gizmo 单 Pass Gizmo 即此——只被 GizmoPass
-            // 单画，不再走"Opaque 先画 + 末尾重绘置顶"双画）
-            for (ShaderPass pass : ro.material().getShader().getPasses()) {
+            // 单画，不再走"Opaque 先画 + 末尾重绘置顶"双画）。
+            // LightingModel.UNLIT（施工序 ⑤）：不透明进 unlitOpaque 桶（UnlitForwardPass
+            // 直出、不进 G-Buffer 桶）；透明照旧归透明桶（其 shader 未注入光照段，天然直出）
+            Shader shader = ro.material().getShader();
+            boolean unlit = shader.getLightingModel() == LightingModel.UNLIT;
+            for (ShaderPass pass : shader.getPasses()) {
                 if (RenderPass.FORWARD_PASS_NAME.equals(pass.getName())) {
                     if (ro.isTransparent()) {
                         ro.world().getTranslation(worldPos);
                         worldPos.mulPosition(cam.view());
                         viewZ.put(ro, worldPos.z);
                         list.addTransparent(ro);
+                    } else if (unlit) {
+                        list.addUnlitOpaque(ro);
                     } else {
                         list.addOpaque(ro);
                     }
                 } else {
+                    if (unlit && GBufferPass.SHADER_PASS_NAME.equals(pass.getName())) {
+                        continue;   // 非光照不进 G-Buffer（即便 shader 残留 Pass GBuffer 也不入桶）
+                    }
                     list.addPass(pass.getName(), ro);
                 }
             }
@@ -1066,6 +1080,7 @@ public final class RenderingSystem implements AutoCloseable {
             }
         }
         list.opaque().sort(Comparator.comparingLong(RenderObject::bucketKey));
+        list.unlitOpaque().sort(Comparator.comparingLong(RenderObject::bucketKey));
         list.transparent().sort(Comparator.comparingDouble(o -> viewZ.getOrDefault(o, 0.0f)));
         return list;
     }
@@ -1244,6 +1259,27 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
+     * 设置常量环境项（四期 P4-04 步骤一；桥每帧推送，不做身份门控——Color 就地编辑不换引用）。
+     *
+     * <p>rgb = 颜色、a = 强度；color 为 null 或强度 &lt;= 0 即纯黑（等同
+     * {@code AmbientMode.OFF}，与三期基线一致）。下帧打包进 {@code LightingParamsBlock.ambient}，
+     * FORWARD 与 HYBRID（LightingPass）同一份注入函数消费，两路自动一致。</p>
+     */
+    public void setAmbient(Color color, float intensity) {
+        if (color == null || intensity <= 0.0f) {
+            ambientColor.r = 0.0f;
+            ambientColor.g = 0.0f;
+            ambientColor.b = 0.0f;
+            ambientIntensity = 0.0f;
+            return;
+        }
+        ambientColor.r = color.r;
+        ambientColor.g = color.g;
+        ambientColor.b = color.b;
+        ambientIntensity = intensity;
+    }
+
+    /**
      * 设置天空盒（资产路径，桥每帧按场景引用推送）：引用变化时懒上传六面
      * （textureCube 单命令整拷）、旧图两帧退役（GPU in-flight 安全；仅退役资产
      * 路径旧图——测试形态直灌纹理归调用方）；null 摘除。图句柄变化经 SkyboxPass
@@ -1301,8 +1337,8 @@ public final class RenderingSystem implements AutoCloseable {
                 .putFloat(vs.cascadeCount);   // zParams：正交=Z 线性切分；w=级联数（CSM §4.6）
         lightingPack.putFloat(cam.viewportX()).putFloat(cam.viewportY())
                 .putFloat(cam.viewportWidth()).putFloat(cam.viewportHeight());   // viewport
-        lightingPack.putFloat(AMBIENT_COLOR[0]).putFloat(AMBIENT_COLOR[1])
-                .putFloat(AMBIENT_COLOR[2]).putFloat(AMBIENT_COLOR[3]);
+        lightingPack.putFloat(ambientColor.r).putFloat(ambientColor.g)
+                .putFloat(ambientColor.b).putFloat(ambientIntensity);
         // 级联矩阵段（四期 CSM §4.6，@336）：sunViewProj[4]（世界→光裁剪，逐级联；未用槽
         // 写 identity——采样循环只走到 cascadeCount）
         for (int c = 0; c < 4; c++) {

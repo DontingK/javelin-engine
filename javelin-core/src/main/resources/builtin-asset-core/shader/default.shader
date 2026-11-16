@@ -1,5 +1,9 @@
 Shader "Default"
 {
+    // 非光照（施工序 ⑤）：错误兜底材质直读 albedo，不被 LightingPass 乘光照
+    //（无灯场景也须可见——红线 15 错误显性化）
+    LightingModel Unlit
+
     Properties
     {
     }
@@ -27,9 +31,10 @@ Shader "Default"
         }
     }
 
-    // G-Buffer 兜底通道（批次④-B）：HYBRID 档下缺/坏材质的物体仍以纯紫出现在
-    // 不透明几何里——保住「错误显性化」语义（default.shader 仍是兜底专用，
-    // 不改造成光照注入样例）。法线取常量 +Z（非法线 mesh 亦有可见受光面）。
+    // G-Buffer 兜底通道（批次④-B）：仍是「坏 shader stub 声明 GBuffer」时的 PSO 回退源
+    //（RenderingSystem.pipelineFor 落到 DefaultMaterial 取同名 Pass）。本 shader 自身是
+    // Unlit，收集期不会把自己的 GBuffer 段入桶（collectList 对 UNLIT 跳过），
+    // 真正的可见兜底由 UnlitForwardPass 画 Forward 段完成。
     Pass GBuffer
     {
         Cull Back

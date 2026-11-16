@@ -38,11 +38,15 @@ public class Shader extends AbsAsset {
     private ArrayList<MaterialProperty> properties = new ArrayList<>();
     /** Pass 声明序存储（序列化直通）；按名查找用线性扫描（Pass 数量为个位数） */
     private ArrayList<ShaderPass> passes = new ArrayList<>();
+    /** 光照模型（.shader 顶层 LightingModel；缺键/缺省 = LAMBERT） */
+    private LightingModel lightingModel = LightingModel.LAMBERT;
 
-    private Shader(String shaderName, ArrayList<MaterialProperty> properties, ArrayList<ShaderPass> passes) {
+    private Shader(String shaderName, ArrayList<MaterialProperty> properties,
+                   ArrayList<ShaderPass> passes, LightingModel lightingModel) {
         this.shaderName = shaderName;
         this.properties = properties;
         this.passes = passes;
+        this.lightingModel = lightingModel;
     }
 
     public Shader() {
@@ -58,6 +62,7 @@ public class Shader extends AbsAsset {
         output.write("shaderName", shaderName);
         output.write("properties", properties);
         output.write("passes", passes);
+        output.write("lightingModel", lightingModel);
     }
 
     /**
@@ -71,6 +76,8 @@ public class Shader extends AbsAsset {
         properties = props != null ? props : new ArrayList<>();
         ArrayList<ShaderPass> passList = input.readArrayList("passes", ShaderPass.class);
         passes = passList != null ? passList : new ArrayList<>();
+        // 缺键保字段初值（旧产物/旧 .shader 无该声明 = LAMBERT，零迁移）
+        lightingModel = input.readEnum("lightingModel", LightingModel.class, LightingModel.LAMBERT);
     }
 
     /**
@@ -111,6 +118,13 @@ public class Shader extends AbsAsset {
      */
     public List<ShaderPass> getPasses() {
         return List.copyOf(passes);
+    }
+
+    /**
+     * 光照模型（{@code .shader} 顶层 {@code LightingModel}，缺省 {@link LightingModel#LAMBERT}）。
+     */
+    public LightingModel getLightingModel() {
+        return lightingModel;
     }
 
     /**
@@ -156,6 +170,7 @@ public class Shader extends AbsAsset {
         private final ArrayList<MaterialProperty> properties = new ArrayList<>();
         private final ArrayList<ShaderPass> passes = new ArrayList<>();
         private final Set<String> passNames = new HashSet<>();
+        private LightingModel lightingModel = LightingModel.LAMBERT;
 
         private Builder(String shaderName) {
             if (shaderName == null || shaderName.isBlank()) {
@@ -184,10 +199,18 @@ public class Shader extends AbsAsset {
         }
 
         /**
+         * 声明光照模型（{@code .shader} 顶层 {@code LightingModel}；不调用 = {@link LightingModel#LAMBERT}）。
+         */
+        public Builder lightingModel(LightingModel lightingModel) {
+            this.lightingModel = lightingModel != null ? lightingModel : LightingModel.LAMBERT;
+            return this;
+        }
+
+        /**
          * 构建 Shader 实例（字段即 ArrayList，供序列化直通引用）。
          */
         public Shader build() {
-            return new Shader(shaderName, properties, passes);
+            return new Shader(shaderName, properties, passes, lightingModel);
         }
     }
 }

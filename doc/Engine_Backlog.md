@@ -51,7 +51,7 @@
 
 | 序 | 候选 | 理由 |
 |----|------|------|
-| 1 | **四期施工序**（§3：P4-10 TAA → P4-04 环境光 → P4-08 语义契约 → ⓖ P4-05 探针 GI → ⓗ P4-06 光追） | **2026-11-14 用户拍板 = 最高优先级主线**；①~⑤ 零新底座、画面收益直接（后处理链 + SSAO + 阴影质量分级 + **TAA 已验收 2026-11-15（含相机级迁移 + 检查器条件子组/折叠组头/滑条）**）；**当前项 = P4-04 天空盒环境光照** |
+| 1 | **四期施工序**（§3：P4-10 TAA → P4-04 环境光 → P4-08 语义契约 → ⓖ P4-05 探针 GI → ⓗ P4-06 光追） | **2026-11-14 用户拍板 = 最高优先级主线**；①~⑤ 零新底座、画面收益直接（后处理链 + SSAO + 阴影质量分级 + **TAA 已验收 2026-11-15（含相机级迁移 + 检查器条件子组/折叠组头/滑条）**）；**④ P4-04 步骤一 + ⑤ P4-08 2026-11-16 均已用户实机验收；当前项 = ⑥ P4-05 探针 GI（前置 = 纹理底座验收 + ⑥ 前置轻档 P4-17 体素化 AO）**；**⑥ 前置 RHI 纹理底座已落码、待验收（2026-11-16，`RHI_Texture_Types_Design.md` v0.2），跨帧布局记忆 RHI-13 已随批落码** |
 | 2 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染）——**让位四期，四期满档后再议** |
 | 3 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
 | ~~4~~ | ~~**P4-01 后处理链（Bloom/Tonemap + HDR）**~~ | **✅ 2026-11-14 完成并验收**（步骤一 HDR+Tonemap 2026-11-13、步骤二 Bloom 同日落码，用户实机运行通过）→ 已移出本表，见 §3 移出记录 |
@@ -83,11 +83,12 @@
 | ID | 待办 | 落点 | 归类 | 依赖/备注（加粗数字 = 施工序） |
 |----|------|------|------|-----------|
 | P4-10 | **TAA（AA 路线取代 MSAA，2026-11-13 用户拍板）**：相机投影抖动（Halton）+ 逐像素运动矢量（混合实现由 G-Buffer 世界位置 + 上帧 viewProj 反投影重建；前向实现无 G-Buffer 需另定）+ 历史缓冲 ping-pong + 重投影/邻域钳制防拖影 + 历史失效触发（切场景/相机跳变/热重载/resize）+ 锐化。**MSAA 已删（2026-11-13），空窗期**：在 TAA 落地前画面无抗锯齿。**方案件已出（2026-11-15）：`Engine_TAA_Design.md`——HYBRID-only、链序 SSAO 后(15)、Halton 8 相、RGBA16F per-view ping-pong、两 Pass 形态、10 条拍板点；步骤一已落码并验收（同日，经三轮实机反馈修正后用户确认「看起来没啥问题了」，v0.4 §9 实装记录），锐化等步骤二项归 P4-11** | `Engine_TAA_Design.md` v0.4 / 后处理档 §4.2 / 原 P4-07 | ✅（2026-11-15 用户实机验收） | **③**｜挂后处理链（SSAO 之后、Bloom/Tonemap 之前）；参考 `Babylon_Rendering_Reference` TAA 段 |
-| P4-04 | 天空盒环境光照（作 ambient 源：SH9 球谐 / mipmap 降采样，替换 ambient 常量） | 路线 §4-4 / 光照 §10 / 天空盒 §8 | 未开工 | **④**｜天空盒视觉面已备；DDGI 前的过渡 |
+| P4-04 | 天空盒环境光照（作 ambient 源：SH9 球谐 / mipmap 降采样，替换 ambient 常量） | 路线 §4-4 / 光照 §10 / 天空盒 §8 | **✅ 步骤一（常量环境光）2026-11-16 用户实机验收**；**步骤二 SH9 → 后置候选（2026-11-16 用户拍板「先不做」）** | **④**｜步骤一 = `Environment.ambientMode`（OFF/CONSTANT）+ 颜色/强度，2026-11-16；步骤二重启触发 = 需要无主光照明氛围（阴天/黄昏/室内）或出现多通道共享受益（镜面/反射）——落法已定：CPU 投影天空盒得 27 float、std140 打包 7 vec4 正好填满 656→768 余量（零 RHI 改动、注入段改求值函数须强制重导），常量档保留为 fallback/调色旋钮，叠加形态可选 |
 | P4-09 | HDR→LDR 高亮截白真解（`.hdr` float 产物） | 天空盒 §1.2/§5 | 后置项 | 随 **④**｜随 P4-04 环境光批 |
-| P4-08 | 非光照材质语义契约（`default.shader` HYBRID 档 albedo 仍乘光照 → 无灯即黑；「直读 albedo」语义待定） | 光照 v0.10 遗留 / 管线 v0.6 | 待拍板 | **⑤**｜归四期材质/着色模型专档 |
-| P4-05 | 探针实时 GI（DDGI 路线；**烘焙 GI 管线明确不建**） | 路线 §4-5 / 光照 §10 | 未开工 | **⑥（需 RHI 底座）**｜三期 SSBO/compute 底座 + 3D 纹理/纹理数组（RHI 现仅 Texture2D） |
-| P4-06 | 光线追踪 rayQuery（AS 资源种类/图状态、BDA、`GL_EXT_ray_query` 编译链、蒙皮 BLAS 重构；首范围=静态几何） | 路线 §4-6 / 光照 §10 | 未开工 | **⑦（需 RHI 底座）**｜三期批次①「通用性红线」 |
+| P4-08 | 非光照材质语义契约（`default.shader` HYBRID 档 albedo 仍乘光照 → 无灯即黑；「直读 albedo」语义待定） | 光照 v0.10 遗留 / 管线 v0.6 / **`Engine_Material_LightingModel_Design.md` v0.3** | **✅ 2026-11-16 用户实机验收**：`.shader` 顶层 `LightingModel`（**单一封闭轴**：`Lambert` 缺省 / `Unlit`）+ `Shader.lightingModel` + `RenderList.unlitOpaque` + 新 `UnlitForwardPass`（Lighting 之后/Skybox 之后/Transparent 之前、深度 LOAD+ZWrite）+ 注入器按模型取块集（`Unlit` 跳光照段）+ `default.shader` 改 Unlit；验收口径档 §9 | **⑤**｜余项：`.shader` 诊断台「光照模型」只读行、Unlit 示例资产（登记后置） |
+| P4-05 | 探针实时 GI（DDGI 路线；**烘焙 GI 管线明确不建**） | 路线 §4-5 / 光照 §10 / `Babylon_Rendering_Reference.md` §4.5/§10 / **`GI_RT_OpenSource_Reference.md` §2~§5** / **`RHI_Texture_Types_Design.md`** | 未开工 | **⑥（需 RHI 底座）**｜**纹理底座 2026-11-16 落码待验收**（3D 纹理 + 2D 数组 + storage image 写口，RHI_Texture_Types_Design v0.1）；**仍缺** mip 链上传（RHI-14，若走 mip 采样）与格式能力查询（RHI-15）；**跨帧布局记忆 RHI-13 已落码待验收（2026-11-16）**。**首版口径（2026-11-16 讨论记录）**：①探针**自动铺网格**（相机滚动体积、间距可配，显存恒定），**不做手摆探针组**（手摆如需则后置）；②网格来源 = 相机滚动体积为默认，场景可用 `Environment` 条件子组声明「GI 体积 + 间距」覆盖（与 ④ `ambientMode` 同套路）；③**网格外像素回落 `ambient` 常量**（④ 常量档天然 fallback）；④投射线两选——**体素 DDA 追踪**（学 Babylon IBLShadows，无需光追硬件，建议首版）/ ⑦ rayQuery（精确）；⑤探针合法性分类（墙内/地下探针防黑斑）首版用简单版、实测有黑斑再加分类 pass；⑥编辑器探针 gizmo 后置 |
+| P4-17 | **体素化环境光遮蔽**（P4-05 前置轻档）：把 ④ 的常量 `ambient` 由「全程无遮挡」升级为「按几何遮挡的环境光」——场景体素化进 3D 纹理 → 每像素沿环境方向 DDA 追踪 → 双边模糊 → 时域累积。**不需要探针辐照度与探针网格**（= DDGI 的遮挡层单独成批，不含渗色）。形态参考 `Rendering/IBLShadows/**`（R8 3D 纹理、WebGPU storage 3D / WebGL2 三轴 slab + combine、`resolutionExp`=2^n、triPlanar 可选、透明体素限穿透） | `Babylon_Rendering_Reference.md` §4.5/§10-11 / **`GI_RT_OpenSource_Reference.md` §4** / **`RHI_Texture_Types_Design.md`** | 未开工（候选；**前置底座 2026-11-16 落码待验收**） | ⑥ 前置｜**RHI 3D 纹理 + compute 写通道已补齐**（RHI_Texture_Types_Design v0.1：`TYPE_3D` / `texture3D` / `storageTexture` / `TextureTypesTest`）；与 P4-05 共用底座（3D 纹理 + compute + 体素化），跨帧布局记忆 RHI-13 已落码待验收。若先做，DDGI 只再加「辐照度 atlas + 探针网格 + 分帧刷新」。**收益**：补掉「缝隙/桌底/墙角均匀亮」这个 ④ 常量档最大漏洞；**不含**颜色反弹（渗色仍需 DDGI） |
+| P4-06 | 光线追踪 rayQuery（AS 资源种类/图状态、BDA、`GL_EXT_ray_query` 编译链、蒙皮 BLAS 重构；首范围=静态几何） | 路线 §4-6 / 光照 §10 / **`GI_RT_OpenSource_Reference.md` §6** | 未开工 | **⑦（需 RHI 底座）**｜三期批次①「通用性红线」 |
 | P4-07 | ~~HYBRID 档 MSAA-GBuffer（现强制 1x）~~ **作废（2026-11-13）**：AA 路线改 TAA，不做 MSAA-GBuffer | 光照 §9 批次④-B | 作废 | 由 P4-10 取代 |
 | P4-11 | **TAA 锐化 pass**（LDR 后、强度可调——TAA 会糊的标准配套）；**已验收（2026-11-15，`SharpenPass` 链尾终节点 + RCAS 照 Babylon `fsr1Sharpen` 移植 + Tonemap 降级为 order 40；参数由 `Camera.sharpenStrength` 驱动、项目设置「锐化」组删除，检查器滑条即时生效）**；可选剩余：YCoCg 方差钳制升级 / 静景收敛加速 / 天空无穷远重投影（不再单列批次，随 TAA 后续排障按需接入） | `Engine_TAA_Design.md` §5.3/§9.4/§9.5 | ✅（2026-11-15 用户实机验收） | P4-10 步骤二 |
 | P4-12 | **逐物体运动矢量**（速度附件 / 上帧世界矩阵通道）——运动物体拖影根治 | `Engine_TAA_Design.md` §4-1/§8 | 后置项 | 独立项，需新通道 |
@@ -98,6 +99,8 @@
 
 > **移出记录（2026-11-14）**：**P4-01 后处理链（Bloom/Tonemap + HDR 切换点）** 完成并用户实机验收——步骤一（HDR 切换点 + Tonemap，含管线拆两实现类 + MSAA 移除）2026-11-13 落码、步骤二（Bloom，独立开关）2026-11-13 落码，2026-11-14 用户实机运行通过 → 已入 `Engine_Roadmap_Progress.md` §7 批次索引 + `Engine_Features.md` §2 验收状态（细节见 `Engine_PostProcess_Design.md` v0.4 §9/§9.6）。
 > **移出记录（2026-11-14，同日第二批）**：**P4-02 SSAO（四期施工序 ① = GI 第一步）** 步骤一/二同日落码、2026-11-14 用户实机验收通过（「看起来没问题了」）→ 已入 `Engine_Roadmap_Progress.md` §7 + `Engine_Features.md` §2.4（细节见 `Engine_SSAO_Design.md` v0.4 §9）。
+> **移出记录（2026-11-16）**：**P4-04 步骤一（常量环境光）+ ⑤ P4-08（非光照材质语义）** 同日用户实机验收通过（原话「环境光没问题」「非光照材质 看起来也没问题」）→ 明细见 `Engine_Roadmap_Progress.md` §7（2026-11-16 两条）；**P4-04 步骤二 SH9 仍挂后置候选**（不占施工序），P4-08 余项（`.shader` 诊断台「光照模型」只读行 / Unlit 示例资产）登记后置。
+> 
 > **移出记录（2026-11-14，同日第三批）**：**P4-03 阴影质量分级（四期施工序 ②）** 步骤一全件（品质档 PCF / bias 调参面 / per-object 开关 / 设置窗口）+ 步骤二 CSM 同日落码、2026-11-14 用户实机验收通过（步骤一「看起来没问题，我验收了」、一-C 与 CSM「看起来没问题了」）；随验两修（坑 #39 `RenderObject` 换代缓存、#40 阴影盒只收 caster）→ 已入 `Engine_Roadmap_Progress.md` §7 + `Engine_Features.md` §2.4（细节见 `Engine_Shadow_Quality_Design.md` v0.5 §9）。**余步骤三可选收尾**（D16/PCSS/逐级联剔除/DBG-03/多灯阴影，未单列条目）。四期余 P4-04/05/06/08/09/10。
 
 ## 4. RHI 遗留（跨期）
@@ -116,6 +119,9 @@
 | RHI-10 | 图依赖缺「材质贴图读」：前向/光照 Pass 只声明 `shadowMap`，`_MainTex` 等走材质描述符集绑定 → 采样贴图无屏障可插（坑 #37 修后已不报错，但跨帧布局仍是猜的） | 管线 §4.2 / 坑 #37 | 未开工 | 需把材质贴图句柄纳入 PassDef 读声明（structureHash 随之变） |
 | RHI-11 | 非 `VulkanTexture` 的纹理绑描述符走 `texture().handle()` 当 imageView（`VulkanDescriptorSet.update` else 分支）——`SwapChainTexture` 等会把 VkImage 当 view 传进去 | RHI 进度 已知问题 / 坑 #37 | 已知问题 | 当前无消费方（无人绑交换链图），属潜伏 |
 | RHI-12 | 交换链 per-image `SwapChainTexture` 未释放：`VulkanSwapChain.create` 直接覆盖 `images`、`dispose` 不遍历 → 每次 resize 重建漏一批 VkImageView（且 view 须先于 `vkDestroySwapchainKHR` 销毁，Cleaner 的两帧延迟不适用，需即时销毁口） | 坑 #37 / RHI 进度 已知问题 | 未开工 | 与 BUG-09 泄漏账同源 |
+| RHI-13 | **跨帧布局记忆**：`LayoutTracker` 每帧新建、非 backbuffer 纹理起手恒 `UNDEFINED` → 跨帧持久纹理（TAA 历史、将来的探针 atlas / 体素网格）每帧首用都声明 `UNDEFINED → X`，按规范内容**可被丢弃**（现驱动实测保留＝未定义行为） | `RHI_Texture_Types_Design.md` §2-7 / §3.2 / §4-2 | **已落码待验收（2026-11-16）** | **⑥ P4-05 / P4-17 前置硬项**；形态已定 = 布局状态随资源持有（`VulkanTexture.layout` 跨帧沿用，`LayoutTracker` 退役删除；`pipelineBarrier` 以真实布局为准并回写）——待验收时观察编辑器/TAA 零视觉差异 + `[VVL]` 无 oldLayout 不匹配 |
+| RHI-14 | 纹理子资源面：自定义视图 `Texture.createView(TextureViewDesc)`（现全项目零引用的死代码）+ 屏障仅全范围（无逐层/逐 mip 转换）+ `UploadData.mipLevels` 未被 `uploadTexture` 消费（只拷 mip 0） | `RHI_Texture_Types_Design.md` §2-5/6 / §6 | 后置项 | 消费方：点光 cube 阴影、CSM 单张分层 atlas（`Engine_Shadow_Quality_Design` §B）、探针 atlas 分块、DDGI mip 采样 |
+| RHI-15 | 纹理格式能力查询：`vkGetPhysicalDeviceFormatProperties`（`STORAGE`/`SAMPLED` + 格式组合，创建期 fail-fast）；现 `STORAGE` + `R16G16B16A16_SFLOAT` 这类组合靠驱动兜 | `RHI_Texture_Types_Design.md` §2-8 / 与 RHI-08 同族 | 未开工 | 与 RHI-08 合并做 |
 
 ## 5. 渲染 / 管线后置（跨期）
 

@@ -1,6 +1,8 @@
 package cn.donting.javelin.core.scene;
 
 import cn.donting.javelin.ast.annotation.Reflective;
+import cn.donting.javelin.core.math.Color;
+import cn.donting.javelin.core.render.AmbientMode;
 import cn.donting.javelin.core.scene.component.Environment;
 import cn.donting.javelin.core.scene.component.annotation.UniqueComponent;
 import cn.donting.javelin.core.serialize.binary.BinaryExporter;
@@ -274,5 +276,32 @@ public class SceneComponentTest {
         // update 首帧状态机自然驱动（read 零回调）
         loaded.update(1.0f / 60.0f);
         assertTrue(environment.isActiveAndEnabled());
+    }
+
+    @Test
+    void environmentAmbientModeDefaultsToOffAndRoundTrips() throws Exception {
+        GameScene scene = new GameScene("Ambient Scene");
+        Node node = new Node();
+        node.setName("Environment");
+        scene.add(node);
+        node.addComponent(Environment.class);
+        Environment environment = scene.getEnvironment();
+        // 默认 = 关闭（旧场景无环境光字段时的口径，与三期基线一致）
+        assertEquals(AmbientMode.OFF, environment.getAmbientMode());
+
+        environment.setAmbientMode(AmbientMode.CONSTANT);
+        environment.getAmbientSetting().setColor(new Color(0.25f, 0.5f, 0.75f, 1.0f));
+        environment.getAmbientSetting().setIntensity(2.5f);
+
+        File file = new File(tempDir, "ambient.bin");
+        new BinaryExporter(file).export(scene);
+        GameScene loaded = new BinaryImporter(file).importData(GameScene.class);
+        Environment restored = loaded.getEnvironment();
+        assertNotNull(restored);
+        assertEquals(AmbientMode.CONSTANT, restored.getAmbientMode());
+        assertEquals(0.25f, restored.getAmbientSetting().getColor().r, 1e-6f);
+        assertEquals(0.5f, restored.getAmbientSetting().getColor().g, 1e-6f);
+        assertEquals(0.75f, restored.getAmbientSetting().getColor().b, 1e-6f);
+        assertEquals(2.5f, restored.getAmbientSetting().getIntensity(), 1e-6f);
     }
 }

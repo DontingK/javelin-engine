@@ -19,6 +19,8 @@ public final class RenderList {
 
     private final List<RenderObject> opaque = new ArrayList<>();
     private final List<RenderObject> transparent = new ArrayList<>();
+    /** 非光照不透明（{@code LightingModel.UNLIT}：不进 G-Buffer，由 UnlitForwardPass 单画） */
+    private final List<RenderObject> unlitOpaque = new ArrayList<>();
     private final List<RenderObject> shadowCasters = new ArrayList<>();
     /** 自定义 Pass 桶（key = shader Pass 名，首见建桶，收集序——透明 z 序仅主通道） */
     private final Map<String, List<RenderObject>> passes = new LinkedHashMap<>();
@@ -29,6 +31,10 @@ public final class RenderList {
 
     void addTransparent(RenderObject object) {
         transparent.add(object);
+    }
+
+    void addUnlitOpaque(RenderObject object) {
+        unlitOpaque.add(object);
     }
 
     void addShadowCaster(RenderObject object) {
@@ -46,6 +52,13 @@ public final class RenderList {
 
     public List<RenderObject> transparent() {
         return transparent;
+    }
+
+    /**
+     * 非光照不透明桶（{@code LightingModel.UNLIT} + 不透明面型；两档都由 UnlitForwardPass 消费）。
+     */
+    public List<RenderObject> unlitOpaque() {
+        return unlitOpaque;
     }
 
     public List<RenderObject> shadowCasters() {

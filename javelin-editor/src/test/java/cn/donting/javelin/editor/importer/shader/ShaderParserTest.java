@@ -1,5 +1,6 @@
 package cn.donting.javelin.editor.importer.shader;
 
+import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.MaterialProperty;
 import cn.donting.javelin.core.render.material.MaterialPropertyType;
 import cn.donting.javelin.core.render.material.PassState;
@@ -225,7 +226,7 @@ public class ShaderParserTest extends EditorLangTestBase {
                 void main() { o = material._Color; }
                 """;
         String injected = ShaderInjector.inject(body, ShaderParser.parse(FULL_SHADER,
-                "full.shader").properties(), "full.shader", "fs");
+                "full.shader").properties(), LightingModel.LAMBERT, "full.shader", "fs");
 
         // #version 仍最前，注入紧随其后
         assertTrue(injected.startsWith("#version 450\n"));
@@ -256,7 +257,7 @@ public class ShaderParserTest extends EditorLangTestBase {
     @Test
     public void injectWithoutNumericPropertiesSkipsMaterialBlock() {
         String body = "#version 450\nvoid main() { }\n";
-        String injected = ShaderInjector.inject(body, java.util.List.of(), "a.shader", "vs");
+        String injected = ShaderInjector.inject(body, java.util.List.of(), LightingModel.LAMBERT, "a.shader", "vs");
         assertTrue(injected.contains("uniform CameraBlock"));
         assertTrue(!injected.contains("MaterialBlock"));
     }
@@ -270,10 +271,71 @@ public class ShaderParserTest extends EditorLangTestBase {
                 void main() { }
                 """;
         assertThrows(ShaderParseException.class, () ->
-                ShaderInjector.inject(withReserved, java.util.List.of(), "a.shader", "vs"));
+                ShaderInjector.inject(withReserved, java.util.List.of(), LightingModel.LAMBERT, "a.shader", "vs"));
 
         // 缺 #version（注入锚点）
         assertThrows(ShaderParseException.class, () ->
-                ShaderInjector.inject("void main() { }", java.util.List.of(), "a.shader", "vs"));
+                ShaderInjector.inject("void main() { }", java.util.List.of(), LightingModel.LAMBERT, "a.shader", "vs"));
+    }
+
+    /**
+     * 顶层 {@code LightingModel}（施工序 ⑤，单一封闭轴）：缺省 Lambert、声明 Unlit / Lambert 生效、
+     * 取值大小写不敏感、非法值带行号抛。
+     */
+    @Test
+    public void parseLightingModelHeader() {
+        // 缺省：不声明 = Lambert（旧资产零迁移）
+        assertEquals(LightingModel.LAMBERT, ShaderParser.parse(FULL_SHADER, "full.shader").lightingModel());
+
+        String unlit = """
+                Shader "U"
+                {
+                    LightingModel Unlit
+                    Pass Forward
+                    {
+                        Cull Back
+                        vs { #version 450
+                             void main() { }
+                        }
+                        fs { #version 450
+                             layout(location = 0) out vec4 o;
+                             void main() { o = vec4(1.0); }
+                        }
+                    }
+                }
+                """;
+        assertEquals(LightingModel.UNLIT, ShaderParser.parse(unlit, "u.shader").lightingModel());
+
+        // 显式 Lambert（与缺省同值）
+        assertEquals(LightingModel.LAMBERT, ShaderParser.parse(
+                unlit.replace("LightingModel Unlit", "LightingModel Lambert"), "l.shader").lightingModel());
+
+        // 取值大小写不敏感
+        String lower = unlit.replace("LightingModel Unlit", "LightingModel unlit");
+        assertEquals(LightingModel.UNLIT, ShaderParser.parse(lower, "u2.shader").lightingModel());
+
+        // 非法值（旧写法 Lit 已不是合法值，一并拒）
+        assertThrows(ShaderParseException.class, () ->
+                ShaderParser.parse(unlit.replace("Unlit", "SemiGloss"), "bad.shader"));
+        assertThrows(ShaderParseException.class, () ->
+                ShaderParser.parse(unlit.replace("Unlit", "Lit"), "legacy.shader"));
+    }
+
+    /**
+     * UNLIT 注入分支：跳过光照段声明（LightingParamsBlock/javelinLighting/receiveShadow），
+     * 相机块与材质声明照常注入。
+     */
+    @Test
+    public void injectUnlitSkipsLightingStage() {
+        String body = "#version 450\nvoid main() { }\n";
+        String unlit = ShaderInjector.inject(body, java.util.List.of(), LightingModel.UNLIT, "u.frag", "fs");
+        assertTrue(unlit.contains("uniform CameraBlock"), "UNLIT 仍需相机块（cam.viewProj）");
+        assertTrue(!unlit.contains("LightingParamsBlock"), "UNLIT 不应注入光照参数块");
+        assertTrue(!unlit.contains("vec3 javelinLighting"), "UNLIT 不应注入光照求值函数");
+        assertTrue(!unlit.contains("javelinReceiveShadow"), "UNLIT 不应注入接影门控函数");
+
+        // 对照：Lambert 全量注入
+        String lambert = ShaderInjector.inject(body, java.util.List.of(), LightingModel.LAMBERT, "l.frag", "fs");
+        assertTrue(lambert.contains("LightingParamsBlock") && lambert.contains("javelinLighting"));
     }
 }

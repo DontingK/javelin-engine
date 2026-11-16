@@ -1,5 +1,6 @@
 package cn.donting.javelin.editor.importer.shader;
 
+import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.MaterialProperty;
 import cn.donting.javelin.core.render.material.PassState;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -97,6 +98,7 @@ public final class ShaderParser {
         ArrayList<MaterialProperty> properties = new ArrayList<>();
         ArrayList<ParsedPass> passes = new ArrayList<>();
         Set<String> passNames = new java.util.HashSet<>();
+        LightingModel lightingModel = LightingModel.LAMBERT;
 
         while (true) {
             skipTrivia();
@@ -110,6 +112,7 @@ public final class ShaderParser {
             String keyword = readIdentifier();
             switch (keyword) {
                 case "Properties" -> properties.addAll(parseProperties());
+                case "LightingModel" -> lightingModel = parseLightingModel();
                 case "Pass" -> {
                     ParsedPass pass = parsePassBody();
                     if (!passNames.add(pass.name())) {
@@ -120,7 +123,21 @@ public final class ShaderParser {
                 default -> throw error("shader.parse.unknownTopBlock", keyword);
             }
         }
-        return new ParsedShader(shaderName, properties, passes);
+        return new ParsedShader(shaderName, properties, passes, lightingModel);
+    }
+
+    /**
+     * 解析 {@code LightingModel Lambert|Unlit}（单一封闭轴：受光公式即模型值；取值大小写不敏感，
+     * 非法值带行号抛）。
+     */
+    private LightingModel parseLightingModel() {
+        skipTrivia();
+        String value = readIdentifier();
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "lambert" -> LightingModel.LAMBERT;
+            case "unlit" -> LightingModel.UNLIT;
+            default -> throw error("shader.parse.lightingModelUnknown", value);
+        };
     }
 
     private ArrayList<MaterialProperty> parseProperties() {
@@ -521,12 +538,14 @@ public final class ShaderParser {
         private final String shaderName;
         private final ArrayList<MaterialProperty> properties;
         private final ArrayList<ParsedPass> passes;
+        private final LightingModel lightingModel;
 
         ParsedShader(String shaderName, ArrayList<MaterialProperty> properties,
-                     ArrayList<ParsedPass> passes) {
+                     ArrayList<ParsedPass> passes, LightingModel lightingModel) {
             this.shaderName = shaderName;
             this.properties = properties;
             this.passes = passes;
+            this.lightingModel = lightingModel;
         }
 
         public String shaderName() {
@@ -539,6 +558,11 @@ public final class ShaderParser {
 
         public ArrayList<ParsedPass> passes() {
             return passes;
+        }
+
+        /** 光照模型（顶层 {@code LightingModel} 声明；未声明 = LIT） */
+        public LightingModel lightingModel() {
+            return lightingModel;
         }
     }
 

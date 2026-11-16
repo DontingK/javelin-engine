@@ -1,5 +1,6 @@
 package cn.donting.javelin.editor.importer.shader;
 
+import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.MaterialProperty;
 import cn.donting.javelin.core.render.material.MaterialPropertyType;
 import cn.donting.javelin.editor.plugin.EditorLang;
@@ -322,12 +323,18 @@ public final class ShaderInjector {
     /**
      * 注入一个 vs/fs 块：#version 行之后拼入引擎内置块 + 材质声明。
      *
-     * @param body       GLSL 原文（{@code #version 450} 必填，RHI 21.6-6 注入锚点）
-     * @param properties Properties 声明序（MaterialBlock 字段 + sampler 槽来源）
-     * @param sourceName 源文件名（报错定位）
-     * @param stageName  阶段标记（"vs"/"fs"，报错定位）
+     * <p>{@link LightingModel#UNLIT} 只跳过帧级光照声明（LightingParamsBlock/lightList/
+     * {@code javelinLighting}/receiveShadow）——相机块与材质声明照常注入（unlit 仍要
+     * {@code cam.viewProj}、{@code pc.model}、材质属性）。</p>
+     *
+     * @param body          GLSL 原文（{@code #version 450} 必填，RHI 21.6-6 注入锚点）
+     * @param properties    Properties 声明序（MaterialBlock 字段 + sampler 槽来源）
+     * @param lightingModel shader 顶层 {@code LightingModel}（UNLIT 不注入光照段）
+     * @param sourceName    源文件名（报错定位）
+     * @param stageName     阶段标记（"vs"/"fs"，报错定位）
      */
     public static String inject(String body, List<MaterialProperty> properties,
+                                LightingModel lightingModel,
                                 String sourceName, String stageName) {
         validateReservedNames(body, sourceName, stageName);
 
@@ -338,13 +345,24 @@ public final class ShaderInjector {
         injected.append(ENGINE_BLOCKS).append('\n');
         // set1 光照声明只入 fs（消费在片元；vs 声明未用 binding 反增布局面）
         if ("fs".equals(stageName)) {
-            injected.append(LIGHTING_BLOCKS).append('\n');
-            injected.append(RECEIVE_SHADOW_PUSH).append('\n');
+            injected.append(lightingStageBlocks(lightingModel));
         }
         appendMaterialDeclaration(injected, properties);
         injected.append("// ── injection end ──\n");
         injected.append(body, versionEnd, body.length());
         return injected.toString();
+    }
+
+    /**
+     * 按光照模型取 set1 光照段声明块（{@link LightingModel#UNLIT} 为空）。
+     *
+     * <p>单一封闭轴：新增模型值必须在此显式给块集（switch 无 default，漏值即编译失败）。</p>
+     */
+    private static String lightingStageBlocks(LightingModel lightingModel) {
+        return switch (lightingModel) {
+            case LAMBERT -> LIGHTING_BLOCKS + "\n" + RECEIVE_SHADOW_PUSH + "\n";
+            case UNLIT -> "";
+        };
     }
 
     /**

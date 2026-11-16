@@ -1,5 +1,6 @@
 package cn.donting.javelin.editor.importer.shader;
 
+import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.MaterialPropertyType;
 import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.material.ShaderPass;
@@ -117,7 +118,7 @@ public class ShaderImporterTest {
     @Test
     public void lightingStageInjectsPcfShadowStage() {
         String injected = ShaderInjector.inject("#version 450\nvoid main() {}\n",
-                java.util.List.of(), "pcf.frag", "fs");
+                java.util.List.of(), LightingModel.LAMBERT, "pcf.frag", "fs");
         assertTrue(injected.contains("vec4 shadowParams;"),
                 "光照段声明缺 shadowParams（阴影品质档/强度/半径/参考深度偏移通道）");
         // 四期 CSM：多级联矩阵 + 切分 + atlas 参数 + 逐级联反深度
@@ -149,7 +150,7 @@ public class ShaderImporterTest {
     public void lightingStageInjectsReceiveShadowFlag() {
         // 材质 fs（FORWARD 档）：push 变体——声明 PushBlock 含 receiveShadow + 门控生效
         String material = ShaderInjector.inject("#version 450\nvoid main() {}\n",
-                java.util.List.of(), "recv.frag", "fs");
+                java.util.List.of(), LightingModel.LAMBERT, "recv.frag", "fs");
         assertTrue(material.contains("float receiveShadow;"),
                 "PushBlock 未扩 receiveShadow 字段（FORWARD 档承载）");
         assertTrue(material.contains("return pc.receiveShadow;"),

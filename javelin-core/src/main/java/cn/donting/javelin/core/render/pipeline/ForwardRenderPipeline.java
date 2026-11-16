@@ -1,10 +1,7 @@
 package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
-import cn.donting.javelin.core.render.pipeline.pass.OpaqueForwardPass;
-import cn.donting.javelin.core.render.pipeline.pass.ShadowPass;
-import cn.donting.javelin.core.render.pipeline.pass.SkyboxPass;
-import cn.donting.javelin.core.render.pipeline.pass.TransparentForwardPass;
+import cn.donting.javelin.core.render.pipeline.pass.*;
 import cn.donting.javelin.rhi.Device;
 
 /**
@@ -23,6 +20,8 @@ public class ForwardRenderPipeline extends AbstractRenderPipeline {
         addScenePass(new ShadowPass(device, assetManager));
         addScenePass(opaque);
         addScenePass(new SkyboxPass(device, assetManager));
+        // 非光照不透明：与 HYBRID 同相对位置（天空盒之后、透明之前）
+        addScenePass(new UnlitForwardPass());
         addScenePass(new TransparentForwardPass());
         addClearColorSink(opaque::setClearColor);
     }

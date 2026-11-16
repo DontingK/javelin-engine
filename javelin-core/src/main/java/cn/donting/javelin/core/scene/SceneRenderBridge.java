@@ -1,5 +1,6 @@
 package cn.donting.javelin.core.scene;
 
+import cn.donting.javelin.core.render.AmbientMode;
 import cn.donting.javelin.core.render.RenderCamera;
 import cn.donting.javelin.core.render.RenderLight;
 import cn.donting.javelin.core.render.RenderObject;
@@ -11,6 +12,7 @@ import cn.donting.javelin.core.render.mesh.Mesh;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.math.Color;
 import cn.donting.javelin.core.math.Rect;
+import cn.donting.javelin.core.scene.component.AmbientSetting;
 import cn.donting.javelin.core.scene.component.Camera;
 import cn.donting.javelin.core.scene.component.DirectionalLight;
 import cn.donting.javelin.core.scene.component.Environment;
@@ -92,6 +94,17 @@ public final class SceneRenderBridge {
         if (sceneSkybox != lastSkybox) {
             lastSkybox = sceneSkybox;
             rs.setSkybox(sceneSkybox);
+        }
+
+        // 环境项推送（四期 P4-04 步骤一）：常量环境光——每帧推送（颜色/强度由检查器
+        // 就地编辑、不换引用，身份门控反而漏推；4 个 float 写可忽略）。无环境组件 /
+        // 组件未激活 / 模式 OFF = 纯黑（与三期基线一致，正常域空状态）
+        if (environment != null && environment.isActiveAndEnabled()
+                && environment.getAmbientMode() == AmbientMode.CONSTANT) {
+            AmbientSetting ambient = environment.getAmbientSetting();
+            rs.setAmbient(ambient.getColor(), ambient.getIntensity());
+        } else {
+            rs.setAmbient(null, 0.0f);
         }
 
         List<Camera> sceneCameras = scene.getCameras();

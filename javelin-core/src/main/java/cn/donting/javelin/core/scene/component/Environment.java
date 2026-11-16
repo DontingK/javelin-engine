@@ -2,7 +2,9 @@ package cn.donting.javelin.core.scene.component;
 
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.inspector.InsField;
+import cn.donting.javelin.core.inspector.InsFieldGroup;
 import cn.donting.javelin.core.inspector.InsHeader;
+import cn.donting.javelin.core.render.AmbientMode;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.scene.Component;
 import cn.donting.javelin.core.scene.component.annotation.UniqueComponent;
@@ -21,6 +23,10 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
  * SceneRenderBridge 每帧读 skybox 推 RenderingSystem（无环境组件/无 skybox = 视口回退
  * 纯色清屏，正常域空状态）。</p>
  *
+ * <p>v0.2（四期 P4-04 步骤一）：加环境光模式 {@link #ambientMode}——{@code OFF}（纯黑，
+ * 与三期基线一致）/ {@code CONSTANT}（颜色 + 强度常量环境项）；同样由 SceneRenderBridge
+ * 每帧推送（无环境组件或未激活 = OFF）。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
@@ -33,12 +39,43 @@ public class Environment extends Component {
     @InsField(label = "ins.environment.skybox")
     private CubemapImage skybox;
 
+    /**
+     * 环境光模式（四期 P4-04 步骤一）：选「直接环境光」时下方内联展开
+     * {@link #ambientSetting}（颜色 + 强度）。
+     */
+    @InsField(label = "ins.environment.ambientMode")
+    @InsFieldGroup(keys = {"OFF", "CONSTANT"}, value = {"", "ambientSetting"},
+            label = "ins.environment.ambientSetting")
+    private AmbientMode ambientMode = AmbientMode.OFF;
+
+    /** 常量环境光参数组（不受 @InsField 闸门：只作为 ambientMode 的条件子组内联出现） */
+    private AmbientSetting ambientSetting = new AmbientSetting();
+
     public CubemapImage getSkybox() {
         return skybox;
     }
 
     public void setSkybox(CubemapImage skybox) {
         this.skybox = skybox;
+    }
+
+    public AmbientMode getAmbientMode() {
+        return ambientMode;
+    }
+
+    public void setAmbientMode(AmbientMode ambientMode) {
+        this.ambientMode = ambientMode != null ? ambientMode : AmbientMode.OFF;
+    }
+
+    /**
+     * 常量环境光参数组（颜色 + 强度；Inspector 内经 {@code @InsFieldGroup} 条件展开）
+     */
+    public AmbientSetting getAmbientSetting() {
+        return ambientSetting;
+    }
+
+    public void setAmbientSetting(AmbientSetting ambientSetting) {
+        this.ambientSetting = ambientSetting != null ? ambientSetting : new AmbientSetting();
     }
 
     /**
@@ -48,11 +85,19 @@ public class Environment extends Component {
     public void write(OutputCapsule output) {
         super.write(output);
         output.write("skybox", skybox);
+        output.write("ambientMode", ambientMode);
+        output.write("ambientSetting", ambientSetting);
     }
 
     @Override
     public void read(InputCapsule input) {
         super.read(input);
         skybox = input.readSerializable("skybox", CubemapImage.class);
+        // 缺键保字段初值（旧场景无环境光字段 = 关闭，与三期基线一致）
+        ambientMode = input.readEnum("ambientMode", AmbientMode.class, AmbientMode.OFF);
+        AmbientSetting group = input.readSerializable("ambientSetting", AmbientSetting.class);
+        if (group != null) {
+            ambientSetting = group;
+        }
     }
 }

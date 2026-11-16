@@ -547,7 +547,14 @@ DepthOfField → Bloom → ImageProcessing → Sharpen → Grain → ChromaticAb
 
 ### P3：需要另找来源的空白
 
-10. DDGI / 探针体积 / rayQuery（§4.6、§9）：Babylon 无实现，本文只能借用其 G-buffer、history、TAA 等周边件。
+10. DDGI / 探针体积 / rayQuery（§4.6、§9）：Babylon 无实现，本文只能借用其 G-buffer、history、TAA 等周边件——**外部来源已另立档 `doc/GI_RT_OpenSource_Reference.md`（v0.1，2026-11-16）：Godot SDFGI / G3D DDGI 参考 GLSL（BSD-2）/ DDGI-Minecraft（Apache-2.0，Vulkan compute 软光追）/ O3DE DiffuseProbeGrid / nvpro-samples rayQuery 16·17 / The-Forge AS 抽象**，含许可分级与按 P4-17·P4-05·P4-06 的「抄哪层」表。
+11. **「没有硬件光追时怎么回答『沿这个方向看到什么』」→ 抄 IBLShadows（§4.5）**：这是本仓唯一完整的「体素化 + 追踪」实现，对四期 ⑥（P4-05 探针 GI）的**投射线通道**与 **P4-17 体素化环境光遮蔽**都是现成形态参考——
+    - 底座：`TEXTURE_3D` 3D 纹理（WebGPU 走 `TEXTURE_CREATIONFLAG_STORAGE` 直写；WebGL2 退化为 X/Y/Z 三轴 slab `RenderTargetTexture` + `iblCombineVoxelGrids` 合成 pass），格式 `TEXTUREFORMAT_R` + `UNSIGNED_BYTE` + NEAREST，分辨率由 `resolutionExp`（=2^n）控制，可选 triPlanar 三轴降深度冲突；
+    - 追踪：`iblShadowsVoxelTracingPass` 沿方向 DDA 步进，命中即遮挡（透明体素按「轮盘赌」限穿透次数）；
+    - 收尾：`iblShadowsSpatialBlurPass` 双边模糊压体素噪点 + `iblShadowsAccumulationPass` 时域累积（场景变化 `resetAccumulation()`）；
+    - 可移植性：算 DDA 与体素写回是纯函数 + compute，**算法层可直接移植**，我方需自建「3D 纹理 + compute 写」这条 RHI 通道（现仅 Texture2D/cubemap）。
+    - **适用边界**：它只产出「环境光遮蔽」（遮挡），不产出辐照度/颜色反弹——即 DDGI 的遮挡层，不含漫反射收集层；想拿渗色仍需 DDGI 的探针辐照度 atlas。
+12. **RSM GI（§4.4）只作反面参照**：单主光 + VPL + 屏幕空间 + `1/d⁴`，屏幕外丢光、随距离条带，本质是 L1/L2 过渡品；我方不采用，仅借其「光源视角 MRT 存 位置/法线/flux」的三附件写法（若要快速做一个一次反弹原型可用）。
 
 ---
 
@@ -568,6 +575,7 @@ DepthOfField → Bloom → ImageProcessing → Sharpen → Grain → ChromaticAb
 | 阴影 | `Lights/Shadows/shadowGenerator.ts`、`Shaders/ShadersInclude/shadowsFragmentFunctions.fx` |
 | CSM | `Lights/Shadows/cascadedShadowGenerator.pure.ts`、`Shaders/ShadersInclude/lightFragment.fx:274-348` |
 | RSM GI | `Rendering/reflectiveShadowMap.pure.ts`、`Rendering/GlobalIllumination/giRSMManager.pure.ts` |
+| IBLShadows（体素 + 追踪，无光追的「方向可见性」参考） | `Rendering/IBLShadows/**`：`iblShadowsVoxelRenderer.pure.ts`（3D 纹理/slab + `_createTextures`）、`iblShadowsVoxelTracingPass.ts`、`iblShadowsSpatialBlurPass.ts`、`iblShadowsAccumulationPass.ts`、`iblShadowsRenderPipeline.pure.ts`（参数面 `resolutionExp` 等） |
 | 后处理基类 / 链 | `PostProcesses/postProcess.pure.ts`、`PostProcesses/postProcessManager.ts:182-243` |
 | 默认后处理顺序 | `PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline.pure.ts:591-752` |
 | FrameGraph | `FrameGraph/frameGraph.ts`、`frameGraphTextureManager.ts`、`FrameGraph/Tasks/**` |

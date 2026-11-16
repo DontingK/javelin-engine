@@ -1,11 +1,7 @@
 package cn.donting.javelin.core.render.pipeline;
 
 import cn.donting.javelin.core.assets.AssetManager;
-import cn.donting.javelin.core.render.pipeline.pass.GBufferPass;
-import cn.donting.javelin.core.render.pipeline.pass.LightingPass;
-import cn.donting.javelin.core.render.pipeline.pass.ShadowPass;
-import cn.donting.javelin.core.render.pipeline.pass.SkyboxPass;
-import cn.donting.javelin.core.render.pipeline.pass.TransparentForwardPass;
+import cn.donting.javelin.core.render.pipeline.pass.*;
 import cn.donting.javelin.rhi.Device;
 
 /**
@@ -20,12 +16,14 @@ public class DefaultHybridRenderPipeline extends AbstractRenderPipeline {
 
     public DefaultHybridRenderPipeline(Device device, AssetManager assetManager) {
         super(device, assetManager);
-        // 全局阴影（帧号幂等挂载）→ G-Buffer → 全屏光照（本实现颜色清屏入口）→ 天空盒 → 透明叠加
+        // 全局阴影（帧号幂等挂载）→ G-Buffer → 全屏光照（本实现颜色清屏入口）→ 天空盒
+        // → 非光照不透明（覆盖制，晚于 Lighting 否则被整屏盖掉）→ 透明叠加
         addScenePass(new ShadowPass(device, assetManager));
         addScenePass(new GBufferPass());
         LightingPass lighting = new LightingPass(device, assetManager);
         addScenePass(lighting);
         addScenePass(new SkyboxPass(device, assetManager));
+        addScenePass(new UnlitForwardPass());
         addScenePass(new TransparentForwardPass());
         addClearColorSink(lighting::setClearColor);
     }

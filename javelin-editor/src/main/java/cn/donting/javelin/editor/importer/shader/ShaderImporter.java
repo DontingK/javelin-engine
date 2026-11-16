@@ -137,6 +137,7 @@ public class ShaderImporter implements AssetImporter {
         ShaderParser.ParsedShader parsed = ShaderParser.parse(source, sourceName);
 
         Shader.Builder builder = Shader.builder(parsed.shaderName());
+        builder.lightingModel(parsed.lightingModel());
         for (MaterialProperty property : parsed.properties()) {
             builder.property(property);
         }
@@ -145,9 +146,9 @@ public class ShaderImporter implements AssetImporter {
                 String vsName = sourceName + "/" + parsedPass.name() + ".vert";
                 String fsName = sourceName + "/" + parsedPass.name() + ".frag";
                 String vsSource = ShaderInjector.inject(
-                        parsedPass.vsBody(), parsed.properties(), vsName, "vs");
+                        parsedPass.vsBody(), parsed.properties(), parsed.lightingModel(), vsName, "vs");
                 String fsSource = ShaderInjector.inject(
-                        parsedPass.fsBody(), parsed.properties(), fsName, "fs");
+                        parsedPass.fsBody(), parsed.properties(), parsed.lightingModel(), fsName, "fs");
                 builder.pass(new ShaderPass(parsedPass.name(),
                         compiler.compile(vsSource, ShaderStage.VERTEX, vsName),
                         compiler.compile(fsSource, ShaderStage.FRAGMENT, fsName),
