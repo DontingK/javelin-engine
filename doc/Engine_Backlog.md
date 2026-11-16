@@ -51,7 +51,7 @@
 
 | 序 | 候选 | 理由 |
 |----|------|------|
-| 1 | **四期施工序**（§3：P4-10 TAA → P4-04 环境光 → P4-08 语义契约 → ⓖ P4-05 探针 GI → ⓗ P4-06 光追） | **2026-11-14 用户拍板 = 最高优先级主线**；①~⑤ 零新底座、画面收益直接（后处理链 + SSAO + 阴影质量分级 + **TAA 已验收 2026-11-15（含相机级迁移 + 检查器条件子组/折叠组头/滑条）**）；**④ P4-04 步骤一 + ⑤ P4-08 2026-11-16 均已用户实机验收；当前项 = ⑥ P4-05 探针 GI（前置 = 纹理底座验收 + ⑥ 前置轻档 P4-17 体素化 AO）**；**⑥ 前置 RHI 纹理底座已落码、待验收（2026-11-16，`RHI_Texture_Types_Design.md` v0.2），跨帧布局记忆 RHI-13 已随批落码** |
+| 1 | **四期施工序**（§3：P4-10 TAA → P4-04 环境光 → P4-08 语义契约 → ⓖ P4-05 探针 GI → ⓗ P4-06 光追） | **2026-11-14 用户拍板 = 最高优先级主线**；①~⑤ 零新底座、画面收益直接（后处理链 + SSAO + 阴影质量分级 + **TAA 已验收 2026-11-15（含相机级迁移 + 检查器条件子组/折叠组头/滑条）**）；**④ P4-04 步骤一 + ⑤ P4-08 2026-11-16 均已用户实机验收；当前项 = ⑥ P4-05 探针 GI（前置 = 纹理底座验收 + ⑥ 前置轻档 P4-17 体素化 AO）**；**⑥ 前置 RHI 纹理底座已落码、待验收（2026-11-16，`RHI_Texture_Types_Design.md` v0.2；代码 `195244d` 已入库），跨帧布局记忆 RHI-13 已随批落码** |
 | 2 | **REND-01 视锥剔除** | Aabb/Mesh.bounds 地基已备，收益直接（当前每帧全量送渲染）——**让位四期，四期满档后再议** |
 | 3 | **RHI-01 Buffer staging** | RHI 地基；动态 Mesh/纹理专项（AST-05）的前置 |
 | ~~4~~ | ~~**P4-01 后处理链（Bloom/Tonemap + HDR）**~~ | **✅ 2026-11-14 完成并验收**（步骤一 HDR+Tonemap 2026-11-13、步骤二 Bloom 同日落码，用户实机运行通过）→ 已移出本表，见 §3 移出记录 |
@@ -119,7 +119,7 @@
 | RHI-10 | 图依赖缺「材质贴图读」：前向/光照 Pass 只声明 `shadowMap`，`_MainTex` 等走材质描述符集绑定 → 采样贴图无屏障可插（坑 #37 修后已不报错，但跨帧布局仍是猜的） | 管线 §4.2 / 坑 #37 | 未开工 | 需把材质贴图句柄纳入 PassDef 读声明（structureHash 随之变） |
 | RHI-11 | 非 `VulkanTexture` 的纹理绑描述符走 `texture().handle()` 当 imageView（`VulkanDescriptorSet.update` else 分支）——`SwapChainTexture` 等会把 VkImage 当 view 传进去 | RHI 进度 已知问题 / 坑 #37 | 已知问题 | 当前无消费方（无人绑交换链图），属潜伏 |
 | RHI-12 | 交换链 per-image `SwapChainTexture` 未释放：`VulkanSwapChain.create` 直接覆盖 `images`、`dispose` 不遍历 → 每次 resize 重建漏一批 VkImageView（且 view 须先于 `vkDestroySwapchainKHR` 销毁，Cleaner 的两帧延迟不适用，需即时销毁口） | 坑 #37 / RHI 进度 已知问题 | 未开工 | 与 BUG-09 泄漏账同源 |
-| RHI-13 | **跨帧布局记忆**：`LayoutTracker` 每帧新建、非 backbuffer 纹理起手恒 `UNDEFINED` → 跨帧持久纹理（TAA 历史、将来的探针 atlas / 体素网格）每帧首用都声明 `UNDEFINED → X`，按规范内容**可被丢弃**（现驱动实测保留＝未定义行为） | `RHI_Texture_Types_Design.md` §2-7 / §3.2 / §4-2 | **已落码待验收（2026-11-16）** | **⑥ P4-05 / P4-17 前置硬项**；形态已定 = 布局状态随资源持有（`VulkanTexture.layout` 跨帧沿用，`LayoutTracker` 退役删除；`pipelineBarrier` 以真实布局为准并回写）——待验收时观察编辑器/TAA 零视觉差异 + `[VVL]` 无 oldLayout 不匹配 |
+| RHI-13 | **跨帧布局记忆**：`LayoutTracker` 每帧新建、非 backbuffer 纹理起手恒 `UNDEFINED` → 跨帧持久纹理（TAA 历史、将来的探针 atlas / 体素网格）每帧首用都声明 `UNDEFINED → X`，按规范内容**可被丢弃**（现驱动实测保留＝未定义行为） | `RHI_Texture_Types_Design.md` §2-7 / §3.2 / §4-2 | **已落码待验收（2026-11-16，代码 `195244d`）** | **⑥ P4-05 / P4-17 前置硬项**；形态已定 = 布局状态随资源持有（`VulkanTexture.layout` 跨帧沿用，`LayoutTracker` 退役删除；`pipelineBarrier` 以真实布局为准并回写）——待验收时观察编辑器/TAA 零视觉差异 + `[VVL]` 无 oldLayout 不匹配 |
 | RHI-14 | 纹理子资源面：自定义视图 `Texture.createView(TextureViewDesc)`（现全项目零引用的死代码）+ 屏障仅全范围（无逐层/逐 mip 转换）+ `UploadData.mipLevels` 未被 `uploadTexture` 消费（只拷 mip 0） | `RHI_Texture_Types_Design.md` §2-5/6 / §6 | 后置项 | 消费方：点光 cube 阴影、CSM 单张分层 atlas（`Engine_Shadow_Quality_Design` §B）、探针 atlas 分块、DDGI mip 采样 |
 | RHI-15 | 纹理格式能力查询：`vkGetPhysicalDeviceFormatProperties`（`STORAGE`/`SAMPLED` + 格式组合，创建期 fail-fast）；现 `STORAGE` + `R16G16B16A16_SFLOAT` 这类组合靠驱动兜 | `RHI_Texture_Types_Design.md` §2-8 / 与 RHI-08 同族 | 未开工 | 与 RHI-08 合并做 |
 
