@@ -314,11 +314,15 @@ final class VulkanCommandBuffer implements CommandBuffer {
                                 TextureLayout newLayout,
                                 boolean write, boolean computePass) {
         checkRecording();
-        if (oldLayout == newLayout) {
+        // 资源自持的布局优先（24.3 / RHI-13）：VkImageMemoryBarrier 的 oldLayout 必须等于图像真实
+        // 布局，故以纹理记录的当前布局为准；oldLayout 参数只对无布局状态的实现（交换链图像）生效
+        TextureLayout actualOld = texture instanceof VulkanTexture vkTexture
+                ? vkTexture.layout() : oldLayout;
+        if (actualOld == newLayout) {
             return; // 冗余消除（24.3）
         }
         VulkanBarrierGenerator.BarrierSync sync =
-                VulkanBarrierGenerator.syncFor(oldLayout, newLayout, write, computePass);
+                VulkanBarrierGenerator.syncFor(actualOld, newLayout, write, computePass);
 
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkImageMemoryBarrier.Buffer barrier = VkImageMemoryBarrier.calloc(1, stack);
@@ -326,7 +330,7 @@ final class VulkanCommandBuffer implements CommandBuffer {
                     .sType$Default()
                     .srcAccessMask(VulkanBarrierGenerator.toVkAccess(sync.srcAccess))
                     .dstAccessMask(VulkanBarrierGenerator.toVkAccess(sync.dstAccess))
-                    .oldLayout(VulkanBarrierGenerator.toVkImageLayout(oldLayout))
+                    .oldLayout(VulkanBarrierGenerator.toVkImageLayout(actualOld))
                     .newLayout(VulkanBarrierGenerator.toVkImageLayout(newLayout))
                     .srcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
                     .dstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
@@ -342,6 +346,10 @@ final class VulkanCommandBuffer implements CommandBuffer {
                     VulkanBarrierGenerator.toVkStage(sync.srcStage),
                     VulkanBarrierGenerator.toVkStage(sync.dstStage),
                     0, null, null, barrier);
+        }
+        // 布局状态随资源持有（24.3）：录制即视为提交（命令缓冲一旦录制完成即会被提交）
+        if (texture instanceof VulkanTexture vkTexture) {
+            vkTexture.setLayout(newLayout);
         }
     }
 

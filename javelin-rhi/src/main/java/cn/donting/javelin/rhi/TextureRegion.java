@@ -54,6 +54,22 @@ public final class TextureRegion {
     }
 
     /**
+     * 全纹理 3D 更新（mip 0、单层）：第三维由 region.depth 表达（extent.depth = depth），
+     * buffer 侧按 z 切片顺序紧密打包。
+     */
+    public static TextureRegion whole3D(int width, int height, int depth) {
+        return new TextureRegion(0, 0, 0, width, height, depth, 0, 0);
+    }
+
+    /**
+     * 全纹理 2D 数组更新（mip 0、整层）：layers 层逐层紧密打包
+     * （VkBufferImageCopy 按 layer 顺序自 buffer 取址，无需逐层循环）。
+     */
+    public static TextureRegion whole2DArray(int width, int height, int layers) {
+        return new TextureRegion(0, 0, 0, width, height, 1, 0, 0, layers);
+    }
+
+    /**
      * cubemap 六面整拷（mip 0、全六层）：buffer 侧须六面连续紧密打包
      * （layer 顺序 +X/-X/+Y/-Y/+Z/-Z），单命令按 layer 顺序自动取址。
      */

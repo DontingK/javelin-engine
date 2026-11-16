@@ -6,6 +6,7 @@ import cn.donting.javelin.rhi.types.Format;
 import cn.donting.javelin.rhi.types.SampleCount;
 import cn.donting.javelin.rhi.types.TextureType;
 import cn.donting.javelin.rhi.types.TextureUsage;
+import cn.donting.javelin.rhi.types.TextureLayout;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
@@ -25,6 +26,8 @@ final class VulkanTexture implements Texture {
     private final long imageHandle;
     private final long memoryHandle;
     private volatile long imageViewHandle = VK_NULL_HANDLE;
+    /** 当前图像布局（24.3）：随资源持有、跨帧沿用；由 VulkanCommandBuffer.pipelineBarrier 与上传路径回写 */
+    private volatile TextureLayout layout = TextureLayout.UNDEFINED;
     /** Cleaner 注册句柄：image（含 memory）；imageView 懒创建，未创建前为 null */
     private CleanerRegistry.Registration registration;
     private CleanerRegistry.Registration viewRegistration;
@@ -113,6 +116,15 @@ final class VulkanTexture implements Texture {
         return memoryHandle;
     }
 
+    /** 当前图像布局（包内可见：图执行器做屏障冗余消除、pipelineBarrier 回写） */
+    TextureLayout layout() {
+        return layout;
+    }
+
+    void setLayout(TextureLayout layout) {
+        this.layout = layout;
+    }
+
     /**
      * 获取或创建默认的 VkImageView（全尺寸、全 mip、全 layer）。
      * dynamic rendering 的附件需要 VkImageView 而非 VkImage。
@@ -137,6 +149,7 @@ final class VulkanTexture implements Texture {
             viewInfo.viewType(switch (desc.type()) {
                 case TYPE_1D -> VK_IMAGE_VIEW_TYPE_1D;
                 case TYPE_2D -> VK_IMAGE_VIEW_TYPE_2D;
+                case TYPE_2D_ARRAY -> VK_IMAGE_VIEW_TYPE_2D_ARRAY;
                 case TYPE_3D -> VK_IMAGE_VIEW_TYPE_3D;
                 case CUBE -> VK_IMAGE_VIEW_TYPE_CUBE;
                 case CUBE_ARRAY -> VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
@@ -242,7 +255,7 @@ final class VulkanTexture implements Texture {
     private static int toVkImageType(TextureType type) {
         return switch (type) {
             case TYPE_1D -> VK_IMAGE_TYPE_1D;
-            case TYPE_2D, CUBE, CUBE_ARRAY -> VK_IMAGE_TYPE_2D;
+            case TYPE_2D, TYPE_2D_ARRAY, CUBE, CUBE_ARRAY -> VK_IMAGE_TYPE_2D;
             case TYPE_3D -> VK_IMAGE_TYPE_3D;
         };
     }

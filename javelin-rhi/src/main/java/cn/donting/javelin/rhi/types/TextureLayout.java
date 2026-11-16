@@ -3,7 +3,7 @@ package cn.donting.javelin.rhi.types;
 /**
  * 纹理布局。
  * 对照 VkImageLayout。
- * 上层不直接使用，RHI 内部布局跟踪（LayoutTracker）自动管理。
+ * 上层不直接使用，RHI 内部自动管理：布局状态随纹理资源持有并跨帧沿用（VulkanTexture.layout）。
  */
 public enum TextureLayout {
     /** 初始/未知布局（不可直接使用） */

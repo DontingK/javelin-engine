@@ -53,6 +53,23 @@ public final class DescriptorUpdate {
     }
 
     /**
+     * 存储纹理绑定（storage image）：着色器侧 imageLoad/imageStore 读写。
+     *
+     * <p>布局恒按 GENERAL 写入描述符（{@code VulkanDescriptorSet} 同源映射），因此纹理须
+     * 以 {@code TextureUsage.STORAGE} 创建，并在使用它的 Pass 里声明
+     * {@code addTextureStorageRead/Write} 让执行器转 {@link cn.donting.javelin.rhi.types.TextureLayout#GENERAL}。</p>
+     *
+     * <p>3D 纹理 / 2D 数组纹理同样适用（默认全范围视图）：shader 侧对应
+     * {@code image3D} / {@code image2DArray}，写入需 {@code layout(r32f)} 等格式限定符。</p>
+     */
+    public static DescriptorUpdate storageTexture(int binding, Texture texture) {
+        if (texture == null) {
+            throw new IllegalArgumentException("Storage texture must not be null");
+        }
+        return new DescriptorUpdate(Type.STORAGE_TEXTURE, binding, 0, null, 0, 0, texture, null);
+    }
+
+    /**
      * 整段 storage buffer 绑定（offset=0 / range=VK_WHOLE_SIZE）。
      * range 不可为 0：VkDescriptorBufferInfo 要求 range &gt; 0 或 VK_WHOLE_SIZE（VUID）。
      */

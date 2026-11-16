@@ -9,6 +9,8 @@ public enum TextureType {
     TYPE_1D,        // VK_IMAGE_TYPE_1D
     /** 二维纹理（最常用） */
     TYPE_2D,        // VK_IMAGE_TYPE_2D
+    /** 二维纹理数组（多层同尺寸 2D；体素 slab / 探针分块 / 分层附件） */
+    TYPE_2D_ARRAY,  // VK_IMAGE_TYPE_2D + arrayLayers > 1
     /** 三维纹理（体数据） */
     TYPE_3D,        // VK_IMAGE_TYPE_3D
     /** 立方体贴图（6 面天空盒） */

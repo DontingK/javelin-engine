@@ -1,0 +1,18 @@
+#version 450
+// RHI 纹理种类底座验证（RHI_Texture_Types_Design §5）：compute 写 3D storage image。
+// 图案 = (x ^ y ^ z) & 7 的纯整数位运算（CPU 侧同式复算，仅差 UNORM 量化 ≤ 1 个码值），
+// 数据错即 storage image 绑定 / GENERAL 布局 / 3D 视图链路断。
+// 测试资产（test resources），经 tool shaderc 编译。
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(r8, set = 0, binding = 0) uniform image3D voxel;
+
+void main() {
+    ivec3 c = ivec3(gl_GlobalInvocationID);
+    ivec3 size = imageSize(voxel);
+    if (any(greaterThanEqual(c, size))) {
+        return;
+    }
+    float v = float((c.x ^ c.y ^ c.z) & 7) / 7.0;
+    imageStore(voxel, c, vec4(v, 0.0, 0.0, 1.0));
+}

@@ -290,6 +290,16 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
     }
 
     /**
+     * 纹理当前布局（24.3）：VulkanTexture 自持有并跨帧沿用；其他实现（交换链图像）无布局状态，
+     * 按 UNDEFINED 处理（调用方对 backbuffer 已另行覆盖）。
+     */
+    private static TextureLayout layoutOf(Texture texture) {
+        return texture instanceof VulkanTexture vkTexture
+                ? vkTexture.layout()
+                : TextureLayout.UNDEFINED;
+    }
+
+    /**
      * 屏障合并：写优先于读；同为写时保持先声明者（附件 > Storage 写）；
      * 同为读时 GENERAL（Storage 读）优先于 SHADER_READ_ONLY（采样读）——GENERAL 可同时满足两种着色器读。
      */
@@ -346,30 +356,34 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
 
         cmd.begin();
         try {
-            LayoutTracker tracker = new LayoutTracker();
-            if (hasBackbuffer) {
-                // acquire 回来的交换链图像真实布局是 UNDEFINED（上一帧内容无保留义务）。
-                // 此处必须如实声明：谎报 PRESENT_SRC 会让首道 barrier 带上
-                // COLOR_ATTACHMENT_WRITE 的 srcAccess、声明成「保留内容」的转换，校验层
-                // 随即判定该转换须与 acquire 信号量同步，报
-                // non-acquired-swapchain-image-used / 09600（2026-11-12 实测，Pitfalls #37）
-                tracker.set(backbufferHandle, TextureLayout.UNDEFINED);
-            }
+            // 布局状态随资源持有（24.3 / RHI-13）：跨帧沿用，跨帧持久纹理（历史 ping-pong /
+            // 探针 atlas / 体素网格）不再每帧被声明 UNDEFINED（按规范那样内容可被丢弃）。
+            // 交换链图像例外：acquire 回来的真实布局是 UNDEFINED（上一帧内容无保留义务），
+            // 谎报 PRESENT_SRC 会让首道 barrier 带上 COLOR_ATTACHMENT_WRITE 的 srcAccess、
+            // 声明成「保留内容」的转换，校验层随即判定该转换须与 acquire 信号量同步，报
+            // non-acquired-swapchain-image-used / 09600（2026-11-12 实测，Pitfalls #37）
             // buffer 句柄 → {本帧最近使用是否计算域, 是否含写}——屏障源端同步域现推用
             Map<Long, boolean[]> bufferLastUse = new HashMap<>();
             boolean wroteBackbuffer = false;
+            // 交换链图像非 VulkanTexture（无资源自带布局），本帧内布局由执行器局部记账
+            TextureLayout backbufferLayout = TextureLayout.UNDEFINED;
 
             for (CompiledGraph.Pass pass : compiled.passes()) {
                 // 屏障插入：目标布局 ≠ 当前布局才插（冗余消除，24.3）
                 for (CompiledGraph.Barrier b : pass.barriers()) {
                     long handle = b.texture().handle();
-                    TextureLayout current = tracker.get(handle);
+                    boolean isBackbuffer = hasBackbuffer && handle == backbufferHandle;
+                    TextureLayout current = isBackbuffer
+                            ? backbufferLayout
+                            : layoutOf(b.texture());
                     if (current != b.targetLayout()) {
                         cmd.pipelineBarrier(b.texture(), current, b.targetLayout(),
                                 b.isWrite(), pass.compute());
-                        tracker.set(handle, b.targetLayout());
+                        if (isBackbuffer) {
+                            backbufferLayout = b.targetLayout();
+                        }
                     }
-                    if (hasBackbuffer && handle == backbufferHandle && b.isWrite()) {
+                    if (isBackbuffer && b.isWrite()) {
                         wroteBackbuffer = true;
                     }
                 }
@@ -434,10 +448,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
 
             // 图尾：backbuffer 写完后转回 PRESENT_SRC 供 present（23.6-2）
             if (hasBackbuffer && wroteBackbuffer) {
-                TextureLayout current = tracker.get(backbufferHandle);
-                if (current != TextureLayout.PRESENT_SRC) {
-                    cmd.pipelineBarrier(backbuffer, current, TextureLayout.PRESENT_SRC);
-                    tracker.set(backbufferHandle, TextureLayout.PRESENT_SRC);
+                if (backbufferLayout != TextureLayout.PRESENT_SRC) {
+                    cmd.pipelineBarrier(backbuffer, backbufferLayout, TextureLayout.PRESENT_SRC);
                 }
             }
         } finally {

@@ -401,9 +401,10 @@ final class VulkanDevice implements Device {
      * 纹理上传（staging 路径，25 节）。
      * 创建 staging buffer → 拷贝数据 → 命令缓冲转换布局 + 拷贝 → fence 等待。
      *
-     * <p>数据布局按纹理种类分流：TYPE_2D = 整段单拷贝（whole2D）；CUBE = 六面连续紧密
-     * 打包（每面 faceSize² 像素、layer 顺序 = Vulkan cubemap 面 +X/-X/+Y/-Y/+Z/-Z），
-     * staging 内逐面切片、逐层拷贝（批次⑤ Skybox_Design §3）。</p>
+     * <p>数据布局按纹理种类分流：TYPE_2D / TYPE_1D = 整段单拷贝（whole2D）；CUBE = 六面连续紧密
+     * 打包（每面 faceSize² 像素、layer 顺序 = Vulkan cubemap 面 +X/-X/+Y/-Y/+Z/-Z）；
+     * TYPE_3D = z 切片顺序整拷（extent.depth 表达第三维）；TYPE_2D_ARRAY / CUBE_ARRAY = 逐层整拷
+     * （批次⑤ Skybox_Design §3 / RHI_Texture_Types_Design）。</p>
      */
     private void uploadTexture(VulkanTexture texture, UploadData data) {
         java.nio.ByteBuffer pixels = data.data();
@@ -428,8 +429,8 @@ final class VulkanDevice implements Device {
             cmd.copyBufferToTexture(staging, texture,
                     TextureRegion.cubeFaces(texture.desc().width()));
         } else {
-            cmd.copyBufferToTexture(staging, texture,
-                    TextureRegion.whole2D(texture.desc().width(), texture.desc().height()));
+            // 其余按种类取区域：3D 用 extent.depth 表达第三维、2D 数组/cube 数组按层整拷
+            cmd.copyBufferToTexture(staging, texture, uploadRegionOf(texture.desc()));
         }
         // 拷贝后转回 SHADER_READ_ONLY：采样侧描述符恒声明 SHADER_READ_ONLY_OPTIMAL
         // （VulkanDescriptorSet），停在 TRANSFER_DST 直接采样即布局不匹配——校验层报
@@ -449,6 +450,20 @@ final class VulkanDevice implements Device {
         fence.dispose();
         cmd.dispose();
         staging.dispose();
+    }
+
+    /**
+     * 上传区域按纹理种类取（buffer 侧一律紧密打包）：TYPE_3D 的第三维由 extent.depth 表达；
+     * TYPE_2D_ARRAY / CUBE_ARRAY 按 arrayLayers 逐层整拷（VkBufferImageCopy 按层顺序取址）；
+     * TYPE_1D / TYPE_2D 走 {@link TextureRegion#whole2D}。
+     */
+    private static TextureRegion uploadRegionOf(TextureDesc desc) {
+        return switch (desc.type()) {
+            case TYPE_2D_ARRAY, CUBE_ARRAY ->
+                    TextureRegion.whole2DArray(desc.width(), desc.height(), desc.arrayLayers());
+            case TYPE_3D -> TextureRegion.whole3D(desc.width(), desc.height(), desc.depth());
+            default -> TextureRegion.whole2D(desc.width(), desc.height());
+        };
     }
 
     @Override

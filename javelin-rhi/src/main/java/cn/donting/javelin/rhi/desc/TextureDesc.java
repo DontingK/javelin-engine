@@ -56,6 +56,7 @@ public final class TextureDesc {
         if (memory == null) {
             throw new IllegalArgumentException("MemoryPreference must not be null");
         }
+        validateShape(type, width, height, depth, arrayLayers);
         this.type = type;
         this.format = format;
         this.width = width;
@@ -78,6 +79,47 @@ public final class TextureDesc {
     public SampleCount sampleCount() { return sampleCount; }
     public Set<TextureUsage> usage() { return usage; }
     public MemoryPreference memory() { return memory; }
+
+    /**
+     * 纹理种类 × 维度形状约束（Vulkan 硬约束，错在创建期就抛而不是等校验层）。
+     * 3D 的第三维由 extent.depth 表达、arrayLayers 恒 1；cubemap 恒六面且正方形。
+     */
+    private static void validateShape(TextureType type, int width, int height,
+                                      int depth, int arrayLayers) {
+        switch (type) {
+            case TYPE_1D, TYPE_2D -> {
+                if (depth != 1) {
+                    throw new IllegalArgumentException(
+                            type + " 的 depth 必须为 1（第三维由 depth 表达仅限 TYPE_3D），got: " + depth);
+                }
+            }
+            case TYPE_2D_ARRAY -> {
+                if (depth != 1) {
+                    throw new IllegalArgumentException(
+                            "TYPE_2D_ARRAY 的 depth 必须为 1（层数由 arrayLayers 表达），got: " + depth);
+                }
+            }
+            case TYPE_3D -> {
+                if (arrayLayers != 1) {
+                    throw new IllegalArgumentException(
+                            "TYPE_3D 的 arrayLayers 必须为 1（体数据无阵列层），got: " + arrayLayers);
+                }
+            }
+            case CUBE -> {
+                if (arrayLayers != 6 || width != height) {
+                    throw new IllegalArgumentException(
+                            "CUBE 必须六面且正方形，got: " + width + "x" + height + " layers=" + arrayLayers);
+                }
+            }
+            case CUBE_ARRAY -> {
+                if (arrayLayers % 6 != 0 || width != height) {
+                    throw new IllegalArgumentException(
+                            "CUBE_ARRAY 的 arrayLayers 必须为 6 的倍数且正方形，got: "
+                                    + width + "x" + height + " layers=" + arrayLayers);
+                }
+            }
+        }
+    }
 
     /** 便捷构造：2D 纹理，1 mip，1 layer，无 MSAA */
     public static TextureDesc texture2D(Format format, int width, int height, Set<TextureUsage> usage) {
@@ -105,6 +147,37 @@ public final class TextureDesc {
         return new TextureDesc(
                 TextureType.CUBE, format, faceSize, faceSize, 1,
                 1, 6, SampleCount.COUNT_1, usage, MemoryPreference.deviceLocal()
+        );
+    }
+
+    /**
+     * 便捷构造：3D 纹理（体数据，单 mip、单层、无 MSAA）。
+     *
+     * @param depth 体数据第三维（体素网格的 z 分辨率）
+     * @param usage compute 写体数据时须含 STORAGE（storage image 要求 GENERAL 布局）
+     */
+    public static TextureDesc texture3D(Format format, int width, int height, int depth,
+                                        Set<TextureUsage> usage) {
+        return new TextureDesc(
+                TextureType.TYPE_3D, format, width, height, depth,
+                1, 1, SampleCount.COUNT_1, usage, MemoryPreference.deviceLocal()
+        );
+    }
+
+    /**
+     * 便捷构造：2D 纹理数组（layers 层同尺寸 2D，单 mip、无 MSAA）。
+     *
+     * @param layers 层数（≥2 才有数组意义；1 层请直接用 {@link #texture2D}）
+     */
+    public static TextureDesc texture2DArray(Format format, int width, int height, int layers,
+                                             Set<TextureUsage> usage) {
+        if (layers < 2) {
+            throw new IllegalArgumentException(
+                    "TYPE_2D_ARRAY 需要 layers >= 2（单层请用 texture2D），got: " + layers);
+        }
+        return new TextureDesc(
+                TextureType.TYPE_2D_ARRAY, format, width, height, 1,
+                1, layers, SampleCount.COUNT_1, usage, MemoryPreference.deviceLocal()
         );
     }
 
