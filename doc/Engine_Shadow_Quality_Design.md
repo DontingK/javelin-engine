@@ -171,11 +171,11 @@ if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
 1. **相机基向量自建**（避开 `viewProj` 的 Y 翻转与 JOML 提轴坑）：`forward = normalize(target - position)`、`right = normalize(cross(forward, up))`、`upn = cross(right, forward)`——与 `LightCollector` 自写剔除同口径；
 2. **每级联 8 角点**：由 `fovY` + 视口 aspect（`viewportWidth/Height`）与近远面向量算出（透视：`tan(fovY/2)`；正交：`orthographicSize`×aspect）——**不反投影 `proj`**；
 3. **球拟合 + 方形纹素**：角点包围球 → 以球半径做方形正交盒（`ex = ey = r`），**避免各向异性纹素**（质量档语义才稳定）；
-4. **纹素吸附（stabilize）**：光空间盒中心量化到 `2r / resolution` 的纹素网格（Unity `Shadow Projection = Stable` 口径）——抑制相机旋转/移动时的阴影边缘抖动；
+4. **纹素吸附（stabilize）**：光空间盒中心量化到纹素网格（Unity `Shadow Projection = Stable` 口径）——抑制相机旋转/移动时的阴影边缘抖动。**吸附网格步长必须 = 最终盒宽的渲染纹素**（`2·half/resolution`，half 含安全边）——吸附跳变时世界纹素网格恰平移一整纹素、重光栅化逐纹素等同，平移相机零跳动；安全边 = 吸引位移上界（半纹素对角 `texel·√2/2`），盒按此扩保覆盖（2026-11-18 订正：原实现步长用 `2r/res` 而盒宽 `r+1.0`（绝对世界单位），跳变平移 ≈0.97 渲染纹素非整数——相机移动时阴影边缘明显跳动，实机坐实后修）；
 5. **up 稳定轴**：沿用现有 `UP_SWITCH` 防退化分支；
 6. 近远面收紧（可选，Babylon `depthClamp` 口径）：按光空间 z 包围收紧 `near/far`，提高深度精度——**实机若见 acne 再启用**（保守起步）。
 
-> 单测照 `ShadowMathTest` 现例：切分单调性/lambda 端点、8 角覆盖（级联盒必须包含对应角点）、吸附后盒位移 ≤ 半纹素、up 换轴分支。
+> 单测照 `ShadowMathTest` 现例：切分单调性/lambda 端点、8 角覆盖（级联盒必须包含对应角点）、亚纹素位移吸收、**吸附跳变 = 整数渲染纹素**（2026-11-18 补：`snapJumpEqualsWholeRenderTexel`，相机步进扫边界断言 uv 位移×resolution 为整数——原实现必挂的核心不变量）、up 换轴分支。
 
 ### 4.3 阴影图承载（三选一，**建议 atlas**）
 
@@ -410,7 +410,7 @@ x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数）
 
 | 件 | 落点 | 形态 |
 |----|------|------|
-| 级联纯逻辑 | `ShadowMath.buildCascades` + `CascadeParams` | lambda 混合切分（`d_i = λ·near·(far/near)^(i/N) + (1-λ)·(near+(far-near)·i/N)`）；相机基向量**自建**（`forward/right=cross(f,up)/upn=cross(right,f)`，避 `viewProj` Y 翻转）；逐级联视锥段 8 角点（透视 `tan(fovY/2)` 缩放、正交 `orthographicSize`）→ **包围球**（8 角均值心）→ 半径即方形正交盒半宽（各向同性纹素，盒 `r + SNAP_SAFETY`）→ 球心光空间**纹素吸附**（`2r/resolution` 网格，抑相机移动/旋转抖动）；`upHint` 稳定轴沿用 `UP_SWITCH`；回填逐级联 zRange |
+| 级联纯逻辑 | `ShadowMath.buildCascades` + `CascadeParams` | lambda 混合切分（`d_i = λ·near·(far/near)^(i/N) + (1-λ)·(near+(far-near)·i/N)`）；相机基向量**自建**（`forward/right=cross(f,up)/upn=cross(right,f)`，避 `viewProj` Y 翻转）；逐级联视锥段 8 角点（透视 `tan(fovY/2)` 缩放、正交 `orthographicSize`）→ **包围球**（8 角均值心）→ 半径即方形正交盒半宽（各向同性纹素，盒 `r + texel·√2/2` 安全边）→ 球心光空间**纹素吸附**（步长 = 最终盒宽的渲染纹素 `2·half/resolution`，2026-11-18 订正，见下方随验订正）→；`upHint` 稳定轴沿用 `UP_SWITCH`；回填逐级联 zRange |
 | per-view 资源族 | `RenderingSystem.viewShadows`（`ViewShadow`：atlas 图 + 矩阵[4]/切分[4]/invZ[4]/res/count/grid） | `computeShadow(cam)` 逐视口拟合（`buildCascades`），分辨率/级联数变化即重建（旧图两帧退役）；atlas 边长 = `resolution × grid`（grid = count≥2?2:1，2 级联只占前两象限**保持正方形**——单纹素 u/v 同值，沿用标量 PCF）；对外 `shadowMapFor/shadowCascadeCount/shadowAtlasGrid/shadowCascadeMatrix` |
 | ShadowPass | 逐视口单 Pass（名 = `视口名 + ":Shadow"`） | atlas 一次 `CLEAR`；回调内逐级联 `cmd.setViewport/setScissor` 切象限（VIEWPORT/SCISSOR 动态态，同一 PSO），逐 caster 用该级联矩阵 push。**原「帧号幂等全局挂载」退役**（§4.4 取代） |
 | UBO | `packLightingParams` | `mat4 sunViewProj[4]` + `vec4 cascadeSplits` + `vec4 shadowParams2`（grid/atlasSize/blend/0）+ `vec4 cascadeInvZ`；`zParams.w` = 级联数；`shadowParams.w` 改**世界单位**（逐级联乘 `cascadeInvZ` 折算）；块 416→**656B**、步长 512→**768**（`LIGHTING_STRIDE`） |
@@ -421,6 +421,8 @@ x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数）
 **随验两修（不是新坑，属步骤一口径在步骤二下的收口）**：盒体改由相机视锥拟合后，§3.6 的「caster ∪ receiver 世界 AABB 并集 + 外扩」**退役**（级联盒拟相机视锥，接收者天然在可视域内，`#40` 的裁剪问题从根上消除）。
 
 **验收口径（步骤二，用户实机 2026-11-14「看起来没问题了」）**：级联数 1 与步骤一形态基本一致；2/4 级联近处影子更实、远处不劣化；相机移动/旋转边缘不抖（纹素吸附）；级联接缝无硬线（混合带）；超阴影距离恒受光无断层；设置窗口级联数/距离/切分即时生效；双视口各自正确；`logs/error` 零 ERROR。
+
+**随验订正（2026-11-18，实机坐实「移动相机阴影明显跳动」后修）**：原吸附实现步长用 `2r/resolution` 而盒宽 `r + SNAP_SAFETY(=1.0 绝对世界单位)`——吸附跳变时世界纹素网格平移 ≈0.97 渲染纹素**非整数**，重光栅化逐纹素错位 = 整个级联的阴影边缘同帧跳一下（相机每移 ~0.03 世界单位触发一次，连续移动 = 连续跳动；缺省档级联 1 一纹素 ≈0.075 世界单位，近处物体放大到十余屏幕像素）。修 = ①安全边改**半纹素对角** `texel·√2/2`（原 1.0 世界单位比语义值大 ~50 倍，注释「半纹素对角」名不符实）；②吸附网格步长改**最终盒宽的渲染纹素** `2·half/resolution`——跳变 = 精确一整纹素、重光栅化逐纹素等同、平移相机零跳动。落点 `ShadowMath.buildCascadeMatrix`（无分辨率退化路径拆 `buildCascadeMatrixUnsnapped`）；补单测 `snapJumpEqualsWholeRenderTexel`（相机步进扫吸附边界，断言 uv 位移×resolution 为整数——**原实现必挂的核心不变量**，原「亚纹素吸收」测试只验证吸附生效、没验证跳变对齐故未拦住）；坑记 `Vulkan_Pitfalls.md` #41。用户实机验收通过（平移相机跳动消失）。旋转相机时 r 连续变化仍有平滑亚纹素蠕动（非跳变、不惹眼）；若将来要旋转也完全稳定，升级口径 = 盒尺寸也量化到纹素网格（Unity Stable 完整形态，§8 遗留候选）。
 
 > **注入器改动 = 强制重导**（契约变更）：`.shader` 产物须重导（GLSL 动态索引 `mat4[4]` + 新字段）；旧产物不重导读新 UBO 偏移会错位（画面「无影/错影」而非报错，排查先看 Library 产物时间）。
 

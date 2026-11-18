@@ -236,39 +236,67 @@ public final class ShadowMath {
     }
 
     /**
-     * 单级联正交盒矩阵：球拟合方形盒（±r）+ 光空间球心纹素吸附（稳定化）。
-     * 吸附后仍在 ±(r + 半纹素对角) 内 → 盒取 {@code r + SNAP_SAFETY} 覆盖。
+     * 单级联正交盒矩阵：球拟合方形盒（±r + 半纹素对角安全边）+ 光空间球心纹素吸附
+     * （稳定化）。吸附步长 = 最终盒宽的渲染纹素 {@code 2·half/resolution}（与光栅化
+     * 纹素严格相等）——吸附跳变时世界纹素网格恰平移一整纹素、重光栅化逐纹素等同，
+     * 相机平移不跳（步长若用 r 而盒用 r+safety，跳变平移非整数纹素 = 阴影边缘抖动）。
      */
-    private static final float SNAP_SAFETY = 1.0f;
+    private static final float SNAP_SAFETY_TEXEL = 0.70710677f;
 
     private static float buildCascadeMatrix(Vector3f worldDir, Vector3f axisX, Vector3f axisY,
                                            Vector3f axisZ, Vector3f center, float radius,
                                            int resolution, Matrix4f out) {
         float r = Math.max(radius, MIN_EXTENT);
-        if (resolution > 0) {
-            float texel = 2.0f * r / (float) resolution;
-            float px = center.dot(axisX);
-            float py = center.dot(axisY);
-            float pz = center.dot(axisZ);
-            float dx = Math.round(px / texel) * texel - px;
-            float dy = Math.round(py / texel) * texel - py;
-            center.x += dx * axisX.x + dy * axisY.x;
-            center.y += dx * axisX.y + dy * axisY.y;
-            center.z += dx * axisX.z + dy * axisY.z;
-        }
-        float half = r + SNAP_SAFETY;
-        float eyeX = center.x + axisZ.x * (half + BOX_MARGIN);
-        float eyeY = center.y + axisZ.y * (half + BOX_MARGIN);
-        float eyeZ = center.z + axisZ.z * (half + BOX_MARGIN);
-        float zRange = 2.0f * half + 2.0f * BOX_MARGIN;
         // up 稳定轴（世界向量，与 buildSunViewProj 同式）：近垂直光换 (1,0,0) 防退化
         float upHintX = 0.0f, upHintY = 1.0f, upHintZ = 0.0f;
         if (Math.abs(worldDir.y) >= UP_SWITCH) {
             upHintX = 1.0f;
             upHintY = 0.0f;
         }
+        if (resolution > 0) {
+            float texel = 2.0f * r / (float) resolution;
+            // 安全边 = 吸附位移的半纹素对角（|dx|,|dy| ≤ texel/2 → 位移 ≤ texel·√2/2）：
+            // 盒宽按此扩，覆盖吸附后仍含球
+            float halfW = r + texel * SNAP_SAFETY_TEXEL;
+            // 吸附网格 = 渲染纹素（按最终盒宽算）——跳变 = 精确一纹素
+            float gridStep = 2.0f * halfW / (float) resolution;
+            float px = center.dot(axisX);
+            float py = center.dot(axisY);
+            float dx = Math.round(px / gridStep) * gridStep - px;
+            float dy = Math.round(py / gridStep) * gridStep - py;
+            center.x += dx * axisX.x + dy * axisY.x;
+            center.y += dx * axisX.y + dy * axisY.y;
+            center.z += dx * axisX.z + dy * axisY.z;
+            float zRange = 2.0f * halfW + 2.0f * BOX_MARGIN;
+            float eyeX = center.x + axisZ.x * (halfW + BOX_MARGIN);
+            float eyeY = center.y + axisZ.y * (halfW + BOX_MARGIN);
+            float eyeZ = center.z + axisZ.z * (halfW + BOX_MARGIN);
+            out.identity()
+                    .ortho(-halfW, halfW, -halfW, halfW, 0.0f, zRange, true)
+                    .lookAt(eyeX, eyeY, eyeZ, center.x, center.y, center.z,
+                            upHintX, upHintY, upHintZ);
+            return zRange;
+        }
+        return buildCascadeMatrixUnsnapped(axisZ, axisY, center, r, out);
+    }
+
+    /** 无分辨率（吸附关）：无安全边直用球半径（测试/退化路径），up 轴判定同吸附分支 */
+    private static float buildCascadeMatrixUnsnapped(Vector3f axisZ, Vector3f axisY,
+                                                     Vector3f center,
+                                                     float halfW, Matrix4f out) {
+        float zRange = 2.0f * halfW + 2.0f * BOX_MARGIN;
+        float eyeX = center.x + axisZ.x * (halfW + BOX_MARGIN);
+        float eyeY = center.y + axisZ.y * (halfW + BOX_MARGIN);
+        float eyeZ = center.z + axisZ.z * (halfW + BOX_MARGIN);
+        // up 稳定轴：axisY 即光空间 up（已归一）；近垂直光换 (1,0,0) 防退化
+        float upHintX = axisY.x, upHintY = axisY.y, upHintZ = axisY.z;
+        if (Math.abs(axisZ.y) >= UP_SWITCH) {
+            upHintX = 1.0f;
+            upHintY = 0.0f;
+            upHintZ = 0.0f;
+        }
         out.identity()
-                .ortho(-half, half, -half, half, 0.0f, zRange, true)
+                .ortho(-halfW, halfW, -halfW, halfW, 0.0f, zRange, true)
                 .lookAt(eyeX, eyeY, eyeZ, center.x, center.y, center.z,
                         upHintX, upHintY, upHintZ);
         return zRange;

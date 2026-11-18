@@ -163,6 +163,41 @@ public class ShadowMathTest {
                 "亚纹素位移应被吸附吸收，uv 漂移过大: du=" + du + " dv=" + dv);
     }
 
+    /**
+     * 吸附跳变 = 精确整数渲染纹素（稳定化的核心不变量，原实现漏测的口径）：相机移动跨越
+     * 吸附边界时，固定世界点的 uv 平移应恰为整数纹素（重光栅化逐纹素等同 → 边缘不跳）。
+     * 断言两次相邻跳变间：同一世界点在两张图上的 uv 差 × resolution 为整数（±ε）。
+     */
+    @Test
+    public void snapJumpEqualsWholeRenderTexel() {
+        Vector3f dir = new Vector3f(0.4f, -0.8f, 0.2f).normalize();
+        int resolution = 2048;
+        Vector4f probe = new Vector4f(0.0f, 0.0f, -40.0f, 1.0f);
+        // 相机沿 axisX 方向步进扫过数个吸附边界（步长取吸附网格的一半量级，保证跨界多次）
+        float step = 0.02f;
+        Vector4f prev = null;
+        int jumps = 0;
+        for (int i = 0; i <= 400; i++) {
+            Matrix4f[] m = newMatrixArray(1);
+            ShadowMath.buildCascades(dir, camera(new Vector3f(i * step, 5.0f, 0.0f)),
+                    0.5f, 1, resolution, m, null, null);
+            Vector4f uv = new Vector4f(m[0].transform(new Vector4f(probe)));
+            if (prev != null) {
+                float dx = Math.abs(uv.x - prev.x) * 0.5f * resolution;
+                float dy = Math.abs(uv.y - prev.y) * 0.5f * resolution;
+                if (dx > 0.25f || dy > 0.25f) {   // 发生吸附跳变的一帧
+                    jumps++;
+                    float fracX = Math.abs(dx - Math.round(dx));
+                    float fracY = Math.abs(dy - Math.round(dy));
+                    assertTrue(fracX < 0.02f && fracY < 0.02f,
+                            "吸附跳变应为整数渲染纹素，实际 uv 位移（纹素）: dx=" + dx + " dy=" + dy);
+                }
+            }
+            prev = uv;
+        }
+        assertTrue(jumps > 0, "扫描区间应至少触发一次吸附跳变（步长/区间设置不当？）");
+    }
+
     /** 级联矩阵正交判定：w 恒 1（无透视除失真） */
     @Test
     public void cascadeOrthographicNoPerspective() {
