@@ -1,6 +1,6 @@
 # 材质光照模型（LightingModel）设计
 
-> 版本：v0.3（2026-11-16，**值名纠偏：`Lit` → `Lambert`，单一封闭轴**；落码完成，待用户实机验收）
+> 版本：v0.3（2026-11-16，**值名纠偏：`Lit` → `Lambert`，单一封闭轴**；落码完成并于同日用户实机验收通过）
 > v0.3 变更（2026-11-16，用户两轮追问后纠偏）：①「枚举叫 Lit 合适吗」——`Lit` 是状态不是模型，且与头名 `LightingModel` 的承诺不符；②「PBR+unlit 也不对吧」——正交两轴（`Lighting` + `ShadingModel`）会造出无效组合，被否决。定稿 = **单一封闭轴**：`LightingModel` 保持头名，值改为 `Lambert`（缺省）/ `Unlit`（"忽略光的模型"），后置 `PBR`/`Toon` 同轴追加；`LIT` 名字只在未编译/未提交的中间态存在过，无存量资产，不保留 `Lit` 别名。注入层随之从布尔判断改为 `lightingStageBlocks(model)` 的 `switch`（无 default，漏值即编译失败）。
 > 范围：`.shader` 顶层新增 `LightingModel` 语义头（`Lambert` / `Unlit`）+ 导入/数据/注入/分桶/管线挂点。
 > 目的：兑现四期施工序 ⑤（`Engine_Backlog.md` P4-08）——让"不吃光照"的材质有表达手段，替换原「Pass 名兼职」方案。
@@ -115,7 +115,7 @@ Shadow → OpaqueForward → Skybox → Unlit(同一实例) → Transparent
 4. **材质级开关 / 着色器变体**：不在本批（shader 级已够用）。
 5. **扩值规则（单一封闭轴）**：`LightingModel` 是这张表唯一的光照轴——后置模型（`PBR` / `Toon`）以新值追加，**不是**与「受光/不受光」正交的第二根轴（否则会出现「PBR + Unlit」这类无效组合，得再引入合法组合表与默认裁决）。追加值的两处改动点固定：① `ShaderParser.parseLightingModel` 的 case 表；② `ShaderInjector.lightingStageBlocks` 的 switch 块集（无 default，漏值即编译失败）。仍受光者共用 `opaque` 桶 + G-Buffer + LightingPass，**Pass 结构不改**；若新模型需要更多 G-Buffer 通道（PBR 的 roughness/metalness），那是独立的布局批次（`GBufferPass.COLOR_FORMATS` + `Engine_Uniform_Keys.md` 单点），不属扩值。
 
-## 9. 验收清单（已落码，待用户实机执行）
+## 9. 验收清单（2026-11-16 用户实机验收通过，原话「非光照材质 看起来也没问题」）
 
 - `Lambert` 资产/场景**逐像素不变**（含双视口、Gizmo/调试线/调试视图 overlay 不受影响）；
 - `default.shader` 紫材质在**无灯场景**可见（不再是黑）；

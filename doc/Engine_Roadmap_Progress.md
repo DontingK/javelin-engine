@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.17（2026-11-16 补 RHI 纹理底座阶段三：跨帧布局记忆 RHI-13 落码，未编译验证、待验收）
+> 版本：v0.18（2026-11-18 补 RHI 纹理底座/跨帧布局记忆 RHI-13 验收销账 + BUG-10 复测通过挂靠 + 当日 CSM 坑 #41 条目）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -55,6 +55,7 @@
 | 检查器组件增删（core 补 `Node.removeComponent` / `GameScene.onComponentDetached`，唯一性槽位释放） | 二期「编辑器基本」 | ✅ 2026-11-08 用户实测验收 |
 | 检查器资产预览族（纹理面板预览行 / 图片检查器 .png·.jpg·.jpeg / cubemap 检查器 .hdr·.pano 十字预览 / 可缩放查看窗 `ImageViewerDialog`） | 二期「编辑器基本」 | ✅ 2026-11-11 用户实测验收 |
 | 编辑器对话框收口 `swing/dialog` 包（六个对话框迁入，零行为变化） | 二期「编辑器基本」（结构重构，非能力变更） | ✅ 2026-11-11 用户验收（编译通过） |
+| 检查器颜色行压扁修复（BUG-10，两轮：validate root 定案 + 分组/色块/组头竖直 minimum=pref 兜底 + 压扁自检日志） | 二期「编辑器基本」（UI 缺陷修复，非能力变更） | ✅ 2026-11-18 用户实机复测通过 |
 
 ---
 
@@ -98,6 +99,7 @@
 
 - **2026-11-16｜RHI 纹理种类底座 阶段三：跨帧布局记忆（RHI-13，⑥ 前置硬项；未编译验证）**：用户「继续推进」。**形态选型**——不做「执行器侧持久表」（原建议 A），改**布局状态随资源持有**：`VulkanTexture` 加 `volatile TextureLayout layout` + 包内 `layout()/setLayout()`（随对象生死、跨帧沿用、无句柄复用错配）；`VulkanCommandBuffer.pipelineBarrier` 改为**以资源真实布局为准**（`VkImageMemoryBarrier.oldLayout` 必须等于实际布局，`oldLayout` 参数只对交换链图像这类无状态实现回退），屏障录制完成后回写 `newLayout`；`RenderGraphImpl.execute` 删 `LayoutTracker`，屏障前取 `layoutOf(texture)`，**交换链图像改用本帧局部变量记账**（acquire 后恒 UNDEFINED，坑 #37 口径不变，图尾 PRESENT_SRC 同前）；`LayoutTracker.java` 删除、`TextureLayout` 注释改写。**额外收益**：上传路径终态（`SHADER_READ_ONLY`）自动被记住——原方案下「上传完的纹理」首帧仍会被声明 UNDEFINED（内容可丢），此隐患一并消掉。**代价（已归档）**：布局状态隐含「录制即提交」前提，录制未提交会让状态偏一格（现工程无此路径）→ `RHI_Texture_Types_Design.md` v0.2 §3.2 ／ Backlog RHI-13 转「已落码待验收」／ Features §1+§6 ｜⏳ 未编译、验收推迟（红线 1/13）；验收专项 = 编辑器常规画面与 TAA 零视觉差异 + `[VVL]` 无 oldLayout 不匹配
 - **2026-11-18｜CSM 纹素吸附修（相机平移阴影跳动，坑 #41）**：`ShadowMath.buildCascadeMatrix` 吸附网格步长原用 `2r/resolution` 而盒宽 `r+1.0`（绝对世界单位）——跳变平移 ≈0.97 渲染纹素**非整数**、重光栅化逐纹素错位 = 平移相机阴影边缘连续跳动；修 = 安全边改真实半纹素对角 `texel·√2/2` + 吸附步长改**最终盒宽的渲染纹素**（跳变 = 精确一整纹素、平移零跳动；无分辨率退化路径拆 `buildCascadeMatrixUnsnapped`）+ 单测 `snapJumpEqualsWholeRenderTexel`（跳变对齐整数纹素——原实现必挂的核心不变量，原「亚纹素吸收」测试未覆盖） → `Engine_Shadow_Quality_Design.md` §4.2-4/§9.5 随验订正 / `Vulkan_Pitfalls.md` #41 ｜✅ 2026-11-18 用户实机验收（平移跳动消失）；旋转相机的亚纹素蠕动为已知边界（要完全稳定须盒尺寸量化，Unity Stable 完整形态，遗留候选）
+- **2026-11-18｜RHI 纹理底座 + 跨帧布局记忆 RHI-13 验收销账（⑥ 前置底座清零）**：用户实机跑 `TextureTypesTest`——3D 16³ 逐体素（4096）+ 2D 数组逐字节（192）两条读回全一致、3D 采样画面为 XOR 灰度图案；编辑器常规画面与 TAA 零视觉差异、`[VVL]` 零 ERROR（无 `oldLayout` 不匹配）；`ComputeSsboTest`/`CubemapTest` 回归正常。**随验收修测试件设计缺陷**：图形段原取 z=0.5 恰落在 z=7/z=8 两层正中间，两层图案互补（`(x^y^8)&7 = 7 - ((x^y^7)&7)`）被三线性各取一半 → 恒 0.5（整屏中灰，非链路缺陷）→ 改取第 7 层体素中心 `(7+0.5)/16`（`texture3d-read.frag`，仍走 `texture()` 采样路径）。补纯逻辑 `TextureDescShapeTest`（6 用例，形状校验可触发） → `RHI_Texture_Types_Design.md` v0.3 §5.1 / `Engine_Features.md` §1 翻 ✅ + §6 挂账清零 / `Engine_Backlog.md` RHI-13 移出、P4-05/P4-17 前置标注 ｜✅ 2026-11-18 用户实机验收
 
 ---
 

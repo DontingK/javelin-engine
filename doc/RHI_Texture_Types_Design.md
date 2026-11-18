@@ -1,5 +1,7 @@
 # RHI 纹理种类底座设计（3D 纹理 / 2D 纹理数组 / storage image 写口）
 
+> v0.3（2026-11-18）——**阶段一/二/三全部用户实机验收通过**：`TextureTypesTest` 两条「读回比对通过」（3D 16³ 逐体素 + 2D 数组逐字节）+ 画面为 XOR 灰度图案；编辑器常规画面与 TAA 零视觉差异、`[VVL]` 零 ERROR（无 `oldLayout` 不匹配）；`ComputeSsboTest` / `CubemapTest` 回归正常。**随验收修一处测试件设计缺陷**：图形段原取 z=0.5，恰好落在 z=7 与 z=8 两层正中间，而两层图案互补（`(x^y^8)&7 = 7 - ((x^y^7)&7)`），三线性各取一半 → 恒 0.5，整屏中灰看不出图案；改取第 7 层体素中心 `(7+0.5)/16`（`texture3d-read.frag`，仍走 `texture()` 采样路径，未换 `texelFetch`）。补纯逻辑 `TextureDescShapeTest`（§5 最后一条「形状校验可触发」）。
+>
 > v0.2（2026-11-16）——**阶段一、二、三已落码（未编译、待验收）**：本批服务四期施工序 ⑥（P4-05 DDGI）与 ⑥ 前置（P4-17 体素化 AO），补齐「3D 纹理 / 纹理数组 + compute 写纹理 + 跨帧布局记忆」这条底座链路。用户 2026-11-16 明确「验收推迟」，先落码。
 >
 > 版本沿革：v0.1 = 阶段一/二（纹理种类 + storage image 写口 + 按种类上传 + 形状校验）；**v0.2 = 阶段三（跨帧布局记忆 RHI-13，布局状态随资源持有）**。
@@ -85,11 +87,23 @@
 
 ## 5. 验收清单（本批）
 
-- `TextureTypesTest` 跑通：画面 = 体数据 z 中切片 XOR 灰度图案稳定；控制台两条「读回比对通过」；ESC 退出不崩。
+- `TextureTypesTest` 跑通：画面 = 体数据第 7 层体素中心（`(7+0.5)/16`）的 XOR 灰度图案稳定；控制台两条「读回比对通过」；ESC 退出不崩。
 - 校验层 `[VVL]` 零 ERROR：重点看 3D 视图创建、`GENERAL` 布局转换、`copyImageToBuffer` 区域（3D extent 的 depth、数组 layerCount）。
 - **阶段三专项（跨帧布局）**：编辑器常规画面零差异；TAA 拖影/收敛表现与改造前一致（历史 ping-pong 现在按真实 `COLOR_ATTACHMENT / SHADER_READ_ONLY` 转换，不再每帧 `UNDEFINED`）；`[VVL]` 不得出现 `oldLayout` 不匹配类（提示 `VUID-vkCmdPipelineBarrier-oldLayout`）。
 - 回归不破：Skybox（CUBE 上传 + cube 采样）、`ComputeSsboTest`、编辑器常规画面与 `logs/error` 零 ERROR。
-- 形状校验可触发：手造 `TYPE_3D` + `arrayLayers=2`、`CUBE` + 5 层 应抛 `IllegalArgumentException`。
+- 形状校验可触发：`TextureDescShapeTest`（纯逻辑，不上 GPU）——`TYPE_3D` + `arrayLayers=2`、`CUBE` + 5 层 / 非正方形、`TYPE_2D` + `depth=2`、`texture2DArray` 层数 < 2 各抛 `IllegalArgumentException`，合法形状（`texture3D` / `texture2DArray` / `textureCube`）不抛。
+
+### 5.1 验收记录（2026-11-18 用户实机）
+
+| 项 | 结果 |
+|---|---|
+| `TextureTypesTest` 3D 读回 | ✅ `16³ = 4096 体素全一致`（compute 写 storage image + `GENERAL` 布局 + 3D 视图 + `copyImageToBuffer` 全链） |
+| `TextureTypesTest` 2D 数组读回 | ✅ `192 字节全一致`（`whole2DArray` 按层整拷；原路径只拷 1 层必挂） |
+| 画面（3D 采样） | ✅ XOR 灰度图案（**首跑全灰 = 测试件 z 取样点撞互补层**，改第 7 层中心后恢复；非链路缺陷） |
+| `[VVL]` | ✅ 零 ERROR（含无 `oldLayout` 不匹配） |
+| 阶段三专项（RHI-13） | ✅ 编辑器侧正常：常规画面零差异、TAA 表现不变 |
+| 回归 | ✅ `ComputeSsboTest` / `CubemapTest` 正常，编辑器常规画面无回归 |
+| 形状校验 | ✅ `TextureDescShapeTest`（6 用例，纯逻辑） |
 
 ---
 

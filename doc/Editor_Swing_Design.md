@@ -1,10 +1,13 @@
-# 编辑器 Swing UI 框架设计（v0.4）——去 Web 化重构总纲
+# 编辑器 Swing UI 框架设计（v0.5）——去 Web 化重构总纲
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
+> **v0.5（2026-11-18）**：**§10-8 检查器颜色行被压扁（BUG-10）用户实机复测通过**——相机
+> `backgroundColor` 与环境光两行色块恢复正常高度；两轮修法（validate root 定案 + 竖直
+> minimum=pref 兜底 + 压扁自检）验收，Backlog BUG-10 移出。
 > **v0.4（2026-11-17）**：**§10-8 检查器颜色行被压扁（BUG-10）第二轮**——JDK 源码定案
 > 「最近 validate root 实为 JScrollPane」+「GridBag 在容器矮于 minimum 时把负偏移折进首行
 > 高度（4408108 兜底）」；修法 = 祖先链含 root 同步 validate + 分组/色块/组头竖直
-> minimum = pref + 压扁自检日志（待实机复测）。
+> minimum = pref + 压扁自检日志（2026-11-17 第二轮落地）。
 > **v0.3（2026-11-11）**：**编辑器对话框类统一收口 `swing/dialog` 包**——原散落
 > `swing/inspector/widget`（AddComponentDialog / AssetPickerDialog / ImageViewerDialog）与
 > `window`（ImportProgressDialog / PackDialog / PreferencesDialog）的六个对话框一并迁入，
@@ -546,7 +549,7 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
    重排（树结构不动）；M5 塌缩/拖拽重组前必须先落 RHI surface 重建。
 7. **图标资产迁移**：web `public/icon` 复制进 editor resources，路径常量单点收口；jsvg
    渲染线程口径（现 SvgIcon 已在 EDT 使用，无新问题）。
-8. **检查器颜色行被压成一条线（2026-11-16 首轮未解 → 2026-11-17 第二轮加确定性兜底，待实机复测，见 Backlog BUG-10）**：症状 = 相机
+8. **检查器颜色行被压成一条线（2026-11-16 首轮未解 → 2026-11-17 第二轮加确定性兜底 → 2026-11-18 用户实机复测通过，见 Backlog BUG-10 移出记录）**：症状 = 相机
    `backgroundColor` 与环境光 `AmbientSetting.color` 两行的色块只剩 3px 高
    （`ColorField.paintComponent` 里 `getHeight()==3`，色块画成一条横线）。已证实 / 已排除：
    - **控件自身无缺陷**：`ColorField` 的 `getPreferredSize()` 恒返回 `max(宽,32)×18`
@@ -588,6 +591,9 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
    - **回归钩子**：`javelin-editor/src/test/java/cn/donting/javelin/editor/swing/inspector/
      InspectorRowHeightTest`（首轮 4 条：相机静态 / 环境光预置展开 / 切 CONSTANT 实机路径 /
      短视口；第二轮 +2 条：被压 BoxLayout 容器下颜色行仍 18、色块与分组的竖直 minimum == pref）。
+   - **验收（2026-11-18 用户实机复测通过）**：相机 `backgroundColor` 与环境光
+     `AmbientSetting.color` 两行色块恢复正常高度；两轮修法沿革本段即为单点，
+     Backlog BUG-10 已移出。
 
 ## 11. 依赖变更
 
