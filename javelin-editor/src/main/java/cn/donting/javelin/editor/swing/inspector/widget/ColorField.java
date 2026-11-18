@@ -2,6 +2,8 @@ package cn.donting.javelin.editor.swing.inspector.widget;
 
 import cn.donting.javelin.editor.swing.inspector.FieldEditor;
 import cn.donting.javelin.editor.plugin.EditorLang;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.JColorChooser;
 import javax.swing.JComponent;
@@ -28,8 +30,11 @@ import java.util.function.Consumer;
  */
 public class ColorField extends JButton implements FieldEditor {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ColorField.class);
     private static final int BLOCK_HEIGHT = 18;
     private static final int ARC = 3;
+    /** 压扁诊断阈值（低于此高即打链路日志；18 留 6px 容差，正常行不会触发） */
+    private static final int SQUASH_THRESHOLD = 12;
 
     private final Consumer<String> commit;
     private float r = 1f;
@@ -76,8 +81,41 @@ public class ColorField extends JButton implements FieldEditor {
         return new Dimension(Math.max(preferred.width, 32), BLOCK_HEIGHT);
     }
 
+    /**
+     * 最小尺寸 = 首选尺寸：色块是定高控件（18px），布局压缩时不能让 JButton 的
+     * minimum（≈0）把它榨成一条线（BUG-10，见 {@code ComponentSection} 注释）。
+     */
+    @Override
+    public Dimension getMinimumSize() {
+        return getPreferredSize();
+    }
+
+    /** 压扁自检（BUG-10 实机复核口径）：只打一次链路诊断，供定位真机布局差异 */
+    private boolean squashLogged;
+
+    private void logIfSquashed() {
+        if (squashLogged || getHeight() >= SQUASH_THRESHOLD) {
+            return;
+        }
+        squashLogged = true;
+        StringBuilder chain = new StringBuilder("ColorField 被压扁: h=").append(getHeight());
+        java.awt.Component component = this;
+        while (component != null) {
+            chain.append(" ← ").append(component.getClass().getSimpleName())
+                    .append(' ').append(component.getWidth()).append('x').append(component.getHeight());
+            if (component instanceof JComponent jc) {
+                chain.append("(pref ").append(jc.getPreferredSize().height)
+                        .append(", min ").append(jc.getMinimumSize().height)
+                        .append(jc.isValid() ? ", valid)" : ", invalid)");
+            }
+            component = component.getParent();
+        }
+        LOGGER.warn(chain.toString());
+    }
+
     @Override
     protected void paintComponent(Graphics graphics) {
+        logIfSquashed();
         // 参数名不取 g：字段 g（绿色分量）会被遮蔽（2026-10-18 编译实锤）
         Graphics2D g2 = (Graphics2D) graphics.create();
         try {

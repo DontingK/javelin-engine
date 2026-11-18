@@ -91,29 +91,50 @@ public class CollapsiblePanel extends JComponent {
     }
 
     /**
-     * 显隐变化后的重排（2026-11-16 实机 bug 修正）：变更组件标脏 + 祖先链逐级
-     * {@code invalidate()}，再由最近的 validate root 统一校验。
+     * 显隐变化后的重排（2026-11-16 实机 bug 修正，两轮）：变更组件起整条祖先链
+     * {@code invalidate()}（含最近 validate root），随即**同步**校验该 root。
      *
-     * <p>只 {@code revalidate()} 自身是不够的：{@code Container#getPreferredSize()} 在
+     * <p>只 {@code revalidate()} 是不够的：{@code Container#getPreferredSize()} 在
      * {@code valid} 时直接返回缓存的 prefSize，展开子组后外层 {@code InsScrollablePanel}
-     * 与 {@code JViewport} 仍报「折叠态」的高度，viewport 于是只给一个比 pref 矮的格子；
-     * {@code GridBagLayout} 在容器矮于 pref 时按各控件 minimum 尺寸压缩行，而颜色块
-     * （{@link ColorField}，{@code JButton} 子类）minimum 高度≈0，独吞压缩被榨成一条 3px
-     * 横线。回归口径见 {@code InspectorRowHeightTest}。</p>
+     * 仍报「折叠态」的高度，viewport 于是只给一个比 pref 矮的格子；而
+     * {@code GridBagLayout.layoutContainer} 在容器矮于最小尺寸时按 MINSIZE 排布并
+     * 把 {@code diffh/2} 的负偏移折进首行高度（fix 4408108），顶部的颜色行因此被判成
+     * 3px。同步 validate（{@code JViewport.validateView} 同款）保证 repaint 前尺寸已是
+     * 新态，避免下一轮事件循环前的重绘（hover 高亮等）用旧尺寸画一帧。</p>
+     *
+     * <p>确定性兜底见 {@link #getMinimumSize()} 与 {@code ComponentSection}：高度最小
+     * 尺寸 = 首选尺寸，BoxLayout 无法把分组压到 pref 以下，GridBag 也就拿不到矮格子。</p>
      */
     public static void refreshLayoutAfterVisibility(JComponent changed) {
         changed.invalidate();
         JComponent validateRoot = null;
         java.awt.Component parent = changed.getParent();
         while (parent instanceof JComponent ancestor) {
+            ancestor.invalidate();
             if (ancestor.isValidateRoot()) {
                 validateRoot = ancestor;
                 break;
             }
-            ancestor.invalidate();
             parent = ancestor.getParent();
         }
-        (validateRoot != null ? validateRoot : changed).revalidate();
+        if (validateRoot == null) {
+            changed.revalidate();
+        } else if (SwingUtilities.isEventDispatchThread()) {
+            validateRoot.validate();
+        } else {
+            validateRoot.revalidate();
+        }
+    }
+
+    /**
+     * 最小尺寸 = 首选尺寸（高度）：分组高度不可被 BoxLayout 压到 pref 以下——
+     * 一旦被压，内层 GridBag 只能靠压缩行凑高度，定高的颜色行首当其冲（BUG-10）。
+     * 宽度不设限，窄面板照常收缩。
+     */
+    @Override
+    public Dimension getMinimumSize() {
+        Dimension minimum = super.getMinimumSize();
+        return new Dimension(minimum.width, getPreferredSize().height);
     }
 
     /** 可折叠开关（false = 固定分组：点击不折叠、无 hover、隐藏箭头） */

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import java.awt.Dimension;
 import java.util.ArrayList;
@@ -28,12 +29,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * {@code AmbientSetting.color} 两处）。
  *
  * <p>根因在 {@link ComponentSection} 的组显隐重排：子组展开后祖先链的 cached pref 没被作废，
- * viewport 按「折叠态」的高度给格子，GridBag 在容器矮于 pref 时按 minimum 压缩行，
- * 颜色行（JButton 子类，minimum 高≈0）独吞压缩。</p>
+ * viewport 按「折叠态」的高度给格子（最近 validate root 实为 {@code JScrollPane}）；容器矮于
+ * 最小尺寸时 {@code GridBagLayout} 走 MINSIZE 分支并把负偏移折进首行高度，颜色行
+ * （JButton 子类，minimum 高≈0）被榨成一条线。</p>
  *
  * <p>本测试按 {@code NodeInspectorContent} 真实链路搭壳（{@link InsScrollablePanel} + BoxLayout +
  * JScrollPane）：既覆盖「新建即展开」的静态路径，也覆盖「切父枚举 → 子组展开」的运行态路径
- * （后者才是实机 bug 的现场）。</p>
+ * （后者才是实机 bug 的现场）。第二轮追加两条「确定性兜底」用例：竖直 minimum = pref
+ * （BoxLayout 压不动分组）+ 被压容器下颜色行仍为 18。
  */
 public class InspectorRowHeightTest extends EditorLangTestBase {
 
@@ -86,6 +89,49 @@ public class InspectorRowHeightTest extends EditorLangTestBase {
         scroll.validate();
         layoutAll(scroll);
         assertColorRowHeight(section, scroll, "Environment(短视口)");
+    }
+
+    /**
+     * 容器被压到比 pref 矮（本轮修复的确定性兜底）：BoxLayout 只能给 section 首选高度，
+     * 溢出的部分由滚动区承接，内层 GridBag 拿不到矮格子，颜色行保持 18。
+     */
+    @Test
+    void colorRowKeepsHeightWhenParentBoxIsShorterThanPreferred() {
+        ComponentSection section = sectionOf(new Camera(), "Camera");
+        JPanel box = new JPanel();
+        box.setLayout(new BoxLayout(box, BoxLayout.PAGE_AXIS));
+        box.add(section);
+        box.setSize(360, 40);
+        layoutAll(box);
+        List<ColorField> colors = new ArrayList<>();
+        collectColorFields(section, colors);
+        if (colors.isEmpty()) {
+            throw new AssertionError("未找到颜色控件：Camera");
+        }
+        StringBuilder diag = new StringBuilder("\nCamera(被压容器) 链路高度：\n");
+        diag.append("  box ").append(size(box)).append(" pref=").append(pref(box)).append('\n');
+        diag.append("  section ").append(size(section)).append(" pref=").append(pref(section))
+                .append(" min=").append(minHeight(section)).append('\n');
+        for (ColorField field : colors) {
+            diag.append("  ColorField ").append(size(field)).append('\n');
+            assertEquals(COLOR_ROW_HEIGHT, field.getHeight(), diag.toString());
+        }
+    }
+
+    /** 最小尺寸兜底本身：色块与分组的竖直 minimum 都等于首选高度（BUG-10 不被压缩的前提） */
+    @Test
+    void minimumHeightEqualsPreferredForColorRowAndSection() {
+        ColorField field = new ColorField("1,1,1,1", value -> {
+        });
+        assertEquals(COLOR_ROW_HEIGHT, field.getPreferredSize().height);
+        assertEquals(field.getPreferredSize().height, field.getMinimumSize().height);
+
+        ComponentSection section = sectionOf(new Camera(), "Camera");
+        assertEquals(section.getPreferredSize().height, minHeight(section));
+    }
+
+    private static int minHeight(JComponent component) {
+        return component.getMinimumSize().height;
     }
 
     private static void switchToConstant(ComponentSection section) {

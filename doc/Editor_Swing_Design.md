@@ -1,6 +1,10 @@
-# 编辑器 Swing UI 框架设计（v0.3）——去 Web 化重构总纲
+# 编辑器 Swing UI 框架设计（v0.4）——去 Web 化重构总纲
 
 > 状态：**M1（窗口 + Dock 骨架）已落地，2026-10-17 用户实测验收通过**。
+> **v0.4（2026-11-17）**：**§10-8 检查器颜色行被压扁（BUG-10）第二轮**——JDK 源码定案
+> 「最近 validate root 实为 JScrollPane」+「GridBag 在容器矮于 minimum 时把负偏移折进首行
+> 高度（4408108 兜底）」；修法 = 祖先链含 root 同步 validate + 分组/色块/组头竖直
+> minimum = pref + 压扁自检日志（待实机复测）。
 > **v0.3（2026-11-11）**：**编辑器对话框类统一收口 `swing/dialog` 包**——原散落
 > `swing/inspector/widget`（AddComponentDialog / AssetPickerDialog / ImageViewerDialog）与
 > `window`（ImportProgressDialog / PackDialog / PreferencesDialog）的六个对话框一并迁入，
@@ -542,7 +546,7 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
    重排（树结构不动）；M5 塌缩/拖拽重组前必须先落 RHI surface 重建。
 7. **图标资产迁移**：web `public/icon` 复制进 editor resources，路径常量单点收口；jsvg
    渲染线程口径（现 SvgIcon 已在 EDT 使用，无新问题）。
-8. **检查器颜色行被压成一条线（2026-11-16 未解，见 Backlog BUG-10）**：症状 = 相机
+8. **检查器颜色行被压成一条线（2026-11-16 首轮未解 → 2026-11-17 第二轮加确定性兜底，待实机复测，见 Backlog BUG-10）**：症状 = 相机
    `backgroundColor` 与环境光 `AmbientSetting.color` 两行的色块只剩 3px 高
    （`ColorField.paintComponent` 里 `getHeight()==3`，色块画成一条横线）。已证实 / 已排除：
    - **控件自身无缺陷**：`ColorField` 的 `getPreferredSize()` 恒返回 `max(宽,32)×18`
@@ -557,13 +561,33 @@ GuidAssetField——数字输入、折叠面板为 M4 新建通用控件，即�
      content pref 卡在 79、fieldsPanel 53/pref 124、ColorField 0 或 8px）。逐级
      `invalidate()` 后立即恢复 18px。据此新增
      `CollapsiblePanel.refreshLayoutAfterVisibility(...)`（组显隐与整段折叠共用）。
-   - **未解点**：上述修正入库后**用户实机症状未消**（仍为 3px）→ 真机链路与合成链路存在
+   - **未解点（首轮）**：上述修正入库后**用户实机症状未消**（仍为 3px）→ 真机链路与合成链路存在
      差异。待查方向：真机 `NodeInspectorContent` 的父容器/滚动结构是否确实等于
      `InsScrollablePanel` + BoxLayout + JScrollPane；该 section 是否走了另一条重建路径；
      FlatLaf 下 `JButton` 的 minimum 与 GridBag 压缩分配；HiDPI 缩放是否参与。
+   - **第二轮（2026-11-17）：JDK 源码定案 + 确定性兜底**。读的是 JDK 8 源码（`Container` /
+     `GridBagLayout` / `JViewport` / `JScrollPane` / `SwingUtilities`），关键三条：
+     ① **最近 validate root 是 `JScrollPane` 而非 `JViewport`**（`JScrollPane.isValidateRoot()=true`，
+     `JViewport` 返回 false；`JViewport.validateView` 只是拿 getValidateRoot 的结果去 validate）。
+     首轮实现「碰到 isValidateRoot 就 break、不 invalidate 该 root」——root 本身没标脏，
+     `validate()` 在 `valid` 时直接返回，等于什么都没做；且只 `revalidate()` 要等下一轮事件循环，
+     其间任何重绘（hover 高亮）都会用旧尺寸画一帧。
+     ② **`GridBagLayout.layoutContainer` 的 4408108 兜底会把负偏移折进首行高度**：容器矮于最小尺寸时
+     走 MINSIZE 分支，`starty = diffh/2`（负数），逐行 `if (r.y < 0) { r.height += r.y; r.y = 0; }`
+     ——顶部行被"还债"式压扁（这正是 3px 而不是 0 的来源），所以**只在 `ColorField` 上加 minimum
+     挡不住**，必须让容器根本不矮于最小尺寸。
+     ③ **`GridBagLayout` 只在 `parent.height < minSize` 时改走 MINSIZE**，行高按 `info.minHeight`
+     分配；而 `ViewportLayout.minimumLayoutSize` 硬编码 `4x4`，所以把分组的竖直 minimum 抬到 pref
+     **不会**经 JScrollPane 泄漏成 JSplitPane 的拖动下限（安全）。
+     据此三处改动：`CollapsiblePanel.refreshLayoutAfterVisibility` 改为「整条祖先链 invalidate
+     **含最近的 validate root** + 在 EDT 上**同步** `validate()`」（与 `JViewport.validateView` 同款）；
+     `ComponentSection` / `CollapsiblePanel` / `ColorField` / 组头 `GroupHeaderButton` 的
+     `getMinimumSize()` 高度 = 首选高度（BoxLayout 压不动分组，GridBag 拿不到矮格子；宽度不设限，
+     窄面板照常收缩）；`ColorField.paintComponent` 加一次性压扁自检——`h < 12` 时按 WARN 打整条
+     祖先链（类名 / 尺寸 / pref / min / valid），供实机复测时直接定位真机差异。
    - **回归钩子**：`javelin-editor/src/test/java/cn/donting/javelin/editor/swing/inspector/
-     InspectorRowHeightTest`（4 条用例：相机静态 / 环境光预置展开 / 切 CONSTANT 实机路径 /
-     短视口；修前「切 CONSTANT」红，失败消息会打出整条链路各级尺寸）。
+     InspectorRowHeightTest`（首轮 4 条：相机静态 / 环境光预置展开 / 切 CONSTANT 实机路径 /
+     短视口；第二轮 +2 条：被压 BoxLayout 容器下颜色行仍 18、色块与分组的竖直 minimum == pref）。
 
 ## 11. 依赖变更
 

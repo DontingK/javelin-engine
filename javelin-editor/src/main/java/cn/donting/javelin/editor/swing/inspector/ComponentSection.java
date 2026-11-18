@@ -18,6 +18,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -144,7 +145,7 @@ public class ComponentSection extends JComponent {
      * 初始收起态取 {@code @InsFieldGroup.collapsed()}，文本前缀随态更新。
      */
     private JButton groupHeader(String label, GroupState state, JPanel panel) {
-        JButton header = new JButton();
+        JButton header = new GroupHeaderButton();
         header.setHorizontalAlignment(SwingConstants.LEFT);
         header.setOpaque(false);
         header.setContentAreaFilled(false);
@@ -208,20 +209,38 @@ public class ComponentSection extends JComponent {
 
     /**
      * 组显隐变化后的重排：内层面板标脏 + 祖先链逐级 {@code invalidate()}，再由最近的
-     * validate root 重新校验（实现与整段折叠共用 {@link CollapsiblePanel#refreshLayoutAfterVisibility}）。
+     * validate root 同步校验（实现与整段折叠共用 {@link CollapsiblePanel#refreshLayoutAfterVisibility}）。
      *
      * <p>只 {@code revalidate()} 内层面板是不够的（2026-11-16 实机 bug 的根因）：
      * {@code Container#getPreferredSize()} 在 {@code valid} 时直接返回缓存的 prefSize，
      * 展开子组后外层的 {@code InsScrollablePanel} 与 {@code JViewport} 仍报「折叠态」的高度，
-     * viewport 于是只给内层面板一个比 pref 矮的格子；{@code GridBagLayout} 在容器矮于 pref 时
-     * 按各控件 minimum 尺寸压缩行，而颜色行是 {@link javax.swing.JButton} 子类
-     * （{@link cn.donting.javelin.editor.swing.inspector.widget.ColorField}，minimum 高度≈0），
-     * 独吞全部压缩，色块被压成一条 3px 的横线。
-     * 回归口径见 {@code InspectorRowHeightTest}。</p>
+     * viewport 于是只给内层面板一个比 pref 矮的格子；{@code GridBagLayout} 在容器矮于最小尺寸时
+     * 走 MINSIZE 分支并把负偏移折进首行高度，颜色行（{@link javax.swing.JButton} 子类，
+     * minimum 高度≈0）被榨成一条 3px 的横线。回归口径见 {@code InspectorRowHeightTest}。</p>
      */
     private static void relayoutAfterVisibility(JComponent panel) {
         CollapsiblePanel.refreshLayoutAfterVisibility(panel);
         panel.repaint();
+    }
+
+    /**
+     * 最小尺寸 = 首选尺寸（高度）：分组该多高就多高，不许被上层 BoxLayout 压缩——
+     * 一旦压到 pref 以下，内层 GridBag 只能压缩行来凑，定高的颜色行首当其冲（BUG-10）。
+     * 宽度沿用布局计算值（窄面板照常收缩）。
+     */
+    @Override
+    public Dimension getMinimumSize() {
+        Dimension minimum = super.getMinimumSize();
+        return new Dimension(minimum.width, getPreferredSize().height);
+    }
+
+    /** 组头按钮：最小尺寸 = 首选尺寸（高度）——扁平按钮的 minimum≈0，同样不许被压缩 */
+    private static final class GroupHeaderButton extends JButton {
+
+        @Override
+        public Dimension getMinimumSize() {
+            return getPreferredSize();
+        }
     }
 
     /** 条件子组运行态（组头 / 组内行 / 显示条件 / 折叠态） */
