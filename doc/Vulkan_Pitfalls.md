@@ -668,6 +668,61 @@
 - **出处**：四期阴影质量分级 §4.2-4 / §9.5 随验订正；`ShadowMath.buildCascadeMatrix` 已修，
   **2026-11-18 用户实测通过**（平移相机跳动消失）。
 
+### 42. 编辑器辅助件混入场景级烘焙收集：8000 单位网格撑爆体素包围盒 → AO 全场无效 ★设计级（2026-11-19）
+
+- **症状**：体素 AO 开启后**完全没有效果**（kernel 数学反复修三轮均无效）；日志里
+  `体素化准备完成` 的包围盒高达 ±4226 世界单位。
+- **根因**：`EditGridAppState` 的三层编辑器网格（`GRID_SIZE=8000`）是普通
+  `MeshRenderer`，进了 `VoxelizationPass` 的全量 `renderers()` 收集——场景真实尺度
+  仅 ~11 单位，包围盒被网格撑到 8452。后果级联：占用体素边长 8452/128 ≈ **66 米**，
+  `maxDistance=10` 米 < 半个步长 → 每条射线 1 步跳出量程永不命中 → AO 场恒 1.0，
+  乘了等于没乘。**症状在渲染，病根在收集**——kernel 侧怎么修都没用。
+- **修法**：收集循环按 `!ro.isCastShadow()` 过滤——网格辅助线本就显式
+  `setCastShadow(false)`（阴影投射同口径：**不投射遮蔽的编辑器辅助件不进任何
+  场景级烘焙**），Gizmo/调试线走自定义 Pass 桶天然不进 `renderers()`。
+- **教训**：**场景级收集（阴影 caster、体素化、将来的探针）必须显式定义「谁算场景
+  内容」**，不能拿「渲染系统里所有 RenderObject」当默认——编辑器辅助件（网格/
+  gizmo/预览体）与场景内容共用 `renderers()` 时，凡「按包围盒/按全体聚合」的算法
+  都会被辅助件的极端几何污染。排障口诀：**先看收集面的输入分布，再改算法**。
+- **出处**：体素 AO 排障（`Engine_VoxelAO_Design.md` §9）；`VoxelizationPass.prepare`
+  已修，2026-11-19 实机效果恢复（后续口径问题另案）。
+
+### 43. 新建描述符集只写部分 binding 就参与 draw：空白 binding 读值不可预期 → 全屏均匀变暗 ★Vulkan 语义级（2026-11-19）
+
+- **症状**：体素 AO「整体均匀变暗」（阴影区/非阴影区统一压暗、角落无梯度）；VVL
+  `VUID-vkCmdDraw-None-08114`：binding 8/9 `used in draw but has never been updated`。
+- **根因**：set1 布局扩了 binding8/9，但 `viewLightsFor` 建 set 时只 update
+  binding0~7——**集合建立帧即参与 draw**，空白描述符 = 未定义行为，驱动给它的
+  采样值不可预期（实测为偏暗常数），表现为全屏均匀乘一个暗系数。
+- **修法**：集合建立时**全 binding 写安全初值**（占位白图 + 零参数块 = 着色端门控
+  返回 1），任何后续重指走「换整套新集合」（见坑 #44）。
+- **教训**：**给既有 set1 布局加 binding 是全链路事件**——三处必须同步：布局 desc、
+  集合建立时的初值 update、重指通道；漏任何一处就是 08114（VVL 能抓）或静默读垃圾
+  （无校验层时）。审计口诀：`grep` 所有 `createDescriptorSet(该布局)` 点，逐个核
+  update 是否覆盖全 binding。
+- **出处**：体素 AO 批 D 排障（`RenderingSystem.viewLightsFor`）；已修，2026-11-19。
+
+### 44. 共享描述符集的原地 update 无安全时机：隔帧/隔两帧都撞 03047（pending state = 已提交未完成） ★Vulkan 语义级（2026-11-19）
+
+- **症状**：`VUID-vkUpdateDescriptorSets-None-03047` 反复出现——set1 binding8/9 在
+  「帧 N collectFrame（本槽 fence await 之后）」update，仍报被在飞命令缓冲引用；
+  隔一帧、隔两帧方案实测都撞。
+- **根因**：对 fence 闸门的错误直觉——`f.await()` 只等**当前槽位自己**的 fence
+  （`states[ringIndex]` 环形复用）。2 帧在飞下，帧 N collectFrame 时帧 N-1 的命令缓冲
+  **已提交但 GPU 可能还在执行**（它的 fence 没有任何代码 await），而 03047 的判定
+  原文就是 **pending state = 已提交未完成**。结论：**每帧都被录制的共享 set，
+  原地 update 永远没有安全时机**——隔帧只是降低概率，不是消除。
+- **修法**：**换 set，不 update**——网格身份变化时新建整套 set1（写全
+  binding0~9；新 set 未被任何命令缓冲引用，update 零约束），旧 set 走
+  `retireResource` 两帧退役（在飞缓冲引用的就是旧 set，等它们自然完成）。成本 =
+  低频多建一个描述符集，可忽略。
+- **教训**：**「等 fence」只保护同槽位环形复用，不保护跨帧共享资源**。凡是「多个
+  在飞帧都引用的描述符集」，写它的唯一安全路径 = **换代（新建 + 退役旧）**，与纹理/
+  PSO 退役同构——Vulkan 里「不可变资源身份」才是并发安全的单位。判别口诀：这个 set
+  每帧都被 bind 吗？是 → 只能换代；否（一次性/独占）→ 才谈得上原地 update。
+- **出处**：体素 AO 批 D 排障（`RenderingSystem.syncVoxelAo` 重写为换集合方案）；
+  已修，2026-11-19 用户实测 03047 全清。
+
 ---
 
 ## 六、排障方法论（沉淀）

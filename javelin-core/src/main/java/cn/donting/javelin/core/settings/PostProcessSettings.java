@@ -3,6 +3,7 @@ package cn.donting.javelin.core.settings;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.inspector.InsFloatRange;
+import cn.donting.javelin.core.inspector.InsSlider;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
@@ -30,18 +31,22 @@ public class PostProcessSettings implements Serializable {
     /** Bloom 亮度阈值（≥ 该值的像素才起辉；与 Tonemap 肩部同口径起步值） */
     @InsField(label = "projectSettings.bloomThreshold")
     @InsFloatRange(min = 0f, max = 10f, step = 0.05f)
+    @InsSlider
     private float bloomThreshold = 0.8f;
     /** Bloom 阈值软过渡半宽（阈值 ± knee 间平滑登场） */
     @InsField(label = "projectSettings.bloomKnee")
     @InsFloatRange(min = 0f, max = 2f, step = 0.05f)
+    @InsSlider
     private float bloomKnee = 0.4f;
     /** Bloom 合成强度（场景色 + bloom × intensity） */
     @InsField(label = "projectSettings.bloomIntensity")
     @InsFloatRange(min = 0f, max = 5f, step = 0.05f)
+    @InsSlider
     private float bloomIntensity = 0.5f;
     /** Tonemap 高光肩部起点（≤ 该值逐像素不变、> 该值指数压向 1.0） */
     @InsField(label = "projectSettings.tonemapKnee")
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
+    @InsSlider
     private float tonemapKnee = 0.8f;
 
     public boolean isTonemapEnabled() {

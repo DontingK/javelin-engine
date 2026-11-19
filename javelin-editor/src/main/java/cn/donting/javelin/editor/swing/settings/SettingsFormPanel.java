@@ -5,9 +5,12 @@ import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.settings.SettingsSchema;
 import cn.donting.javelin.editor.swing.inspector.FieldEditor;
 import cn.donting.javelin.editor.swing.inspector.FieldRowFactory;
+import cn.donting.javelin.editor.swing.inspector.widget.JeNumberInput;
+import cn.donting.javelin.editor.swing.inspector.widget.ScrubDragger;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -51,12 +54,15 @@ public final class SettingsFormPanel {
      * @param schema    页面声明（分组 + 行）
      * @param onApplied 行改动写回成功后的生效回调（推给运行中的引擎）
      * @param onError   写回/生效异常回调（窗口层显性化，红线 15）
+     * @param onReset   分组「恢复默认」回调（确认与回填由窗口层执行；组内全只读时不给按钮）
      */
-    public static JPanel build(SettingsSchema schema, Runnable onApplied, Consumer<Throwable> onError) {
+    public static JPanel build(SettingsSchema schema, Runnable onApplied, Consumer<Throwable> onError,
+                               Consumer<SettingsSchema.Section> onReset) {
         JPanel pane = new FormPane();
-        pane.setBorder(new EmptyBorder(2, 4, 2, 4));
+        // 设置窗是独立窗口（不受编辑器面板 ≤2px 紧凑度约束）：左右留白避免文字贴边
+        pane.setBorder(new EmptyBorder(8, 12, 8, 12));
         for (SettingsSchema.Section section : schema.sections()) {
-            pane.add(sectionLabel(section.labelKey));
+            pane.add(sectionHeader(section, onReset));
             for (SettingsSchema.Entry entry : section.entries) {
                 if (entry.hintKey != null) {
                     pane.add(hintLabel(EditorLang.text(entry.hintKey)));
@@ -79,11 +85,34 @@ public final class SettingsFormPanel {
                 onError.accept(e);
             }
         });
+        JLabel label = new JLabel(item.vo.name);
+        if (!item.readOnly && editor instanceof JeNumberInput) {
+            // 数字行 label 按住左键左右拖调值（检查器同款 scrub 口径；只读行不挂，防绕过禁用态）
+            ScrubDragger.attach(label, (JeNumberInput) editor);
+        }
         JComponent control = editor.editorComponent();
         if (item.readOnly) {
             control.setEnabled(false);
         }
-        return row(item.vo.name, control);
+        return row(label, control);
+    }
+
+    /** 分组头：标题 + 右侧「恢复默认」按钮（组内全只读时不出按钮） */
+    private static JComponent sectionHeader(SettingsSchema.Section section,
+                                            Consumer<SettingsSchema.Section> onReset) {
+        JPanel header = new JPanel(new BorderLayout(4, 0));
+        header.setOpaque(false);
+        header.add(sectionLabel(section.labelKey), BorderLayout.CENTER);
+        if (section.hasWritable()) {
+            JButton reset = new JButton(EditorLang.text("projectSettings.reset"));
+            reset.setFocusable(false);
+            reset.setMargin(new Insets(1, 8, 1, 8));
+            reset.addActionListener(e -> onReset.accept(section));
+            header.add(reset, BorderLayout.EAST);
+        }
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setMaximumSize(new Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
+        return header;
     }
 
     /** 分组标题（加粗小标题） */
@@ -101,9 +130,8 @@ public final class SettingsFormPanel {
     }
 
     /** 表单行：label 固定列宽 + 控件占余宽（4px 列间隔，行高收紧；label 顶对齐，多行列表控件不悬空） */
-    private static JPanel row(String name, JComponent control) {
+    private static JPanel row(JLabel label, JComponent control) {
         JPanel row = new JPanel(new BorderLayout(4, 0));
-        JLabel label = new JLabel(name);
         label.setVerticalAlignment(SwingConstants.TOP);
         label.setPreferredSize(new Dimension(LABEL_WIDTH, label.getPreferredSize().height));
         row.add(label, BorderLayout.WEST);

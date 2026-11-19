@@ -164,6 +164,46 @@ public final class SettingsSchema {
         return unique;
     }
 
+    /**
+     * 按分组恢复默认：组内每个可写行回填为「字段声明初值」。
+     *
+     * <p>默认值来源 = 该行宿主类的一个新实例（设置类按字段初值构造，{@code read} 的缺键默认
+     * 同源）；每次点击新建，避免 {@code Color}/数组这类可变值被回填后被面板改坏原型。
+     * {@link SettingRestart} 行（启动期定型、只读）不回填。</p>
+     *
+     * @param section 目标分组
+     */
+    public void reset(Section section) {
+        for (Entry entry : section.entries) {
+            Item item = entry.item;
+            if (item == null || item.readOnly) {
+                continue;
+            }
+            Object defaults = newDefaultInstance(item.host.getClass());
+            Object value = InspectorMeta.readProperty(defaults, item.fieldName());
+            InspectorMeta.writeProperty(item.host, item.fieldName(), value);
+        }
+    }
+
+    /**
+     * 同页刷新：沿用页元数据（页名 / 生效域 / 根字段名）重新展开一份 schema。
+     * 恢复默认后重建表单用——行值与 {@link Item#vo} 都按宿主当前值重新派生。
+     */
+    public SettingsSchema refreshed() {
+        SettingsSchema page = new SettingsSchema(root, labelKey, editorStartup, fieldName);
+        page.expand(root, 1);
+        return page;
+    }
+
+    private static Object newDefaultInstance(Class<?> type) {
+        try {
+            return type.getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(EditorLang.text("settings.reset.defaultsFailed",
+                    type.getSimpleName()), e);
+        }
+    }
+
     // ── 展开 ─────────────────────────────────────────────────
 
     /** 按注解展开：行来自 {@code @InsField} 字段，分组来自 {@code @SettingGroup} */
@@ -271,6 +311,16 @@ public final class SettingsSchema {
 
         private Section(String labelKey) {
             this.labelKey = labelKey;
+        }
+
+        /** 组内是否有可写行（全只读的组不给「恢复默认」按钮） */
+        public boolean hasWritable() {
+            for (Entry entry : entries) {
+                if (entry.item != null && !entry.item.readOnly) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

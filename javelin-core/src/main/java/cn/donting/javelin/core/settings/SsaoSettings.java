@@ -3,6 +3,7 @@ package cn.donting.javelin.core.settings;
 import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.inspector.InsFloatRange;
+import cn.donting.javelin.core.inspector.InsSlider;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
@@ -26,14 +27,17 @@ public class SsaoSettings implements Serializable {
     /** 采样半径（世界单位；核内样本按此缩放，越大遮蔽范围越广） */
     @InsField(label = "projectSettings.ssaoRadius")
     @InsFloatRange(min = 0.01f, max = 5f, step = 0.05f)
+    @InsSlider
     private float radius = 0.5f;
     /** 视空间深度偏移（防表面自遮挡产生的暗斑/条纹） */
     @InsField(label = "projectSettings.ssaoBias")
     @InsFloatRange(min = 0f, max = 0.5f, step = 0.005f)
+    @InsSlider
     private float bias = 0.02f;
     /** 合成强度（0 = 视觉等同关闭；1 = 全量 AO） */
     @InsField(label = "projectSettings.ssaoIntensity")
     @InsFloatRange(min = 0f, max = 2f, step = 0.05f)
+    @InsSlider
     private float intensity = 1.0f;
 
     public boolean isEnabled() {

@@ -4,6 +4,7 @@ import cn.donting.javelin.ast.annotation.Reflective;
 import cn.donting.javelin.core.inspector.InsField;
 import cn.donting.javelin.core.inspector.InsFloatRange;
 import cn.donting.javelin.core.inspector.InsIntRange;
+import cn.donting.javelin.core.inspector.InsSlider;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
@@ -32,22 +33,27 @@ public class ShadowSettings implements Serializable {
     /** 阴影强度 0~1（1 = 原强度；0 = 视觉等同关影） */
     @InsField(label = "projectSettings.shadowStrength")
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
+    @InsSlider
     private float strength = 1.0f;
     /** PCF 半径（纹素；核偏移步长缩放，越大半影越宽） */
     @InsField(label = "projectSettings.shadowPcfRadius")
     @InsFloatRange(min = 0f, max = 4f, step = 0.1f)
+    @InsSlider
     private float pcfRadius = 1.0f;
     /** 参考深度偏移（世界单位；正交光空间由渲染侧折算成 z 增量）——抗彼得潘宁的细调项 */
     @InsField(label = "projectSettings.shadowDepthOffset")
     @InsFloatRange(min = 0f, max = 1f, step = 0.01f)
+    @InsSlider
     private float refDepthOffset = 0.0f;
     /** PSO 静态 depth bias 常量项（抗自遮挡 acne；批次④-A 起步值 2.0） */
     @InsField(label = "projectSettings.shadowBiasConstant")
     @InsFloatRange(min = 0f, max = 10f, step = 0.1f)
+    @InsSlider
     private float biasConstant = 2.0f;
     /** PSO 静态 depth bias 斜率项（随面斜率增大，批次④-A 起步值 1.5） */
     @InsField(label = "projectSettings.shadowBiasSlope")
     @InsFloatRange(min = 0f, max = 10f, step = 0.1f)
+    @InsSlider
     @SettingHint("projectSettings.shadowBiasHint")
     private float biasSlope = 1.5f;
     /** CSM 级联数（1/2/4；1 = 退化为单张，与步骤一形态同源。缺省 2） */
@@ -58,10 +64,12 @@ public class ShadowSettings implements Serializable {
     /** 阴影距离（世界单位；超出恒受光。缺省 100） */
     @InsField(label = "projectSettings.shadowDistance")
     @InsFloatRange(min = 5f, max = 1000f, step = 5f)
+    @InsSlider
     private float shadowDistance = 100.0f;
     /** 级联切分 lambda 混合系数（0=均匀、1=对数；缺省 0.5） */
     @InsField(label = "projectSettings.shadowCascadeLambda")
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
+    @InsSlider
     @SettingHint("projectSettings.shadowCascadeHint")
     private float cascadeLambda = 0.5f;
 

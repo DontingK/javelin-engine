@@ -50,6 +50,8 @@ public class TransparentForwardPass extends AbstractForwardPass {
             // 主光阴影图采样读（批次④）：set1 binding4 消费同 Opaque——依赖声明建
             // Shadow→Transparent 边；恒声明保结构稳定（未采时零成本）
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // 体素 AO 模糊图（四期 P4-17）：透明材质 fs 同样乘环境项，声明读同 Opaque
+            pass.addTextureRead(rs.voxelAoTextureFor(view.name()));
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {

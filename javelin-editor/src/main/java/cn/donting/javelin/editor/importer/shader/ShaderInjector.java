@@ -115,6 +115,15 @@ public final class ShaderInjector {
                 uint clusterIndices[];
             };
             layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
+            // 体素 AO（四期 P4-17）：binding8 = 模糊图（R8_UNORM 3D，三线性），
+            // binding9 = 参数块（与 VoxelGrid.writeParams 同排布，std140 64B）
+            layout(set = 1, binding = 8) uniform sampler3D voxelAO;
+            layout(std140, set = 1, binding = 9) uniform VoxelParamsBlock {
+                vec4 voxelOriginResolution;
+                vec4 voxelVoxelSize;
+                vec4 voxelAoParams;
+                vec4 voxelGridBounds;
+            } voxelGI;
 
             // per-object 接收阴影标志（变体实现见 RECEIVE_SHADOW_PUSH / RECEIVE_SHADOW_GBUFFER）
             float javelinReceiveShadow();
@@ -184,8 +193,39 @@ public final class ShaderInjector {
                 return s / 144.0;
             }
 
+            // 体素 AO 采样（四期 P4-17）：采样点必须沿法线推出「体素化膨胀壳」——壳厚
+            // ≈ length(占用体素) ≈ 主轴 halfDiag × 2，大于 1 个 AO 体素；偏 1 格采样点
+            // 仍停在实体壳内，采到的是壳体素的低值（开阔面 ≈0.75 非 1.0）→ 全场均匀
+            // 压暗（2026-11-19 读回实证：AO 图 66.6% 体素 ≥240 但表面全采中间段 80-223）。
+            // 偏 2 个 AO 体素稳妥出壳、落进真正参与求值的空体素。越界（网格只盖场景
+            // 包围盒）按无遮蔽 1.0 处理。
+            float javelinVoxelAO(vec3 worldPos, vec3 worldNormal) {
+                if (voxelGI.voxelAoParams.w < 0.5) {
+                    return 1.0;
+                }
+                float occRes = voxelGI.voxelOriginResolution.w;
+                float aoRes = voxelGI.voxelVoxelSize.w;
+                if (occRes < 1.0 || aoRes < 1.0) {
+                    return 1.0;
+                }
+                vec3 aoVox = voxelGI.voxelVoxelSize.xyz * (occRes / aoRes);
+                vec3 p = worldPos + worldNormal * (2.0 * min(aoVox.x, min(aoVox.y, aoVox.z)));
+                vec3 uvw = (p - voxelGI.voxelOriginResolution.xyz) / (aoVox * aoRes);
+                if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) {
+                    return 1.0;
+                }
+                // 强度口径 1 - (1-ao)*intensity（强度 0 恒 1.0 = 与关开关视觉一致；
+                // 上限不夹 1，滑条到 2 可获得更强的压暗）
+                float ao = texture(voxelAO, uvw).r;
+                float k = max(voxelGI.voxelAoParams.z, 0.0);
+                return max(0.0, 1.0 - (1.0 - ao) * k);
+            }
+
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
-                vec3 result = lighting.ambient.rgb * lighting.ambient.a;
+                // 世界法线由 set0 相机 view（正交旋转）反变换得到：R^T * viewNormal
+                vec3 worldNormal = normalize(transpose(mat3(cam.view)) * viewNormal);
+                vec3 result = lighting.ambient.rgb * lighting.ambient.a
+                        * javelinVoxelAO(worldPos, worldNormal);
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);

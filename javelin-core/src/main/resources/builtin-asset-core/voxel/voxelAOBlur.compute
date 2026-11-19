@@ -1,0 +1,39 @@
+#version 450
+
+// 体素 AO 3D 模糊（Engine_VoxelAO_Design §4，批 C）
+// 3×3×3 加权盒式（中心 4 / 面邻 2 / 棱角 1），压掉射线数有限带来的块状噪点与体素阶梯。
+// 输出仍是 R8_UNORM 3D 纹理（与输入同尺寸，ping-pong 到第二张图，避免读写同图）。
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0) uniform sampler3D aoIn;
+layout(set = 0, binding = 1, r8) uniform image3D aoOut;
+
+layout(set = 0, binding = 2) uniform VoxelParams {
+    vec4 originResolution; // xyz = 网格原点（世界），w = 占用分辨率
+    vec4 voxelSize;        // xyz = 占用体素边长，w = AO 分辨率
+    vec4 aoParams;         // x = 射线数, y = 最大距离, z = 强度, w = 启用位
+    vec4 gridBounds;       // xyz = 网格上界
+} voxel;
+
+void main() {
+    int aoRes = int(voxel.voxelSize.w);
+    ivec3 id = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(id, ivec3(aoRes)))) {
+        return;
+    }
+    float sum = 0.0;
+    float wsum = 0.0;
+    for (int z = -1; z <= 1; ++z) {
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                ivec3 c = clamp(id + ivec3(x, y, z), ivec3(0), ivec3(aoRes - 1));
+                int ad = abs(x) + abs(y) + abs(z);
+                float w = ad == 0 ? 4.0 : (ad == 1 ? 2.0 : 1.0);
+                sum += texelFetch(aoIn, c, 0).r * w;
+                wsum += w;
+            }
+        }
+    }
+    imageStore(aoOut, id, vec4(sum / wsum, 0.0, 0.0, 1.0));
+}

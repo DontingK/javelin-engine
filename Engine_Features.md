@@ -316,7 +316,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 0 项**（2026-11-18 清零）。
+> **当前挂账 1 项**（2026-11-19 新增；余项 2026-11-18 清零）。
+>
+> - **体素化 AO（`render/voxel` 域 + 编辑器设置组，四期 P4-17 = ⑥ DDGI 前置轻量档）**——批 A~D 落码、**未编译未验收**（用户「验收后面统一做」）：`MeshUpload` 补 `STORAGE`（索引 4 字节对齐）+ `VoxelAoSettings`/`GraphSetting`/i18n；`MeshVoxelGeometry` + `VoxelGrid`（占用 `R32_UINT` / AO 原图+模糊图 `R8_UNORM` / 64B 参数 UBO / 双采样器）+ `VoxelizationPass`（GPU 三角形体素化）+ `VoxelAoPass`（球面 16 射线 + 3×3×3 模糊）+ 内置 `core/voxel/{voxelize,voxelAO,voxelAOBlur}.compute`；set1 扩 binding8/9 + `ShaderInjector.javelinVoxelAO` 作环境项乘子（`javelinLighting` 签名不变）+ 关闭/无网格占位 + 消费方采样读声明 + 挂载点前置到 `ShadowPass` 之后（同帧消费）+ `tools.voxelAoRebuild` 手动重建命令（`JavelinEngine.requestVoxelRebuild()`）。**验收前置**：`.shader` 与内置 `lighting.frag` 产物必须重导（不重导 = 乘算不生效且零 ERROR）。验收口径 = `doc/Engine_VoxelAO_Design.md` §8（8 条）。
 >
 > - ~~RHI 纹理种类底座（RHI 域，⑥ P4-05 / P4-17 前置）~~ → **2026-11-18 验收通过**（§1 行已翻 ✅）：`TextureTypesTest` 3D 16³ 逐体素 + 2D 数组逐字节两条读回全一致、3D 采样画面 XOR 图案；编辑器常规画面与 TAA 零视觉差异、`[VVL]` 零 ERROR（无 `oldLayout` 不匹配）；`ComputeSsboTest`/`CubemapTest` 回归正常；补 `TextureDescShapeTest`。**随验收修**：测试件图形段原取 z=0.5 撞上 z=7/z=8 互补层（`v8 = 7 - v7`）被三线性平均成恒 0.5（整屏中灰，非链路缺陷）→ 改取第 7 层体素中心。口径 = `doc/RHI_Texture_Types_Design.md` v0.3 §5.1。
 >

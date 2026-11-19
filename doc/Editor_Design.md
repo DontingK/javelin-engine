@@ -65,6 +65,9 @@ javelin-editor
 分模块生成（2026-11-07）**：引擎级内置资产 `builtin-asset-core` 已迁回 `javelin-core`
 模块（`javelin-core/build.gradle` 同名任务产出自己的索引），释放器按
 `ClassLoader.getResources` 枚举全部 `builtin-asset.index` 合并释放、模块各扫各的。
+**入索引口径（2026-11-19）** = 文件存在伴生 `<文件名>.meta` 即纳入，不再维护扩展名白名单
+（`.meta` 本体不入索引；新增资产类型 `.compute`/`.png`/`.mat` 等只要带 meta 自动纳入），
+索引行按路径排序产出，保证同一资产集生成字节一致。
 
 ## 3. 启动流程与窗口体系
 

@@ -72,14 +72,15 @@ task generateBuiltinAssetIndex {
         def assetDir = file('src/main/resources/builtin-asset-core')
         if (assetDir.exists()) {
             assetDir.eachFileRecurse { f ->
-                if (f.isFile() && (f.name.endsWith('.smesh') || f.name.endsWith('.shader')
-                        || f.name.endsWith('.vert') || f.name.endsWith('.frag')
-                        || f.name.endsWith('.chars'))) {
+                // 入索引口径 = 有伴生 .meta（资产身份的唯一标记），不看扩展名：
+                // 新增资产类型（.compute/.png/.mat 等）只要带 meta 即自动纳入
+                if (f.isFile() && !f.name.endsWith('.meta')
+                        && new File(f.parentFile, f.name + '.meta').isFile()) {
                     lines.add('builtin-asset-core/' + assetDir.toPath().relativize(f.toPath()).toString().replace('\\', '/'))
                 }
             }
         }
-        indexFile.text = lines.join('\n') + (lines ? '\n' : '')
+        indexFile.text = lines.sort().join('\n') + (lines ? '\n' : '')
     }
 }
 

@@ -89,14 +89,18 @@ public final class MeshUpload {
         }
         vertexData.flip();
         mesh.vertexBuffer = device.createBuffer(
-                new BufferDesc(vertexData.remaining(), Set.of(BufferUsage.VERTEX),
+                // STORAGE：体素化 compute 直接把顶点缓冲当 SSBO 读（P4-17，2026-11-19）
+                new BufferDesc(vertexData.remaining(), Set.of(BufferUsage.VERTEX, BufferUsage.STORAGE),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(vertexData));
 
         mesh.indexType = vertexCount <= 0xFFFF ? IndexType.UINT16 : IndexType.UINT32;
         mesh.indexCount = mesh.indices.length;
-        ByteBuffer indexData = ByteBuffer.allocateDirect(
-                        mesh.indices.length * (mesh.indexType == IndexType.UINT16 ? 2 : 4))
+        // 4 字节对齐补零：体素化 compute 把索引缓冲按 uint 字读（UINT16 奇数索引时
+        // 末字会跨出缓冲）——补尾零让缓冲字节数恒为 4 的倍数，indexCount 不含补位
+        int indexBytes = mesh.indices.length * (mesh.indexType == IndexType.UINT16 ? 2 : 4);
+        int paddedIndexBytes = (indexBytes + 3) & ~3;
+        ByteBuffer indexData = ByteBuffer.allocateDirect(paddedIndexBytes)
                 .order(ByteOrder.LITTLE_ENDIAN);
         for (int idx : mesh.indices) {
             if (mesh.indexType == IndexType.UINT16) {
@@ -105,9 +109,13 @@ public final class MeshUpload {
                 indexData.putInt(idx);
             }
         }
+        while (indexData.position() < paddedIndexBytes) {
+            indexData.put((byte) 0);
+        }
         indexData.flip();
         mesh.indexBuffer = device.createBuffer(
-                new BufferDesc(indexData.remaining(), Set.of(BufferUsage.INDEX),
+                // STORAGE：体素化 compute 直接把索引缓冲当 SSBO 读（P4-17，2026-11-19）
+                new BufferDesc(paddedIndexBytes, Set.of(BufferUsage.INDEX, BufferUsage.STORAGE),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(indexData));
 

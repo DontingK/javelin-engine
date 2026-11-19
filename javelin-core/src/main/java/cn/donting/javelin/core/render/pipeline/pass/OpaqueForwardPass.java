@@ -82,6 +82,9 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             // 主光阴影图采样读（批次④）：set1 binding4 着色消费——依赖声明建 Shadow→Opaque
             // 边（图拓扑保证阴影先画）；恒声明保结构稳定（未采时零成本）
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // 体素 AO 模糊图（四期 P4-17）：set1 binding8 采样面——前向档材质 fs 直接乘
+            // 环境项，声明读建「VoxelAO → Opaque」边并转采样读布局（写后读屏障）
+            pass.addTextureRead(rs.voxelAoTextureFor(view.name()));
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {

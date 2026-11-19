@@ -28,6 +28,7 @@ import java.awt.Window;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -61,6 +62,15 @@ public final class ProjectSettingsWindow extends JDialog {
 
     /** 项目文件设置实例（只写不读的页以此为宿主，如窗口页） */
     private final JavelinSetting projectSetting;
+
+    /** 各页当前展示的 schema（恢复默认后按页重建刷新，持久化仍走 {@link #pages}） */
+    private final List<SettingsSchema> displayPages = new ArrayList<>();
+
+    /** 各页卡片视图（恢复默认后原位替换） */
+    private final List<JComponent> cardViews = new ArrayList<>();
+
+    /** 卡片容器（按页切 CardLayout） */
+    private JPanel cards;
 
     /**
      * 打开设置窗（EDT 调用）——镜像已有窗口则先关掉重建（保证回显最新值）。
@@ -139,11 +149,14 @@ public final class ProjectSettingsWindow extends JDialog {
         categories.setSelectedIndex(0);
         JScrollPane navScroll = new JScrollPane(categories);
         navScroll.setPreferredSize(new Dimension(132, 0));
-        navScroll.setBorder(BorderFactory.createEmptyBorder());
+        navScroll.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 2));
 
-        JPanel cards = new JPanel(new CardLayout());
-        for (SettingsSchema page : pages) {
-            cards.add(pageForm(page), cardKey(page));
+        cards = new JPanel(new CardLayout());
+        displayPages.addAll(pages);
+        for (int i = 0; i < displayPages.size(); i++) {
+            JComponent view = pageForm(i);
+            cardViews.add(view);
+            cards.add(view, cardKey(displayPages.get(i)));
         }
         categories.addListSelectionListener(e -> {
             if (e.getValueIsAdjusting()) {
@@ -165,15 +178,50 @@ public final class ProjectSettingsWindow extends JDialog {
     }
 
     /** 单页表单（按注解展开的「分组 → 行」；行控件复用检查器叶子件） */
-    private JComponent pageForm(SettingsSchema page) {
+    private JComponent pageForm(int index) {
+        SettingsSchema page = displayPages.get(index);
         // 只有编辑器启动读入的页（活实例）改动才需要推引擎；只写不读的页改的是打包配置
         Runnable onApplied = page.editorStartup() ? this::apply : () -> {
         };
-        JPanel form = SettingsFormPanel.build(page, onApplied, this::showError);
+        JPanel form = SettingsFormPanel.build(page, onApplied, this::showError,
+                section -> resetSection(index, section));
         JScrollPane scroll = new JScrollPane(form);
         scroll.setBorder(BorderFactory.createEmptyBorder());
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         return scroll;
+    }
+
+    /**
+     * 分组恢复默认：确认 → 回填字段声明初值 → 推引擎 → 原位换掉该页视图（控件回显默认值）。
+     *
+     * <p>写盘仍走关窗的 load-modify-save；只写不读的页（窗口/场景）只改项目文件那份，不推引擎。</p>
+     */
+    private void resetSection(int index, SettingsSchema.Section section) {
+        SettingsSchema page = displayPages.get(index);
+        int choice = JOptionPane.showConfirmDialog(this,
+                EditorLang.text("projectSettings.resetConfirm", EditorLang.text(section.labelKey)),
+                EditorLang.text("projectSettings.resetTitle"),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            page.reset(section);
+            if (page.editorStartup()) {
+                apply();
+            }
+            SettingsSchema fresh = page.refreshed();
+            displayPages.set(index, fresh);
+            JComponent view = pageForm(index);
+            cards.remove(cardViews.get(index));
+            cardViews.set(index, view);
+            cards.add(view, cardKey(fresh), index);
+            ((CardLayout) cards.getLayout()).show(cards, cardKey(fresh));
+            cards.revalidate();
+            cards.repaint();
+        } catch (Throwable error) {
+            showError(error);
+        }
     }
 
     /** 卡片键：页在设置根上的字段名（{@code of} 开的单页退回页名键） */

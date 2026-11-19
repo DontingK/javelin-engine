@@ -146,6 +146,9 @@ public class LightingPass implements RenderPass {
             pass.addTextureRead(normal);
             pass.addTextureRead(worldPos);
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // 体素 AO 模糊图（四期 P4-17）：set1 binding8 的实际采样面，声明读才建
+            // 「VoxelAO → Lighting」边并把 compute 的 storage 写转成采样读（写后读屏障）
+            pass.addTextureRead(rs.voxelAoTextureFor(view.name()));
             // set1 storage 读声明（本视口 cluster 套件：着色逐像素查询）
             for (Buffer b : rs.viewStorages(view.name())) {
                 pass.addBufferRead(b);

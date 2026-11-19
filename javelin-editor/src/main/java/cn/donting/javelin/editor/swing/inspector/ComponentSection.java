@@ -9,6 +9,7 @@ import cn.donting.javelin.editor.swing.inspector.widget.CollapsiblePanel;
 import cn.donting.javelin.editor.swing.inspector.widget.ScrubDragger;
 import cn.donting.javelin.editor.swing.SvgIcon;
 
+import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -56,6 +57,8 @@ public class ComponentSection extends JComponent {
                             Supplier<JPopupMenu> headerPopup) {
         this.vo = vo;
         setLayout(new BorderLayout(0, 0));
+        // 组件分组外留白：标题/字段行不贴面板左右边框（左 6 / 右 4，上下 2）
+        setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 4));
         JComponent headerLeft = vo.required ? null : enabledCheck(owner, vo, commit);
         collapse = new CollapsiblePanel(vo.name, headerLeft, headerIcon(), buildFields(owner, vo, commit));
         collapse.setCollapsed(initialCollapsed);
