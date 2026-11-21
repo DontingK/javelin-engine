@@ -1,6 +1,6 @@
 # 编辑器菜单与命令系统设计（v0.25）
 
-> v0.25（2026-11-19）：工具域新增 `tools.voxelAoRebuild`（重建体素 AO，动作型无勾选）——`JavelinEngine.requestVoxelRebuild()` 立标志、下一次图构建重算占用图/AO/模糊图，随四期 P4-17（见 `Engine_VoxelAO_Design.md` §4.1）。
+> v0.25（2026-11-19）：工具域新增 `tools.voxelAoRebuild`（重建体素 AO，动作型无勾选）——**⚠ 该命令已于 2026-11-20 随 P4-17 体素 AO 退役删除**（条目见 §命令表历史行）。
 > v0.23（2026-11-13）：工具域 `tools.renderPipeline` **已删**（管线拆成两个独立实现类、运行期不再切档，编辑器固定混合管线；原命令表行划除）；新增 `tools.postProcessing`（后处理/Tonemap 开关，随四期第 1 项步骤一）与 `tools.bloom`（泛光独立开关，随步骤二——与后处理解耦、可分别开关）。
 > v0.24（2026-11-14）：新增**编辑域** `edit`（Unity 对齐、置于 file 之后）——`Edit → Project Settings…`（`edit.projectSettings`，弹非模态「项目设置」窗口，见 `Editor_ProjectSettings_Design.md`）；`tools.postProcessing`/`tools.bloom` 的开关实现随管线解耦改走 `PostProcessSetup`（原 `RenderPipeline.setXxxEnabled` 已删）。
 > v0.21（2026-11-08）：工具域补 `tools.renderPipeline`（渲染管线档位 FORWARD ↔ HYBRID 运行期切换 + 写盘，随三期批次④-B 落地；命令表 §… 已登记）。
@@ -448,7 +448,7 @@ public class MenuItemVo {        // 顶层与子项同构
 | `tools.postProcessing` | 后处理（HDR） | 工具 | checked 勾选命令（= 链含 Tonemap），切换 `PostProcessSetup.setEnabled(chain, TONEMAP, …)`——开 = HDR + 高光肩部 Tonemap，关 = 直通；写盘 `Game/javelinSettings.settings`，装配/写盘失败弹框（红线 15）。2026-11-13 随四期第 1 项步骤一（2026-11-14 随管线解耦改走 PostProcessSetup） |
 | `tools.bloom` | 泛光（Bloom） | 工具 | checked 勾选命令（= 链含 Bloom），切换 `PostProcessSetup.setEnabled(chain, BLOOM, …)`——**独立于后处理**，与 Tonemap 可分别开关（链四态见后处理档 §9.6）；写盘 + 失败弹框同口径。2026-11-13 随步骤二 |
 | `edit.projectSettings` | 项目设置… | 编辑 | 弹非模态「项目设置」窗口（左栏分类 + 右栏「图形\|后处理」页；后处理开关/参数与背景色**改动即时生效**、关窗写盘）。2026-11-14 落地，见 `Editor_ProjectSettings_Design.md` |
-| `tools.voxelAoRebuild` | 重建体素 AO | 工具 | 动作型无勾选：`JavelinEngine.requestVoxelRebuild()` → `VoxelizationPass`/`VoxelAoPass` 立 volatile 标志，下一次图构建重新收集网格并重算占用图 → AO → 模糊图（GPU 资源只在引擎线程碰）。用于静止物体移动/缩放后 AO 不跟随（首版只在开关、分辨率、射线数、距离与渲染对象数量变化时自动重建）；总开关关闭时引擎侧记日志空操作。2026-11-19 落地，见 `Engine_VoxelAO_Design.md` §4.1 |
+| ~~`tools.voxelAoRebuild`~~ | ~~重建体素 AO~~ **已删除（2026-11-20，随 P4-17 体素 AO 退役）** | 工具 | 历史：动作型无勾选：`JavelinEngine.requestVoxelRebuild()` → `VoxelizationPass`/`VoxelAoPass` 立 volatile 标志，下一次图构建重新收集网格并重算占用图 → AO → 模糊图（GPU 资源只在引擎线程碰）；命令类 `VoxelAoRebuildMenuCommand` 同批删除。用于静止物体移动/缩放后 AO 不跟随（首版只在开关、分辨率、射线数、距离与渲染对象数量变化时自动重建）；总开关关闭时引擎侧记日志空操作。2026-11-19 落地，见 `Engine_VoxelAO_Design.md` §4.1 |
 | ~~`tools.renderPipeline`~~ | ~~混合渲染（Deferred）~~ | 工具 | **已删（2026-11-13）**：管线拆成两个独立实现类、运行期不再切档——编辑器固定混合管线（`ProjectLoadingFrame` 显式设 `PipelineProfile.HYBRID`），档位字段只供打包运行时启动期选实现类；原「运行期切档 + 写盘 + AA 守卫」随批次④-B 的机制一并退役 |
 | `tools.refresh` | 刷新页面 | 工具 | 重载 CEF 内编辑器 web 页（`CefBrowser.reload`，EDT）——引擎/场景状态不动，面板 pull-on-mount 重新拉取；开发期 web 界面状态异常恢复入口（2026-10-11 落地） |
 | `hierarchy.create.empty` | 创建空物体 | 场景树右键 → 创建 | 选中节点下创建空节点（无选中=根级），重名去重 GameObject (n)，创建后选中新节点（2026-09-30 落地，v0.5 入「创建」子菜单） |

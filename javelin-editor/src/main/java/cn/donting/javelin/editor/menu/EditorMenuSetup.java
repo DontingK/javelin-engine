@@ -32,7 +32,7 @@ import cn.donting.javelin.editor.menu.top.GBufferViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
 import cn.donting.javelin.editor.menu.top.PreferencesMenuCommand;
 import cn.donting.javelin.editor.menu.top.ProjectSettingsMenuCommand;
-import cn.donting.javelin.editor.menu.top.VoxelAoRebuildMenuCommand;
+
 import cn.donting.javelin.editor.plugin.EditorLang;
 import cn.donting.javelin.editor.plugin.PluginContext;
 
@@ -81,8 +81,6 @@ public final class EditorMenuSetup {
         // 后处理开关（直通 ↔ HDR Tonemap，四期第 1 项步骤一 2026-11-13）：运行期切换 + 写盘
         context.registerCommand(new PostProcessingMenuCommand());
         context.registerCommand(new BloomMenuCommand());
-        // 体素 AO 重建（四期 P4-17，2026-11-19）：静止物体移动后手动重算占用图/AO
-        context.registerCommand(new VoxelAoRebuildMenuCommand());
         // G-Buffer 可视化视图（dbg-2，2026-11-12）：工具菜单四项单选（关闭/基色/世界法线/世界位置）
         context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.off",
                 GBufferDebugAppState.MODE_OFF));
@@ -164,7 +162,6 @@ public final class EditorMenuSetup {
                 .item("tools.grid")
                 .item("tools.postProcessing")
                 .item("tools.bloom")
-                .item("tools.voxelAoRebuild")
                 .submenu(EditorLang.key("tools.gbufferView"), gbuffer -> gbuffer
                         .item("tools.gbufferView.off")
                         .item("tools.gbufferView.albedo")

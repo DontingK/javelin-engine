@@ -18,9 +18,7 @@ import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
-import cn.donting.javelin.core.render.voxel.VoxelGrid;
 import cn.donting.javelin.core.settings.ShadowSettings;
-import cn.donting.javelin.core.settings.VoxelAoSettings;
 
 import cn.donting.javelin.rhi.Buffer;
 import cn.donting.javelin.rhi.DescriptorSet;
@@ -127,10 +125,11 @@ public final class RenderingSystem implements AutoCloseable {
      */
     public static final Format HDR_SCENE_COLOR_FORMAT = Format.R16G16B16A16_SFLOAT;
     /**
-     * SSAO 单通道 AO 格式（Engine_SSAO_Design §3.4）：AO 值域 [0,1]、半分辨率，8 位足够
-     * （带宽优先）；若实机出现带状再换 {@code R16_SFLOAT}（一行改动）。
+     * SSAO 单通道 AO 格式（Engine_SSAO_Design §3.4）：AO 值域 [0,1]、半分辨率。
+     * **2026-11-21 由 `R8_UNORM` 升 `R16_SFLOAT`**（BUG-12 修法④）：8 位只有 256 级，
+     * 合成时 `intensity > 1` 把量化台阶放大成可见带状；半分辨率下带宽代价可忽略。
      */
-    public static final Format SSAO_AO_FORMAT = Format.R8_UNORM;
+    public static final Format SSAO_AO_FORMAT = Format.R16_SFLOAT;
     /** 相机块步长：必须满足 minUniformBufferOffsetAlignment（256B，RHI 19.5-1） */
     private static final int CAMERA_STRIDE = 256;
     /** 槽内布局：相机块 × MAX_CAMERAS，其后 256B 时间块（timeSec/tpf，引擎私有约定） */
@@ -184,14 +183,6 @@ public final class RenderingSystem implements AutoCloseable {
     /** 每视口灯光资源：binding1/2/3 三缓冲 + set1 描述符集（视口像素尺寸变化重建） */
     private final Map<String, ViewLighting> viewLights = new HashMap<>();
 
-    // 体素 AO 采样面（四期 P4-17，set1 binding8/9）：网格由 VoxelizationPass 建好/换新后
-    // 登记到这里，各视口 set1 在 collectFrame 里比对身份后重指；关开关登记 null → 占位资源。
-    private VoxelGrid voxelGrid;
-    /** 占位 AO 图（1×1×1 全白 = AO 恒 1；set1 布局要求 binding 必须有效描述符） */
-    private Texture voxelAoFallback;
-    /** 占位参数块（全零 = aoParams.w 启用位 0，着色端直接走无遮蔽分支） */
-    private Buffer voxelParamsFallback;
-    private Sampler voxelSamplerFallback;
     private final ClusterBuilder clusterBuilder = new ClusterBuilder();
     /** grid 序列化暂存（cells×2 int，尺寸变化重分配；小端直写 hostVisible） */
     private ByteBuffer gridPack;
@@ -209,8 +200,6 @@ public final class RenderingSystem implements AutoCloseable {
     private boolean shadowSunActive;
     /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项/CSM 级联三项，Engine_Shadow_Quality_Design §3.2/§4.8） */
     private ShadowSettings shadowSettings = new ShadowSettings();
-    /** 体素化 AO 参数（Engine_VoxelAO_Design §6；重建判据与分辨率来源） */
-    private VoxelAoSettings voxelAoSettings = new VoxelAoSettings();
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
     /** 逐级联光空间 z 范围回填暂存（CSM，1/zRange 折算除数来源） */
     private final float[] shadowZRangeTmp = new float[4];
@@ -726,7 +715,8 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
-     * 每视口 SSAO RT（Engine_SSAO_Design §3.4）：index 0 = AO 原始值（模糊后 AO 归步骤二）。
+     * 每视口 SSAO RT（Engine_SSAO_Design §3.4）：index 0 = AO 原始值、1 = 水平模糊中间、
+     * 2 = 竖直模糊结果（可分离两遍，BUG-12，2026-11-21）。
      * 半分辨率（交换链尺寸 &gt;&gt; 1）、{@link #SSAO_AO_FORMAT}。与 lightingRtFor/bloomRtFor
      * 同模式（视口独立、resize 换绑、惰性创建、removeCamera 回收）；SSAO 关闭时不创建。
      */
@@ -1003,7 +993,6 @@ public final class RenderingSystem implements AutoCloseable {
             int gridX = (viewW + ClusterBuilder.TILE_SIZE - 1) / ClusterBuilder.TILE_SIZE;
             int gridY = (viewH + ClusterBuilder.TILE_SIZE - 1) / ClusterBuilder.TILE_SIZE;
             ViewLighting vl = viewLightsFor(cam.name(), viewW, viewH, gridX, gridY);
-            syncVoxelAo(cam.name(), vl);
             packLightingParams(lightSlotBase + camIndex * LIGHTING_STRIDE,
                     cam, gridX, gridY);
             packLightList(vl, camIndex == 0);
@@ -1247,27 +1236,6 @@ public final class RenderingSystem implements AutoCloseable {
             throw new IllegalArgumentException("shadowSettings must not be null");
         }
         this.shadowSettings = shadowSettings;
-    }
-
-    /** 体素化 AO 参数（Engine_VoxelAO_Design §6；启动期由引擎灌入、设置窗改写即生效） */
-    public VoxelAoSettings voxelAoSettings() {
-        return voxelAoSettings;
-    }
-
-    /** 体素化 AO 参数设置（null 拒绝——保持恒有值） */
-    public void setVoxelAoSettings(VoxelAoSettings voxelAoSettings) {
-        if (voxelAoSettings == null) {
-            throw new IllegalArgumentException("voxelAoSettings must not be null");
-        }
-        this.voxelAoSettings = voxelAoSettings;
-    }
-
-    /**
-     * 登记体素 AO 采样面（null = 关闭占位）。由 {@code VoxelizationPass} 在网格建好/换新
-     * 或释放时调用；各视口 set1 binding8/9 在下一帧收集时按身份比对重指（set1 只此一处消费）。
-     */
-    public void setVoxelGrid(VoxelGrid voxelGrid) {
-        this.voxelGrid = voxelGrid;
     }
 
     /**
@@ -1644,12 +1612,6 @@ public final class RenderingSystem implements AutoCloseable {
                 new DescriptorSetLayoutDesc.Binding(6, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(7, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT),
-                // binding8/9 = 体素 AO 模糊图 + 参数块（四期 P4-17，两档着色共用；
-                // 体素 AO 关闭时 binding8 指 1×1×1 全白占位、binding9 指向零参数块 = AO 恒 1）
-                new DescriptorSetLayoutDesc.Binding(8, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT),
-                new DescriptorSetLayoutDesc.Binding(9, DescriptorType.UNIFORM_BUFFER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -1698,13 +1660,7 @@ public final class RenderingSystem implements AutoCloseable {
                 DescriptorUpdate.sampledTexture(4, shadowMapFor(cameraName), shadowSampler),
                 DescriptorUpdate.sampledTexture(5, gbufferAlbedo, gbufferSampler),
                 DescriptorUpdate.sampledTexture(6, gbufferNormal, gbufferSampler),
-                DescriptorUpdate.sampledTexture(7, gbufferWorldPos, gbufferSampler),
-                // binding8/9 初值（占位白图 + 零参数 = aoParams.w=0 着色端返回 1）：
-                // 集合建立帧即参与 draw，空白描述符是 UB（VVL 08114 实锤，2026-11-19）；
-                // 网格身份变化时由 syncVoxelAo 换整套新集合（不原地 update，03047）
-                DescriptorUpdate.sampledTexture(8, voxelAoFallback(), voxelSamplerFallback()),
-                DescriptorUpdate.uniformBuffer(9, voxelParamsFallback(),
-                        0, VoxelGrid.PARAM_BYTES)});
+                DescriptorUpdate.sampledTexture(7, gbufferWorldPos, gbufferSampler)});
         ViewLighting created = new ViewLighting(lightList, clusterGrid, clusterIndices,
                 gbufferAlbedo, gbufferNormal, gbufferWorldPos,
                 set, viewW, viewH, gridX, gridY);
@@ -1713,99 +1669,6 @@ public final class RenderingSystem implements AutoCloseable {
                 cameraName, viewW, viewH, gridX, gridY, ClusterBuilder.Z_SLICES,
                 gridX * gridY * ClusterBuilder.Z_SLICES * 8, ClusterBuilder.MAX_POOL_UINTS * 4);
         return created;
-    }
-
-    /**
-     * 体素 AO 采样面重指（set1 binding8/9）：**换整套 set1，不原地 update**——引擎
-     * 2 帧在飞，帧 N-1 的命令缓冲已提交未完成即算 pending（03047 原文 pending state，
-     * 其 fence 无人 await），原地 update 共享 set 无安全时机（隔一帧/两帧实测均撞）。
-     * 网格身份变化时新建 set1 写全 binding0~9（新 set 未被任何缓冲引用，update 无
-     * 约束），旧 set 经 retire 两帧退役（在飞缓冲引用的是旧 set，安全）。
-     * 关开关时指占位全白图 + 零参数块（{@code aoParams.w = 0} 着色端直接返回 1）。
-     * 每帧调用，身份相等即零开销（重建低频，新 set 成本可忽略）。
-     */
-    private void syncVoxelAo(String cameraName, ViewLighting vl) {
-        boolean enabled = voxelAoSettings != null && voxelAoSettings.isEnabled();
-        VoxelGrid target = enabled ? voxelGrid : null;
-        if (vl.voxelBound && target == vl.voxelGrid) {
-            return;
-        }
-        // 新建 set1：binding0~3 复用本视口光照三缓冲 + 动态 UBO（常驻资源，不随网格变），
-        // 4~7 恒指本视口附件，8/9 按目标写（网格模糊图 / 占位白图）
-        DescriptorSet set = device.createDescriptorSet(frameStorageSetLayout);
-        set.update(new DescriptorUpdate[]{
-                DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
-                DescriptorUpdate.storageBuffer(1, vl.lightList),
-                DescriptorUpdate.storageBuffer(2, vl.clusterGrid),
-                DescriptorUpdate.storageBuffer(3, vl.clusterIndices),
-                DescriptorUpdate.sampledTexture(4, shadowMapFor(cameraName), shadowSampler),
-                DescriptorUpdate.sampledTexture(5, vl.gbufferAlbedo, gbufferSampler),
-                DescriptorUpdate.sampledTexture(6, vl.gbufferNormal, gbufferSampler),
-                DescriptorUpdate.sampledTexture(7, vl.gbufferWorldPos, gbufferSampler),
-                DescriptorUpdate.sampledTexture(8,
-                        target != null ? target.aoBlur() : voxelAoFallback(),
-                        target != null ? target.samplerLinear() : voxelSamplerFallback()),
-                DescriptorUpdate.uniformBuffer(9,
-                        target != null ? target.params() : voxelParamsFallback(),
-                        0, VoxelGrid.PARAM_BYTES)});
-        // 旧 set 退役（两帧后 dispose；本帧起图录制用的是新 set）
-        DescriptorSet old = vl.set;
-        vl.set = set;
-        vl.voxelGrid = target;
-        vl.voxelBound = true;
-        retireResource(old::dispose);
-        log.info("视口 set1 体素 AO 重指(换新集合): camera[{}] → {}", cameraName,
-                target != null ? "网格 " + target.resolution() + "³/ AO " + target.aoResolution() + "³"
-                        : "占位（关闭或无网格）");
-    }
-
-    /**
-     * 本视口 set1 binding8 实际指向的 AO 采样面（图构建期消费方声明 {@code addTextureRead}
-     * 用）：有网格即模糊图、否则占位全白图——与 {@link #syncVoxelAo} 同一判定。
-     *
-     * <p>模糊图是 compute 的 storage 写，同布局的「写 → 采样读」拿不到屏障（图执行器只在
-     * 布局变化时插 {@code pipelineBarrier}）；消费方声明采样读才能把它转到
-     * {@code SHADER_READ_ONLY}，转换本身即写后读屏障。</p>
-     */
-    public Texture voxelAoTextureFor(String cameraName) {
-        ViewLighting vl = viewLights.get(cameraName);
-        if (vl == null || vl.voxelGrid == null) {
-            return voxelAoFallback();
-        }
-        return vl.voxelGrid.aoBlur();
-    }
-
-    /** 占位 AO 图（1×1×1 全白；惰性创建，尺寸不随视口变） */
-    private Texture voxelAoFallback() {
-        if (voxelAoFallback == null) {
-            ByteBuffer white = ByteBuffer.allocateDirect(1).order(ByteOrder.LITTLE_ENDIAN);
-            white.put((byte) 0xFF);
-            white.flip();
-            voxelAoFallback = device.createTexture(TextureDesc.texture3D(
-                    Format.R8_UNORM, 1, 1, 1,
-                    Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED, TextureUsage.TRANSFER_DST)),
-                    UploadData.of(white));
-        }
-        return voxelAoFallback;
-    }
-
-    private Sampler voxelSamplerFallback() {
-        if (voxelSamplerFallback == null) {
-            voxelSamplerFallback = device.createSampler(SamplerDesc.nearest());
-        }
-        return voxelSamplerFallback;
-    }
-
-    /** 占位参数块（全零 = 启用位 0；惰性创建后显式清零，hostVisible 初始内容不保证） */
-    private Buffer voxelParamsFallback() {
-        if (voxelParamsFallback == null) {
-            voxelParamsFallback = device.createBuffer(new BufferDesc(VoxelGrid.PARAM_BYTES,
-                    Set.of(BufferUsage.UNIFORM), MemoryPreference.hostVisibleCoherent()), null);
-            ByteBuffer zeros = ByteBuffer.allocateDirect(VoxelGrid.PARAM_BYTES)
-                    .order(ByteOrder.LITTLE_ENDIAN);
-            voxelParamsFallback.update(0, zeros);
-        }
-        return voxelParamsFallback;
     }
 
     /** set1 描述符集（本视口光照套件；collectFrame 先行建资源）。绑定带 1 个动态偏移（{@link RenderView#lightingOffset()}） */
@@ -1838,14 +1701,9 @@ public final class RenderingSystem implements AutoCloseable {
         final Texture gbufferAlbedo;
         final Texture gbufferNormal;
         final Texture gbufferWorldPos;
-        /** 本视口 set1（体素网格身份变化时整套换新、旧 set retire——不原地 update，
+        /** 本视口 set1（视口尺寸变化时整套换新、旧 set retire——不原地 update，
          *  绕开 03047 在途约束；dispose 只管当前这套，旧套在 retire 队列各自走完） */
         DescriptorSet set;
-        /** set1 binding8/9 当前指向的体素网格（null = 占位；身份变化触发整套 set1 换新） */
-        VoxelGrid voxelGrid;
-        /** binding8/9 是否已写过有效目标：集合建立时已写占位初值（binding0~9 全写），
-         * 首帧身份 = 双 null 相等即零开销 */
-        boolean voxelBound = true;
         final int viewW;
         final int viewH;
         final int gridX;

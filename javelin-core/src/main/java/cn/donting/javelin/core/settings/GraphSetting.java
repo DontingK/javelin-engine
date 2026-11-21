@@ -42,10 +42,6 @@ public class GraphSetting implements Serializable {
     @SettingGroup(label = "projectSettings.section.shadow")
     private ShadowSettings shadowSettings = new ShadowSettings();
 
-    /** 体素化 AO（场景占用网格 + 半球可见度，四期 P4-17；Engine_VoxelAO_Design §6） */
-    @SettingGroup(label = "projectSettings.section.voxelAO")
-    private VoxelAoSettings voxelAoSettings = new VoxelAoSettings();
-
     // 抗锯齿（TAA）与锐化不再在项目设置里：已迁到相机（Unity HDRP Camera Frame Settings 口径，
     // 2026-11-15 用户拍板「直接删除、搬到相机上」——不同相机可有不同抗锯齿与锐化）
 
@@ -104,17 +100,6 @@ public class GraphSetting implements Serializable {
         this.shadowSettings = shadowSettings;
     }
 
-    public VoxelAoSettings getVoxelAoSettings() {
-        return voxelAoSettings;
-    }
-
-    public void setVoxelAoSettings(VoxelAoSettings voxelAoSettings) {
-        if (voxelAoSettings == null) {
-            throw new IllegalArgumentException("voxelAoSettings must not be null");
-        }
-        this.voxelAoSettings = voxelAoSettings;
-    }
-
     @Override
     public void write(OutputCapsule output) {
         output.write("renderPipeline", renderPipeline);
@@ -122,7 +107,6 @@ public class GraphSetting implements Serializable {
         output.write("postProcessSettings", postProcessSettings);
         output.write("ssaoSettings", ssaoSettings);
         output.write("shadowSettings", shadowSettings);
-        output.write("voxelAoSettings", voxelAoSettings);
     }
 
     @Override
@@ -145,10 +129,6 @@ public class GraphSetting implements Serializable {
         SsaoSettings ssao = input.readSerializable("ssaoSettings", SsaoSettings.class);
         if (ssao != null) {
             ssaoSettings = ssao;
-        }
-        VoxelAoSettings voxelAo = input.readSerializable("voxelAoSettings", VoxelAoSettings.class);
-        if (voxelAo != null) {
-            voxelAoSettings = voxelAo;
         }
     }
 }

@@ -36,7 +36,7 @@
 - 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
 - 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj@0 + view@64，128B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
 
-## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③已实装；**4 批次④-A 已实装——binding4 并入 set1 布局**；5/6/7 批次④-B；**8/9 四期 P4-17 体素 AO，落码未验收**）
+## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③已实装；**4 批次④-A 已实装——binding4 并入 set1 布局**；5/6/7 批次④-B；**8/9 四期 P4-17 体素 AO 已于 2026-11-20 删除，现布局只到 binding7**）
 
 2026-10-28 拍板（Engine_Lighting_Design v0.1）：**跳过 UBO 数组中间档，直接 clustered + SSBO（Forward+ 形态）**——原 LightBlock UBO 落此预留口径作废。set1 = 光照域多 binding（FRAGMENT）：
 
@@ -63,7 +63,7 @@
 | `lighting.ambient` | `vec4` | 320 | 16B | 环境项（v0.x = 纯黑，Unity 口径 2026-11-01 拍板；真值源归四期天空盒环境光） |
 | `lighting.sunViewProj[4]` | `mat4[4]` | 336 | 256B | **四期 CSM（2026-11-14）**：逐级联 主光 世界→光裁剪 正交矩阵（zZeroToOne；未用槽 = identity）。原单 `mat4 sunViewProj`（批次④-A @336）扩为数组 |
 | `lighting.cascadeSplits` | `vec4` | 592 | 16B | 各级联视空间 z 远界（`-viewPos.z` 选级联；超出末级联 = 恒受光）；未用槽 = 相机 far |
-| `lighting.shadowParams` | `vec4` | 608 | 16B | x=品质档编码（0 硬影 / 1=4 tap→3×3 / 2=9 tap→5×5）、y=PCF 半径（纹素）、z=阴影强度（0~1）、**w=参考深度偏移（世界单位，逐级联乘 `cascadeInvZ` 折算，四期改语义）** |
+| `lighting.shadowParams` | `vec4` | 608 | 16B | x=品质档编码（0 硬影 / 1=4 tap→3×3 / 2=9 tap→5×5）、y=PCF 半径（纹素）、z=阴影强度（0~1）、**w=参考深度偏移（世界单位，逐级联乘 `cascadeInvZ` 折算，四期改语义）**；注入段另加**固定半纹素外扩** `0.5/(atlasSize/grid)`（2026-11-20 接触漏光修复，非 UBO 字段、由 y/x 现推） |
 | `lighting.shadowParams2` | `vec4` | 624 | 16B | **四期 CSM 新增**：x=atlas 每轴象限数（1 或 2）、y=atlas 边长（纹素）、z=级联混合带比例、w 预留 |
 | `lighting.cascadeInvZ` | `vec4` | 640 | 16B | **四期 CSM 新增**：逐级联 1/光空间 z 范围（参考深度偏移「世界单位→裁剪 z 增量」的除数） |
 
@@ -72,9 +72,9 @@
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
 - shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
 - gbufferAlbedo/gbufferNormal/gbufferWorldPos（binding5/6/7，批次④-B）：LightingPass 全屏读 G-Buffer 三张（`RenderingSystem.frameStorageLayoutDesc` 与 `ShaderInjector` 的 G-Buffer 注入块同源）；G-Buffer 三张 per-view（与 depth 同尺码，resize 换绑并重建 set1 描述符集）；
-- voxelAO（binding8，四期 P4-17）：`sampler3D`，指**体素 AO 模糊图**（`R8_UNORM` M³，LINEAR + CLAMP_TO_EDGE 三线性）；关闭/无网格时指 1×1×1 全白占位图（AO 恒 1）。per-view set1 在 `collectFrame` 里按网格身份重指（`RenderingSystem.syncVoxelAo`）；
-- voxelParams（binding9，四期 P4-17）：UBO 64B，块名 `VoxelParamsBlock`，排布 = `VoxelGrid.writeParams`（@0 `vec4 voxelOriginResolution`(xyz 原点, w 占用分辨率)、@16 `vec4 voxelVoxelSize`(xyz 占用体素边长, w AO 分辨率)、@32 `vec4 voxelAoParams`(x 射线数, y 最大距离, z 强度, w 启用位)、@48 `vec4 voxelGridBounds`）；关闭时指全零占位块（启用位 0 = 着色端直接返回 1）；
-- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光 CSM 阴影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3/§4）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `float javelinCascadeShadow(int cascade, vec3 worldPos)`（单级联：矩阵投影 + atlas 象限定位 + 品质档 PCF，核夹在象限内）与 `float javelinShadowTapC(vec2, float, vec2, vec2)`（单 tap 深度比较，夹取象限界）；级联选择 + 相邻混合带在 `javelinLighting` 内（四期 CSM 2026-11-14）；另注入 `float javelinVoxelAO(vec3 worldPos, vec3 worldNormal)`（四期 P4-17 体素 AO：启用位门控 → 沿法线偏半体素 → 归一化采样 → 越界 1.0），在 `javelinLighting` 内作环境项乘子；**`javelinLighting` 签名未变**（世界法线由 `transpose(mat3(cam.view)) * viewNormal` 现推），故调用方零改动，但注入器改动仍须强制重导。
+- ~~voxelAO（binding8，四期 P4-17）~~ **已删除（2026-11-20，P4-17 整体退役）**：原 `sampler3D` 体素 AO 模糊图与 `syncVoxelAo` 重指逻辑一并移除，set1 现只到 binding7；
+- ~~voxelParams（binding9，四期 P4-17）~~ **已删除（2026-11-20）**：`VoxelParamsBlock` / `VoxelGrid.writeParams` 同批移除；set1 布局回到 binding0~7；
+- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光 CSM 阴影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3/§4）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `float javelinCascadeShadow(int cascade, vec3 worldPos)`（单级联：矩阵投影 + atlas 象限定位 + 品质档 PCF，核夹在象限内）与 `float javelinShadowTapC(vec2, float, vec2, vec2)`（单 tap 深度比较，夹取象限界）；级联选择 + 相邻混合带在 `javelinLighting` 内（四期 CSM 2026-11-14）；另注入 `float javelinVoxelAO(...)` 已于 2026-11-20 随 P4-17 删除（环境项回到纯常量 `ambient.rgb * ambient.a`；遮蔽由 SSAO 承担）；**`javelinLighting` 签名未变**（世界法线由 `transpose(mat3(cam.view)) * viewNormal` 现推——该行亦随之精简），故调用方零改动，但注入器改动仍须强制重导。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 

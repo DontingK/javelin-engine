@@ -35,37 +35,45 @@ public class ShadowSettings implements Serializable {
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
     @InsSlider
     private float strength = 1.0f;
-    /** PCF 半径（纹素；核偏移步长缩放，越大半影越宽） */
+    /** PCF 半径（纹素；核偏移步长缩放，越大半影越宽）——2026-11-20 接触漏光修复：缺省 1.0→0.6
+     * （3×3 核在 2048 级联下有效半影可达 3 纹素 ≈ 10cm，接触处必漏；收窄既降漏光也保软影观感） */
     @InsField(label = "projectSettings.shadowPcfRadius")
     @InsFloatRange(min = 0f, max = 4f, step = 0.1f)
     @InsSlider
-    private float pcfRadius = 1.0f;
-    /** 参考深度偏移（世界单位；正交光空间由渲染侧折算成 z 增量）——抗彼得潘宁的细调项 */
+    private float pcfRadius = 0.6f;
+    /** 参考深度偏移（世界单位；正交光空间由渲染侧折算成 z 增量）——抗彼得潘宁的细调项。
+     * 2026-11-20 接触漏光修复：缺省 0→0.02（正值 = 阴影边界外扩，堵接触处漏光；过大则受影面
+     * 出现 acne 暗斑，与 biasSlope 成对调） */
     @InsField(label = "projectSettings.shadowDepthOffset")
     @InsFloatRange(min = 0f, max = 1f, step = 0.01f)
     @InsSlider
-    private float refDepthOffset = 0.0f;
+    private float refDepthOffset = 0.02f;
     /** PSO 静态 depth bias 常量项（抗自遮挡 acne；批次④-A 起步值 2.0） */
     @InsField(label = "projectSettings.shadowBiasConstant")
     @InsFloatRange(min = 0f, max = 10f, step = 0.1f)
     @InsSlider
     private float biasConstant = 2.0f;
-    /** PSO 静态 depth bias 斜率项（随面斜率增大，批次④-A 起步值 1.5） */
+    /** PSO 静态 depth bias 斜率项（随面斜率增大）。2026-11-20：缺省 1.5→0.6 —— 1.5 在掠射面
+     * （地面/大平台）把 caster 深度往远处推的量可达数厘米，正是接触处漏光的直接来源；
+     * 降档后阴影边界回收，抗 acne 交给注入段固定的半纹素外扩 + normalOffset 方案 */
     @InsField(label = "projectSettings.shadowBiasSlope")
     @InsFloatRange(min = 0f, max = 10f, step = 0.1f)
     @InsSlider
     @SettingHint("projectSettings.shadowBiasHint")
-    private float biasSlope = 1.5f;
-    /** CSM 级联数（1/2/4；1 = 退化为单张，与步骤一形态同源。缺省 2） */
+    private float biasSlope = 0.6f;
+    /** CSM 级联数（1/2/4；1 = 退化为单张，与步骤一形态同源）。2026-11-20：缺省 2→4 ——
+     * 级联盒按相机视锥球拟合，近级联纹素尺寸近似与切分距离成正比：2 级联/100 距离时近级联
+     * 单纹素约 3.3cm（PCF 核叠加后接触亮线可达 10cm），4 级联/80 距离降到约 1.3cm，且 atlas
+     * 仍为 2×2 全用（显存不变）。代价 = caster 每级联全量重绘（v1 无逐级联剔除），绘制量 ×4 */
     @InsField(label = "projectSettings.shadowCascades")
     @InsIntRange(min = 1, max = 4, step = 1)
     @SettingSelect(values = {1, 2, 4}, labelPrefix = "projectSettings.shadowCascades")
-    private int cascadeCount = 2;
-    /** 阴影距离（世界单位；超出恒受光。缺省 100） */
+    private int cascadeCount = 4;
+    /** 阴影距离（世界单位；超出恒受光）。2026-11-20：缺省 100→80，近端两级联切分更细 */
     @InsField(label = "projectSettings.shadowDistance")
     @InsFloatRange(min = 5f, max = 1000f, step = 5f)
     @InsSlider
-    private float shadowDistance = 100.0f;
+    private float shadowDistance = 80.0f;
     /** 级联切分 lambda 混合系数（0=均匀、1=对数；缺省 0.5） */
     @InsField(label = "projectSettings.shadowCascadeLambda")
     @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
@@ -170,12 +178,12 @@ public class ShadowSettings implements Serializable {
         // 越界值只可能来自手工改文件，钳制是静默兜底，如实读出是既定口径）
         quality = input.readEnum("quality", ShadowQuality.class, ShadowQuality.SOFT_LOW);
         strength = input.readFloat("strength", 1.0f);
-        pcfRadius = input.readFloat("pcfRadius", 1.0f);
-        refDepthOffset = input.readFloat("refDepthOffset", 0.0f);
+        pcfRadius = input.readFloat("pcfRadius", 0.6f);
+        refDepthOffset = input.readFloat("refDepthOffset", 0.02f);
         biasConstant = input.readFloat("biasConstant", 2.0f);
-        biasSlope = input.readFloat("biasSlope", 1.5f);
-        cascadeCount = input.readInt("cascadeCount", 2);
-        shadowDistance = input.readFloat("shadowDistance", 100.0f);
+        biasSlope = input.readFloat("biasSlope", 0.6f);
+        cascadeCount = input.readInt("cascadeCount", 4);
+        shadowDistance = input.readFloat("shadowDistance", 80.0f);
         cascadeLambda = input.readFloat("cascadeLambda", 0.5f);
     }
 }

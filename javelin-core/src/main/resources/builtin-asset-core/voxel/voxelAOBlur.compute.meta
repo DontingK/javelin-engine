@@ -1,7 +1,0 @@
-javelin-text-serialization
-version=1
-[0:cn.donting.javelin.editor.meta.AssetMeta]
-guid=b82d4f6a1c9e4d378a5f2c8091e6b347
-assetType=ComputeShader
-importSettings=@null
-lastModifiedTime=0

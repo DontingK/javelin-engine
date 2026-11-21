@@ -23,8 +23,6 @@ import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
-import cn.donting.javelin.core.render.voxel.VoxelAoPass;
-import cn.donting.javelin.core.render.voxel.VoxelizationPass;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.LayerAndTagManger;
 import cn.donting.javelin.core.scene.Scene;
@@ -105,10 +103,6 @@ public class JavelinEngine {
     private boolean taaForwardWarned;
     /** GPU ID-buffer 拾取系统（可选服务，消费方构造 PickSystem 时注册；mainLoop 帧末调度） */
     private PickSystem pickSystem;
-    /** 体素化 Pass（四期 P4-17；设置入口在图形页「体素化环境光遮蔽」组） */
-    private VoxelizationPass voxelizationPass;
-    /** 体素 AO 求值 Pass（占用图 → AO 图，批 C；恒挂载在体素化之后） */
-    private VoxelAoPass voxelAoPass;
 
     /** 当前场景（setScene 设置；null = 无场景，直注册模式） */
     protected Scene scene;
@@ -559,16 +553,10 @@ public class JavelinEngine {
         postProcessSetup = new PostProcessSetup(device(), getAssetManager());
         // 阴影参数（Engine_Shadow_Quality_Design §3.2）：渲染系统持 live 实例，每帧打包进 UBO
         renderingSystem.setShadowSettings(setting.getGraphSettings().getShadowSettings());
-        // 体素化 AO（Engine_VoxelAO_Design §4.1）：插在 ShadowPass 之后、几何 Pass 之前——
-        // 占用图 → AO 图 → 模糊图必须在同一帧光照消费之前算完（挂尾部则光照读到的是
-        // 上帧图，重建首帧会采到全零 AO = 环境项整屏发黑）；开关关闭时不进图
-        renderingSystem.setVoxelAoSettings(setting.getGraphSettings().getVoxelAoSettings());
-        voxelizationPass = new VoxelizationPass(device(), renderingSystem, assetManager);
-        pipeline.addPass(voxelizationPass, "Shadow");
-        // 体素 AO 求值（批 C）：必须排在体素化之后（占用图 → AO 图 → 模糊图），
-        // 依赖由占用图的「storage 写 / 采样读」声明自动推导
-        voxelAoPass = new VoxelAoPass(device(), renderingSystem, voxelizationPass, assetManager);
-        pipeline.addPass(voxelAoPass, voxelizationPass.name());
+        // 体素 AO（P4-17）已于 2026-11-20 整体退役：环境遮蔽由 SSAO 承担（DDGI 落地后再
+        // 按「GI 一层 + 至多一层补强」收敛）。原体素化底座（VoxelizationPass / VoxelGrid /
+        // voxelize.compute / MeshVoxelGeometry）同批删除，可从 dc1e9e0 取回，P4-05 首版
+        // 投射线按「静态集过滤 + 动态 tile」口径重建。
         return pipeline;
     }
 
@@ -666,28 +654,6 @@ public class JavelinEngine {
 
     public AssetManager getAssetManager() {
         return assetManager;
-    }
-
-    /**
-     * 请求重建体素 AO（编辑器「工具｜重建体素 AO」命令入口）：只立标志，实际
-     * 重新收集/派发在下一次图构建时完成（见 {@code VoxelizationPass.ensureReady}）。
-     *
-     * <p>开关关闭时是合法的空操作（占位资源照常采样，无遮蔽）。可从任意线程调用——
-     * 标志位 volatile，标志本身无跨帧副作用。</p>
-     */
-    public void requestVoxelRebuild() {
-        if (voxelizationPass == null || voxelAoPass == null) {
-            log.warn("体素 AO 重建请求被忽略：渲染管线未建（未完成启动）");
-            return;
-        }
-        if (setting.getGraphSettings().getVoxelAoSettings() == null
-                || !setting.getGraphSettings().getVoxelAoSettings().isEnabled()) {
-            log.info("体素 AO 重建请求被忽略：总开关关闭（开启后首帧自动重建）");
-            return;
-        }
-        voxelizationPass.requestRebuild();
-        voxelAoPass.requestRebuild();
-        log.info("体素 AO 重建已排队（下一次图构建执行）");
     }
 
     protected void update() {

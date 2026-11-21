@@ -57,8 +57,9 @@ import java.util.Set;
 
 /**
  * 后处理链中 SSAO 节点（Engine_SSAO_Design §3.2/§3.3）：世界空间半球核环境光遮蔽——
- * AO 计算（半分辨率，写 {@code ssaoRtFor(view,0)}）→ 双边模糊（半分辨率，写
- * {@code ssaoRtFor(view,1)}，消噪声）→ 合成（场景色 × mix(1, AO, intensity)，写链输出）。
+ * AO 计算（半分辨率，写 {@code ssaoRtFor(view,0)}）→ 双边模糊**可分离两遍**（水平写
+ * {@code ssaoRtFor(view,1)}、竖直写 {@code ssaoRtFor(view,2)}，消噪声）→ 合成（场景色 ×
+ * mix(1, AO, intensity)，写链输出）。
  *
  * <p><b>不读深度</b>（RHI 无深度采样路径，设计档 §2.1）：输入 = G-Buffer 世界法线 + 世界位置
  * （w=有效标志），相机矩阵走 set0 引擎 frameSet（动态偏移选本视口）——故**仅 HYBRID 档可用**
@@ -82,8 +83,11 @@ public class SsaoPass implements PostProcessNode {
     private static final String BLUR_FRAG_PATH = "core/postprocess/ssao_blur.frag";
     private static final String COMPOSITE_FRAG_PATH = "core/postprocess/ssao_composite.frag";
 
-    /** push 常量：vec4 uvRect + vec4 params（x=radius, y=bias, z=intensity, w=0），共 32B */
+    /** push 常量：vec4 uvRect + vec4 params（各 Pass 语义不同，见各 add*Pass 的注释），共 32B */
     private static final int PUSH_SIZE = 32;
+
+    /** AO 自适应深度偏移倍率（内部常量，不占设置面）：偏置 = max(bias, 倍率 × 邻域视 z 步进) */
+    private static final float BIAS_SLOPE_SCALE = 1.5f;
 
     /** 全屏大三角形 NDC 顶点（(-1,-1)/(3,-1)/(-1,3)，vec2、stride 8B） */
     private static final float[] TRIANGLE_VERTICES = {
@@ -164,7 +168,8 @@ public class SsaoPass implements PostProcessNode {
         Texture normal = rs.gbufferNormalFor(viewName);
         Texture worldPos = rs.gbufferWorldPosFor(viewName);
         Texture aoRaw = rs.ssaoRtFor(viewName, 0);
-        Texture aoBlurred = rs.ssaoRtFor(viewName, 1);
+        Texture aoH = rs.ssaoRtFor(viewName, 1);
+        Texture aoBlurred = rs.ssaoRtFor(viewName, 2);
 
         // uvRect：视口区域在「全分辨率源纹理」中的归一化矩形（G-Buffer 与场景色同尺寸）
         int fullW = worldPos.desc().width();
@@ -178,7 +183,9 @@ public class SsaoPass implements PostProcessNode {
         };
 
         addAoPass(graph, view, rs, normal, worldPos, aoRaw, uvRect);
-        addBlurPass(graph, view, rs, aoRaw, worldPos, aoBlurred, uvRect);
+        // 可分离双边模糊两遍：水平（raw → 1）→ 竖直（1 → 2）；合成消费 2
+        addBlurPass(graph, view, rs, aoRaw, worldPos, aoH, uvRect, true);
+        addBlurPass(graph, view, rs, aoH, worldPos, aoBlurred, uvRect, false);
         addCompositePass(graph, view, input, aoBlurred, output, uvRect);
     }
 
@@ -218,23 +225,30 @@ public class SsaoPass implements PostProcessNode {
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
                 // set1 采样：binding0 = 世界法线、binding1 = 世界位置（引擎 G-Buffer NEAREST 采样器）
                 cmd.bindDescriptorSet(1, descSetFor(key, normal, worldPos, rs.gbufferSampler()), 0, null);
-                pushParams(cmd, uvRect);
+                // params = (radius, bias, biasSlopeScale, 0)——深度偏移自适应倍率
+                pushParams(cmd, uvRect, radius, bias, BIAS_SLOPE_SCALE, 0.0f);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
             });
         });
     }
 
-    /** 双边模糊 Pass：AO 原始值 + 世界位置（保边权）→ 半分辨率平滑 AO（消半球核噪声） */
+    /**
+     * 可分离双边模糊的单遍（水平或竖直）：上游 AO + 世界位置（保边权）→ 半分辨率平滑 AO。
+     *
+     * @param horizontal true = 水平轴（写 index 1）、false = 竖直轴（写 index 2）
+     */
     private void addBlurPass(RenderGraphBuilder graph, RenderView view, RenderingSystem rs,
-                             Texture aoRaw, Texture worldPos, Texture aoBlurred, float[] uvRect) {
+                             Texture aoIn, Texture worldPos, Texture aoOut, float[] uvRect,
+                             boolean horizontal) {
         RHIViewport halfVp = halfViewport(view.viewport());
         RHIScissor halfSc = halfScissor(view.scissor());
-        Format colorFormat = aoBlurred.desc().format();
-        String key = view.name() + "|blur";
-        graph.addGraphicsPass(view.name() + "_SSAO_Blur", pass -> {
-            pass.addColorOutput(aoBlurred, RHILoadOp.CLEAR, CLEAR_WHITE);
-            pass.addTextureRead(aoRaw);
+        Format colorFormat = aoOut.desc().format();
+        String suffix = horizontal ? "H" : "V";
+        String key = view.name() + "|blur" + suffix;
+        graph.addGraphicsPass(view.name() + "_SSAO_Blur" + suffix, pass -> {
+            pass.addColorOutput(aoOut, RHILoadOp.CLEAR, CLEAR_WHITE);
+            pass.addTextureRead(aoIn);
             pass.addTextureRead(worldPos);
             pass.setViewport(halfVp);
             pass.setScissor(halfSc);
@@ -243,8 +257,9 @@ public class SsaoPass implements PostProcessNode {
                 logFirstDraw(view.name());
                 cmd.bindPipeline(pipelineFor("blur", colorFormat, rs));
                 cmd.bindDescriptorSet(0, rs.frameSet(), 1, new int[]{uboOffset});
-                cmd.bindDescriptorSet(1, descSetFor(key, aoRaw, worldPos, rs.gbufferSampler()), 0, null);
-                pushParams(cmd, uvRect);
+                cmd.bindDescriptorSet(1, descSetFor(key, aoIn, worldPos, rs.gbufferSampler()), 0, null);
+                // params = (radius, axis(1=水平/0=竖直), 0, 0)
+                pushParams(cmd, uvRect, radius, horizontal ? 1.0f : 0.0f, 0.0f, 0.0f);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
             });
@@ -275,7 +290,8 @@ public class SsaoPass implements PostProcessNode {
                 logFirstDraw(view.name());
                 cmd.bindPipeline(pipelineFor("comp", colorFormat, null));
                 cmd.bindDescriptorSet(0, descSetFor(key, scene, ao, aoSampler), 0, null);
-                pushParams(cmd, uvRect);
+                // params = (0, 0, intensity, 0)
+                pushParams(cmd, uvRect, 0.0f, 0.0f, intensity, 0.0f);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
                 cmd.draw(3, 1);
             });
@@ -303,17 +319,22 @@ public class SsaoPass implements PostProcessNode {
         }
     }
 
-    /** push 块：vec4 uvRect + vec4 params（x=radius, y=bias, z=intensity, w=0），共 32B */
-    private void pushParams(CommandBuffer cmd, float[] uvRect) {
+    /**
+     * push 块：vec4 uvRect + vec4 params，共 32B。
+     * 参数语义按 Pass 分派（AO = radius/bias/biasSlopeScale/0；模糊 = radius/axis/0/0；
+     * 合成 = 0/0/intensity/0）——同一 32B 布局，各着色器只取自己那几个槽。
+     */
+    private void pushParams(CommandBuffer cmd, float[] uvRect,
+                            float px, float py, float pz, float pw) {
         pushData.clear();
         pushData.putFloat(uvRect[0]);
         pushData.putFloat(uvRect[1]);
         pushData.putFloat(uvRect[2]);
         pushData.putFloat(uvRect[3]);
-        pushData.putFloat(radius);
-        pushData.putFloat(bias);
-        pushData.putFloat(intensity);
-        pushData.putFloat(0.0f);
+        pushData.putFloat(px);
+        pushData.putFloat(py);
+        pushData.putFloat(pz);
+        pushData.putFloat(pw);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
     }

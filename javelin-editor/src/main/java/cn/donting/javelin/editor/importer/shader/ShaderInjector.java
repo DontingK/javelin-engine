@@ -115,15 +115,6 @@ public final class ShaderInjector {
                 uint clusterIndices[];
             };
             layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
-            // 体素 AO（四期 P4-17）：binding8 = 模糊图（R8_UNORM 3D，三线性），
-            // binding9 = 参数块（与 VoxelGrid.writeParams 同排布，std140 64B）
-            layout(set = 1, binding = 8) uniform sampler3D voxelAO;
-            layout(std140, set = 1, binding = 9) uniform VoxelParamsBlock {
-                vec4 voxelOriginResolution;
-                vec4 voxelVoxelSize;
-                vec4 voxelAoParams;
-                vec4 voxelGridBounds;
-            } voxelGI;
 
             // per-object 接收阴影标志（变体实现见 RECEIVE_SHADOW_PUSH / RECEIVE_SHADOW_GBUFFER）
             float javelinReceiveShadow();
@@ -136,6 +127,7 @@ public final class ShaderInjector {
             // 单级联阴影因子（四期 CSM §4.5/§4.6）：该级联矩阵投影 → atlas 象限定位 →
             // 品质档 PCF（核夹在象限内）。shadowParams.w = 参考深度偏移（世界单位），
             // cascadeInvZ[c] = 1/光空间 z 范围（逐级联折算成裁剪 z 增量）。盒外=受光。
+            // 2026-11-20：refZ 另加固定半纹素外扩（接触漏光修复，见函数内注释）。
             float javelinCascadeShadow(int cascade, vec3 worldPos) {
                 vec3 proj = (lighting.sunViewProj[cascade] * vec4(worldPos, 1.0)).xyz;
                 if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0
@@ -149,7 +141,15 @@ public final class ShaderInjector {
                 int row = cascade / int(grid);
                 vec2 quadOrigin = vec2(float(col), float(row)) * quad;
                 vec2 uv = quadOrigin + (proj.xy * 0.5 + 0.5) * quad;
-                float refZ = proj.z + lighting.shadowParams.w * lighting.cascadeInvZ[cascade];
+                // 接触漏光修复（2026-11-20）：shadow map 的遮挡轮廓只能落在纹素边界上，轮廓外
+                // 半个纹素采到的必然是「无遮挡」→ 物体与受影面接触处必然留一圈亮线
+                // （cube 半埋进平面时最明显）。按当前级联的归一化深度补半个纹素——1 纹素世界
+                // 尺寸 = texelWorld/zRange ≈ 1/(atlasSize/grid)，故 0.5 纹素 = 0.5/cascadeTexels，
+                // 使阴影边界至少外扩半纹素、盖掉这条缝。与 refDepthOffset（世界单位，先乘 invZ）
+                // 叠加：前者是固定的纹素对齐补偿，后者是用户细调。
+                float cascadeTexels = atlasSize / grid;
+                float refZ = proj.z + lighting.shadowParams.w * lighting.cascadeInvZ[cascade]
+                        + 0.5 / cascadeTexels;
                 int pcfMode = int(lighting.shadowParams.x);
                 float pcfRadius = lighting.shadowParams.y;
                 if (pcfMode <= 0 || pcfRadius <= 0.0) {
@@ -193,39 +193,8 @@ public final class ShaderInjector {
                 return s / 144.0;
             }
 
-            // 体素 AO 采样（四期 P4-17）：采样点必须沿法线推出「体素化膨胀壳」——壳厚
-            // ≈ length(占用体素) ≈ 主轴 halfDiag × 2，大于 1 个 AO 体素；偏 1 格采样点
-            // 仍停在实体壳内，采到的是壳体素的低值（开阔面 ≈0.75 非 1.0）→ 全场均匀
-            // 压暗（2026-11-19 读回实证：AO 图 66.6% 体素 ≥240 但表面全采中间段 80-223）。
-            // 偏 2 个 AO 体素稳妥出壳、落进真正参与求值的空体素。越界（网格只盖场景
-            // 包围盒）按无遮蔽 1.0 处理。
-            float javelinVoxelAO(vec3 worldPos, vec3 worldNormal) {
-                if (voxelGI.voxelAoParams.w < 0.5) {
-                    return 1.0;
-                }
-                float occRes = voxelGI.voxelOriginResolution.w;
-                float aoRes = voxelGI.voxelVoxelSize.w;
-                if (occRes < 1.0 || aoRes < 1.0) {
-                    return 1.0;
-                }
-                vec3 aoVox = voxelGI.voxelVoxelSize.xyz * (occRes / aoRes);
-                vec3 p = worldPos + worldNormal * (2.0 * min(aoVox.x, min(aoVox.y, aoVox.z)));
-                vec3 uvw = (p - voxelGI.voxelOriginResolution.xyz) / (aoVox * aoRes);
-                if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0)))) {
-                    return 1.0;
-                }
-                // 强度口径 1 - (1-ao)*intensity（强度 0 恒 1.0 = 与关开关视觉一致；
-                // 上限不夹 1，滑条到 2 可获得更强的压暗）
-                float ao = texture(voxelAO, uvw).r;
-                float k = max(voxelGI.voxelAoParams.z, 0.0);
-                return max(0.0, 1.0 - (1.0 - ao) * k);
-            }
-
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
-                // 世界法线由 set0 相机 view（正交旋转）反变换得到：R^T * viewNormal
-                vec3 worldNormal = normalize(transpose(mat3(cam.view)) * viewNormal);
-                vec3 result = lighting.ambient.rgb * lighting.ambient.a
-                        * javelinVoxelAO(worldPos, worldNormal);
+                vec3 result = lighting.ambient.rgb * lighting.ambient.a;
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);

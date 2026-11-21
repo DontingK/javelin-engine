@@ -1,6 +1,8 @@
 # 引擎阶段路线（Engine Roadmap）
 
-> 版本：v0.26（2026-11-18）
+> 版本：v0.28（2026-11-21）
+> v0.28 变更（2026-11-21）：**L1 在飞账全清**——第三笔 **BUG-12 SSAO 噪点**同日收口（用户「看起来比之前好，先这样」）：模糊改可分离两遍（各 9 tap、支撑 9×9）+ `sigmaZ`/AO 偏置自适应 + AO RT 升 `R16_SFLOAT`，口径 `Engine_SSAO_Design.md` v0.6 §10，未做项转 `Engine_Backlog.md` REND-22。**L1 只剩提交动作**；主线进入 **L2 硬前置**（RHI-14 纹理子资源面 / RHI-15 格式能力查询），之后 L3 DDGI。
+> v0.27 变更（2026-11-21）：**L1 在飞账两笔清完**——①**BUG-11 阴影接触漏光修复用户实机验收通过**（重导 `.shader` 与内置 `lighting.frag` + 项目设置「阴影」组恢复默认后「没问题了」，口径 `Engine_Shadow_Quality_Design.md` v0.7 §9.6；半影残留 1~2 纹素归 L4 PCSS）→ `Engine_Backlog.md` 已移出、`Engine_Features.md` §2.4 行翻 ✅；②**体素 AO（P4-17）退役批编译 + 实机确认关账**（无残留引用、环境项回到 `ambient.rgb * ambient.a`）→ `Engine_VoxelAO_Design.md` 归档档补关账行。§4.1 L1 行同步为「验收完成、余提交」。**当前主线下一项 = L2 硬前置（RHI-14 纹理子资源面 / RHI-15 格式能力查询）**，之后 L3 DDGI。
 > v0.26 变更（2026-11-18）：**⑥ 前置 RHI 纹理底座 + 跨帧布局记忆 RHI-13 用户实机验收通过**——`TextureTypesTest` 3D 16³ 逐体素 + 2D 数组逐字节两条读回全一致、3D 采样画面 XOR 图案；编辑器常规画面与 TAA 零视觉差异、`[VVL]` 零 ERROR（无 `oldLayout` 不匹配）；`ComputeSsboTest`/`CubemapTest` 回归正常；补 `TextureDescShapeTest`。**随验收修测试件取样点**（z=0.5 撞 z=7/z=8 互补层被三线性平均成恒 0.5 → 改第 7 层体素中心）。同步：§4 施工序 ⑥ 前置已备、§5 四期行；同日 BUG-10 检查器颜色行复测通过（`Editor_Swing_Design.md` v0.5）。
 > v0.25 变更（2026-11-16）：**四期施工序 ④（P4-04 步骤一 常量环境光）与 ⑤（P4-08 非光照材质语义）用户实机验收通过**——用户原话「环境光没问题」「非光照材质 看起来也没问题」。④ = `Environment.ambientMode`（`OFF` / `CONSTANT`）+ `AmbientSetting`（颜色 + 强度 0~8）→ `SceneRenderBridge` 每帧推送 → `LightingParamsBlock.ambient`；`OFF`/无环境组件 = 纯黑（与三期基线逐像素等价）；步骤二 SH9 仍挂后置候选。⑤ = `.shader` 顶层 `LightingModel`（单一封闭轴 `Lambert` 缺省 / `Unlit`）+ `Shader.lightingModel` + `RenderList.unlitOpaque` + 新 `UnlitForwardPass`（HYBRID `…→Skybox→Unlit→Transparent`）+ 注入器按模型取块集 + `default.shader` 改 Unlit；`Lit` 资产行为不变。§4 施工序与 §5 四期行同步：④⑤ 关账 → 下一项 ⑥（P4-05 DDGI / ⑥ 前置轻档 P4-17 体素 AO），前置 RHI 纹理底座仍待验收。
 > v0.24 变更（2026-11-16）：**RHI 纹理底座阶段三落码——跨帧布局记忆 RHI-13（⑥ 前置硬项）**。形态 = 布局状态随资源持有：`VulkanTexture.layout` 跨帧沿用、`VulkanCommandBuffer.pipelineBarrier` 以真实布局为准并回写、`RenderGraphImpl.execute` 删 `LayoutTracker`（交换链图像改用本帧局部记账，坑 #37 口径不变）、`LayoutTracker.java` 删除。跨帧持久纹理（TAA 历史 / 将来的探针 atlas、体素网格）不再每帧声明 `UNDEFINED`（不再有「内容可丢弃」UB）；上传终态布局同被记住。**未编译、验收推迟**（用户 2026-11-16）；验收专项见 `RHI_Texture_Types_Design.md` v0.2 §5（编辑器/TAA 零视觉差异 + `[VVL]` 无 oldLayout 不匹配）。
@@ -136,17 +138,42 @@
 >
 > **优先级拍板（2026-11-14 用户）**：**四期 = 当前最高优先级主线**——跨期散件让位（`Engine_Backlog.md` §1 其余候选在四期之后排，四期未满档前不开其他线）。施工序（依据 = 依赖 / 底座成本 / 画面收益）：
 > **① P4-02 SSAO ✅ → ② P4-03 阴影质量分级（PCF 起步）✅ → ③ P4-10 TAA ✅ → ④ P4-04 天空盒环境光照（+ P4-09）步骤一 ✅（2026-11-16 验收）→ ⑤ P4-08 非光照材质语义契约 ✅（2026-11-16 验收）→ ⑥ P4-05 探针 GI（DDGI）→ ⑦ P4-06 光追 rayQuery**。
-> ①~⑤ 零新底座（方案现成，逐项出设计档 → 拍板 → 落码）；⑥⑦ 需先补 RHI 底座前置批——**纹理那条 2026-11-18 已验收**（`RHI_Texture_Types_Design.md` v0.3 §5.1：3D 纹理 / 2D 纹理数组 / storage image 写口 / **跨帧布局记忆 RHI-13**，`TextureTypesTest` 读回全一致 + 编辑器/TAA 零差异 + `[VVL]` 零 ERROR），**AS / BDA / `GL_EXT_ray_query` 编译链未开工**。⑥ 前置轻档 = **P4-17 体素化 AO**（与 P4-05 共用底座）。
+> ①~⑤ 零新底座（方案现成，逐项出设计档 → 拍板 → 落码）；⑥⑦ 需先补 RHI 底座前置批——**纹理那条 2026-11-18 已验收**（`RHI_Texture_Types_Design.md` v0.3 §5.1：3D 纹理 / 2D 纹理数组 / storage image 写口 / **跨帧布局记忆 RHI-13**，`TextureTypesTest` 读回全一致 + 编辑器/TAA 零差异 + `[VVL]` 零 ERROR），**AS / BDA / `GL_EXT_ray_query` 编译链未开工**。⑥ 前置 = **RHI-14 / RHI-15**（原前置 P4-17 体素化 AO 于 2026-11-20 整体退役，不存在了；DDGI 首版若走体素 DDA 投射线，体素化按「静态集 + 动态 tile」口径在 P4-05 内部重建，见 `Engine_Backlog.md` BUG-13 历史备注与 `Engine_VoxelAO_Design.md`（已归档）。
 
 1. **后处理链**（Bloom/Tonemap + **HDR 切换点**，管线档 4.6——四期第一候选：链式结构已落地，具体化零新底座）——**方案 `Engine_PostProcess_Design.md`；步骤一（HDR 切换点 + Tonemap）+ 步骤二（Bloom，独立开关）2026-11-13 落码、2026-11-14 用户实机验收通过；同日后处理参数接设置（着色器常量 → push 常量）+ 编辑器「项目设置」窗口（`Editor_ProjectSettings_Design.md`）同日落地、2026-11-14 用户实机验收通过**；
 2. **SSAO**（后处理链 Pass，管线档 4.6 挂点——**GI 第一步**，零新底座）——**施工序 ①**；**✅ 2026-11-14 落码并用户实机验收关账**（`Engine_SSAO_Design.md` v0.4）：不读深度改读 G-Buffer 世界位置+法线（零 RHI 改动、仅 HYBRID）、`SsaoPass` AO/双边模糊/合成三 Pass、`PostProcessNode.order()` 排序声明、`SsaoSettings` 三参数接项目设置窗口；
 3. **阴影质量分级**（PCF 软采样 → CSM 级联 → bias 精调/per-object 开关/stabilize，灯光档 §10——消费侧注入段与 shadowMap 底座三期已备，纯增量）——**施工序 ②**；**方案档 `Engine_Shadow_Quality_Design.md`（v0.5）**：**步骤一全件「一-A 品质档 PCF + 一-B bias 调参面 + 一-C per-object 开关 + 一-D 设置窗口」+ 步骤二 CSM（lambda 切分 + per-view 资源族 + 单张 2×2 atlas + 纹素吸附）2026-11-14 全部落码并用户实机验收关账**（随验两修：坑 #39 `RenderObject` 换代缓存致运行期切换不生效、#40 阴影盒只收 caster 致影子被裁）；**余 步骤三可选收尾（D16 / PCSS / 逐级联剔除 / DBG-03 / 多灯阴影）**——**② 关账，下一项 ③ TAA：`Engine_TAA_Design.md` v0.7，步骤一（抖动/重投影/历史 ping-pong）+ 步骤二锐化 2026-11-15 全部落码并用户实机验收，同日晚参数载体迁到 `Camera`（`TaaSetting` 条件子组 + 折叠组头 + 滑条、per-camera 后处理）一并验收**；
 4. **天空盒环境光照**（天空盒作 ambient 源：SH9 球谐或 mipmap 降采样，替换灯光档 §3.3 ambient 常量——**DDGI 落地前的过渡环境光**；天空盒视觉面三期批次⑤已备）——**施工序 ④**（连带 P4-09 HDR 截白真解）；**步骤一（常量环境光）2026-11-16 落码并用户实机验收通过**：`Environment.ambientMode`（OFF / CONSTANT）+ 颜色 + 强度 → `LightingParamsBlock.ambient`（用户拍板「先出枚举、其他方案后置」）；**步骤二 = SH9 天空盒投影暂不做（2026-11-16 用户拍板，挂后置候选——重启触发=无主光氛围（阴天/黄昏/室内）或多通道共享受益（镜面/反射）；落法已定见 `Engine_Backlog.md` P4-04）**；
-5. **探针实时 GI**（GI 目标态拍板 2026-10-28：**DDGI 路线**，团结引擎实时 GI / HDRP APV 产业验证）——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数（含第 4 项的过渡环境光）；探针采样前置 = **3D 纹理/纹理数组**（**RHI 底座 2026-11-18 用户实机验收通过**：`RHI_Texture_Types_Design.md` v0.3 §5.1 补齐 3D 纹理 / 2D 数组 / storage image 写口 + **跨帧布局记忆 RHI-13** + `TextureTypesTest`/`TextureDescShapeTest`；**仍缺 mip 链上传（RHI-14）与格式能力查询（RHI-15）**）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档——**施工序 ⑥（前置：纹理底座已验收 2026-11-18 + RHI-13 同批关账）**；**⑥ 前置轻档 = P4-17 体素化环境光遮蔽**（3D 纹理 + compute 体素化 + DDA 追踪，不需要探针网格）；
+5. **探针实时 GI**（GI 目标态拍板 2026-10-28：**DDGI 路线**，团结引擎实时 GI / HDRP APV 产业验证）——烘焙 GI 管线**不建**（只面向 PC 无移动端约束、lightmap 生产线/烘焙编辑器链不投入，探针实时为主场景）；探针系统复用三期批次① SSBO/compute 底座，求交后端可替换（软光栅/迷你深度图 → rayQuery，前端探针网格/时序混合/着色采样对求交后端无关）；Lambert+环境项的 ambient 即 GI 占位符，探针落地时按位置查询替换常数（含第 4 项的过渡环境光）；探针采样前置 = **3D 纹理/纹理数组**（**RHI 底座 2026-11-18 用户实机验收通过**：`RHI_Texture_Types_Design.md` v0.3 §5.1 补齐 3D 纹理 / 2D 数组 / storage image 写口 + **跨帧布局记忆 RHI-13** + `TextureTypesTest`/`TextureDescShapeTest`；**仍缺 mip 链上传（RHI-14）与格式能力查询（RHI-15）**）；探针软技术门槛（重定位/边界混合/薄墙光渗抑制 visibility）届时专档——**施工序 ⑥（前置：纹理底座已验收 2026-11-18 + RHI-13 同批关账）**；**⑥ 前置 = RHI-14 / RHI-15**（**2026-11-20 变更**：原前置 P4-17 体素化环境光遮蔽整体退役——用户拍板「有 SSAO 目前够了」，代码已删；DDGI 首版若走体素 DDA 投射线，体素化在 P4-05 内部按「静态集过滤 + 动态 tile」重建，不再作为独立批次。连带口径变动：原「DDGI/光追档不得再乘 AO」改为「DDGI 档不与 SSAO 双层压暗」，三层收敛降为「GI 一层 + SSAO 一层补强」，见 `Engine_Backlog.md` P4-05 备注②）；
 6. **光线追踪**（光追方向 2026-10-28 记录）：**rayQuery（VK_KHR_ray_query，compute/fs 内 inline 求交）优先**、ray tracing pipeline（SBT/rgen-chit）后置；架构支持结论 = 声明式 RenderGraph 同步/有序 Pass 列表/set 化描述符天然兼容——GI 与 RT 均为「新资源种类进图 + 新消费者」，不返工管线骨架；缺口清单 = 加速结构（AS）新资源种类与 build 写/trace 读图状态、BDA（buffer device address）、GL_EXT_ray_query 编译链（ShaderImporter/工具链）、蒙皮动态几何 BLAS 重构（引擎无动画系统，RT 首范围=静态几何）；**前置约束 = 三期批次①通用性红线**（灯光档 §9——Buffer 进图同步 + storage 绑定按通用 RHI 资源面建，禁止光照特化窄接口——四期 GI/RT 是该红线的第一复用方）——**施工序 ⑦（需先补 RHI 底座：AS / BDA / `GL_EXT_ray_query` 编译链）**。
 
 - **AA 路线改向 + 管线拆分（2026-11-13 用户拍板，同日执行）**：**MSAA 已从引擎/编辑器/设置层移除**（RHI 多采样设施保留休眠），**AA 空窗至 TAA（P4-10）落地**（TAA = **施工序 ③**）——TAA 取代 MSAA，原「HYBRID 档 MSAA-GBuffer」（P4-07）作废。同期**渲染管线拆成两个独立实现类**（`AbstractRenderPipeline` 共用骨架 + `DefaultHybridRenderPipeline` / `ForwardRenderPipeline`），**运行期不再切档**、编辑器固定混合，主口径 = 混合管线（前向「先不管」）。设计归 `Engine_RenderPipeline_Design.md` v0.9 / 后处理档 v0.3。
 - **着色模型升级**（Lambert → BRDF，材质/着色模型专档）与 **clustered 后置项**（前缀和计算化/脏标记跳重建/Morton/深度重建，灯光档 §10）不设期，排在**施工序 ①~⑦ 之后**，随四期各批次需要顺带或独立小批。
+
+### 4.1 光照路线（2026-11-20 排定，逐项收口）
+
+> 段序依据 = 先清在飞账、再补硬前置、再上主体、最后上消费面。**排序拍板（2026-11-20 用户）**：**REND-03 BRDF / REND-16 IBL 排在光追（P4-06）之后**；连带 **REND-17 反射族同步后移到 L8**——原因：Lambert 无镜面项，SSR / 反射探针 / RT 反射在 BRDF 落地前没有消费点（L6 光追只能出「阴影与 GI 求交」，出不了镜面画面）。L5 后处理与 BRDF 无关，故提前到光追前。
+
+| 段 | 项 | 条目 / 落点 | 验收口径 | 前置 / 备注 |
+|----|----|-----------|----------|-------------|
+| **L1** 清在飞账 | 阴影接触漏光验收 + 提交 | BUG-11 / `Engine_Shadow_Quality_Design.md` v0.7 §9.6 | 半埋 cube 接触环亮缝收敛到 1~2 纹素、无 acne | ✅ 验收 2026-11-21（重导 `.shader`+`lighting.frag`、阴影组恢复默认）；**余项 = 提交**（拆 `fix(shadow)` + `docs` 两 commit，待用户指令） |
+| | SSAO 噪点 | **BUG-12** / `ssao.frag` + `ssao_blur.frag` | 斜视地面与墙角无颗粒、接触区 AO 不被模糊出去 | ✅ 2026-11-21 用户实机收口（两遍分离 + 自适应 `sigmaZ`/bias + `R16_SFLOAT`；颗粒减轻、接触遮蔽保留，「先这样」定为基线）；余项转 REND-22 |
+| ~~P4-17 批 E 收口~~ | **已退役（2026-11-20）**：随「有 SSAO 目前够了」整链删除，批 E 五项全部作废 | — | 代码可从 `dc1e9e0` 取回 |
+| **L2** 硬前置 | 纹理子资源面 | RHI-14 | mip / 逐层读回一致、`createView` 从死代码转正 | 解锁点光 cube、CSM 单张分层 atlas、DDGI mip、探针 atlas 分块 |
+| | 格式能力查询 | RHI-15（并 RHI-08） | 非法 `STORAGE`+格式组合创建期 fail-fast | 现靠驱动兜 |
+| **L3** GI 主体 | DDGI 首版 | P4-05 / **`Engine_DDGI_Design.md` v0.1** | 单色房间有渗色、关主光墙角仍有方向性、无黑斑 | 投射线首版走体素 DDA（体素化在 P4-05 内部重建：静态集过滤 + 动态 tile）；网格外回落 `ambient`｜方案件已出，§10 四点待拍板 |
+| | 环境遮蔽层收敛 | P4-05 备注② / `SsaoPass` | DDGI 档下不与 SSAO 双层压暗 | 体素 AO 已退役（2026-11-20），现只剩 SSAO 一层 |
+| | 探针可视化 | DBG 族 | 探针位置 / 辐照度 / 可见性可读 | 验收依赖件 |
+| **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | `shadow.frag` 现零 alpha 采样；成本最低、素材相关，优先 |
+| | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | 必须拆两套集合（可见性 vs caster）；距离门限用 `shadowDistance` |
+| | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | 接触漏光的根治面 |
+| | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |
+| **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | 与 BRDF 无关，故排在光追前 |
+| **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链 |
+| **L7** 着色模型 | BRDF/GGX + IBL | REND-03 / REND-16 / P4-04 步骤二（SH9 重启） | 金属球有环境反射、粗糙度扫过连续 | 依赖 AST-01 mip 生成链 / AST-09 / AST-12；**用户拍板排在光追后** |
+| **L8** 反射消费 | SSR / 反射探针 / RT 反射 | REND-17 | 镜面反射出画面 | 依赖 L7 的镜面项；**因无镜面消费点而随 L7 后移** |
+
+> **贯穿项**（不单列批次）：`REND-04/05/06` cluster GPU 化 / 脏标记 / Morton 在性能告警时插入；`DBG-03` shadowMap 可视化与 `REND-13` 光照 gizmo 建议**在 L4 开工前**先做一版（否则阴影调参只能凭感觉）；`REND-08` 世界位置改深度重建随 REND-01 落地后算带宽账。
 
 ---
 

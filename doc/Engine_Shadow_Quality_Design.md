@@ -1,7 +1,9 @@
 # 引擎阴影质量分级设计（Engine Shadow Quality Design）
 
-> 版本：v0.5（**步骤一 + 步骤二 CSM 全部落码并 2026-11-14 用户实机验收通过——P4-03 关账**）
-> 日期：2026-11-14
+> 版本：v0.7（**2026-11-21 接触漏光修复用户实机验收通过，BUG-11 销账**；v0.6 = 该修复落码待验收；v0.5 = 步骤一 + 步骤二 CSM 全件 2026-11-14 验收、P4-03 关账）
+> 日期：2026-11-21
+> v0.7 变更（2026-11-21）：**§9.6 接触漏光修复验收关账**——用户重导 `.shader` 与内置 `lighting.frag`、项目设置「阴影」组恢复默认后实机「没问题了」；接触环亮缝收窄到设计预期（1~2 纹素），无 acne 暗斑、无阴影包裹感。**BUG-11 从 `Engine_Backlog.md` 移出**，验收状态归 `Engine_Features.md` §2.4 行。残留不变：接触处半影仍 1~2 纹素（PCSS/SSCT 归步骤三可选收尾；环境光侧漏光随体素 AO 退役已消失）。
+> v0.6 变更（2026-11-20）：**接触漏光（contact gap）修复**——物体半埋进平面时，两者接触处出现一圈亮线（cube 底部与地面交界最明显），根因是「shadow map 遮挡轮廓只能落在纹素边界 + PCF 核 + 掠射面 slope bias」三者同向叠加，与本档原「bias 抗 acne ↔ 漏影」预算争夺是同一件事。修法 = ①注入段 `refZ` 增加**固定半纹素外扩**（`0.5 / (atlasSize/grid)`，归一化深度口径，见 §3.4-4/§9.6）；②`ShadowSettings` 五项缺省重标：`pcfRadius` 1.0→**0.6**、`refDepthOffset` 0→**0.02**、`biasSlope` 1.5→**0.6**、`cascadeCount` 2→**4**、`shadowDistance` 100→**80**（近级联纹素 ~3.3cm→~1.3cm，atlas 仍 2×2 全用、显存不变）。**注入器改动 = 强制重导 `.shader` 与内置 `lighting.frag`**。**旧工程设置档已序列化旧值 → 需在项目设置「阴影」组点「恢复默认」或手动改为新缺省**，否则本批只在新建工程生效。残留见 §9.7。
 > v0.5 变更（2026-11-14）：**步骤二 CSM 落码并用户实机验收通过**——`ShadowMath.buildCascades`（lambda 切分 + 逐级联球拟合方形盒 + 纹素吸附 + up 稳定轴 + 逐级联 zRange）+ `CascadeParams`（相机基向量自建）；`RenderingSystem.viewShadows` per-view 资源族（atlas，≥2 级联 2×2）+ `computeShadow(cam)` 逐视口级联拟合 + `shadowMapFor/cascadeCount/atlasGrid/cascadeMatrix` 访问器；`ShadowPass` 改**逐视口单 Pass**（一次 CLEAR + 回调内逐级联切 viewport/scissor 象限）；UBO 扩 `sunViewProj[4]`/`cascadeSplits`/`shadowParams2`/`cascadeInvZ`（块 416→**656B**、步长 512→**768**）；注入段级联选择 + atlas 象限 uv + PCF 象限夹取 + 相邻级联混合带；`ShadowSettings` 增 `cascadeCount`(2)/`shadowDistance`(100)/`cascadeLambda`(0.5) + 设置窗口三项。**步骤二使 §3.6 的 caster∪receiver 盒并集退役**（级联盒拟相机视锥，天然含接收者）。**P4-03 关账**（步骤一 + 步骤二全件）；余步骤三可选收尾。
 > v0.4 变更（2026-11-14）：**一-C per-object 落码并用户实机验收通过**——`MeshRenderer.castShadow`/`receiveShadow` 补 `@InsField`（检查器可见）；`receiveShadow` 双档承载落地（FORWARD 走 push 空余位 @68、HYBRID 走 G-Buffer `albedo.a`，注入段 `javelinReceiveShadow()` 分变体、同一 `javelinLighting` 单源门控）。**随验两修**（两条坑，`Vulkan_Pitfalls.md` #39/#40）：① `RenderObject.castShadow` 换代时缓存 → 运行期切开关不生效、重启才生效（修=桥每帧 in-place 同步 castShadow/receiveShadow）；② 阴影正交盒只收 caster → 关地板投射致盒缩、立方体投影到地板的影子被盒外裁掉（修=盒体域改全体不透明对象 caster ∪ receiver + 1.0 外扩余量）。**步骤一全件关账**（一-A/-B/-C/-D 四件齐）。
 > v0.3 变更（2026-11-14）：**用户实机验收通过**（「看起来没问题，我验收了」）——步骤一（品质档 PCF + bias 调参面 + 设置窗口）关账；已入 `Engine_Roadmap_Progress.md` §7 批次索引 + `Engine_Features.md` §2.4 验收状态，Backlog P4-03 余「一-C per-object + 步骤二 CSM」。**随验修**（§9.2 第三条）：注入段标量/向量乘错（`vec2` 当标量 → 5×5 档 `vec3 * vec2` 编译拒、3×3 档静默改义），已改标量 `texelSize`。
@@ -97,10 +99,10 @@ if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
 |------|------|----------|--------|
 | `quality` | 品质档（HARD/SOFT_LOW/SOFT_HIGH，枚举；`renderPipeline` 字段枚举先例） | `SOFT_LOW` | 即时（走 UBO 或重编 PSO 见下） |
 | `strength` | 阴影强度 0~1（`shadow = mix(1, shadow, strength)`，0 = 视觉等同关影） | `1.0` | 即时（UBO） |
-| `pcfRadius` | PCF 半径（**纹素**单位，偏移步长缩放） | `1.0` | 即时（UBO） |
-| `refDepthOffset` | 参考深度偏移（**世界单位**，shader 侧；正交光空间里折算为 z 增量） | `0.0` | 即时（UBO） |
-| `biasConstant` / `biasSlope` | PSO 静态 depth bias（现值 2.0 / 1.5 提为设置） | `2.0` / `1.5` | **改档重建 PSO**（ShadowPass 清缓存） |
-| （步骤二）`cascadeCount` / `shadowDistance` | 级联数 / 阴影距离 | `2` / `100` | 重启或重建资源族 |
+| `pcfRadius` | PCF 半径（**纹素**单位，偏移步长缩放） | `0.6`（v0.6 由 1.0 降） | 即时（UBO） |
+| `refDepthOffset` | 参考深度偏移（**世界单位**，shader 侧；正交光空间里折算为 z 增量，**正值 = 阴影外扩**） | `0.02`（v0.6 由 0.0 升） | 即时（UBO） |
+| `biasConstant` / `biasSlope` | PSO 静态 depth bias（**注意**：`D32_SFLOAT` 下 constant 项按 ULP 计 ≈ 无效，实际只有 slope 项起作用） | `2.0` / `0.6`（v0.6 由 1.5 降） | **改档重建 PSO**（ShadowPass 清缓存） |
+| （步骤二）`cascadeCount` / `shadowDistance` | 级联数 / 阴影距离 | `4` / `80`（v0.6 由 2 / 100 改，近级联纹素 ~3.3cm→~1.3cm） | 重启或重建资源族 |
 
 **下发路由**（不新增接线）：`JavelinEngine.createRenderPipeline` 启动期把设置灌进 `RenderingSystem`（`setShadowSettings`，同 `postProcessSetup.setSsaoParams` 先例）→ `packLightingParams` 每帧打包 UBO → `ShadowPass` 每帧经 `ctx.renderingSystem()` 读 bias 快照（**变化即清 `pipelines` 缓存重建**）。
 
@@ -125,6 +127,14 @@ if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
 4. **参考深度偏移**：`refZ += shadowParams.w`（正交光空间里常数偏移 = 常数世界距离，语义干净），替代「法线偏移」方案——法线偏移需要**世界法线**，而注入函数只拿视空间法线（拿世界法线要再改三参签名 = 契约变更），步骤一不做（§8 拍板点 4）；
 5. **强度**：`shadow = mix(1.0, shadow, shadowParams.z)`。
 
+> **v0.6 追加：半纹素外扩（接触漏光修复，2026-11-20）**——`javelinCascadeShadow` 的 `refZ` 在
+> `shadowParams.w * cascadeInvZ[c]` 之外固定再加 `0.5 / (atlasSize / grid)`。口径：级联归一化深度
+> `1.0` = 正交盒 z 范围 `zRange`，故 1 纹素 = `texelWorld/zRange ≈ 1/(atlasSize/grid)`。原因是
+> shadow map 的遮挡轮廓只能落在纹素边界上——轮廓外半个纹素采到的必然是「无遮挡」，于是遮挡体与
+> 受影面**接触处**必然留一圈受光亮缝（cube 半埋进平面时最明显），这是纹素化的固有性质，必须补
+> 一个与纹素尺寸绑定的固定外扩才盖得住。它与 `refDepthOffset`（用户细调、世界单位）叠加；
+> `cascadeInvZ` 在关影态为 1.0，但那时采样被 `castShadow` 位整体门控，不产生副作用。
+
 > **注入器改动 = 契约变更**：注入段文本一变，已编译 `.shader` 产物必须**强制重导**（`Engine_Uniform_Keys.md` §4 口径 + 工程 `.javelin/assets` 副本走内容比对），批次④-A 已有先例。
 
 ### 3.5 bias 承载（不动 RHI）
@@ -132,6 +142,15 @@ if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
 - **PSO 静态 bias 保留**为「斜率主导」抗 acne 项（`biasConstant`/`biasSlope` 进设置，改档即清 `ShadowPass.pipelines` 缓存重建 PSO——每 mesh layout 一次，非每帧）；
 - **shader 侧参考深度偏移**（§3.4-4）即时生效、无需重建，承担「彼得潘宁↔漏影」的细调；
 - **不引入 RHI 动态 bias**：`CommandBuffer` 无 `setDepthBias` 口，补它属 RHI 增量（`DynamicState.DEPTH_BIAS` 枚举已在，实现成本小但与本批收益不成比）→ §8 拍板点 5，若认可将来要平滑拖动调参再补（记 Backlog）。
+
+> **v0.6 订正（2026-11-20，接触漏光排查副产品）**：`D32_SFLOAT` 下 Vulkan 的
+> `depthBiasConstantFactor` 以「最小可分辨深度」为单位乘算，float 深度约为 `2⁻²³`，因此
+> `biasConstant=2.0` 产生的偏移 ≈ `2×10⁻⁷`（归一化深度）量级，**实际等于没有**；真正起作用的是
+> `biasSlope`（与深度斜率相乘，掠射面可达数厘米）。结论：这个 constant 旋钮在 float 深度上是
+> 「死旋钮」，若将来切 `D16_UNORM`（§9.7 步骤三项）它会突然生效、届时 2.0 需要重新标定。
+> 另外 slope 项是**向远处推 caster 深度**，效果 = 阴影边界内缩 = 接触处漏光，与「抗 acne」共用同一
+> 预算；v0.6 的再平衡是「slope 降到 0.6 + refZ 固定半纹素外扩 + `refDepthOffset=0.02` 外扩」，
+> 净效果外扩约 1~2cm，抗 acne 由半纹素外扩与（将来）normal-offset 承担。
 
 ### 3.6 per-object 阴影开关（把死字段盘活）
 
@@ -158,7 +177,7 @@ if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5) {
 
 ### 4.1 切分与阴影距离（对标 Unity Cascades / Shadow Distance）
 
-- `shadowDistance`（设置；缺省建议 100 世界单位）→ `farSplit = min(camera.farZ, shadowDistance)`；**超出距离恒受光**（采样直接返回 1.0，与现状盒外语义一致）；
+- `shadowDistance`（设置；**v0.6 缺省 80** 世界单位，原建议 100）→ `farSplit = min(camera.farZ, shadowDistance)`；**超出距离恒受光**（采样直接返回 1.0，与现状盒外语义一致）；
 - 级联边界 = **lambda 混合**（Babylon §4.2：`lambda·log + (1-lambda)·uniform`）：
   `d_i = lambda·near·(far/near)^(i/N) + (1-lambda)·(near + (far-near)·i/N)`，`lambda` 缺省 `0.5`；
 - 级联数 **1 / 2 / 4**（Unity 口径；`1` = 退化为单张，与现状形态同源 ✓ §8 拍板点 9）；
@@ -439,9 +458,55 @@ x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数）
 
 > **注入器改动 = 强制重导**（契约变更）：`.shader` 产物须重导（GLSL 动态索引 `mat4[4]` + 新字段）；旧产物不重导读新 UBO 偏移会错位（画面「无影/错影」而非报错，排查先看 Library 产物时间）。
 
-### 9.6 未做（步骤三可选收尾）
+### 9.6 接触漏光修复（2026-11-20 落码，2026-11-21 用户实机验收通过）
+
+> 验收记录（2026-11-21）：用户按前置要求重导全部 `.shader` 与内置 `lighting.frag`、并把项目设置「阴影」组恢复默认后实机复核，回「没问题了」——接触环亮缝按 §9.6 预期收窄、无新 acne 暗斑、无阴影包裹感。**BUG-11 销账**（`Engine_Backlog.md` 已移出，验收状态见 `Engine_Features.md` §2.4 行）。未做：PCSS/SSCT（步骤三可选收尾，可进一步压半影）。
+
+**症状**（用户 2026-11-20 报告）：cube 半埋（进入）平面时，两者**接触处**出现一圈亮线/漏光；不是整块阴影丢失，也不是体素 AO 的问题。
+
+**根因（三层同向叠加，不是偶发 bug）**
+
+1. **纹素化**：shadow map 的遮挡轮廓只能落在纹素边界上，轮廓外半个纹素必然采到「无遮挡」→ 接触处固定留一条亮缝。级联 0 在缺省档（2048 / 2 级联 / 100 距离 / fov60 / 16:9）单纹素 ≈ **3.3cm**，级联 1 ≈ **12cm**。
+2. **滤波核**：`pcfRadius=1.0` 的 4 tap 复现 3×3、9 tap 复现 5×5，有效半影可达 3 纹素 ≈ 10cm；再加比较采样器 `Filter.LINEAR` 的硬件 2×2 双线性（**HARD 档也有**），接触处必有一层半影。
+3. **深度偏移方向**：`biasSlope` 把 caster 深度**往远处推** = 阴影边界内缩 = 漏光；而它存在的意义是抗自遮挡 acne（接收面自己也写进 shadow map，必须有偏移才能不自我遮挡）。**漏光与 acne 共用同一份偏移预算**，任何单向调节都是此消彼长。
+
+**落码清单**
+
+| 落点 | 内容 |
+|------|------|
+| `ShaderInjector.javelinCascadeShadow` | `refZ` 增加固定**半纹素外扩** `0.5 / (atlasSize/grid)`（归一化深度口径，与纹素尺寸精确绑定；无需新 UBO 字段、布局零改动）。注释与 §3.4 追加说明 |
+| `ShadowSettings` 缺省重标 | `pcfRadius` 1.0→**0.6**（核收窄，半影 3 纹素→~1.8 纹素）、`refDepthOffset` 0→**0.02**（正 = 外扩约 2cm）、`biasSlope` 1.5→**0.6**（内缩量减半以上）、`cascadeCount` 2→**4**、`shadowDistance` 100→**80**（近级联纹素 3.3cm→**~1.3cm**；atlas 仍 = resolution×2 = 4096²，**显存不变**，2×2 象限首次全用）；`read` 缺键默认同步 |
+| 不动 | UBO 布局 / `LIGHTING_STRIDE` / `ShadowPass` / RHI / `ShadowMath`（级联拟合与吸附逻辑不变） |
+
+**净偏移估算**（缺省档）：opening ≈ 半纹素（1.3cm）+ `refDepthOffset` 2cm − `biasSlope` 0.6 的内缩（掠射面 ~2cm）≈ **净外扩 1cm 量级**；叠加纹素从 3.3cm 降到 1.3cm 与核收窄，接触亮线应从「约 10cm」压到「1~2 纹素（1~3cm）」，小物体旁基本不可见。
+
+**验收口径**
+
+1. cube 半埋平面的接触环：亮缝宽度与旧值对比明显收窄，且不再有「阴影与物体脱开」的整圈分离感；
+2. 大平面（地面/平台）在掠射光下**不出现 acne 暗斑/条纹**——若出现，先升 `biasSlope`（0.6→0.8）或降 `refDepthOffset`（0.02→0.01），这两个是唯一需要实机配平的旋钮；
+3. 物体悬空时阴影边界不出现「阴影越过物体底部、爬到物体侧面」的包裹感；
+4. 级联 4 下：远距离阴影仍存在（shadowDistance=80 内）、级联交界处无台阶（10% 混合带照常）；
+5. 性能：caster 绘制量 ×4（v1 无逐级联剔除），编辑器小场景可忽略，大场景需记入 §9.7 的剔除项。
+
+**注意（生效前提）**
+
+- **注入器改动 = 强制重导**：`.shader` 产物与内置 `lighting.frag` 必须重导，否则半纹素外扩不生效且无任何报错；
+- **旧工程设置档已序列化旧值**（`biasSlope=1.5` 等）→ 代码缺省只对**新建工程/缺键**生效，现有工程需在项目设置「图形 → 阴影」组点**「恢复默认」**，或手动改成上述五项。
+
+**残留（本批不解决）**
+
+- 半影仍是「核 × 纹素」的乘积，接触处至多压到 1~2 纹素，**不是 0 距离正确遮挡**；真正解是 PCSS / 屏幕空间接触阴影（§9.7）；
+- 接触处**环境光侧**漏光：原由体素 AO 沿法线偏 2 个 AO 体素（`javelinVoxelAO`）采样不足贡献——**该链路已随 P4-17 退役删除（2026-11-20），此残留自动消失**；现接触区遮蔽由 SSAO 承担（SSAO 在接触处本就偏弱，属其固有短板）；
+- 旋转相机时级联盒半径连续变化，仍有亚纹素蠕动（非跳变，见 §9.5 注）；
+- 大面积接收面（地面）自身仍是 caster，自遮挡预算问题未从根上消除（需 `castShadow`/`voxelOccluder` 拆位，§9.7）。
+
+### 9.7 未做（步骤三可选收尾 / 本批遗留）
 
 - 阴影图 D16 格式档、PCSS（可变半径）、逐级联 caster 剔除（v1 每级联全量绘制；剔除口径见 §4.7-1，须与相机视锥剔除拆开）、DBG-03 shadowMap 可视化、多灯阴影（§5.5）。
+- **接触阴影专项**：PCSS（blocker search + 可变半影）或 SSCT（屏幕空间接触追踪，读 G-Buffer 深度 ray-march）——唯一能把「0 距离接触遮挡」做对的路子；
+- **正常偏移（normal-offset shadow）**：采样侧沿 `worldNormal` 偏 `k·texel`，用来把 acne 预算从 `biasSlope` 挪走（注意：它会略微**加重**接触漏光，必须与「扩外」项成对调）；
+- **`castShadow` 拆位**：拆成「投射阴影」与「参与环境遮蔽（`ambientOccluder`）」两位——地面这类大接收面可以「不投影但参与遮蔽」，从根上去掉自遮挡预算（P4-17 退役后此位的第二用途消失，现无消费方，**暂缓**；若未来 DDGI 需要「不投影但进体素」的物体再启用）；
+- **固定图案**：PCF 核按帧旋转（Vogel/旋转盘）消除静止画面的规律性纹理；
 
 ---
 
