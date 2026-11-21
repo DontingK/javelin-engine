@@ -7,7 +7,7 @@
 >
 > v0.3 变更（2026-11-12）：**步骤二（dbg-2）落地并验收（2026-11-12 用户实测），归属=编辑器**——G-Buffer 可视化调试视图：`GBufferViewPass`（覆盖制全屏贴图，内置 `builtin-asset-editor/debug/gbufferview.vert/.frag` 走 SpvShader 导入链、不带光照注入标记）+ push 常量 `int mode` 三选一 + 自建 set0 三采样器（不依赖 set1/set2）；切换入口 = **顶部菜单**「工具 | G-Buffer 视图」四项单选（F4 降为快捷循环）；`GBufferDebugAppState`（编辑器装配链挂载、FORWARD 档置灰/提示、Pass 惰性创建）——**core 零改动**（未挂 `registerDefaultAppStates`）。实装落点见 §3.5，验收口径 §3.4 未变。
 >
-> v0.2 变更（2026-11-12）：**步骤一（dbg-1）落地并验收**（2026-11-12 用户实测：启动正常、`logs/error/error.log` 零 ERROR；「违约现形」能力首跑即实证——五连报据以定位坑 #37/#38）——`JavelinSetting.engineDebug` 设置字段（默认 true；序列化走既有协议、**不新增接口**；命令行 `--debug=true|false` 经 `LaunchArgs` 覆盖）+ 无校验层 **fail-fast** + `VulkanInstance` DebugUtilsMessenger 回调（WARNING/ERROR 路由 logback，`[VVL]` 前缀）+ 编辑器启动链异常弹错误框（红线 15）。实装落点见 §2.5；验收口径 §2.3 未变。
+> v0.2 变更（2026-11-12）：**步骤一（dbg-1）落地并验收**（2026-11-12 用户实测：启动正常、`logs/error/error.log` 零 ERROR；「违约现形」能力首跑即实证——五连报据以定位坑 #37/#38）——`JavelinSetting.engineDebug` 设置字段（默认 false，2026-11-21 由 true 改拍；序列化走既有协议、**不新增接口**；命令行 `--debug=true|false` 经 `LaunchArgs` 覆盖）+ 无校验层 **fail-fast** + `VulkanInstance` DebugUtilsMessenger 回调（WARNING/ERROR 路由 logback，`[VVL]` 前缀）+ 编辑器启动链异常弹错误框（红线 15）。实装落点见 §2.5；验收口径 §2.3 未变。
 
 ---
 
@@ -37,10 +37,10 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 **口径（2026-11-10 用户拍板）**：
 
-- `JavelinSetting` 新增 `boolean engineDebug`，**默认 `true`**（开发者默认要听见校验层）；
+- `JavelinSetting` 新增 `boolean engineDebug`，**默认 `false`**（2026-11-21 用户改拍：校验层每次 API 调用都做检查、实测帧率掉 5~20%，日常跑图不需要，**排障/验收用命令行 `--debug=true` 打开**；原 2026-11-10 的「默认 true、开发者默认听见校验层」作废）；
 - **启动期消费、运行期不可切**：`JavelinEngine.createInstanceConfig()` 读设置传入 `RHI.RHIInstanceConfig.debug`（现状硬编码 `true` → 改读设置）。校验层/messenger 在实例创建时装载，运行期换装没有干净时机（实例级对象、全设备共享），不做热切；
 - **fail-fast：debug=true 且本机无校验层 → 直接报错不启动**（用户拍板，推翻现有静默降级）：`VulkanInstance` 检不到 `VK_LAYER_KHRONOS_validation` 时抛 `IllegalStateException`（消息两条出路 = 装 Vulkan SDK / 启动加 `--debug=false`），由上层启动链弹给用户——红线 15（错误显性化）与 Pitfalls #19（静默降级掩问题）的双收口。`debug=false` 时不请求校验层也不请求 debug_utils 扩展，照常启动；
-- 序列化：`JavelinSetting.engineDebug` 为原生 `boolean`（默认 true），`output.write` / `input.readBoolean` 走既有协议，**不新增任何序列化接口**；缺键按协议既定行为读为 `false`（2026-11-12 拍板；原「`containsKey` 缺键保默认」与「包装类 + `Objects.equals`」两方案均作废）；
+- 序列化：`JavelinSetting.engineDebug` 为原生 `boolean`（默认 false），`output.write` / `input.readBoolean` 走既有协议，**不新增任何序列化接口**；缺键按协议既定行为读为 `false`（2026-11-12 拍板；原「`containsKey` 缺键保默认」与「包装类 + `Objects.equals`」两方案均作废）；
 - **命令行覆盖**（2026-11-12 用户指令）：各 `main(String[] args)` 首行 `LaunchArgs.parse(args)` 装入启动参数，`JavelinEngine.initialize()` 在实例创建前 `setting.setEngineDebug(LaunchArgs.getBoolean("debug", setting.isEngineDebug()))`——`--debug=true|false` 优先于设置文件；参数持有类落 `javelin-core`（`cn.donting.javelin.core.LaunchArgs`），编辑器 / 引擎 Demo / `GameMain` / `AotGameMain` 四入口同法；
 - 消费方：`RHI.RHIInstanceConfig.debug`（已有字段，语义不变——现状引擎恒传 true，此后由设置决定）。
 
@@ -70,7 +70,7 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 | 落点 | 改动 |
 |------|------|
-| `JavelinSetting` | 新增 `boolean engineDebug = true`（`isEngineDebug()`/`setEngineDebug(boolean)`）+ `write`/`read`（`input.readBoolean`，缺键按协议= false，不改接口） |
+| `JavelinSetting` | 新增 `boolean engineDebug`（`isEngineDebug()`/`setEngineDebug(boolean)`）+ `write`/`read`（`input.readBoolean`，缺键按协议= false，不改接口）；**默认值 2026-11-21 由 true 改 false**，排障时用 `--debug=true` 打开 |
 | `LaunchArgs`（新增，javelin-core） | 启动参数单点持有：`parse(String[] args)`（`--k=v` 取值、无值 `--k`=`true`、其余忽略）+ `get`/`getBoolean`/`has`；解析结果 volatile 整体替换（main 与引擎线程可见） |
 | `JavelinEngine.initialize` | 实例创建前 `setting.setEngineDebug(LaunchArgs.getBoolean("debug", setting.isEngineDebug()))`（命令行优先于设置文件） |
 | 四入口 main | `JavelinEngine` / `GameMain` / `AotGameMain` / `JavelinEditor` 的 `main(String[] args)` 首行 `LaunchArgs.parse(args)` |
@@ -145,3 +145,4 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | 2026-11-10 | debug=true 且无校验层 → **报错不启动**（推翻静默降级，红线 15 / Pitfalls #19 收口） | 用户 |
 | 2026-11-10 | 开关 = 启动期消费、运行期不切（校验层实例级装载无热切时机） | 用户（「需要一个启动时引擎 debug 开关」） |
 | 2026-11-12 | dbg-1 落地待验收（实装落点 §2.5） | 实施 |
+| 2026-11-21 | **`engineDebug` 默认改 false**：校验层开销（帧率 5~20%）不该是日常默认，改成「需要时用 `--debug=true` 参数开启」（原 2026-11-10「默认 true」作废） | 用户 |

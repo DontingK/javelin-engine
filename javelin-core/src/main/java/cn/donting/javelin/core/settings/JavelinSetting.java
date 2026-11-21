@@ -44,10 +44,12 @@ public class JavelinSetting implements Serializable {
 
     /**
      * 引擎调试开关（Vulkan 校验层 + DebugUtilsMessenger 回调，Engine_DebugTools_Plan §2）：
-     * 默认 true——开发者默认要听见校验层。启动期消费、运行期不可切；为 true 且本机无
-     * 校验层时启动即报错（fail-fast，红线 15），关掉本开关可免校验层启动。
+     * 默认 false——校验层每次 API 调用都做检查（实测帧率掉 5~20%），日常跑图不需要；
+     * 排障/验收时用命令行 {@code --debug=true} 打开（{@link cn.donting.javelin.core.LaunchArgs}
+     * 覆盖设置文件，2026-11-21 拍板「debug 需要参数开启」）。启动期消费、运行期不可切；
+     * 为 true 且本机无校验层时启动即报错（fail-fast，红线 15）。
      */
-    private boolean engineDebug = true;
+    private boolean engineDebug = false;
 
     public WindowSetting getWindowSettings() {
         return windowSettings;

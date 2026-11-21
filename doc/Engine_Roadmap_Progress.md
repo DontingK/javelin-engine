@@ -124,6 +124,8 @@
 
 - **2026-11-21｜B2 首实跑（两轮）与三处收口**：①第一轮 update 段 66 行 `ivec2 ij = gl_LocalInvocationID.xy`（uvec2→ivec2 隐式缩窄）被 shaderc 拒，落 stub 后宿主判两段资产不可用、B2 整段没跑；改显式 `ivec2(...)` 后导入成功。②第二轮全链跑通（atlas created / 数据面就绪 / 首圈完成 / 读回打印），但撞两族 VVL：`VUID-VkComputePipelineCreateInfo-layout-07990` + `VUID-VkWriteDescriptorSet-descriptorType-00319`——GLSL `uniform sampler3D/2D` 是 **COMBINED_IMAGE_SAMPLER**，而 layout 写成 `SAMPLED_IMAGE`（`DescriptorUpdate.sampledTexture` 写的是 combined）；三处（trace b0、update b0/b1）改 `COMBINED_IMAGE_SAMPLER` 后 VVL ERROR 清零。③数值全是 `(π, π, π)`、命中距离 = `MAX_RAY_DISTANCE`：探针体积（30×6×30 m）远大于体素场 AABB（约 10.8×5.8×7.9 m），相机拉高到 26 m 后全部探针在场外、DDA 首格即出界走环境色兜底；加 `DdgiProbeGrid.cameraCenteredWithin`（原点夹进场 AABB、保持 spacing 吸附；网格比场大时居中于场）+ 单测 `probeGridClampsIntoVoxelBounds`。诊断槽从「前 8 个探针」（恒为角探针、必然在场外）改成「网格中心 2×2×2 块」，避免日志自身误导读数 ｜⏳ 待重跑确认：`中心块#0..7` 的 rgb 分化、命中距离落在 0.5~3 m 量级。剩余 `VUID-vkDestroyDevice-device-05137 has 95 leaked objects` 是 shutdown 期既有泄漏，与 B2 无关
 
+- **2026-11-21｜`engineDebug` 默认改 false（dbg-1 口径调整）**：校验层每次 API 调用都做检查（实测帧率掉 5~20%），日常跑图不该默认开着。`JavelinSetting.engineDebug` 默认值 `true → false`（javadoc 改写为「排障/验收用 `--debug=true` 打开」），`--debug=true|false` 的 `LaunchArgs` 覆盖链不动；同步口径：`Engine_DebugTools_Plan.md` §2.1/§2.5/§5 拍板记录、`Engine_Features.md` §1 行、`AGENTS.md` 索引行 ｜⏳ 待实跑（默认启动应零 `[VVL]` 日志、加 `--debug=true` 后 VVL 消息照常现形）
+
 ---
 
 > （注：部分内容可能由 AI 生成）
