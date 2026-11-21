@@ -1,6 +1,7 @@
 package cn.donting.javelin.rhi;
 
 import cn.donting.javelin.rhi.exception.VulkanException;
+import cn.donting.javelin.rhi.types.Format;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -8,6 +9,8 @@ import org.lwjgl.vulkan.*;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
@@ -24,6 +27,8 @@ final class VulkanPhysicalDevice {
     private final List<QueueFamilyInfo> queueFamilies;
     private final int graphicsFamily;
     private final int presentFamily;
+    /** 格式能力表缓存（RHI-15）：驱动查询只做一次，之后按格式查表 */
+    private final Map<Format, FormatSupport> formatCache = new ConcurrentHashMap<>();
 
     private VulkanPhysicalDevice(VkPhysicalDevice device,
                                  VkPhysicalDeviceProperties properties,
@@ -51,6 +56,20 @@ final class VulkanPhysicalDevice {
 
     boolean isDiscreteGPU() {
         return properties.deviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    }
+
+    /**
+     * 查询格式能力（RHI-15 / RHI-08）：走 {@code vkGetPhysicalDeviceFormatProperties} 的
+     * optimalTilingFeatures，按格式缓存——纹理创建期按 usage 校验，缺项即 fail-fast。
+     */
+    FormatSupport formatSupport(Format format) {
+        return formatCache.computeIfAbsent(format, f -> {
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                VkFormatProperties props = VkFormatProperties.calloc(stack);
+                vkGetPhysicalDeviceFormatProperties(device, VulkanTexture.toVkFormat(f), props);
+                return new FormatSupport(f, props.optimalTilingFeatures());
+            }
+        });
     }
 
     /**

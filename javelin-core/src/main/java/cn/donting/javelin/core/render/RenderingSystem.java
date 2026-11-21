@@ -12,12 +12,15 @@ import cn.donting.javelin.core.render.material.PassState;
 import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
+import cn.donting.javelin.core.render.ddgi.DdgiAtlases;
+import cn.donting.javelin.core.render.ddgi.DdgiProbeGrid;
 import cn.donting.javelin.core.render.pipeline.pass.GBufferPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
+import cn.donting.javelin.core.settings.DdgiSettings;
 import cn.donting.javelin.core.settings.ShadowSettings;
 
 import cn.donting.javelin.rhi.Buffer;
@@ -200,6 +203,8 @@ public final class RenderingSystem implements AutoCloseable {
     private boolean shadowSunActive;
     /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项/CSM 级联三项，Engine_Shadow_Quality_Design §3.2/§4.8） */
     private ShadowSettings shadowSettings = new ShadowSettings();
+    /** DDGI 参数（体素场分辨率/开关/探针网格/刷新节奏，Engine_DDGI_Design §3/§4） */
+    private DdgiSettings ddgiSettings = new DdgiSettings();
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
     /** 逐级联光空间 z 范围回填暂存（CSM，1/zRange 折算除数来源） */
     private final float[] shadowZRangeTmp = new float[4];
@@ -305,6 +310,8 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> taaRtTextures = new HashMap<>();
     // 每视口 TAA 历史状态（上帧抖动后 viewProj + 帧号；TaaPass 重投影与失效判据的来源）
     private final Map<String, TaaHistory> taaHistories = new HashMap<>();
+    // 每视口 DDGI 探针 atlas 对（Engine_DDGI_Design §3；按网格版面换代，key = cameraName）
+    private final Map<String, DdgiAtlases> ddgiAtlasSets = new HashMap<>();
     /** TAA 投影抖动开关：仅 TAA 在链上才抖（RenderingSystem 不认链，由 JavelinEngine 下发）；相机级再叠加 */
     private boolean taaJitterEnabled;
     /** 抖动幅度（像素；内部常量 0.5 = thinTAA 同款半像素，满幅会把画面拉糊；不暴露给相机） */
@@ -425,6 +432,7 @@ public final class RenderingSystem implements AutoCloseable {
             retireBloomRts(camera.name());
             retireSsaoRts(camera.name());
             retireTaaRts(camera.name());
+            retireDdgiAtlases(camera.name());
             taaHistories.remove(camera.name());
         }
     }
@@ -769,6 +777,46 @@ public final class RenderingSystem implements AutoCloseable {
                 retire(entry.getValue());
                 it.remove();
             }
+        }
+    }
+
+    // ═══ 每视口 DDGI 探针 atlas（Engine_DDGI_Design §3，P4-05 批 B1） ═══
+
+    /**
+     * 每视口 DDGI 两张 atlas（辐照度 {@code RGBA16F} / 深度矩 {@code RG16F}）。
+     *
+     * <p>版面（尺寸 / tile 数 / 探针数）全部由调用方给的 {@link DdgiProbeGrid} 决定：
+     * 与现存一对同版面则原样复用，否则换代——旧两张图进两帧退役队列，新一对按新尺寸
+     * 创建。与交换链尺寸无关（resize 不换绑；探针网格是相机居中滚动体，不受视口影响）。
+     * 惰性创建：无症状挂账时（DDGI 关闭）永不开图。</p>
+     */
+    public DdgiAtlases ddgiAtlasesFor(String cameraName, DdgiProbeGrid grid) {
+        if (cameraName == null || grid == null) {
+            throw new IllegalArgumentException("cameraName / grid must not be null");
+        }
+        DdgiAtlases current = ddgiAtlasSets.get(cameraName);
+        if (current != null && current.matches(grid)) {
+            return current;
+        }
+        if (current != null) {
+            log.info("DDGI atlas rebind[{}]: {} → {}", cameraName, current, grid);
+            retire(current.irradiance());
+            retire(current.depth());
+            ddgiAtlasSets.remove(cameraName);
+        }
+        DdgiAtlases created = DdgiAtlases.create(device, grid);
+        log.info("DDGI atlas created[{}]: {}（显存 {} KB）", cameraName, created,
+                (grid.irradianceAtlasBytes() + grid.depthAtlasBytes()) / 1024);
+        ddgiAtlasSets.put(cameraName, created);
+        return created;
+    }
+
+    /** 退役某视口的 DDGI atlas（removeCamera 用；retire 两帧后销毁） */
+    private void retireDdgiAtlases(String cameraName) {
+        DdgiAtlases atlases = ddgiAtlasSets.remove(cameraName);
+        if (atlases != null) {
+            retire(atlases.irradiance());
+            retire(atlases.depth());
         }
     }
 
@@ -1236,6 +1284,60 @@ public final class RenderingSystem implements AutoCloseable {
             throw new IllegalArgumentException("shadowSettings must not be null");
         }
         this.shadowSettings = shadowSettings;
+    }
+
+    /**
+     * DDGI 追踪段用的光照快照（Engine_DDGI_Design §4.1）：主光方向 + 颜色×强度 + 环境项。
+     *
+     * <p>打包成 12 个 float 供宿主塞进 UBO：{@code [0..2]} 主光方向（指向光源的归一向量）、
+     * {@code [3..5]} 主光 rgb × 强度、{@code [6..8]} 环境 rgb、{@code [9]} 环境强度。
+     * 主光缺失（场景无方向光）时前三与 3~5 位全零，着色端只剩环境项。</p>
+     */
+    public void packDdgiLighting(float[] out12) {
+        if (out12 == null || out12.length < 12) {
+            throw new IllegalArgumentException("out12 至少 12 个 float");
+        }
+        RenderLight sun = resolveSun();
+        if (sun == null) {
+            out12[0] = 0f;
+            out12[1] = 0f;
+            out12[2] = 0f;
+            out12[3] = 0f;
+            out12[4] = 0f;
+            out12[5] = 0f;
+        } else {
+            Vector3f dir = sun.worldDir();
+            out12[0] = dir.x;
+            out12[1] = dir.y;
+            out12[2] = dir.z;
+            float[] color = sun.colorIntensity();
+            out12[3] = color[0] * color[3];
+            out12[4] = color[1] * color[3];
+            out12[5] = color[2] * color[3];
+        }
+        out12[6] = ambientColor.r;
+        out12[7] = ambientColor.g;
+        out12[8] = ambientColor.b;
+        out12[9] = ambientIntensity;
+        out12[10] = 0f;
+        out12[11] = 0f;
+    }
+
+    /**
+     * DDGI 参数（Engine_DDGI_Design §3/§4）：启动期由 {@code JavelinEngine} 灌入设置、
+     * 运行期由编辑器「项目设置」窗口改写。{@code DdgiVoxelizer} 按它取体素场分辨率与
+     * 开关，{@code DdgiAtlases} 按它取探针网格。
+     */
+    public DdgiSettings ddgiSettings() {
+        return ddgiSettings;
+    }
+
+    /** DDGI 参数设置（null 拒绝——保持恒有值，调用方不必判空） */
+    public void setDdgiSettings(DdgiSettings ddgiSettings) {
+        if (ddgiSettings == null) {
+            throw new IllegalArgumentException("ddgiSettings must not be null");
+        }
+        this.ddgiSettings = ddgiSettings;
     }
 
     /**

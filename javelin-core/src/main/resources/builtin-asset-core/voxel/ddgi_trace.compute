@@ -1,0 +1,153 @@
+#version 450
+
+// DDGI 追踪段（Engine_DDGI_Design §4.1，P4-05 批 B2）
+// 一 workgroup = 一个探针；64 线程 = 八面体 8×8 = 64 条方向，每条走一次体素 DDA。
+// 输出：临时 radiance tile（rgba16f，内区 8×8，A 未用）+ 距离 tile（rg16f，R = 命中距离）。
+// 命中着色 = albedo × (ambient + 主光 × ndl)；未命中 = 环境色（B2 不接天空盒与 CSM 阴影项）。
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler3D voxels;
+
+layout(set = 0, binding = 1) uniform VoxelParams {
+    vec4 originResolution; // xyz = 体素网格原点，w = 单边体素数
+    vec4 voxelSize;        // xyz = 单体素边长
+    vec4 gridBounds;       // xyz = 网格上界
+    vec4 reserved;
+} field;
+
+layout(set = 0, binding = 2, rgba16f) uniform image2D radianceOut;
+layout(set = 0, binding = 3, rg16f) uniform image2D distanceOut;
+
+layout(set = 0, binding = 4) uniform ProbeGrid {
+    vec4 originSpacing;    // xyz = 网格原点，w = spacing
+    ivec4 counts;          // xyz = 三向探针数，w = tilesPerRow
+    vec4 tileParams;       // x = 辐照度 tile 边长(10)，y = 深度 tile 边长(18)，z/w 内区边长(8/16)
+    vec4 reservedGrid;
+} grid;
+
+layout(set = 0, binding = 5) uniform Lighting {
+    vec4 sunDir;           // xyz = 指向光源的方向（已归一），w 未用
+    vec4 sunColor;         // rgb = 颜色 × 强度
+    vec4 ambient;          // rgb = 环境色，w = 强度
+    vec4 lightingReserved;
+} light;
+
+layout(push_constant) uniform Push {
+    uint sliceStart;       // 本帧首个探针的线性索引
+    uint probeCount;       // 本帧派发探针数
+    uint tilesPerRow;
+    float maxDistance;     // 单条射线最长距离（世界单位）
+} pc;
+
+const float OCT_EPS = 1e-6;
+
+// 八面体解码：uv ∈ [0,1]² → 单位方向
+vec3 octDecode(vec2 uv) {
+    vec2 o = uv * 2.0 - 1.0;
+    vec3 n = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
+    if (n.z < 0.0) {
+        n.x = (1.0 - abs(n.y)) * (n.x >= 0.0 ? 1.0 : -1.0);
+        n.y = (1.0 - abs(n.x)) * (n.y >= 0.0 ? 1.0 : -1.0);
+    }
+    return normalize(n);
+}
+
+bool insideGrid(ivec3 c, int res) {
+    return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < res && c.y < res && c.z < res;
+}
+
+// Amanatides & Woo 体素 DDA：返回命中距离（<0 = 未命中），出参为命中体素基色与面法线估算
+float traceVoxel(vec3 ro, vec3 rd, out vec3 hitAlbedo, out vec3 hitNormal) {
+    hitAlbedo = vec3(0.0);
+    hitNormal = -rd;
+    int res = int(field.originResolution.w);
+    if (res <= 0) {
+        return -1.0;
+    }
+    vec3 org = field.originResolution.xyz;
+    vec3 vs = field.voxelSize.xyz;
+
+    vec3 inv = 1.0 / vs;
+    ivec3 cell = ivec3(floor((ro - org) * inv));
+    ivec3 stp = ivec3(rd.x >= 0.0 ? 1 : -1, rd.y >= 0.0 ? 1 : -1, rd.z >= 0.0 ? 1 : -1);
+
+    vec3 tDelta = vec3(1e30);
+    vec3 tMax = vec3(1e30);
+    for (int a = 0; a < 3; a++) {
+        float d = rd[a];
+        if (abs(d) < OCT_EPS) {
+            continue;                    // 该轴不跨格：tMax/tDelta 保持 1e30
+        }
+        float bound = org[a] + vs[a] * float(cell[a] + (stp[a] > 0 ? 1 : 0));
+        tMax[a] = (bound - ro[a]) / d;
+        tDelta[a] = abs(vs[a] / d);
+    }
+
+    float t = 0.0;
+    for (int guard = 0; guard < 1024; guard++) {
+        if (!insideGrid(cell, res)) {
+            return -1.0;                 // 出网格 = 未命中（回落环境色）
+        }
+        vec4 texel = texelFetch(voxels, cell, 0);
+        if (texel.a > 0.5) {
+            hitAlbedo = texel.rgb;
+            int axis = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
+            vec3 n = vec3(0.0);
+            n[axis] = -float(stp[axis]);  // 进入面的法线朝回来方向
+            hitNormal = n;
+            return t;
+        }
+        int axis = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
+        t = tMax[axis];
+        if (t > pc.maxDistance) {
+            return -1.0;
+        }
+        cell[axis] += stp[axis];
+        tMax[axis] += tDelta[axis];
+    }
+    return -1.0;
+}
+
+void main() {
+    uint probe = pc.sliceStart + gl_WorkGroupID.x;
+    uint total = uint(grid.counts.x * grid.counts.y * grid.counts.z);
+    if (probe >= total) {
+        return;
+    }
+
+    // 线性索引 → 网格坐标 → 探针世界位置
+    uint xyPlane = uint(grid.counts.x * grid.counts.y);
+    uint pz = probe / xyPlane;
+    uint rem = probe - pz * xyPlane;
+    uint py = rem / uint(grid.counts.x);
+    uint px = rem - py * uint(grid.counts.x);
+    vec3 probePos = grid.originSpacing.xyz
+            + vec3(float(px), float(py), float(pz)) * grid.originSpacing.w;
+
+    // 八面体方向（内区 8×8）
+    vec2 uv = (vec2(gl_LocalInvocationID.xy) + 0.5) / vec2(float(grid.tileParams.z));
+    vec3 dir = octDecode(uv);
+
+    vec3 albedo;
+    vec3 normal;
+    float dist = traceVoxel(probePos, dir, albedo, normal);
+    vec3 radiance;
+    if (dist < 0.0) {
+        // 未命中：环境色兜底（B2 不接天空盒）
+        radiance = light.ambient.rgb * light.ambient.a;
+        dist = pc.maxDistance;
+    } else {
+        float ndl = max(dot(normal, light.sunDir.xyz), 0.0);
+        radiance = albedo * (light.ambient.rgb * light.ambient.a + light.sunColor.rgb * ndl);
+    }
+
+    // 写入本探针 tile 的内区（1px 边框留给后续接缝处理，B2 不填）
+    int tileSide = int(grid.tileParams.x);
+    int tileCol = int(probe % pc.tilesPerRow);
+    int tileRow = int(probe / pc.tilesPerRow);
+    ivec2 px2 = ivec2(tileCol * tileSide + 1, tileRow * tileSide + 1)
+            + ivec2(gl_LocalInvocationID.xy);
+    imageStore(radianceOut, px2, vec4(radiance, 1.0));
+    imageStore(distanceOut, px2, vec4(dist, 0.0, 0.0, 0.0));
+}

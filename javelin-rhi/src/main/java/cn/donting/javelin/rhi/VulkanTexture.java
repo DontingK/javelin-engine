@@ -36,6 +36,9 @@ final class VulkanTexture implements Texture {
     VulkanTexture(VulkanDevice device, TextureDesc desc) {
         this.device = device;
         this.desc = desc;
+        // 创建期格式能力校验（RHI-15，2026-11-21）：usage 要的 feature 缺一个就抛，
+        // 不把「STORAGE + RGBA16F」这类组合留给驱动兜底（失败点会漂到绘制期）
+        validateFormatSupport(desc);
 
         VkDevice vkDevice = device.vkDevice();
 
@@ -189,6 +192,21 @@ final class VulkanTexture implements Texture {
             viewRegistration.dispose();
         }
         registration.dispose();
+    }
+
+    /**
+     * 格式能力校验（RHI-15）：按 desc.usage 逐项查 {@link FormatSupport}，
+     * 缺 feature 直接抛——错误信息带设备名与缺失用途，便于定位机型/驱动差异。
+     */
+    private void validateFormatSupport(TextureDesc desc) {
+        FormatSupport support = device.physicalDevice().formatSupport(desc.format());
+        for (TextureUsage usage : desc.usage()) {
+            if (!support.supports(usage)) {
+                throw new IllegalStateException("纹理创建失败：格式 " + desc.format()
+                        + " 在设备[" + device.physicalDevice().deviceName() + "] 上不支持用途 " + usage
+                        + "（RHI-15 创建期格式能力校验；能力快照 = " + support + "）");
+            }
+        }
     }
 
     static int toVkFormat(Format format) {

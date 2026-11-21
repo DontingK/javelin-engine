@@ -1,5 +1,9 @@
 # RHI 纹理种类底座设计（3D 纹理 / 2D 纹理数组 / storage image 写口）
 
+> v0.5（2026-11-21）——**§7 格式能力查询用户实机验收通过（RHI-15 + RHI-08 关账）**：`FormatCapabilityTest` 八行能力表 + 7 条必支持断言全通过、负例「RGBA8 建深度用途」在创建期抛 `IllegalStateException`（消息含设备名与能力快照）。**设备 = AMD Radeon 780M（集显）**，快照要点：R8_UNORM/RGBA8/R16F/RGBA16F 的 sampled+linear+storage+color+blend 全 true、`R32_UINT` color=true 但 **blend=false / linear=false**（拾取 ID-buffer 只写不混合、只 texelFetch，口径吻合）、`D32_SFLOAT` depth=true 而 storage/color=false、BC1/BC7 仅 sampled（无 color/存储，符合压缩纹理用途）。窗口为纯清屏（0.08 灰，看起来近黑）属预期，本件不看画面。
+>
+> v0.4（2026-11-21）——**缺口 8（格式能力查询，RHI-15 + RHI-08）落码，待编译验收**：新增 `FormatSupport`（`vkGetPhysicalDeviceFormatProperties` 的 optimalTilingFeatures 快照 + `supports(TextureUsage)` 映射）、`Device.formatSupport(Format)`（按格式缓存）；纹理创建期按 usage 逐项校验、PSO 创建期校验附件格式（颜色要 `COLOR_ATTACHMENT`、开混合要 `COLOR_ATTACHMENT_BLEND`、深度要 `DEPTH_STENCIL_ATTACHMENT`），缺项抛 `IllegalStateException` 并带设备名/格式/缺失用途。验证件 `FormatCapabilityTest`（能力表打印 + 规范必支持断言 + 负例抛错）。
+>
 > v0.3（2026-11-18）——**阶段一/二/三全部用户实机验收通过**：`TextureTypesTest` 两条「读回比对通过」（3D 16³ 逐体素 + 2D 数组逐字节）+ 画面为 XOR 灰度图案；编辑器常规画面与 TAA 零视觉差异、`[VVL]` 零 ERROR（无 `oldLayout` 不匹配）；`ComputeSsboTest` / `CubemapTest` 回归正常。**随验收修一处测试件设计缺陷**：图形段原取 z=0.5，恰好落在 z=7 与 z=8 两层正中间，而两层图案互补（`(x^y^8)&7 = 7 - ((x^y^7)&7)`），三线性各取一半 → 恒 0.5，整屏中灰看不出图案；改取第 7 层体素中心 `(7+0.5)/16`（`texture3d-read.frag`，仍走 `texture()` 采样路径，未换 `texelFetch`）。补纯逻辑 `TextureDescShapeTest`（§5 最后一条「形状校验可触发」）。
 >
 > v0.2（2026-11-16）——**阶段一、二、三已落码（未编译、待验收）**：本批服务四期施工序 ⑥（P4-05 DDGI）与 ⑥ 前置（P4-17 体素化 AO），补齐「3D 纹理 / 纹理数组 + compute 写纹理 + 跨帧布局记忆」这条底座链路。用户 2026-11-16 明确「验收推迟」，先落码。
@@ -32,7 +36,7 @@
 | 5 | 无自定义视图 | `TextureViewDesc` 全项目**零引用**（`VulkanTexture` 只有 `ensureView()` 全范围默认视图） | 按层/按 mip 子集绑定不可达（点光 cube 阴影、CSM 分层、探针 atlas 分块）；DDGI 首版整张绑定即可不用 |
 | 6 | 屏障仅全范围 | `VulkanCommandBuffer.pipelineBarrier` 恒 `0..mipLevels / 0..arrayLayers` | 逐层/逐 mip 转换不可达（首版够用，分帧刷探针若要按层转换则需扩） |
 | 7 | **跨帧布局记忆缺失** | `RenderGraphImpl.execute`：执行器每帧新建 `LayoutTracker`，非 backbuffer 纹理一律起手 `UNDEFINED`。**阶段三已修**：布局状态改为随纹理资源持有（`VulkanTexture.layout`，跨帧沿用），`LayoutTracker` 类随之退役删除 | 跨帧持久纹理（TAA 历史、将来的探针 atlas / 体素网格）每帧首用都声明 `UNDEFINED → X`——按规范内容**可被丢弃**。现驱动实测保留（TAA 能跑），但属未定义行为，DDGI 依赖它会更危险 |
-| 8 | 格式能力未查 | 无 `vkGetPhysicalDeviceFormatProperties` 调用（`RHI-08` 已记同族） | `STORAGE` + `R16G16B16A16_SFLOAT` 这类组合是否支持靠驱动兜，失败滞后 |
+| 8 | 格式能力未查 | **已修（2026-11-21，RHI-15 + RHI-08）**：新增 `FormatSupport` + `Device.formatSupport`；纹理/PSO 创建期按 usage 与附件格式校验，缺项 fail-fast | `STORAGE` + `R16G16B16A16_SFLOAT` 这类组合曾靠驱动兜，失败滞后；现错误点前移到创建期 |
 
 > 补充：compute 底座本身已在三期批次① 验收（`ComputeSsboTest`：compute→compute→图形 + 65536 元素读回），`PassDef.addTextureStorageRead/Write`、`RenderGraphImpl` 的 `GENERAL` 屏障计划、`DescriptorType.STORAGE_IMAGE` 布局、`ComputePipelineDesc.pushConstantSize` 均已就位。**本批缺的是纹理种类与绑定 API，不是 compute 链路。**
 
@@ -113,6 +117,40 @@
 - 屏障全范围（缺口 6）：3D / 数组语义正确但粒度粗。
 - 布局状态不区分子资源（逐层 / 逐 mip 转换后状态会互相覆盖——现阶段无人做子区间转换，与缺口 6 同批再解）。
 - 命令缓冲「录制未提交」会让布局状态偏一格（现工程无此路径，见 §3.2 代价）。
-- 格式能力未查（缺口 8）。
+- 格式能力未查（缺口 8）——**已修（2026-11-21）**，见 §7。
+
+---
+
+## 7. 格式能力查询与创建期 fail-fast（RHI-15 + RHI-08，2026-11-21）
+
+> 动机：`STORAGE` + `RGBA16F`、`R32_UINT` 作拾取附件这类组合此前**全靠驱动兜**——不支持时错误在绘制期被校验层点出，离创建点很远；DDGI 要上 `RGBA16F` storage + atlas 分块，先把这层闸门补上。
+
+| 件 | 落点 |
+|----|------|
+| 能力快照 | `FormatSupport`（public，`javelin-rhi`）：构造于 `optimalTilingFeatures`；暴露 `sampledImage / linearFilter / storageImage / colorAttachment / colorAttachmentBlend / depthStencilAttachment / transferSrc / transferDst`，以及 `supports(TextureUsage)` 映射表 |
+| 查询与缓存 | `VulkanPhysicalDevice.formatSupport(Format)`：`vkGetPhysicalDeviceFormatProperties` + `ConcurrentHashMap` 按格式缓存（驱动查询只做一次）；`Device.formatSupport(Format)` 公开入口（诊断/按机型选档用） |
+| 纹理创建期 | `VulkanTexture` 构造首步 `validateFormatSupport(desc)`：遍历 `desc.usage()`，任一用途缺 feature 即抛 `IllegalStateException`（消息带设备名、格式、缺失用途、能力快照） |
+| PSO 创建期 | `VulkanGraphicsPipeline.validateAttachmentFormats(...)`：颜色附件要 `COLOR_ATTACHMENT`；`blendEnable=true` 还要 `COLOR_ATTACHMENT_BLEND`；`depthAttachmentFormat` 非空要 `DEPTH_STENCIL_ATTACHMENT` |
+| 验证件 | `javelin-core/src/test/java/.../FormatCapabilityTest.java`：打印主力格式能力表 + 7 条规范「必支持」断言（R8G8B8A8_UNORM 可采样/可色附件/不可深度、R16_SFLOAT 可色附件且可线性过滤、RGBA16F 可采样可色附件、R32_UINT 可色附件、D32_SFLOAT 可深度）+ 负例（RGBA8 建深度用途纹理必须创建期抛） |
+
+**映射口径两处特例**：`INPUT_ATTACHMENT` 无独立格式位，按「可作颜色或深度附件」判定；`TRANSIENT_ATTACHMENT` 是内存策略（`LAZILY_ALLOCATED`），不查格式能力（恒 true）。
+
+**验收**：`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.FormatCapabilityTest` → 控制台能力表 + 「格式能力断言全部通过」，`[VVL]` 零 ERROR，编辑器常规画面/阴影/SSAO 无回归。
+
+**验收记录（2026-11-21 用户实机，设备 AMD Radeon 780M）**：
+
+| 项 | 结果 |
+|---|---|
+| 能力表（8 格式） | ✅ 全打印（R8_UNORM / RGBA8 / R16F / RGBA16F / R32_UINT / D32F / BC1 / BC7） |
+| 7 条规范「必支持」断言 | ✅ 全 `[通过]` |
+| `R32_UINT` 快照 | ✅ color=true、blend=false、linear=false（拾取只写不混合 + `texelFetch`，口径吻合） |
+| `D32_SFLOAT` 快照 | ✅ depth=true、storage=false、color=false |
+| BC1/BC7 快照 | ✅ 仅 sampled=true（压缩格式不作附件/存储，符合用途） |
+| 负例（RGBA8 + 深度用途） | ✅ 创建期抛 `IllegalStateException`，消息含设备名 + 格式 + 缺失用途 + 能力快照 |
+| 窗口 | ✅ 正常清屏（0.08 灰近黑，本件不看画面） |
+
+> 结尾提示：快照来自集显 780M；换到独显（5060）跑同一件仍应全通过，若某组合在独显上反而缺失，fail-fast 会直接把设备名与缺失位打出来。
+
+**边界**：只查 `optimalTilingFeatures`（线性平铺仅用于读回中转）；多采样（MSAA）能力与 format 组合未查（本项目 MSAA 业务面已删，REND-11）；纹理过滤（`linearFilter`）只在需要处（如 SSAO 半分辨率上采样）人工确认，创建期不强制。
 
 > （注：部分内容可能由 AI 生成）

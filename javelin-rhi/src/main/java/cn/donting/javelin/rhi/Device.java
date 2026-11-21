@@ -3,6 +3,7 @@ package cn.donting.javelin.rhi;
 import cn.donting.javelin.rhi.desc.*;
 import cn.donting.javelin.rhi.render.RenderSurface;
 import cn.donting.javelin.rhi.desc.*;
+import cn.donting.javelin.rhi.types.Format;
 import cn.donting.javelin.rhi.types.SampleCount;
 
 import java.util.Set;
@@ -17,6 +18,13 @@ public interface Device extends GPUResource {
     Texture createTexture(TextureDesc desc, UploadData data);
     Buffer createBuffer(BufferDesc desc, UploadData data);
     Sampler createSampler(SamplerDesc desc);
+
+    /**
+     * 查询某像素格式在本设备上的能力（RHI-15，2026-11-21）：
+     * 数据源 = {@code vkGetPhysicalDeviceFormatProperties} 的 optimalTilingFeatures，按格式缓存。
+     * 纹理/管线创建期已按 usage 自动校验，此方法供诊断与可选用例（如按机型选档）。
+     */
+    FormatSupport formatSupport(Format format);
 
     // --- 管线 ---
     GraphicsPipeline createGraphicsPipeline(GraphicsPipelineDesc desc);

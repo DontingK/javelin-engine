@@ -16,6 +16,8 @@ import cn.donting.javelin.core.render.FrameDescription;
 import cn.donting.javelin.core.render.FrameLoop;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
+import cn.donting.javelin.core.render.ddgi.DdgiProbePass;
+import cn.donting.javelin.core.render.ddgi.DdgiVoxelizer;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.ForwardRenderPipeline;
@@ -97,6 +99,10 @@ public class JavelinEngine {
     protected RenderPipeline renderPipeline;
     /** 后处理节点装配（组合根，createRenderPipeline 建；管线只承载链与展开） */
     private PostProcessSetup postProcessSetup;
+    /** DDGI 体素化 Pass（四期 P4-05 批 B1；组合根持有，供重建命令与 shutdown 释放） */
+    private DdgiVoxelizer ddgiVoxelizer;
+    /** DDGI 探针追踪 + 更新 Pass（批 B2） */
+    private DdgiProbePass ddgiProbePass;
     /** FORWARD 档忽略 SSAO 的 warn 一次性标记（applyRenderSettings 高频调用，不刷日志） */
     private boolean ssaoForwardWarned;
     /** FORWARD 档忽略 TAA 的 warn 一次性标记（同上口径） */
@@ -447,6 +453,12 @@ public class JavelinEngine {
         if (pickSystem != null) {
             pickSystem.close();   // waitIdle 之后（frameLoop.close 已做）：摘 Pass + PSO + 读回环
         }
+        if (ddgiVoxelizer != null) {
+            ddgiVoxelizer.close();   // 同上：waitIdle 之后释放体素图/描述符集/PSO
+        }
+        if (ddgiProbePass != null) {
+            ddgiProbePass.close();   // 同上：临时 tile、两段 PSO/布局/描述符集、UBO
+        }
         // 子系统 GPU 资源统一销毁（shutdownAll 早于 waitIdle 不能碰 GPU，
         // closeGpu 钩子在此安全区统一遍历——RenderingSystem.close() 同层）
         if (subsystemManager != null) {
@@ -553,10 +565,14 @@ public class JavelinEngine {
         postProcessSetup = new PostProcessSetup(device(), getAssetManager());
         // 阴影参数（Engine_Shadow_Quality_Design §3.2）：渲染系统持 live 实例，每帧打包进 UBO
         renderingSystem.setShadowSettings(setting.getGraphSettings().getShadowSettings());
-        // 体素 AO（P4-17）已于 2026-11-20 整体退役：环境遮蔽由 SSAO 承担（DDGI 落地后再
-        // 按「GI 一层 + 至多一层补强」收敛）。原体素化底座（VoxelizationPass / VoxelGrid /
-        // voxelize.compute / MeshVoxelGeometry）同批删除，可从 dc1e9e0 取回，P4-05 首版
-        // 投射线按「静态集过滤 + 动态 tile」口径重建。
+        // DDGI 参数（Engine_DDGI_Design §3/§4，四期 P4-05 批 B1）：体素场分辨率/开关/探针网格
+        renderingSystem.setDdgiSettings(setting.getGraphSettings().getDdgiSettings());
+        // 体素化（DDGI 投射线底座）：最靠前的 compute Pass——B2 的追踪/更新都吃这张体素图
+        ddgiVoxelizer = new DdgiVoxelizer(device(), renderingSystem, assetManager);
+        pipeline.addPass(ddgiVoxelizer, "Shadow");
+        // 探针追踪 + 更新（B2）：体素图之后、场景 Pass 之前——探针数据独立于视口渲染
+        ddgiProbePass = new DdgiProbePass(device(), renderingSystem, assetManager, ddgiVoxelizer);
+        pipeline.addPass(ddgiProbePass, ddgiVoxelizer.name());
         return pipeline;
     }
 
@@ -650,6 +666,11 @@ public class JavelinEngine {
     /** 后处理节点装配（组合根，持有节点实例 + 按 id 增删链；编辑器工具菜单开关经此） */
     public PostProcessSetup postProcessSetup() {
         return postProcessSetup;
+    }
+
+    /** DDGI 体素化 Pass（未启用 DDGI / 未建管线的引擎实例上为 null；B2 追踪段读它的体素场） */
+    public DdgiVoxelizer ddgiVoxelizer() {
+        return ddgiVoxelizer;
     }
 
     public AssetManager getAssetManager() {

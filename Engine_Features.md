@@ -316,7 +316,11 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 0 项**（2026-11-21 全清：BUG-11 阴影接触漏光、体素 AO 退役批、BUG-12 SSAO 噪点三笔同日收口）。
+> **当前挂账 1 项**（2026-11-21 新增 DDGI B1 数据面；同日 BUG-11 / 体素 AO 退役 / BUG-12 / RHI 格式能力四笔已验收清零）。
+>
+> - **DDGI B1 数据面（P4-05，2026-11-21 落码待验收）**：`DdgiSettings`（三向探针数 16/4/16、间距 2m、射线 64、每帧 64、hysteresis 0.85、强度 1.0、法线偏置 0.4×spacing）+ 项目设置「图形」页新组；`DdgiProbeGrid`（相机居中按 spacing 吸附、索引/位置/contains/归一化、atlas 排版 10×10 与 18×18、字节账）；`DdgiAtlases`（辐照度 `RGBA16F` 320×320 / 深度矩 `RG16F` 576×576，`SAMPLED｜STORAGE｜TRANSFER_SRC｜TRANSFER_DST`，按版面换代）；单测 `DdgiProbeGridTest` 7 例（✅ 2026-11-21 实跑通过）+ GPU 验证件 `DdgiAtlasTest`（✅ 同日实跑通过：STORAGE/SAMPLED 四位、320×320 / 576×576、换代 360×360 / 648×648）；`DdgiVoxelField`（128³ `RGBA8` 体素场：基色 + 占用）+ `DdgiVoxelizer`（不透明 + `castShadow` 集合、`StaticSetSignature` 两帧稳定门控、每实例一 dispatch、只挂首视口、重建日志带耗时）+ `voxelize.compute`（albedo 通道）**（✅ 同日实跑：128³ / 8 MB / 实例 7 / 建资源 11 ms）**。**未做**：`ddgi_trace`/`ddgi_update` 着色器与消费面（画面暂无非预期——B3 才上屏）。口径 `Engine_DDGI_Design.md` v0.2 §11。
+>
+> - ~~**RHI 格式能力查询与创建期 fail-fast（RHI-15 + RHI-08）**~~ **✅ 2026-11-21 用户实机验收**（`FormatCapabilityTest`：8 格式能力表 + 7 条必支持断言全通过、负例创建期抛 `IllegalStateException`；设备 AMD Radeon 780M。快照要点：`R32_UINT` color=true/blend=false/linear=false，`D32F` depth=true/storage=false）。口径 `RHI_Texture_Types_Design.md` v0.5 §7。
 >
 > - ~~**SSAO 噪点修复（BUG-12）**~~ **✅ 2026-11-21 用户实机收口**（「看起来比之前好，先这样」）：可分离两遍双边模糊（水平/竖直各 9 tap，支撑 9×9）+ 深度容差 `sigmaZ` 自适应（`max(radius×0.5, 1.5×本轴纹素视 z 步进)`）+ AO 深度偏置自适应（`max(bias, 1.5×邻域视 z 步进)`）+ AO RT `R8_UNORM`→`R16_SFLOAT`；新增第三个半分辨率 AO RT（index 2 = 竖直模糊结果）。口径 = `Engine_SSAO_Design.md` v0.6 §10.3；**未做项已转 `Engine_Backlog.md` REND-22**（采样数可配 16/32/64 + 深度感知上采样）。
 >

@@ -34,6 +34,9 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
 
     VulkanGraphicsPipeline(VulkanDevice device, GraphicsPipelineDesc desc, long pipelineCache) {
         this.device = device;
+        // PSO 附件格式能力校验（RHI-15）：颜色附件要 COLOR_ATTACHMENT、开混合要 COLOR_ATTACHMENT_BLEND、
+        // 深度附件要 DEPTH_STENCIL_ATTACHMENT——缺项在创建期抛，不等绘制期被校验层点出
+        validateAttachmentFormats(device, desc);
 
         VulkanShaderModule vsModule;
         VulkanShaderModule fsModule;
@@ -371,6 +374,31 @@ final class VulkanGraphicsPipeline implements GraphicsPipeline {
             case MIN -> VK_BLEND_OP_MIN;
             case MAX -> VK_BLEND_OP_MAX;
         };
+    }
+
+    /** PSO 附件格式能力校验（RHI-15）：缺 feature 直接抛，消息带设备名、格式与缺失位 */
+    private static void validateAttachmentFormats(VulkanDevice device, GraphicsPipelineDesc desc) {
+        VulkanPhysicalDevice phys = device.physicalDevice();
+        for (Format format : desc.colorAttachmentFormats()) {
+            if (format == null || format == Format.UNDEFINED) {
+                continue;
+            }
+            FormatSupport support = phys.formatSupport(format);
+            if (!support.colorAttachment()) {
+                throw new IllegalStateException("PSO 创建失败：颜色附件格式 " + format
+                        + " 在设备[" + phys.deviceName() + "] 上不可作颜色附件（RHI-15）");
+            }
+            if (desc.blendEnable() && !support.colorAttachmentBlend()) {
+                throw new IllegalStateException("PSO 创建失败：颜色附件格式 " + format
+                        + " 在设备[" + phys.deviceName() + "] 上不支持混合，但 blendEnable=true（RHI-15）");
+            }
+        }
+        Format depth = desc.depthAttachmentFormat();
+        if (depth != null && depth != Format.UNDEFINED
+                && !phys.formatSupport(depth).depthStencilAttachment()) {
+            throw new IllegalStateException("PSO 创建失败：深度附件格式 " + depth
+                    + " 在设备[" + phys.deviceName() + "] 上不可作深度/模板附件（RHI-15）");
+        }
     }
 
     private static int toVkColorComponentFlags(java.util.Set<ColorComponentFlags> flags) {

@@ -6,6 +6,7 @@ import cn.donting.javelin.rhi.desc.*;
 import cn.donting.javelin.rhi.exception.VulkanException;
 import cn.donting.javelin.rhi.render.RenderSurface;
 import cn.donting.javelin.rhi.types.BufferUsage;
+import cn.donting.javelin.rhi.types.Format;
 import cn.donting.javelin.rhi.types.SampleCount;
 import cn.donting.javelin.rhi.types.TextureType;
 import org.lwjgl.PointerBuffer;
@@ -177,6 +178,13 @@ final class VulkanDevice implements Device {
             uploadTexture(texture, data);
         }
         return texture;
+    }
+
+    /** 格式能力查询（RHI-15）：转物理设备的缓存表 */
+    @Override
+    public FormatSupport formatSupport(Format format) {
+        checkDisposed();
+        return physicalDevice.formatSupport(format);
     }
 
     @Override

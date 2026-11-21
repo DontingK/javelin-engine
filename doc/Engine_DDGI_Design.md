@@ -1,5 +1,7 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.2（2026-11-21）｜**B1 数据面落码（未编译、待验收）**：`DdgiSettings`（探针数三向 / 间距 / 每探针射线数 / 每帧探针预算 / hysteresis / 强度 / 法线偏置，接项目设置「图形」页新组）+ `DdgiProbeGrid`（纯数学：相机居中按 spacing 吸附的原点、线性索引 ↔ 世界坐标、网格内判定与归一化、atlas 排版与字节账；辐照度 tile 10×10 / 深度 18×18，`cols = ceil(sqrt(N))`）+ 单测 `DdgiProbeGridTest`（7 例）+ `DdgiAtlases`（两张 atlas 的 GPU 资源与换代生命周期，验证件 `DdgiAtlasTest`）+ `DdgiVoxelField` / `DdgiVoxelizer` / `StaticSetSignature`（体素场与体素化重建，`voxelize.compute` 改为 albedo 通道 + 签名门控）。**尚未做**：追踪/更新着色器（B2）与消费面（B3）。§10 四点按推荐默认执行（单张 2D atlas / 纯相机滚动体积 / 体素 DDA / SSAO 0.25+0.45）。
+>
 > v0.1（2026-11-20）｜工程台账 P4-05｜四期施工序 ⑥
 > 状态：**方案件（未落码）**。本档按「先方案后码」红线（AGENTS.md）出稿，§10 为待拍板四点，拍板后再动代码。
 > 前置：RHI 纹理底座 + RHI-13 跨帧布局记忆 2026-11-18 已验收；**RHI-15（格式能力查询）未开工**、RHI-14（子资源面）按 §3 选型可暂不阻塞。
@@ -115,9 +117,36 @@ vec3 result = (lighting.ambientMode == 1 && insideProbeVolume(worldPos))
 8. **体素化开销**：只做静态集 + 签名门控 → 场景不动时零重建（P4-17 的动态物体问题是设计输入，见 `Engine_Backlog.md` BUG-13）
 9. **`.shader` 重导**：注入段改动（新增 `javelinDDGI` + binding8/9 声明）→ 必须重导全部 `.shader` 与内置 `lighting.frag`，否则静默不生效
 
-## 10. 待拍板（B0 前须定）
+## 10. 拍板（2026-11-21 用户「按计划推进」= 按推荐默认执行）
 
-1. **atlas 选型**：单张 2D atlas（本档推荐，RHI-14 不阻塞）vs 2D 数组分层（需先做 RHI-14）
-2. **探针体积**：纯相机滚动体积（默认，显存恒定）vs 允许 `Environment.giVolume` 覆盖（灵活但可能显存/探针数暴涨）
-3. **首版投射线后端**：体素 DDA（本档推荐）vs 先做屏幕空间追踪应急（质量差、但零体素化成本）
-4. **SSAO 分工参数**：`radius` 0.25 / `intensity` 0.45 是否照本档 §6 作为缺省（已按用户 2026-11-20 确认写入 `Engine_Backlog.md` P4-05 备注②，此条待最终定数值）
+1. **atlas 选型**：✅ **单张 2D atlas**（RHI-14 不阻塞）
+2. **探针体积**：✅ **纯相机滚动体积**（缺省；`Environment.giVolume` 覆盖留后置）
+3. **首版投射线后端**：✅ **体素 DDA**（体素化在 P4-05 内部按「静态集 + 签名门控 + albedo 通道」重建）
+4. **SSAO 分工参数**：✅ `radius` 0.25 / `intensity` 0.45 作为 DDGI 档缺省（「关掉」不作缺省）
+
+---
+
+## 11. B1 实装记录（数据面，2026-11-21 落码）
+
+| 件 | 落点 | 形态 |
+|----|------|------|
+| 参数对象 | `cn.donting.javelin.core.settings.DdgiSettings` | 三向探针数（16/4/16 缺省）、间距（2m）、每探针射线数（64）、每帧预算（64）、hysteresis（0.85）、强度（1.0）、法线偏置（0.4×spacing）；`@Reflective` + `@InsField`/`@InsFloatRange`/`@InsIntRange`/`@InsSlider`；`read/write` 缺键保默认；派生 `probeCount()` / `framesPerSweep()` |
+| 面板接入 | `GraphSetting` 新组 `@SettingGroup("projectSettings.section.ddgi")` | 声明序在阴影之后；`write/read` 各一行（缺键走 `readSerializable` 的 null 判定保默认）；i18n 中英各 10 键 |
+| 网格与 atlas 数学 | `cn.donting.javelin.core.render.ddgi.DdgiProbeGrid` | 相机居中：`origin = floor((cam − extent/2)/spacing) × spacing`（吸附防探针游动）；`probeIndex` / `probePosition` / `contains` / `normalized`；tile 10×10（内区 8）与 18×18（内区 16），`cols = ceil(sqrt(N))`；`irradianceAtlasBytes()` / `depthAtlasBytes()` 供显存账 |
+| 单测 | `javelin-core/src/test/java/.../DdgiProbeGridTest.java` | 7 例纯逻辑：原点吸附、atlas 尺寸与字节、索引往返、越界抛错、contains/归一化、参数钳制与一圈帧数、最小网格末行留空 tile |
+| atlas GPU 资源 | `cn.donting.javelin.core.render.ddgi.DdgiAtlases` | 辐照度 `RGBA16F` / 深度矩 `RG16F`，用途 `SAMPLED｜STORAGE｜TRANSFER_SRC｜TRANSFER_DST`（STORAGE 写、SAMPLED 读、DST 首帧清零、SRC 供 debug/验收读回；不用 COLOR_ATTACHMENT）；尺寸全体取自 `DdgiProbeGrid`；建前先查 RHI-15 快照的 STORAGE/SAMPLED 位，缺位抛带设备名与快照的 `IllegalStateException`（DDGI 口径，不落到驱动通用报错）；`matches(grid)` = 探针数 + 两张图宽高全等 |
+| atlas 生命周期 | `RenderingSystem.ddgiAtlasesFor(cameraName, grid)` / `retireDdgiAtlases` | per-view 惰性创建；版面不符即换代（旧两张图进两帧退役队列，新一对按新尺寸建）；**与交换链尺寸无关**（resize 不换绑，探针网格是相机居中滚动体）；`removeCamera` 回收；创建/换代各打一条日志（尺寸/格式/显存 KB） |
+| GPU 验证件 | `javelin-core/src/test/java/.../DdgiAtlasTest.java` | `runTest -DmainClass=...DdgiAtlasTest`：两张图 STORAGE/SAMPLED 能力、缺省网格尺寸对账（320×320 / 576×576）、`matches` 复用与换代判据、第二组网格实建并释放 |
+| 体素场资源 | `cn.donting.javelin.core.render.ddgi.DdgiVoxelField` | **单张 N³ `RGBA8`**（`rgb` = 命中面基色、`a` = 占用位），用途 `STORAGE｜SAMPLED｜TRANSFER_DST`，创建时全零上传；参数块 64B（`originResolution`/`voxelSize`/`gridBounds`/`reserved`，与 `voxelize.compute` 同布局）；线性 + 最近邻采样器各一；建前查 RHI-15 的 STORAGE/SAMPLED 位 |
+| 体素化 compute | `builtin-asset-core/voxel/voxelize.compute`（+.meta，新 GUID） | 从 `dc1e9e0` 取回后改三处：写 `rgba8` 而非 `r32ui`（**`imageStore` 取代 `imageAtomicOr`**，UNORM 不能原子化，并发「后写者胜」对 GI 无害）、push 区加 `vec4 albedo`（112B，vec4 前补 12B 对齐）、参数块第四行改 `reserved`。体素粒度/保守光栅/主轴投影沿用原口径 |
+| 静态集签名 | `cn.donting.javelin.core.render.ddgi.StaticSetSignature` | 集合身份 = 网格实例（identity hash）+ 世界矩阵（**1e-4 量化**，矩阵末位抖动不算变动）+ 基色，拌成 64 位摘要。**取代「裸 renderer 计数」门控**（BUG-13 幽灵暗角） |
+| 体素化 Pass | `cn.donting.javelin.core.render.ddgi.DdgiVoxelizer` | 集合口径 = 不透明（`!isTransparent()`）+ `castShadow` + 网格可体素化（`MeshVoxelGeometry`）；**两帧稳定门控**（候选签名连续两帧相同才重建，挡住「移动中每帧全量重刷」）；一个网格实例一个 dispatch（三角形数/64），**只在本帧第一个视口挂载**；重建日志含体素图 MB、实例数、包围盒、收集 ms、建资源 ms + 签名；`MeshVoxelGeometry`（同包桥接）同批取回未改口径 |
+
+**B1 残留（下一段）**：`ddgi_trace.comp` / `ddgi_update.comp` 与消费面（B2/B3）。**STORAGE 实写**归 B2 验收。
+
+**B1 数据面验收**：①`gradlew :javelin-core:test --tests cn.donting.javelin.core.DdgiProbeGridTest` 全绿（**2026-11-21 用户实跑通过**，7 例）；②`gradlew :javelin-core:runTest -DmainClass=cn.donting.javelin.core.DdgiAtlasTest` 打印两组 atlas 尺寸 +「断言全部通过」、ESC 退出不崩（**2026-11-21 用户实跑通过**：`RGBA16F`/`RG16F` 的 STORAGE 与 SAMPLED 四位全 true、缺省网格 320×320 / 576×576（2096 KB）、20×4×16 换代后 360×360 / 648×648（2652 KB）、9 条断言全过；同批编译通过，`DdgiVoxelizer`/`DdgiVoxelField`/`StaticSetSignature` 随模块一起过了编译）；③编辑器跑场景 → 控制台出现一条「体素化重建完成：体素图 128³（8 MB）、实例 N 个、包围盒 [...]、收集 X ms、建资源 Y ms」；④项目设置「图形」页「探针 GI（DDGI）」组 11 项可改可存（含「启用探针 GI」与「体素场分辨率」）、打开旧工程不报错（缺键保默认）。③④ 待实跑。
+
+> **③ 实跑结论（2026-11-21 20:32）**：`体素化重建完成：体素图 128³（8 MB）、实例 7 个、包围盒 [(-5.269, -0.436, -2.769), (5.269, 5.319, 5.129)]、收集 0 ms、建资源 11 ms（StaticSetSignature{entries=7, digest=8e9a01c71f80d5e6}）`——包围盒 ≈ 10.5×5.8×7.9 m ⇒ 单体素 ≈ 8.2 cm；`voxelize.compute` 资产（GUID `d41c8b27…`）加载成功、全程无 ERROR。**视觉无变化属预期**：B1 只建资源，消费面（`javelinDDGI` 注入 + `ambientMode=DDGI`）是 B3，`启用探针 GI` 当前只控制「建/不建体素场与 atlas」，不是画面开关。
+
+**B1 未定（待用户表态）**：引擎目前**没有「静态」标志**（`RenderObject` 只有 `castShadow`/`receiveShadow`），故首版「静态集」只能取「不透明 + 投射阴影」这个近似。若要精确的静态语义（例如场景里加入真正的 `staticGeometry` 标志、由场景桥下发），属下一批口径调整，不阻塞 B2。
+
