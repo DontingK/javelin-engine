@@ -47,8 +47,9 @@ import java.util.Set;
  * 距离 tile）→ `ddgi_update.compute`（余弦加权积辐照度 + 深度矩 + 时域混合）。两者都只处理
  * 「本帧切片」的探针（`probesPerFrame`，缺省 64），一圈 `ceil(N/64)` 帧。</p>
  *
- * <p><b>探针网格</b>：每帧按首个相机位置做相机居中网格（{@link DdgiProbeGrid#cameraCentered}），
- * 网格一变（探针数/间距/原点吸附跳格）→ atlas 换代、切片游标归零、首圈重来。</p>
+ * <p><b>探针网格</b>：每帧按首个相机位置做相机居中网格，且三向探针数按体素场 AABB 收缩
+ * （{@link DdgiProbeGrid#fittedToField}），网格一变（探针数/间距/原点吸附跳格）→ atlas 换代、
+ * 切片游标归零、首圈重来。</p>
  *
  * <p><b>首圈不混合</b>：atlas 初值是全零，若一上来就按 hysteresis 混，辐照度会从黑往上爬好几圈。
  * 宿主在首圈把 hysteresis 传 0（完全用本帧结果），游标第一次绕回 0 之后才用设置里的值。</p>
@@ -73,10 +74,12 @@ public class DdgiProbePass implements RenderPass {
     private static final int LIGHT_UBO_BYTES = 64;
     /** 单条射线最长距离（世界单位；先固定，B5 再按场景尺寸自适应） */
     private static final float MAX_RAY_DISTANCE = 60f;
-    /** 首圈完成后做一次辐照度读回打印的探针数 */
+    /** 首圈完成后做一次诊断读回打印的探针数 */
     private static final int DEBUG_PROBES = 8;
-    /** 诊断 SSBO 字节数（每探针 4 float = 16B） */
-    private static final int DEBUG_BYTES = DEBUG_PROBES * 16;
+    /** 诊断 SSBO 每条记录的 float 数（平均辐射 rgb / 命中率 / 平均命中距离 / 保留） */
+    private static final int DEBUG_FLOATS_PER_PROBE = 6;
+    /** 诊断 SSBO 字节数（每探针 6 float = 24B） */
+    private static final int DEBUG_BYTES = DEBUG_PROBES * DEBUG_FLOATS_PER_PROBE * 4;
 
     private final Device device;
     private final RenderingSystem renderingSystem;
@@ -282,7 +285,9 @@ public class DdgiProbePass implements RenderPass {
         Vector3f position = camera == null ? new Vector3f() : camera.position();
         DdgiVoxelField field = boundField != null ? boundField
                 : (voxelizer == null ? null : voxelizer.field());
-        // 探针网格夹进体素场 AABB：不然相机拉高时探针全在场外，投射线第一格就出界、整片回落环境色
+        // 探针网格按体素场 AABB 收缩（16×4×16 只是上限）：场 ~10.8×5.8×7.9 m、间距 2m 时
+        // 收缩成 6×3×4 = 72 个探针，全部落在场内。不收缩的话只有约 60/1024 个在场内，其余走
+        // 「未命中回落环境色」，B3 上屏就是外围一片恒定环境辐照度（漏光式错误间接光）。
         DdgiProbeGrid newGrid;
         if (field == null) {
             newGrid = DdgiProbeGrid.cameraCentered(position.x, position.y, position.z, settings);
@@ -290,7 +295,7 @@ public class DdgiProbePass implements RenderPass {
             Vector3f min = field.origin();
             Vector3f size = field.voxelSize();
             int res = field.resolution();
-            newGrid = DdgiProbeGrid.cameraCenteredWithin(position.x, position.y, position.z, settings,
+            newGrid = DdgiProbeGrid.fittedToField(position.x, position.y, position.z, settings,
                     min.x, min.y, min.z,
                     min.x + size.x * res, min.y + size.y * res, min.z + size.z * res);
         }
@@ -441,11 +446,15 @@ public class DdgiProbePass implements RenderPass {
     }
 
     /**
-     * 首圈完成后一次性读回诊断 SSBO，打印前 8 个探针的辐照度与命中距离。
+     * 首圈完成后一次性读回诊断 SSBO，打印中心块 8 个探针的统计量。
      *
-     * <p>B2 的「看得见」验收：没有 debug 可视化也能判断探针是否真算出非零辐照度、颜色是否偏成
-     * 某一面（例如全偏红说明投射线只打到了红墙）。走 buffer map 而不是纹理读回——后者在 RHI
-     * 里还是 {@code UnsupportedOperationException}。</p>
+     * <p>记录形态（update 段线程 (0,0) 统计内区 64 条射线）：平均入射辐射 rgb、命中率、
+     * 平均命中距离。<b>不再打印「内区角单 texel 的辐照度」</b>——那是一条方向、余弦权锥近乎
+     * 半球，命中 2 m 与未命中 MAX_RAY_DISTANCE 混在一起，读数既不表示真命中也不表示纯兜底
+     * （实测踩过：45 m 这种中间值既非短路也被误读成「链路没通」）。</p>
+     *
+     * <p>走 buffer map 而不是纹理读回——后者在 RHI 里还是
+     * {@code UnsupportedOperationException}。</p>
      */
     private void logIrradianceSamplesOnce() {
         if (debugLogged || atlases == null || debugBuffer == null) {
@@ -459,12 +468,19 @@ public class DdgiProbePass implements RenderPass {
             debugReadData.rewind();
             int probes = Math.min(DEBUG_PROBES, atlases.probeCount());
             for (int i = 0; i < probes; i++) {
-                float r = debugReadData.getFloat(i * 16);
-                float g = debugReadData.getFloat(i * 16 + 4);
-                float b = debugReadData.getFloat(i * 16 + 8);
-                float meanDistance = debugReadData.getFloat(i * 16 + 12);
-                log.info("探针[中心块#{}] 辐照度 ≈ ({}, {}, {})、内区角命中距离 ≈ {}", i, r, g, b,
-                        meanDistance);
+                int base = i * DEBUG_FLOATS_PER_PROBE * 4;
+                float r = debugReadData.getFloat(base);
+                float g = debugReadData.getFloat(base + 4);
+                float b = debugReadData.getFloat(base + 8);
+                float hitRatio = debugReadData.getFloat(base + 12);
+                float meanHitDistance = debugReadData.getFloat(base + 16);
+                log.info("探针[中心块#{}] 平均入射辐射 ≈ ({}, {}, {})、命中率 ≈ {}%（{} / {} 条）、"
+                                + "平均命中距离 ≈ {} m", i, r, g, b,
+                        (int) Math.round(hitRatio * 100f),
+                        (int) Math.round(hitRatio * DdgiProbeGrid.IRRADIANCE_INNER
+                                * DdgiProbeGrid.IRRADIANCE_INNER),
+                        DdgiProbeGrid.IRRADIANCE_INNER * DdgiProbeGrid.IRRADIANCE_INNER,
+                        meanHitDistance);
             }
         } catch (Throwable t) {
             log.warn("DDGI 诊断读回失败（仅调试打印，不影响渲染）: {}", t.toString());

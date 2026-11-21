@@ -21,7 +21,13 @@ layout(set = 0, binding = 4) uniform ProbeGrid {
     vec4 reservedGrid;
 } grid;
 
-// 诊断通道（B2 验收用）：前 8 个探针写 4 个 float = 内区 texel(0,0) 的辐照度 rgb + 深度 texel(0,0) 的均值
+// 诊断通道（B2 验收用）：中心块 8 探针，每探针 6 个 float：
+//   [0..2] = 内区 64 条射线的平均入射辐射（rgb）
+//   [3]    = 命中率（命中（distance < maxDist）射线占比）
+//   [4]    = 平均命中距离（只统计命中射线；0 = 一条都没命中）
+//   [5]    = 保留
+// 为什么不用「内区角单 texel」：那是单条方向、且余弦权重锥近乎半球，命中 2m 与未命中
+// MAX_RAY_DISTANCE 混在里面，读数既不表示真命中也不表示纯兜底，容易误判。
 layout(set = 0, binding = 5, std430) buffer DebugOut {
     float samples[];
 } debugOut;
@@ -107,12 +113,34 @@ void main() {
     vec3 blended = mix(irradiance, prevIrr, pc.hysteresis);
     imageStore(irradianceOut, irrCoord, vec4(blended, 1.0));
 
-    // 诊断：中心块 8 探针由线程 (0,0) 把本帧混合后的辐照度写进宿主可读的 SSBO
+    // 诊断：中心块 8 探针由线程 (0,0) 统计内区 64 条射线（平均辐射 + 命中率 + 平均命中距离）。
+    // 直接读 trace 段产出的 radiance / distance tile，不读辐照度 atlas（同 workgroup 刚写入，
+    // 读它要插 image barrier，且纹理读回本身也不支持）。
     if (dbgSlot >= 0 && ij.x == 0 && ij.y == 0) {
-        int dbg = dbgSlot * 4;
-        debugOut.samples[dbg + 0] = blended.r;
-        debugOut.samples[dbg + 1] = blended.g;
-        debugOut.samples[dbg + 2] = blended.b;
+        float hitCount = 0.0;
+        float hitDistSum = 0.0;
+        vec3 radSum = vec3(0.0);
+        for (int sy = 0; sy < irrInner; sy++) {
+            for (int sx = 0; sx < irrInner; sx++) {
+                ivec2 src = rayBase + ivec2(sx, sy);
+                radSum += texelFetch(radianceIn, src, 0).rgb;
+                float d = texelFetch(distanceIn, src, 0).r;
+                // 未命中 = 走满 MAX_RAY_DISTANCE（push constants 里的 60），留 0.5 容差
+                if (d < grid.reservedGrid.y - 0.5) {
+                    hitCount += 1.0;
+                    hitDistSum += d;
+                }
+            }
+        }
+        float n = float(irrInner * irrInner);
+        int dbg = dbgSlot * 6;
+        vec3 meanRad = radSum / n;
+        debugOut.samples[dbg + 0] = meanRad.r;
+        debugOut.samples[dbg + 1] = meanRad.g;
+        debugOut.samples[dbg + 2] = meanRad.b;
+        debugOut.samples[dbg + 3] = hitCount / n;
+        debugOut.samples[dbg + 4] = hitCount > 0.0 ? hitDistSum / hitCount : 0.0;
+        debugOut.samples[dbg + 5] = 0.0;
     }
 
     // ── ② 深度矩：本线程摊 4 个 texel（16×16 = 64 × 4）──
@@ -149,9 +177,5 @@ void main() {
         }
         vec2 blended2 = mix(vec2(meanD, meanD2), prevD, pc.hysteresis);
         imageStore(depthOut, dCoord, vec4(blended2, 0.0, 0.0));
-
-        if (dIdx == 0 && dbgSlot >= 0) {
-            debugOut.samples[dbgSlot * 4 + 3] = blended2.x;
-        }
     }
 }

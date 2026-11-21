@@ -1,5 +1,7 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.3（2026-11-21）｜**B2 落码 + B3 前置（探针网格按体素场收缩）**：两段 compute（`ddgi_trace.compute` 体素 DDA / `ddgi_update.compute` 余弦加权毯 + 深度矩 + hysteresis）+ 宿主 `DdgiProbePass`（切片派发、首圈不混合、atlas 换代重建临时 tile、诊断 SSBO 读回）。实跑两轮修三处（`ivec2` 隐式缩窄、`SAMPLED_IMAGE`→`COMBINED_IMAGE_SAMPLER`、探针全在场外）。**第三轮实测暴露尺度问题**：配置 16×4×16@2m = 30×6×30 m，体素场仅 ≈10.8×5.8×7.9 m ⇒ 只约 60/1024 个探针在场内，其余全走环境色兜底（命中 32~48 m）。**修法**：新增 `DdgiProbeGrid.fittedToField`（三向数量收缩到 `1+floor(场边长/spacing)`、上限仍取配置值；原点锚在场 min 的 spacing 格点、余量不足一格即居中于场），宿主改用收缩铺法；单测补 3 例（11 例全绿）。见 §12。
+>
 > v0.2（2026-11-21）｜**B1 数据面落码（未编译、待验收）**：`DdgiSettings`（探针数三向 / 间距 / 每探针射线数 / 每帧探针预算 / hysteresis / 强度 / 法线偏置，接项目设置「图形」页新组）+ `DdgiProbeGrid`（纯数学：相机居中按 spacing 吸附的原点、线性索引 ↔ 世界坐标、网格内判定与归一化、atlas 排版与字节账；辐照度 tile 10×10 / 深度 18×18，`cols = ceil(sqrt(N))`）+ 单测 `DdgiProbeGridTest`（7 例）+ `DdgiAtlases`（两张 atlas 的 GPU 资源与换代生命周期，验证件 `DdgiAtlasTest`）+ `DdgiVoxelField` / `DdgiVoxelizer` / `StaticSetSignature`（体素场与体素化重建，`voxelize.compute` 改为 albedo 通道 + 签名门控）。**尚未做**：追踪/更新着色器（B2）与消费面（B3）。§10 四点按推荐默认执行（单张 2D atlas / 纯相机滚动体积 / 体素 DDA / SSAO 0.25+0.45）。
 >
 > v0.1（2026-11-20）｜工程台账 P4-05｜四期施工序 ⑥
@@ -149,4 +151,64 @@ vec3 result = (lighting.ambientMode == 1 && insideProbeVolume(worldPos))
 > **③ 实跑结论（2026-11-21 20:32）**：`体素化重建完成：体素图 128³（8 MB）、实例 7 个、包围盒 [(-5.269, -0.436, -2.769), (5.269, 5.319, 5.129)]、收集 0 ms、建资源 11 ms（StaticSetSignature{entries=7, digest=8e9a01c71f80d5e6}）`——包围盒 ≈ 10.5×5.8×7.9 m ⇒ 单体素 ≈ 8.2 cm；`voxelize.compute` 资产（GUID `d41c8b27…`）加载成功、全程无 ERROR。**视觉无变化属预期**：B1 只建资源，消费面（`javelinDDGI` 注入 + `ambientMode=DDGI`）是 B3，`启用探针 GI` 当前只控制「建/不建体素场与 atlas」，不是画面开关。
 
 **B1 未定（待用户表态）**：引擎目前**没有「静态」标志**（`RenderObject` 只有 `castShadow`/`receiveShadow`），故首版「静态集」只能取「不透明 + 投射阴影」这个近似。若要精确的静态语义（例如场景里加入真正的 `staticGeometry` 标志、由场景桥下发），属下一批口径调整，不阻塞 B2。
+
+---
+
+## 12. B2 落码 + B3 前置：探针网格按体素场收缩（2026-11-21）
+
+### 12.1 B2 两段 compute 与宿主
+
+| 件 | 落点 | 要点 |
+|----|------|------|
+| 追踪段 | `builtin-asset-core/voxel/ddgi_trace.compute` | 一 workgroup = 一探针、64 线程 = 八面体 8×8 方向；Amanatides-Woo 体素 DDA 走 `RGBA8` 体素场；命中取 `albedo×(ambient+主光×ndl)`、未命中回落环境色；写 radiance / distance 临时 tile 内区 |
+| 更新段 | `builtin-asset-core/voxel/ddgi_update.compute` | 余弦加权积辐照度 ×π、深度矩 `E(d)/E(d²)`、`mix(新, 旧, hysteresis)`；**首圈不 `imageLoad`**（atlas 未上传零值若为 NaN，`NaN×0` 仍是 NaN，会把整片辐照度污染） |
+| 宿主 | `DdgiProbePass` | 每帧算网格 → 网格/相机变即 atlas 换代并重建临时 tile 与游标；trace/update 各一套 layout+PSO+描述符集；切片派发 `probesPerFrame`；首圈（含首圈最后一刀）hysteresis 传 0；体素图换代后重指描述符；首圈完成后一次性读回诊断 SSBO |
+| 诊断通道 | `binding=5` host-visible SSBO | 不走纹理读回（`VulkanTexture.readback()` 仍 `UnsupportedOperationException`）；update 段把中心块统计写入（**v2 口径**：内区 64 条射线的平均入射辐射 rgb + 命中率 + 平均命中距离），宿主 map 读回打印 |
+
+**实跑两轮修掉的三处**：①update 段 `ivec2 ij = gl_LocalInvocationID.xy` 的 `uvec2→ivec2` 隐式缩窄被 shaderc 拒（整段 B2 不跑，落 stub）→ 显式构造；②`VUID-VkComputePipelineCreateInfo-layout-07990` + `VUID-VkWriteDescriptorSet-descriptorType-00319`——GLSL `uniform sampler3D/2D` 是 **COMBINED_IMAGE_SAMPLER**，layout 却写成 `SAMPLED_IMAGE`，三处（trace b0、update b0/b1）改后 VVL ERROR 清零；③探针体积远大于体素场 → 全部场外（详见 12.2）。
+
+### 12.2 第三轮实测：尺度不匹配
+
+中心块 8 探针实测：
+
+```
+#0 1.5708  命中 2.22 m       #4 1.7310  命中 45.58 m
+#1 1.6393  命中 1.92 m       #5 1.6550  命中 48.93 m
+#2 1.8932  命中 3.73 m       #6 1.5708  命中 32.36 m
+#3 1.8252  命中 3.04 m       #7 1.5708  命中 36.34 m
+```
+
+`#0~#3` 命中 1.9~3.7 m = DDA 真的求到交（链路活）；`#4~#7` 命中 32~48 m = 场外走环境色兜底。根因：配置 16×4×16 × 2 m = 30×6×30 m，体素场 AABB 仅 ≈10.8×5.8×7.9 m ⇒ 场内只装得下约 `5×3×4 ≈ 60` 个探针，其余 960 多个几乎全是兜底值。**B3 上屏后的两个实际隐患**：外围探针把恒定环境色当间接光（漏光式错误光照）；真正带信息的探针只占 6%，画面增益远低于预期。
+
+另注：诊断值取内区**单个角像素**（一条方向），只能证明链路活性，不能当辐照度正确性判据；`r=g=b` 是测试场景灰白单色所致。
+
+### 12.3 修法：`fittedToField`（缺省铺法）
+
+- **数量收缩**：`count = clamp(1 + floor(场边长/spacing), 2, 配置值)`。取整必须用 **floor**——`ceil` 会得到 12 m 跨度去套 10.8 m 的场，边界探针照样在场外。收缩后实测场景为 `6×3×4 = 72` 探针，全部落在场内；atlas 排版 `cols = ceil(sqrt(72)) = 9`、8 行，由 320×320 / 576×576（2096 KB）缩到 90×80 / 162×144（约 150 KB）。
+- **原点锚点改用场 `min`**：原实现按世界零点 spacing 吸附，场边界不整除时会把整块网格顶出界（场 x 向 10.538 m / 间距 2 m → 世界格点 −6 起，最左探针 −6 < −5.269）。锚在 `min` 上仍保持「只整格跳、不游动」。
+- **滑移余量 `slack = 场边长 − 网格跨度`**：`slack < spacing` → 居中于场（此时网格永远不动，无需吸附）；`slack ≥ spacing` → 按整格跟随相机（步数夹到 `[0, floor(slack/spacing)]`）。
+- **旧口径保留**：`cameraCentered` / `cameraCenteredWithin` 不删（单测对照 + 体素场远大于配置跨度时等价），宿主只走 `fittedToField`。
+- **设置面语义**：`DdgiSettings` 三向探针数由「实际值」改为「**上限**」（面板文案不变，javadoc 与 `probeCount()`/`framesPerSweep()` 注释改为「上限口径，实际以收缩后为准」）。
+
+### 12.4 落码与验收
+
+改动文件：`DdgiProbeGrid`（新增 `fittedToField` / `fitCount` / `fitOrigin`）、`DdgiProbePass`（`ensureAtlases` 改走收缩铺法）、`DdgiSettings`（三向字段与派生方法改「上限」口径）、`DdgiProbeGridTest`（+3 例：收缩到 72 探针且逐探针判越界、场比网格大保留 1024 且原点整格跟相机、某轴薄于 spacing 退化为 2）。**已编译 + `gradlew :javelin-core:test --tests ...DdgiProbeGridTest` 11 例全绿**（GraalVM 25 / Gradle 9.2.0）。
+
+**实跑验收（✅ 2026-11-21，用户确认）**：①日志 `DDGI 探针数据面就绪` 网格 `6x3x4 probes=72`、atlas `90x80` / `162x144`（147 KB）、origin `(-5.0, 0.4416, -1.8201)`；②中心块统计见 §12.5（命中率 8%~100%、命中距离 1.03~4.05 m、相邻有差异）；③「体素化重建完成」日志不变（体素化未动）。
+
+**B2 未收口项（转 B3 一起看）**：①命中点直射项只算 `ndl`、未接 CSM 阴影；②未命中回落常量 `ambient`、不接天空盒；③tile 1px 边框不填（消费面按内区 clamp）；④`MAX_RAY_DISTANCE` 固定 60 m（B5 再按场景尺寸自适应）；⑤`vkDestroyDevice has 101 leaked objects` 是 shutdown 期既有泄漏，与本批无关。
+
+### 12.5 诊断口径 v2（同日，第三轮读数被判为不可用后）
+
+收缩后第三轮实跑：网格 `6x3x4 probes=72`、atlas `90x80` / `162x144`（147 KB）、origin `(-5.0, 0.4416, -1.8201)`——收缩与锚点全部按预期。但中心块命中距离仍出现 `31~54 m`：**这是诊断方式的问题，不是 DDA 的问题**。旧口径取内区**单个角 texel**，其余弦权重锥近乎半个球，一条射线可能命中 2 m、其余全部走满 `MAX_RAY_DISTANCE`，加权均值落成 45 m 这种既不表示真命中也不表示纯兜底的中间值。
+
+v2 改为 update 段线程 `(0,0)` 直接统计内区 64 条射线（读 trace 段产出的 radiance / distance tile，不读刚写入的 atlas，避免 image barrier）：
+
+- `[0..2]` 平均入射辐射 rgb（64 条射线算术平均）
+- `[3]` 命中率（`distance < MAX_RAY_DISTANCE − 0.5` 的射线占比；未命中距离从 grid UBO 的 `reservedGrid.y` 取，与 trace 段同源）
+- `[4]` 平均命中距离（只统计命中射线；`0` = 一条都没命中）
+
+SSBO 每探针 6 float（24B，8 探针 192B）。**判据**：命中率应显著非零（空场景朝天的方向自然低，属正常）、平均命中距离落在 0.3~4 m 量级、相邻探针之间的命中率应有差异（说明方向/位置真的影响到了求交）。
+
+**实跑结论（2026-11-21 21:19，用户确认通过）**：`#0` 100%（64/64）1.78 m、`#1` 31%（20/64）1.03 m、`#2` 100% 1.47 m、`#3` 27% 1.08 m、`#4` 13% 2.82 m、`#5` 8% 3.91 m、`#6` 11% 3.35 m、`#7` 8% 4.05 m；平均辐射 0.50~0.81。下层探针被几何包住（全命中、1.5 m 量级），上层探针朝外/朝上（大部分射线走环境色、命中距离变长），相邻探针命中率与辐射均有差异 ⇒ DDA 求交与遮蔽真在起作用。**B2 数据面关账**；下一段 B3 消费面。
 

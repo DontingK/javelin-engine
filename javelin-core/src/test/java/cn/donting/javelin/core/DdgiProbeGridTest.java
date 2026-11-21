@@ -139,7 +139,75 @@ public class DdgiProbeGridTest {
     }
 
     /**
-     * 夹进体素场：网格比场小 → 原点被夹在 [min, max−extent] 内且仍吸附 spacing；
+     * 收缩铺法（缺省口径）：16×4×16 / 2m 的上限去套 10.8×5.8×7.9 的体素场 → 6×3×4 = 72 探针，
+     * 全部探针落在场 AABB 内，且原点仍是 spacing 整数倍（不游动）。
+     */
+    @Test
+    public void fittedGridShrinksIntoVoxelField() {
+        DdgiSettings s = defaults();
+        float minX = -5.269f, minY = -0.436f, minZ = -2.769f;
+        float maxX = 5.269f, maxY = 5.319f, maxZ = 5.129f;
+        DdgiProbeGrid grid = DdgiProbeGrid.fittedToField(0f, 0f, 0f, s, minX, minY, minZ, maxX, maxY, maxZ);
+
+        // 1 + floor(10.538/2) = 6、1 + floor(5.755/2) = 3、1 + floor(7.898/2) = 4
+        assertEquals(6, grid.countX());
+        assertEquals(3, grid.countY());
+        assertEquals(4, grid.countZ());
+        assertEquals(72, grid.probeCount());
+        assertEquals(10f, grid.extentX(), 1e-6f);
+        assertEquals(4f, grid.extentY(), 1e-6f);
+        assertEquals(6f, grid.extentZ(), 1e-6f);
+
+        // 每个探针都在场 AABB 内（含边界）
+        float[] pos = new float[3];
+        for (int i = 0; i < grid.probeCount(); i++) {
+            grid.probePosition(i, pos);
+            assertTrue(pos[0] >= minX - 1e-4f && pos[0] <= maxX + 1e-4f, "X 越界 @ " + i);
+            assertTrue(pos[1] >= minY - 1e-4f && pos[1] <= maxY + 1e-4f, "Y 越界 @ " + i);
+            assertTrue(pos[2] >= minZ - 1e-4f && pos[2] <= maxZ + 1e-4f, "Z 越界 @ " + i);
+        }
+
+        // 原点装在场内（锚在场 min、余量不足一格时居中；不按世界零点吸附——那样会顶出场外）
+        assertTrue(grid.originX() >= minX - 1e-4f && grid.originX() + grid.extentX() <= maxX + 1e-4f);
+        assertTrue(grid.originY() >= minY - 1e-4f && grid.originY() + grid.extentY() <= maxY + 1e-4f);
+        assertTrue(grid.originZ() >= minZ - 1e-4f && grid.originZ() + grid.extentZ() <= maxZ + 1e-4f);
+        // 相机拉高到 26 m（实测踩过的场景）：原点仍被夹在场内，探针不会整块飘到场外
+        DdgiProbeGrid high = DdgiProbeGrid.fittedToField(0f, 26f, 0f, s, minX, minY, minZ, maxX, maxY, maxZ);
+        assertTrue(high.originY() >= minY - 1e-4f && high.originY() + high.extentY() <= maxY + 1e-4f);
+        assertEquals(72, high.probeCount());
+    }
+
+    /** 场比配置跨度大时保留配置上限（16×4×16 不回退成更小），且原点按整格跟随相机 */
+    @Test
+    public void fittedGridKeepsConfiguredMaxForLargeField() {
+        DdgiSettings s = defaults();
+        DdgiProbeGrid grid = DdgiProbeGrid.fittedToField(0f, 0f, 0f, s, -100f, -100f, -100f, 100f, 100f, 100f);
+        assertEquals(16, grid.countX());
+        assertEquals(4, grid.countY());
+        assertEquals(16, grid.countZ());
+        assertEquals(1024, grid.probeCount());
+        assertTrue(grid.originX() >= -100f && grid.originX() + grid.extentX() <= 100f);
+
+        // 相机沿 X 平移 10 m（5 格）→ 原点跟着走 10 m，仍是「整格跳」而不是每帧滑一点
+        DdgiProbeGrid moved = DdgiProbeGrid.fittedToField(10f, 0f, 0f, s, -100f, -100f, -100f, 100f, 100f, 100f);
+        assertEquals(10f, moved.originX() - grid.originX(), 1e-4f);
+        assertTrue(moved.originX() + moved.extentX() <= 100f);
+    }
+
+    /** 退化：某轴场边长小于 spacing → 该轴只剩 2 个探针，居中于场（边界探针可能溢出一半） */
+    @Test
+    public void fittedGridDegeneratesToTwoWhenFieldThinnerThanSpacing() {
+        DdgiSettings s = defaults();   // spacing 2m
+        DdgiProbeGrid grid = DdgiProbeGrid.fittedToField(
+                0f, 0f, 0f, s, -50f, -0.5f, -50f, 50f, 0.5f, 50f);
+        assertEquals(2, grid.countY());
+        assertEquals(2f, grid.extentY(), 1e-6f);
+        // 居中于场，但原点仍吸附 spacing（最多差半格）
+        assertTrue(Math.abs(grid.originY() + grid.extentY() * 0.5f) <= s.getSpacing() * 0.5f + 1e-5f);
+    }
+
+    /**
+     * 夹进体素场（旧口径对照）：网格比场小 → 原点被夹在 [min, max−extent] 内且仍吸附 spacing；
      * 网格比场大（相机拉到 30 m 高空那种）→ 居中于场，两侧溢出。
      */
     @Test

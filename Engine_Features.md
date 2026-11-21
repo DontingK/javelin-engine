@@ -316,9 +316,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 1 项**（2026-11-21 新增 DDGI B1 数据面；同日 BUG-11 / 体素 AO 退役 / BUG-12 / RHI 格式能力四笔已验收清零）。
+> **当前挂账 1 项**（2026-11-21 DDGI B2 数据面已关账、B3 消费面未做；同日 BUG-11 / 体素 AO 退役 / BUG-12 / RHI 格式能力四笔已验收清零）。
 >
-> - **DDGI B1 数据面（P4-05，2026-11-21 落码待验收）**：`DdgiSettings`（三向探针数 16/4/16、间距 2m、射线 64、每帧 64、hysteresis 0.85、强度 1.0、法线偏置 0.4×spacing）+ 项目设置「图形」页新组；`DdgiProbeGrid`（相机居中按 spacing 吸附、索引/位置/contains/归一化、atlas 排版 10×10 与 18×18、字节账）；`DdgiAtlases`（辐照度 `RGBA16F` 320×320 / 深度矩 `RG16F` 576×576，`SAMPLED｜STORAGE｜TRANSFER_SRC｜TRANSFER_DST`，按版面换代）；单测 `DdgiProbeGridTest` 7 例（✅ 2026-11-21 实跑通过）+ GPU 验证件 `DdgiAtlasTest`（✅ 同日实跑通过：STORAGE/SAMPLED 四位、320×320 / 576×576、换代 360×360 / 648×648）；`DdgiVoxelField`（128³ `RGBA8` 体素场：基色 + 占用）+ `DdgiVoxelizer`（不透明 + `castShadow` 集合、`StaticSetSignature` 两帧稳定门控、每实例一 dispatch、只挂首视口、重建日志带耗时）+ `voxelize.compute`（albedo 通道）**（✅ 同日实跑：128³ / 8 MB / 实例 7 / 建资源 11 ms）**。**未做**：`ddgi_trace`/`ddgi_update` 着色器与消费面（画面暂无非预期——B3 才上屏）。口径 `Engine_DDGI_Design.md` v0.2 §11。
+> - **DDGI B2 数据面已关账 / B3 消费面未做（P4-05，2026-11-21 用户实跑确认）**：B1 已关账（`DdgiProbeGridTest` 7 例 ✅、`DdgiAtlasTest` ✅、体素化重建日志 ✅）。新增 `ddgi_trace.compute`（体素 DDA，一 workgroup 一探针 64 方向）+ `ddgi_update.compute`（余弦加权毯 ×π + 深度矩 + hysteresis，首圈不 `imageLoad`）+ 宿主 `DdgiProbePass`（切片派发、atlas 换代重建临时 tile、首圈 hysteresis=0、诊断 SSBO 读回「网格中心 2×2×2」（v2 口径：内区 64 射线平均入射辐射 + 命中率 + 平均命中距离，取代会误读的「单角 texel 均值」））。实跑三轮：修 `ivec2` 缩窄、`SAMPLED_IMAGE`→`COMBINED_IMAGE_SAMPLER`（三处）、探针全部场外；**第三轮暴露尺度不匹配**（配置 30×6×30 m 套 10.8×5.8×7.9 m 场 → 仅约 60/1024 探针在场内，`#4~#7` 命中 32~48 m 兜底）→ 新增 `DdgiProbeGrid.fittedToField`（数量收缩 `1+floor(场边长/spacing)`、原点锚场 min、余量不足一格居中），实测场景变成 **6×3×4 = 72 探针全在场内**，atlas 2096 KB → 约 150 KB；`DdgiProbeGridTest` **11 例全绿**（本地已编译实跑）。**未做**：消费面（`javelinDDGI` 注入 + `ambientMode=DDGI`，画面仍无非预期变化）。口径 `Engine_DDGI_Design.md` v0.3 §12。
 >
 > - ~~**RHI 格式能力查询与创建期 fail-fast（RHI-15 + RHI-08）**~~ **✅ 2026-11-21 用户实机验收**（`FormatCapabilityTest`：8 格式能力表 + 7 条必支持断言全通过、负例创建期抛 `IllegalStateException`；设备 AMD Radeon 780M。快照要点：`R32_UINT` color=true/blend=false/linear=false，`D32F` depth=true/storage=false）。口径 `RHI_Texture_Types_Design.md` v0.5 §7。
 >

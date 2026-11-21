@@ -6,8 +6,13 @@ import cn.donting.javelin.core.settings.DdgiSettings;
  * DDGI 探针网格与 atlas 排版的**纯数学**（Engine_DDGI_Design.md §3/§4，P4-05 批 B1）。
  *
  * <p>网格形态 = 轴对齐、相机居中、按 {@code spacing} 吸附（避免相机平移时探针「游动」导致
- * 辐照度在 tile 之间来回搬运）。三向探针数取自 {@link DdgiSettings}，跨度 =
+ * 辐照度在 tile 之间来回搬运）。三向探针数的**上限**取自 {@link DdgiSettings}，跨度 =
  * {@code (count−1) × spacing}；探针点落在网格节点上。</p>
+ *
+ * <p><b>缺省铺法</b>：{@link #fittedToField} —— 三向数量按体素场 AABB 收缩
+ * （{@code 1 + floor(场边长/spacing)}，夹到 {@code [2, 配置值]}），保证探针装得进场；
+ * {@link #cameraCentered} / {@link #cameraCenteredWithin} 是「不收缩、只夹原点」的旧口径，
+ * 留作对照与单测（体素场远大于配置跨度时才等价）。</p>
  *
  * <p>atlas 排版 = 单张 2D 图按 tile 拼接（不选 2D 数组，避开分层屏障，RHI-14 不阻塞）。
  * 辐照度 tile {@code 8×8 + 1px 边框 = 10×10}（边框用于八面体邻接 wrap）、深度 tile
@@ -96,6 +101,9 @@ public final class DdgiProbeGrid {
      *
      * <p>体素场比网格还小时退化为「居中于场」（此时边界探针仍在场外，属预期）。夹后原点仍吸附
      * 在 spacing 整数倍上，保持「不游动」。</p>
+     *
+     * <p>注：本方法「不收缩网格」已不是缺省口径——宿主改用 {@link #fittedToField}，这里仅作为
+     * 不收缩的对照实现保留。</p>
      */
     public static DdgiProbeGrid cameraCenteredWithin(float camX, float camY, float camZ,
                                                      DdgiSettings settings,
@@ -107,6 +115,67 @@ public final class DdgiProbeGrid {
         float oy = clampOrigin(desired.originY, minY, maxY, desired.extentY(), spacing);
         float oz = clampOrigin(desired.originZ, minZ, maxZ, desired.extentZ(), spacing);
         return new DdgiProbeGrid(ox, oy, oz, spacing, desired.countX, desired.countY, desired.countZ);
+    }
+
+    /**
+     * 相机居中、且**三向探针数按体素场 AABB 收缩**的网格（缺省口径）。
+     *
+     * <p><b>为什么收缩</b>：设置里的 16×4×16 / 2m 是「上限」，跨度 30×6×30 m；而体素场是规划
+     * 盒（实测场景约 10.8×5.8×7.9 m）。不收缩时只有约 60/1024 个探针落在场内，其余全是
+     * 「未命中回落环境色」的兜底值——B3 上屏后会变成外围恒定环境辐照度（漏光式错误间接光），
+     * 且真正带信息的探针太少。</p>
+     *
+     * <p><b>取整口径用 floor</b>（{@code count = 1 + floor(extent/spacing)}，再夹到
+     * {@code [2, 配置值]}）：保证 {@code (count−1)×spacing ≤ 场边长}，即网格严格装得进场。
+     * 若用 ceil 会得到 12 m 跨度去套 10.8 m 的场，边界探针仍在场外。</p>
+     *
+     * <p><b>原点不按世界零点吸附</b>，而是锚在体素场最小角：世界零点格点可能与场边界不整除，
+     * 硬吸附会把整块网格顶出场外（实测场 x 向 10.538 m、间距 2 m → 世界格点 −6 起，最左探针
+     * 落在 −6 &lt; −5.269）。锚在场 `min` 上仍有「只整格跳、不游动」的性质，且天然装得进场。</p>
+     *
+     * <p>滑移余量 {@code slack = 场边长 − 网格跨度}：{@code slack < spacing} 时没有一格可滑的余量
+     * → 直接居中于场（此时网格永远不动，也就不需要吸附）；{@code slack ≥ spacing} 时按整格
+     * 跟随相机（步数夹在 {@code [0, floor(slack/spacing)]}）。</p>
+     */
+    public static DdgiProbeGrid fittedToField(float camX, float camY, float camZ,
+                                             DdgiSettings settings,
+                                             float minX, float minY, float minZ,
+                                             float maxX, float maxY, float maxZ) {
+        if (settings == null) {
+            throw new IllegalArgumentException("DdgiSettings must not be null");
+        }
+        float spacing = settings.getSpacing();
+        int countX = fitCount(maxX - minX, spacing, settings.getProbesX());
+        int countY = fitCount(maxY - minY, spacing, settings.getProbesY());
+        int countZ = fitCount(maxZ - minZ, spacing, settings.getProbesZ());
+        float extentX = (countX - 1) * spacing;
+        float extentY = (countY - 1) * spacing;
+        float extentZ = (countZ - 1) * spacing;
+        return new DdgiProbeGrid(
+                fitOrigin(camX, minX, maxX, extentX, spacing),
+                fitOrigin(camY, minY, maxY, extentY, spacing),
+                fitOrigin(camZ, minZ, maxZ, extentZ, spacing),
+                spacing, countX, countY, countZ);
+    }
+
+    /** 单轴探针数 = min(配置上限, 1 + floor(场边长/spacing))，且不少于 2 */
+    private static int fitCount(float fieldExtent, float spacing, int configuredMax) {
+        int fit = 1 + (int) Math.floor(fieldExtent / spacing);
+        return Math.max(2, Math.min(configuredMax, fit));
+    }
+
+    /** 单轴原点：锚在 {@code min} 的 spacing 格点上整格跟随相机；余量不足一格就居中于场 */
+    private static float fitOrigin(float cam, float min, float max, float extent, float spacing) {
+        float slack = (max - min) - extent;
+        if (slack < spacing) {
+            // 没有滑移余量（含 slack ≤ 0 的「场比网格还薄」）：居中于场，两侧余量均分
+            return min + slack * 0.5f;
+        }
+        float desired = cam - extent * 0.5f - min;
+        long steps = Math.round(desired / spacing);
+        long maxSteps = (long) Math.floor(slack / spacing);
+        steps = Math.min(Math.max(steps, 0L), maxSteps);
+        return min + (float) steps * spacing;
     }
 
     private static float clampOrigin(float origin, float min, float max, float extent, float spacing) {

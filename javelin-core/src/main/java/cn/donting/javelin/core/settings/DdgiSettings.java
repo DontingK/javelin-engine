@@ -28,15 +28,17 @@ public class DdgiSettings implements Serializable {
     @InsField(label = "projectSettings.ddgiVoxelResolution")
     @InsIntRange(min = 32, max = 256, step = 16)
     private int voxelResolution = 128;
-    /** 探针网格 X 向数量（段数；探针点 = 段数，跨度 = (count−1)×spacing） */
+    /** 探针网格 X 向数量（段数；探针点 = 段数，跨度 = (count−1)×spacing）。**这是上限**：
+     * 实际铺法由 {@code DdgiProbeGrid.fittedToField} 按体素场 AABB 收缩到
+     * {@code 1 + floor(场边长/spacing)}（不少于 2）。 */
     @InsField(label = "projectSettings.ddgiProbesX")
     @InsIntRange(min = 2, max = 64, step = 1)
     private int probesX = 16;
-    /** 探针网格 Y 向数量 */
+    /** 探针网格 Y 向数量（上限，同上） */
     @InsField(label = "projectSettings.ddgiProbesY")
     @InsIntRange(min = 2, max = 32, step = 1)
     private int probesY = 4;
-    /** 探针网格 Z 向数量 */
+    /** 探针网格 Z 向数量（上限，同上） */
     @InsField(label = "projectSettings.ddgiProbesZ")
     @InsIntRange(min = 2, max = 64, step = 1)
     private int probesZ = 16;
@@ -95,12 +97,14 @@ public class DdgiSettings implements Serializable {
     public void setIntensity(float intensity) { this.intensity = clamp(intensity, 0f, 4f); }
     public void setNormalBiasScale(float normalBiasScale) { this.normalBiasScale = clamp(normalBiasScale, 0f, 2f); }
 
-    /** 探针总数（= counts 三向相乘；B1 验收读得到的就是它） */
+    /** 配置上限下的探针总数（三向相乘）。**实际铺设数**按体素场收缩后可能更少，
+     * 见 {@code DdgiProbeGrid#probeCount()}；一圈帧数也按实际数算（宿主侧
+     * {@code ceil(实际探针数 / probesPerFrame)}）。 */
     public int probeCount() {
         return probesX * probesY * probesZ;
     }
 
-    /** 刷新一圈所需帧数 */
+    /** 按配置上限估算的刷新一圈帧数（实际以收缩后的探针数为准） */
     public int framesPerSweep() {
         return Math.max(1, (probeCount() + probesPerFrame - 1) / probesPerFrame);
     }
