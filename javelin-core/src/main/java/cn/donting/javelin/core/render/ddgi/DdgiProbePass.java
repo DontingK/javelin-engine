@@ -1,6 +1,7 @@
 package cn.donting.javelin.core.render.ddgi;
 
 import cn.donting.javelin.core.assets.AssetManager;
+import cn.donting.javelin.core.render.AmbientMode;
 import cn.donting.javelin.core.render.RenderCamera;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.compute.ComputeShader;
@@ -17,6 +18,7 @@ import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.Sampler;
 import cn.donting.javelin.rhi.Texture;
+import cn.donting.javelin.rhi.UploadData;
 import cn.donting.javelin.rhi.desc.BufferDesc;
 import cn.donting.javelin.rhi.desc.ComputePipelineDesc;
 import cn.donting.javelin.rhi.desc.DescriptorSetLayoutDesc;
@@ -25,9 +27,15 @@ import cn.donting.javelin.rhi.desc.SamplerDesc;
 import cn.donting.javelin.rhi.desc.ShaderDesc;
 import cn.donting.javelin.rhi.desc.TextureDesc;
 import cn.donting.javelin.rhi.types.BufferUsage;
+import cn.donting.javelin.rhi.types.CompareOp;
 import cn.donting.javelin.rhi.types.DescriptorType;
+import cn.donting.javelin.rhi.types.Filter;
 import cn.donting.javelin.rhi.types.Format;
+import cn.donting.javelin.rhi.types.SamplerAddressMode;
+import cn.donting.javelin.rhi.types.SamplerMipmapMode;
+import cn.donting.javelin.rhi.types.SampleCount;
 import cn.donting.javelin.rhi.types.ShaderStage;
+import cn.donting.javelin.rhi.types.TextureType;
 import cn.donting.javelin.rhi.types.TextureUsage;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
@@ -70,8 +78,10 @@ public class DdgiProbePass implements RenderPass {
     private static final int PUSH_BYTES = 16;
     /** 探针网格 UBO（64B：origin+spacing / counts+tilesPerRow / tile 边长 / 保留） */
     private static final int GRID_UBO_BYTES = 64;
-    /** 光照 UBO（64B：sunDir / sunColor / ambient / 保留） */
-    private static final int LIGHT_UBO_BYTES = 64;
+    /** 光照 UBO（80B：sunDir / sunColor / ambient / flags——flags.x = 命中辐射含 ambient 开关） */
+    private static final int LIGHT_UBO_BYTES = 80;
+    /** CSM 阴影参数 UBO（352B，std140：头 vec4 16 + mat4×4 256 + cascadeSplits/shadowParams/shadowParams2/cascadeInvZ 各 16） */
+    private static final int SHADOW_UBO_BYTES = 352;
     /** 单条射线最长距离（世界单位；先固定，B5 再按场景尺寸自适应） */
     private static final float MAX_RAY_DISTANCE = 60f;
     /** 首圈完成后做一次诊断读回打印的探针数 */
@@ -95,14 +105,20 @@ public class DdgiProbePass implements RenderPass {
 
     private Buffer gridUbo;
     private Buffer lightUbo;
+    /** CSM 阴影参数 UBO（binding7；每帧按主视口 ViewShadow 重写） */
+    private Buffer shadowUbo;
     /** 诊断 SSBO（update 段写，宿主读回打印） */
     private Buffer debugBuffer;
     private final ByteBuffer debugReadData = ByteBuffer.allocateDirect(DEBUG_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
     private Sampler samplerNearest;
+    /** 主光阴影深度比较采样器（trace 段 binding6；与 RenderingSystem.shadowSampler 同款口径自建） */
+    private Sampler shadowSampler;
     private final ByteBuffer gridUboData = ByteBuffer.allocateDirect(GRID_UBO_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
     private final ByteBuffer lightUboData = ByteBuffer.allocateDirect(LIGHT_UBO_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    private final ByteBuffer shadowUboData = ByteBuffer.allocateDirect(SHADOW_UBO_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
     private final ByteBuffer pushData = ByteBuffer.allocateDirect(PUSH_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
@@ -186,19 +202,26 @@ public class DdgiProbePass implements RenderPass {
         }
         writeGridUbo(settings);
         writeLightUbo();
+        writeShadowUbo();
         if (firstSweepDone && !frameWrapsFirstSweep) {
             // 首圈那一刀本身还没派发，此时读只会读到零；等下一帧再读才有全量结果
             logIrradianceSamplesOnce();
         }
 
+        // 主视口 CSM atlas（直射项遮挡与主画面同源；null = 阴影未建，走占位图 + 级联数 0）
+        Texture shadowMap = primaryShadowMap();
         graph.addComputePass(ctx.view().name() + ":" + TRACE_PASS_NAME, pass -> {
             pass.setPipeline(tracePipeline);
             pass.addTextureRead(field.voxels());
             pass.addBufferRead(field.params());
+            if (shadowMap != null) {
+                pass.addTextureRead(shadowMap);   // 显式依赖 + 句柄进 structureHash（换代自动失效）
+            }
             pass.addTextureStorageWrite(radianceTemp);
             pass.addTextureStorageWrite(distanceTemp);
             pass.addBufferRead(gridUbo);
             pass.addBufferRead(lightUbo);
+            pass.addBufferRead(shadowUbo);
             pass.setRenderCallback(cmd -> dispatchTrace(cmd));
         });
 
@@ -248,7 +271,12 @@ public class DdgiProbePass implements RenderPass {
                 new DescriptorSetLayoutDesc.Binding(2, DescriptorType.STORAGE_IMAGE, 1, ShaderStage.COMPUTE),
                 new DescriptorSetLayoutDesc.Binding(3, DescriptorType.STORAGE_IMAGE, 1, ShaderStage.COMPUTE),
                 new DescriptorSetLayoutDesc.Binding(4, DescriptorType.UNIFORM_BUFFER, 1, ShaderStage.COMPUTE),
-                new DescriptorSetLayoutDesc.Binding(5, DescriptorType.UNIFORM_BUFFER, 1, ShaderStage.COMPUTE)));
+                new DescriptorSetLayoutDesc.Binding(5, DescriptorType.UNIFORM_BUFFER, 1, ShaderStage.COMPUTE),
+                // 直射项 CSM 阴影（2026-11-22 修正）：binding6 = 主视口 CSM atlas（深度比较采样）；
+                // binding7 = 阴影参数 UBO（矩阵/级联/refZ 补偿——set1 的 CSM 段拷贝）
+                new DescriptorSetLayoutDesc.Binding(6, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.COMPUTE),
+                new DescriptorSetLayoutDesc.Binding(7, DescriptorType.UNIFORM_BUFFER, 1, ShaderStage.COMPUTE)));
         DescriptorSetLayoutDesc updateDesc = new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.COMPUTE),
@@ -268,10 +296,18 @@ public class DdgiProbePass implements RenderPass {
                 MemoryPreference.hostVisibleCoherent()), null);
         lightUbo = device.createBuffer(new BufferDesc(LIGHT_UBO_BYTES, Set.of(BufferUsage.UNIFORM),
                 MemoryPreference.hostVisibleCoherent()), null);
+        shadowUbo = device.createBuffer(new BufferDesc(SHADOW_UBO_BYTES, Set.of(BufferUsage.UNIFORM),
+                MemoryPreference.hostVisibleCoherent()), null);
         // 诊断 SSBO：8 探针 × 16B（rgb + 平均距离），宿主可 map 读回
         debugBuffer = device.createBuffer(new BufferDesc(DEBUG_BYTES, Set.of(BufferUsage.STORAGE),
                 MemoryPreference.hostVisibleCoherent()), null);
         samplerNearest = device.createSampler(SamplerDesc.nearest());
+        // 与 RenderingSystem.shadowSampler 同款：LINEAR 比较采样（硬件双线性 PCF）+ CLAMP + LEQUAL 语义
+        //（CompareOp.LESS：未遮挡 = 1.0）
+        shadowSampler = device.createSampler(new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f, CompareOp.LESS));
         return true;
     }
 
@@ -380,13 +416,19 @@ public class DdgiProbePass implements RenderPass {
             updateSet = null;
         }
         traceSet = device.createDescriptorSet(traceLayout);
+        // binding6 = 主视口 CSM atlas（探针与主画面同一张图、同一套矩阵——阴影边界一致；
+        // 非抛出口：无阴影资源 = null，走占位图 + 级联数 0 恒受光）
+        Texture shadowMap = primaryShadowMap();
         traceSet.update(
                 DescriptorUpdate.sampledTexture(0, field.voxels(), samplerNearest),
                 DescriptorUpdate.uniformBuffer(1, field.params(), 0, DdgiVoxelField.PARAM_BYTES),
                 DescriptorUpdate.storageTexture(2, radianceTemp),
                 DescriptorUpdate.storageTexture(3, distanceTemp),
                 DescriptorUpdate.uniformBuffer(4, gridUbo, 0, GRID_UBO_BYTES),
-                DescriptorUpdate.uniformBuffer(5, lightUbo, 0, LIGHT_UBO_BYTES));
+                DescriptorUpdate.uniformBuffer(5, lightUbo, 0, LIGHT_UBO_BYTES),
+                DescriptorUpdate.sampledTexture(6,
+                        shadowMap != null ? shadowMap : placeholderShadowTexture(), shadowSampler),
+                DescriptorUpdate.uniformBuffer(7, shadowUbo, 0, SHADOW_UBO_BYTES));
         updateSet = device.createDescriptorSet(updateLayout);
         updateSet.update(
                 DescriptorUpdate.sampledTexture(0, radianceTemp, samplerNearest),
@@ -395,6 +437,32 @@ public class DdgiProbePass implements RenderPass {
                 DescriptorUpdate.storageTexture(3, atlases.depth()),
                 DescriptorUpdate.uniformBuffer(4, gridUbo, 0, GRID_UBO_BYTES),
                 DescriptorUpdate.storageBuffer(5, debugBuffer));
+    }
+
+    /** 兜底深度图（1×1 D32：无主相机/阴影未建时 binding6 的占位；compute 侧 cascadeCount=0 不采样）。
+     *  创建期带数据上传（不传 null）：上传路径把布局走到 SHADER_READ_ONLY（与 binding6 描述符
+     *  声明一致），否则未进图声明的占位图永不转布局、采样即撞 09600（DdgiAtlases.createAtlas
+     *  同款思路，Pitfalls #37）。深度值 1.0 = 远平面：比较采样恒「未遮挡」。 */
+    private Texture placeholderShadowTexture() {
+        if (placeholderShadow == null) {
+            ByteBuffer zero = ByteBuffer.allocateDirect(4).order(ByteOrder.LITTLE_ENDIAN);
+            zero.putFloat(1.0f).flip();
+            placeholderShadow = device.createTexture(new TextureDesc(
+                    TextureType.TYPE_2D, Format.D32_SFLOAT, 1, 1, 1, 1, 1, SampleCount.COUNT_1,
+                    Set.of(TextureUsage.DEPTH_STENCIL_ATTACHMENT, TextureUsage.TRANSFER_DST,
+                            TextureUsage.SAMPLED), MemoryPreference.deviceLocal()),
+                    UploadData.of(zero));
+        }
+        return placeholderShadow;
+    }
+
+    /** 兜底深度图懒建实例（close 释放） */
+    private Texture placeholderShadow;
+
+    /** 主视口 CSM atlas（非抛出；无主相机/无阴影资源 = null） */
+    private Texture primaryShadowMap() {
+        return renderingSystem.cameras().isEmpty() ? null
+                : renderingSystem.shadowMapOrNull(renderingSystem.cameras().get(0).name());
     }
 
     /** 本帧切片：从游标起取 N 个探针，游标绕回 0 时标记首圈完成 */
@@ -438,14 +506,26 @@ public class DdgiProbePass implements RenderPass {
 
     private void writeLightUbo() {
         renderingSystem.packDdgiLighting(lighting);
+        // 命中辐射是否含 ambient 项：DDGI 档（消费面接管）= 0——常量环境项已由消费面负责，
+        // 探针里再弹一次等于假环境光弹两次（§13.6 遗留第 2 条）；其他档保留（探针全黑会让
+        // 诊断读数失真）
+        float ambientInHit = renderingSystem.ambientMode() == AmbientMode.DDGI ? 0f : 1f;
         lightUboData.clear();
         lightUboData.putFloat(lighting[0]).putFloat(lighting[1]).putFloat(lighting[2]).putFloat(0f);
         lightUboData.putFloat(lighting[3]).putFloat(lighting[4]).putFloat(lighting[5]).putFloat(0f);
         lightUboData.putFloat(lighting[6]).putFloat(lighting[7]).putFloat(lighting[8])
                 .putFloat(lighting[9]);
-        lightUboData.putFloat(0f).putFloat(0f).putFloat(0f).putFloat(0f);
+        lightUboData.putFloat(ambientInHit).putFloat(0f).putFloat(0f).putFloat(0f);
         lightUboData.flip();
         lightUbo.update(0, lightUboData);
+    }
+
+    /** CSM 阴影参数（binding7）：主视口 ViewShadow 快照，每帧重写（矩阵/atlas 尺寸随主相机变） */
+    private void writeShadowUbo() {
+        shadowUboData.clear();
+        renderingSystem.packDdgiShadowParams(shadowUboData);
+        shadowUboData.flip();
+        shadowUbo.update(0, shadowUboData);
     }
 
     /**
@@ -561,6 +641,14 @@ public class DdgiProbePass implements RenderPass {
             lightUbo.dispose();
             lightUbo = null;
         }
+        if (shadowUbo != null) {
+            shadowUbo.dispose();
+            shadowUbo = null;
+        }
+        if (placeholderShadow != null) {
+            placeholderShadow.dispose();
+            placeholderShadow = null;
+        }
         if (debugBuffer != null) {
             debugBuffer.dispose();
             debugBuffer = null;
@@ -568,6 +656,10 @@ public class DdgiProbePass implements RenderPass {
         if (samplerNearest != null) {
             samplerNearest.dispose();
             samplerNearest = null;
+        }
+        if (shadowSampler != null) {
+            shadowSampler.dispose();
+            shadowSampler = null;
         }
     }
 }

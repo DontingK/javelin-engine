@@ -365,6 +365,9 @@ final class VulkanDevice implements Device {
     }
 
     VkDevice vkDevice() { return device; }
+
+    /** 描述符池句柄（包内：VulkanDescriptorSet.dispose 归还池用） */
+    long descriptorPoolHandle() { return descriptorPoolHandle; }
     VulkanPhysicalDevice physicalDevice() { return physicalDevice; }
     long commandPoolHandle() { return commandPoolHandle; }
 

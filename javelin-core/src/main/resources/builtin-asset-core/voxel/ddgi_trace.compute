@@ -1,9 +1,11 @@
 #version 450
 
-// DDGI 追踪段（Engine_DDGI_Design §4.1，P4-05 批 B2）
+// DDGI 追踪段（Engine_DDGI_Design §4.1，P4-05 批 B2；直射项修正 2026-11-22）
 // 一 workgroup = 一个探针；64 线程 = 八面体 8×8 = 64 条方向，每条走一次体素 DDA。
 // 输出：临时 radiance tile（rgba16f，内区 8×8，A 未用）+ 距离 tile（rg16f，R = 命中距离）。
-// 命中着色 = albedo × (ambient + 主光 × ndl)；未命中 = 环境色（B2 不接天空盒与 CSM 阴影项）。
+// 命中着色 = albedo × (ambient? + 主光 × ndl × CSM 阴影因子)；未命中 = 环境色（不接天空盒）。
+// 直射项遮挡走 CSM 阴影图（与主画面同一张图、同一套矩阵——两套影子系统边界不一致
+// 会在阴影区渗「体素级假直射」；原体素 DDA sunVisible 过渡件已退役）。
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -23,15 +25,29 @@ layout(set = 0, binding = 4) uniform ProbeGrid {
     vec4 originSpacing;    // xyz = 网格原点，w = spacing
     ivec4 counts;          // xyz = 三向探针数，w = tilesPerRow
     vec4 tileParams;       // x = 辐照度 tile 边长(10)，y = 深度 tile 边长(18)，z/w 内区边长(8/16)
-    vec4 reservedGrid;
+    vec4 reservedGrid;     // y = maxDistance（诊断段未命中判定用）
 } grid;
 
 layout(set = 0, binding = 5) uniform Lighting {
     vec4 sunDir;           // xyz = 指向光源的方向（已归一），w 未用
     vec4 sunColor;         // rgb = 颜色 × 强度
     vec4 ambient;          // rgb = 环境色，w = 强度
-    vec4 lightingReserved;
+    vec4 lightingFlags;    // x = 命中辐射是否含 ambient 项（1 = 消费面未接管/非 DDGI 档，
+                           //      保留 ambient 进辐射保诊断可读；DDGI 档 = 0，常量环境项
+                           //      已由消费面负责，探针里再弹一次等于假环境光翻倍）
 } light;
+
+// 主光 CSM 阴影（set1 LightingParamsBlock 的 CSM 段同布局拷贝——compute 不直接绑
+// set1 的 dynamic UBO，宿主单独打包一份；数据源=主视口 ViewShadow）
+layout(set = 0, binding = 6) uniform sampler2DShadow sunShadowMap;
+layout(set = 0, binding = 7) uniform ShadowParams {
+    vec4 cascadeHead;      // x = 级联数（0 = 无阴影，恒受光），yzw 预留
+    mat4 sunViewProj[4];   // 逐级联 世界→光裁剪（未用槽 identity）
+    vec4 cascadeSplits;    // 逐级联视空间 z 远界（探针侧不用，保留对齐）
+    vec4 shadowParams;     // x = 品质档 / y = PCF 半径 / z = 强度 / w = refDepthOffset（世界单位）
+    vec4 shadowParams2;    // x = atlas 每轴象限数 / y = atlas 边长 / zw 预留
+    vec4 cascadeInvZ;      // 逐级联 1/光空间 z 范围（refDepthOffset 折算除数）
+} shadow;
 
 layout(push_constant) uniform Push {
     uint sliceStart;       // 本帧首个探针的线性索引
@@ -110,18 +126,38 @@ float traceVoxel(vec3 ro, vec3 rd, out vec3 hitAlbedo, out vec3 hitNormal) {
     return -1.0;
 }
 
-// 命中点的太阳可见性（2026-11-22 补：此前只算 ndl，被挡住的墙面也按「正对太阳」出射，
-// 间接光整体偏高——实测阴影区亮度≈照亮区 78%，看着像没阴影）。
-// 做法 = 从命中点沿太阳方向再走一次短程体素 DDA，打出网格即视为见太阳。起点沿面法线
-// 退一格体素对角线，避免第一格就撞到自己所在的体素。
-bool sunVisible(vec3 hitPos, vec3 normal) {
-    vec3 vs = field.voxelSize.xyz;
-    float push = length(vs) * 1.2 + 1e-3;
-    vec3 ro = hitPos + normal * push;
-    vec3 albedo;
-    vec3 n;
-    float d = traceVoxel(ro, light.sunDir.xyz, albedo, n);
-    return d < 0.0;
+// 主光直射的 CSM 阴影因子（移植自 ShaderInjector javelinCascadeShadow，单 tap 降档版）。
+// 级联选择用「逐级联试投影」而非主路径的视 z 选择：探针射线命中点散布全场、不经主相机
+// 视锥，按视 z 选没有意义；第一个把命中点投进 [-1,1]³ 的级联即覆盖盒命中。全出界 = 盒外
+// 恒受光（1.0）——与主路径「超出末级联恒受光」同语义。
+// PCF 降档理由：探针是低频数据（时域 hysteresis + 消费面三线性已经两级平滑），单 tap 的
+// 锯齿不会直接上屏；省下 compute 里每命中点 4~9 tap 的采样预算。
+float cascadeShadowFactor(vec3 worldPos) {
+    int cascadeCount = int(shadow.cascadeHead.x);
+    if (cascadeCount <= 0) {
+        return 1.0;   // 无阴影资源（主光无 castShadow / 无主相机）：恒受光
+    }
+    float grid = shadow.shadowParams2.x;
+    float atlasSize = shadow.shadowParams2.y;
+    float quad = 1.0 / grid;
+    for (int c = 0; c < cascadeCount; c++) {
+        vec3 proj = (shadow.sunViewProj[c] * vec4(worldPos, 1.0)).xyz;
+        if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0
+                || proj.z < 0.0 || proj.z > 1.0) {
+            continue;   // 该级联不覆盖此命中点：试下一级
+        }
+        int col = c - (c / int(grid)) * int(grid);
+        int row = c / int(grid);
+        vec2 quadOrigin = vec2(float(col), float(row)) * quad;
+        vec2 uv = quadOrigin + (proj.xy * 0.5 + 0.5) * quad;
+        // refZ 补偿与主路径同源：refDepthOffset（世界单位）× cascadeInvZ + 半纹素外扩
+        //（接触漏光修复口径，Engine_Shadow_Quality_Design §9.6）
+        float cascadeTexels = atlasSize / grid;
+        float refZ = proj.z + shadow.shadowParams.w * shadow.cascadeInvZ[c]
+                + 0.5 / cascadeTexels;
+        return texture(sunShadowMap, vec3(uv, refZ));
+    }
+    return 1.0;
 }
 
 void main() {
@@ -149,17 +185,21 @@ void main() {
     float dist = traceVoxel(probePos, dir, albedo, normal);
     vec3 radiance;
     if (dist < 0.0) {
-        // 未命中：环境色兜底（B2 不接天空盒）
+        // 未命中：环境色兜底（不接天空盒）
         radiance = light.ambient.rgb * light.ambient.a;
         dist = pc.maxDistance;
     } else {
         float ndl = max(dot(normal, light.sunDir.xyz), 0.0);
-        // 只有「面朝太阳且看得见太阳」的命中点才出射直射项（见 sunVisible 注释）
-        float sunVis = 1.0;
+        // 直射项遮挡 = CSM 阴影图（与主画面同一张图；体素级判不出的遮挡不再渗假直射）
+        float sunShadow = 1.0;
         if (ndl > 0.0 && (light.sunColor.r + light.sunColor.g + light.sunColor.b) > 0.0) {
-            sunVis = sunVisible(probePos + dir * dist, normal) ? 1.0 : 0.0;
+            sunShadow = cascadeShadowFactor(probePos + dir * dist);
         }
-        radiance = albedo * (light.ambient.rgb * light.ambient.a + light.sunColor.rgb * ndl * sunVis);
+        // ambient 门控：DDGI 档下消费面已接管环境项，探针里再弹常量 ambient 等于假环境光
+        // 弹两次（§13.6 遗留第 2 条）；非接管档保留，否则探针全黑、诊断读数失真
+        vec3 ambientTerm = light.lightingFlags.x > 0.5
+                ? light.ambient.rgb * light.ambient.a : vec3(0.0);
+        radiance = albedo * (ambientTerm + light.sunColor.rgb * ndl * sunShadow);
     }
 
     // 写入本探针 tile 的内区（1px 边框留给后续接缝处理，B2 不填）

@@ -1,5 +1,7 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.5（2026-11-22）｜**直射项终态：体素 sunVisible → CSM 阴影图（落码待实机验收）**：trace 段命中点直射项的遮挡改采主视口 CSM 阴影图（binding6 深度比较采样 + binding7 352B 阴影参数 UBO，`packDdgiShadowParams` 每帧打包）——与主画面同一张图同一套矩阵，阴影边界对齐、两套影子系统不一致的渗光销账；同批把 §13.6 遗留第 2 条一并收口（DDGI 档下命中辐射不再含常量 ambient，档位开关经 Light UBO `lightingFlags.x` 下发）。无阴影回落（`shadowMapOrNull` 非抛出口 + 占位图 + 级联数 0 恒受光）。见 §13.7。
+>
 > v0.4（2026-11-21）｜**B3 消费面落码（待实跑）**：环境项由探针辐照度接管——`AmbientMode` 扩 `DDGI` 档、桥每帧推模式；set1 新占 binding8（辐照度 atlas）/ binding9（DDGI 参数 UBO 96B）/ binding10（深度矩 atlas）（P4-17 退役腾出的槽）；注入器新增 `DDGI_BLOCKS`（八面体编码 + tile 内区手写双线性 + 深度矩 Chebyshev 可见性 + 网格三线性），`javelinLighting` 环境项改为「DDGI 档且网格内 → 探针辐照度，否则常量项」。见 §13。
 >
 > v0.3（2026-11-21）｜**B2 落码 + B3 前置（探针网格按体素场收缩）**：两段 compute（`ddgi_trace.compute` 体素 DDA / `ddgi_update.compute` 余弦加权毯 + 深度矩 + hysteresis）+ 宿主 `DdgiProbePass`（切片派发、首圈不混合、atlas 换代重建临时 tile、诊断 SSBO 读回）。实跑两轮修三处（`ivec2` 隐式缩窄、`SAMPLED_IMAGE`→`COMBINED_IMAGE_SAMPLER`、探针全在场外）。**第三轮实测暴露尺度问题**：配置 16×4×16@2m = 30×6×30 m，体素场仅 ≈10.8×5.8×7.9 m ⇒ 只约 60/1024 个探针在场内，其余全走环境色兜底（命中 32~48 m）。**修法**：新增 `DdgiProbeGrid.fittedToField`（三向数量收缩到 `1+floor(场边长/spacing)`、上限仍取配置值；原点锚在场 min 的 spacing 格点、余量不足一格即居中于场），宿主改用收缩铺法；单测补 3 例（11 例全绿）。见 §12。
@@ -51,7 +53,7 @@
 - 探针位置 = 网格（间距可配）；射线数 `raysPerProbe`（首版 64，可升 128）
 - **求交后端 = 静态体素 DDA**：体素化在 P4-05 内部重建（`voxelize.compute` 可从 `dc1e9e0` 取回），**过滤口径改为「静态 + 不透明」**（不再复用 `castShadow`，`castShadow` 一标志两用是 P4-17 的老坑）；体素增加 **albedo 通道**（原 AO 链没有）
 - 重建门控 = **静态集签名**（数量 + 每个静态物体 world matrix / mesh 的 hash），不是裸计数（BUG-13 的结论）
-- 命中 → `radiance = albedo(BaseColor) × (环境项 + 主光 × ndl × 阴影项)`；未命中 → 天空盒颜色（无天空盒回落 `ambient`）
+- 命中 → `radiance = albedo × (ambient? + 主光 × ndl × CSM 阴影因子)`；未命中 → 天空盒颜色（无天空盒回落 `ambient`）。直射项遮挡采 **CSM 阴影图**（2026-11-22 修正，§13.7）；环境项由档位开关门控（DDGI 档 = 0，其他档保留保诊断可读）
 - 输出中间图：radiance + hit distance（每探针一张临时 2D tile，用完即弃）
 
 ### 4.2 `ddgi_update.comp`（每探针一个 workgroup）
@@ -90,7 +92,7 @@ vec3 result = (lighting.ambientMode == 1 && insideProbeVolume(worldPos))
 
 ## 7. 与其它子系统
 
-- **阴影**：DDGI 不替代 CSM，只替代环境项；命中点的直射项复用 `javelinCascadeShadow`（体素 DDA 命中的表面点取阴影因子）
+- **阴影**：DDGI 不替代 CSM，只替代环境项；命中点的直射项采 CSM 阴影图（**已落码 2026-11-22**，§13.7：移植 `javelinCascadeShadow` 单 tap 降档版、逐级联试投影选级联；中间过渡件体素 DDA `sunVisible` 同日退役）
 - **TAA**：分帧刷新会带来探针切换的离散噪声，TAA 天然摊平；不做额外时域抖动也可，实测跳变明显再加每帧旋转相位
 - **透明物体**：不进体素；透明材质环境项按 DDGI 结果照常乘（不做折射/透射 GI）
 - **FORWARD 档**：与 HYBRID 同口径（注入段同源，只依赖 `worldPos`/`worldNormal`）；FORWARD 没有 G-Buffer 不影响 DDGI
@@ -198,7 +200,7 @@ vec3 result = (lighting.ambientMode == 1 && insideProbeVolume(worldPos))
 
 **实跑验收（✅ 2026-11-21，用户确认）**：①日志 `DDGI 探针数据面就绪` 网格 `6x3x4 probes=72`、atlas `90x80` / `162x144`（147 KB）、origin `(-5.0, 0.4416, -1.8201)`；②中心块统计见 §12.5（命中率 8%~100%、命中距离 1.03~4.05 m、相邻有差异）；③「体素化重建完成」日志不变（体素化未动）。
 
-**B2 未收口项（转 B3 一起看）**：①命中点直射项只算 `ndl`、未接 CSM 阴影；②未命中回落常量 `ambient`、不接天空盒；③tile 1px 边框不填（消费面按内区 clamp）；④`MAX_RAY_DISTANCE` 固定 60 m（B5 再按场景尺寸自适应）；⑤`vkDestroyDevice has 101 leaked objects` 是 shutdown 期既有泄漏，与本批无关。
+**B2 未收口项（转 B3 一起看）**：①~~命中点直射项只算 `ndl`、未接 CSM 阴影~~（中间经体素 sunVisible 过渡，2026-11-22 改采 CSM 阴影图销账，§13.7）；②未命中回落常量 `ambient`、不接天空盒；③tile 1px 边框不填（消费面按内区 clamp）；④`MAX_RAY_DISTANCE` 固定 60 m（B5 再按场景尺寸自适应）；⑤`vkDestroyDevice has 101 leaked objects` 是 shutdown 期既有泄漏，与本批无关。
 
 ### 12.5 诊断口径 v2（同日，第三轮读数被判为不可用后）
 
@@ -256,7 +258,7 @@ mode 的实际取值 = `ambientMode == DDGI && DdgiSettings.enabled` → 1，否
 
 **必做前置**：注入器改动 → **重导全部 `.shader` 与内置 `lighting.frag` 产物**（项目面板右键「重新导入」，或 `AssetImportPipeline.reimportAll`），否则运行的是旧注入、DDGI 静默不生效。
 
-**B3 残留（待后续）**：①只有首视口绑 DDGI 数据面，第二视口 mode 恒 0（回落常量项）；②深度矩按单 texel 取、未做方向插值；③命中点直射项未接 CSM 阴影、未命中未接天空盒（B2 遗留）；④tile 1px 边框仍未填；⑤40 次 `texelFetch` 的性能未实测。
+**B3 残留（待后续）**：①只有首视口绑 DDGI 数据面，第二视口 mode 恒 0（回落常量项）；②深度矩按单 texel 取、未做方向插值；③~~命中点直射项未接 CSM 阴影~~（已销账 2026-11-22，§13.7；未命中仍未接天空盒）；④tile 1px 边框仍未填；⑤40 次 `texelFetch` 的性能未实测。
 
 ### 13.5 首跑排障（2026-11-21 21:52 用户实跑：过亮 / 闪烁 / 画面不对）
 
@@ -285,8 +287,22 @@ mode 的实际取值 = `ambientMode == DDGI && DdgiSettings.enabled` → 1，否
 1. **追踪段命中点没有直射遮挡测试**：原来只算 `ndl`，被别的几何挡住的墙面也按「正对太阳」出射全亮度 → 间接光整体偏高（这就是 B2 遗留项③「未接 CSM」的真正代价）；
 2. 常量 ambient 现在也进了追踪段的命中辐射（§13.5 第 4 条所需），而它本身代表天空环境——在封闭场景里等于把假环境光再弹一次。
 
-**修法（第 1 条已落码，第 2 条待定）**：`ddgi_trace.compute` 加 `sunVisible(hitPos, normal)`——从命中点沿太阳方向再走一次短程 DDA（起点沿面法线退 1.2 倍体素对角线避免撞自己），打出网格才算见太阳，被挡则直射项归零。代价 = 每条射线多一次 DDA（探针追踪成本约翻倍，性能账归 B5）。强度 1.0 是默认值、也是**线性**放大系数，等遮挡补上后仍偏亮再调它（或按场景调 0.6~0.8）。
+**修法（两条均已收口，见 §13.7 终态）**：第 1 条先落体素 DDA `sunVisible(hitPos, normal)`——从命中点沿太阳方向再走一次短程 DDA（起点沿面法线退 1.2 倍体素对角线避免撞自己），打出网格才算见太阳，被挡则直射项归零。代价 = 每条射线多一次 DDA（探针追踪成本约翻倍，性能账归 B5）。强度 1.0 是默认值、也是**线性**放大系数，等遮挡补上后仍偏亮再调它（或按场景调 0.6~0.8）。
 
+### 13.7 直射项终态：体素 sunVisible → CSM 阴影图（2026-11-22 落码，待实机验收）
 
+§13.6 两条根因的终态修法。**为什么换掉 sunVisible**：它是当天早些时候的过渡件——体素遮挡与主画面 CSM 是两套影子系统，边界不一致（体素判不出的遮挡在 CSM 里是影子）→ 阴影区仍渗「体素级假直射」；且每条射线多一次 DDA，探针追踪成本翻倍。换成采 CSM 阴影图后：同一张图、同一套级联矩阵，阴影边界与主画面对齐，还把翻倍的 DDA 省回来。
 
+**落码形态**（改动三件：`ddgi_trace.compute` / `DdgiProbePass` / `RenderingSystem`）：
+- **trace 段新增 binding6/7**：binding6 = 主视口 CSM atlas（`sampler2DShadow` 深度比较采样）；binding7 = 352B 阴影参数 UBO（`cascadeHead` + `sunViewProj[4]` + `cascadeSplits` + `shadowParams` + `shadowParams2` + `cascadeInvZ`，与 set1 的 CSM 段同源布局，由 `RenderingSystem.packDdgiShadowParams` 每帧打包（新公开口，与 `packDdgiLighting` 对称）。
+- **级联选择 = 逐级联试投影**（与主路径按视 z 选不同）：探针射线命中点散布全场、不经主相机视锥，按视 z 选没有意义；第一个把命中点投进 [-1,1]³ 的级联即用之，全出界 = 盒外恒受光。命中点远离主相机时落远级联（精度低）或恒受光——探针低频数据可接受，后续要提质再评估。
+- **PCF 降档单 tap**：探针数据有 hysteresis 时域平滑 + 消费面三线性两级平滑，单 tap 锯齿不会直接上屏；升 4 tap 挂 §13 残留。refZ 补偿（refDepthOffset × cascadeInvZ + 半纹素外扩）与主路径同源。
+- **环境项档位门控（第 2 条根因收口）**：Light UBO 的 `lightingFlags.x` = 命中辐射是否含 ambient 项——DDGI 档（消费面接管）= 0（常量环境项已由消费面负责，探针里再弹一次等于假环境光弹两次）；其他档保留（否则探针全黑、诊断读数失真）。`writeLightUbo` 从 `ambientMode()` 取值。
+- **无阴影回落**：主光未激活/关阴影时视口没有 ViewShadow——`shadowMapFor` 会抛 IllegalStateException，新增非抛出口 `shadowMapOrNull` + `packDdgiShadowParams` 空表回落全零（级联数 0 → compute 侧恒受光，天然回落不炸描述符）；binding6 挂 1×1 占位深度图（`placeholderShadowTexture` 懒建）。
+- **图声明**：trace compute pass 增 `addTextureRead(主视口 shadowMap)`——显式依赖 + 句柄进 structureHash（CSM 换代自动失效图缓存）；Pass 顺序前置事实已满足（DdgiVoxelizer after=Shadow、DdgiProbePass after=DdgiVoxelizer）。
 
+**随验排障（2026-11-22 晚实跑，已修）**：画面生效但报两类 VVL：
+- **00309（vkFreeDescriptorSets 在用即 free，10+ 条）**：同日早些时候给 `VulkanDescriptorSet.dispose` 补的立即 free 撞的雷——VUID 00309 要求所有引用该 set 的已提交命令缓冲**执行完毕**，而引擎的 retire+2 帧窗口在 collectFrame 帧首冲（早于上一帧的 submit 栅栏 await），窗口差半帧。**修法**：descriptor set 注册进 `CleanerRegistry` 两帧延迟销毁队列（新增 `ResourceType.DESCRIPTOR_SET`；`dispose` 只入队，`onFrameEnd` 帧末 submit 之后推进才 `vkFreeDescriptorSets`）——与 BUFFER/TEXTURE 同一窗口且推进时点在 submit 之后，语义严严覆盖。
+- **09600（首帧采样 UNDEFINED 颜色图，3 条）**：全部落在启动首帧 resize（737x515→513）重建前的首次提交，之后整场零复发——是 §13.5 已录过的 legacy 首帧现象，与本批改动无关。但排查中发现一个真隐患：**占位深度图**（无阴影时 binding6 的 1×1 D32）创建时传 null、又不进图声明（`addTextureRead` 只挂真 shadowMap）→ 永不转布局、采样即同款 09600。**修法**：改带数据创建（D32 + SAMPLED + TRANSFER_DST，深度值 1.0 = 远平面恒未遮挡）——上传路径把布局走到 SHADER_READ_ONLY，与 binding6 描述符声明一致（`DdgiAtlases.createAtlas` 同款思路，Pitfalls #37）。
+
+**验收清单**（待实机）：①重导 `ddgi_trace.compute`（项目面板右键「重新导入」；只动这一个，update 段无改动）；②阴影边界摄影验证阴影区间接光变暗、过渡与主画面 CSM 对齐；③诊断行「平均入射辐射」应比修前下降（阴影贡献不再虚高）；④`--debug=true` 跑一次 VVL（重点看 compute 里采 sampler2DShadow 有无校验层抱怨）；⑤无主光场景不崩（占位图 + 恒受光回落）。

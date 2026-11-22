@@ -13,11 +13,14 @@ final class VulkanDescriptorSet implements DescriptorSet {
 
     private final VulkanDevice device;
     private final long setHandle;
+    private final CleanerRegistry.Registration registration;
     private volatile boolean disposed;
 
     VulkanDescriptorSet(VulkanDevice device, long setHandle) {
         this.device = device;
         this.setHandle = setHandle;
+        this.registration = CleanerRegistry.register(this, device, setHandle,
+                CleanerRegistry.ResourceType.DESCRIPTOR_SET);
         device.stats().onDescriptorSetCreated();
     }
 
@@ -82,9 +85,13 @@ final class VulkanDescriptorSet implements DescriptorSet {
 
     @Override
     public void dispose() {
-        // DescriptorSet 由池管理，不单独销毁；重入 guard 保统计双减
+        // 归还池子走 CleanerRegistry 两帧延迟队列（VUID 00309：vkFreeDescriptorSets 要求所有
+        // 引用该 set 的已提交命令缓冲执行完毕——立即 free 会撞上还在 in-flight 的帧；入队后由
+        // onFrameEnd 在 submit 之后的帧末推进，窗口成立）。不 free 的话池只出不回，高频换代方
+        // （材质贴图 revision / DDGI 换绑）会把 maxSets 烧穿 → OUT_OF_POOL_MEMORY
         if (disposed) return;
         disposed = true;
+        registration.dispose();
         device.stats().onDescriptorSetDisposed();
     }
 

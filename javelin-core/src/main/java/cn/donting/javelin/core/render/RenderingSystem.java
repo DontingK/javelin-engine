@@ -1291,6 +1291,16 @@ public final class RenderingSystem implements AutoCloseable {
         return shadowView(cameraName).map;
     }
 
+    /**
+     * 本视口 shadowMap atlas 的非抛出只读口（未建 = {@code null}）：供调用点无 ShadowPass
+     * 前置约束的消费方（如 DDGI trace 段——主光未激活/关阴影时视口没有阴影资源，
+     * 此时走占位图 + 级联数 0 的恒受光回落）。
+     */
+    public Texture shadowMapOrNull(String cameraName) {
+        ViewShadow vs = cameraName == null ? null : viewShadows.get(cameraName);
+        return vs == null ? null : vs.map;
+    }
+
     /** 本视口级联数（1/2/4） */
     public int shadowCascadeCount(String cameraName) {
         return shadowView(cameraName).cascadeCount;
@@ -1359,6 +1369,60 @@ public final class RenderingSystem implements AutoCloseable {
         out12[9] = ambientIntensity;
         out12[10] = 0f;
         out12[11] = 0f;
+    }
+
+    /**
+     * DDGI 追踪段用的 CSM 阴影参数快照（Engine_DDGI_Design §4.1，直射项修正 2026-11-22）：
+     * 主视口 ViewShadow 的矩阵/级联/atlas 段，直接打进 352B ByteBuffer（std140，与
+     * {@code ddgi_trace.compute} binding7 的 {@code ShadowParams} 块逐字段对齐）。
+     *
+     * <p>布局：{@code cascadeHead}（x=级联数，yzw=0）+ {@code sunViewProj[4]}（未用槽 identity）
+     * + {@code cascadeSplits[4]} + {@code shadowParams}（品质档/PCF 半径/强度/refDepthOffset）
+     * + {@code shadowParams2}（atlas 象限数/atlas 边长/0/0）+ {@code cascadeInvZ[4]}。
+     * 值与 {@code packLightingParams} 的 set1 CSM 段同源——探针直射项与主画面同一套影子。</p>
+     *
+     * <p>无主相机/无阴影资源时全零 + 级联数 0：着色端 {@code cascadeShadowFactor} 恒受光
+     * （天然回落，不炸描述符）。{@code out} 须至少 352 字节、position 归零由调用方负责
+     * （本方法只 put 不 flip）。</p>
+     */
+    public void packDdgiShadowParams(ByteBuffer out) {
+        if (out == null || out.capacity() < 352) {
+            throw new IllegalArgumentException("out 至少 352 字节（got: "
+                    + (out == null ? "null" : out.capacity()) + "）");
+        }
+        RenderCamera primary = cameras.isEmpty() ? null : cameras.get(0);
+        // 直查 viewShadows 表而非 shadowView(...)：后者在资源缺失时抛 IllegalStateException
+        //（帧收集未建 = 无主光/关阴影的合法态，此时应回落全零而非炸）
+        ViewShadow vs = primary == null ? null : viewShadows.get(primary.name());
+        if (vs == null) {
+            for (int i = 0; i < 88; i++) {
+                out.putFloat(0f);
+            }
+            return;
+        }
+        // cascadeHead：x = 级联数
+        out.putFloat(vs.cascadeCount).putFloat(0f).putFloat(0f).putFloat(0f);
+        // sunViewProj[4]（未用槽 identity——compute 侧只走到 cascadeCount）
+        for (int c = 0; c < 4; c++) {
+            for (float v : vs.matrices[c].get(matTmp)) {
+                out.putFloat(v);
+            }
+        }
+        for (int c = 0; c < 4; c++) {
+            out.putFloat(vs.splits[c]);
+        }
+        ShadowSettings shadow = shadowSettings;
+        out.putFloat(shadow.getQuality().code())
+                .putFloat(shadow.getPcfRadius())
+                .putFloat(shadow.getStrength())
+                .putFloat(shadow.getRefDepthOffset());
+        out.putFloat(vs.grid)
+                .putFloat(vs.atlasSize)
+                .putFloat(0f)
+                .putFloat(0f);
+        for (int c = 0; c < 4; c++) {
+            out.putFloat(vs.invZ[c]);
+        }
     }
 
     /**
@@ -2292,6 +2356,12 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(bloomRtTextures);
         disposeAll(ssaoRtTextures);
         disposeAll(taaRtTextures);
+        // DDGI atlas（每视口两张；表里只剩当前代——旧代都已在换代时进 retiredTextures）
+        ddgiAtlasSets.values().forEach(a -> {
+            a.irradiance().dispose();
+            a.depth().dispose();
+        });
+        ddgiAtlasSets.clear();
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）

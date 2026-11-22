@@ -1,5 +1,6 @@
 package cn.donting.javelin.rhi;
 
+import org.lwjgl.system.MemoryStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,6 +73,7 @@ public final class CleanerRegistry {
         PIPELINE,
         PIPELINE_LAYOUT,
         DESCRIPTOR_SET_LAYOUT,
+        DESCRIPTOR_SET,
         IMAGE_VIEW,
         SEMAPHORE,
         FENCE,
@@ -145,6 +147,14 @@ public final class CleanerRegistry {
                 case PIPELINE -> org.lwjgl.vulkan.VK10.vkDestroyPipeline(task.device.vkDevice(), task.handle, null);
                 case PIPELINE_LAYOUT -> org.lwjgl.vulkan.VK10.vkDestroyPipelineLayout(task.device.vkDevice(), task.handle, null);
                 case DESCRIPTOR_SET_LAYOUT -> org.lwjgl.vulkan.VK10.vkDestroyDescriptorSetLayout(task.device.vkDevice(), task.handle, null);
+                case DESCRIPTOR_SET -> {
+                    // 归还池子（FREE_DESCRIPTOR_SET 池）：必须等所有引用该 set 的已提交命令缓冲
+                    // 执行完毕（VUID 00309）——两帧延迟窗口在 submit 后的 onFrameEnd 推进，窗口成立
+                    try (MemoryStack stack = MemoryStack.stackPush()) {
+                        org.lwjgl.vulkan.VK10.vkFreeDescriptorSets(task.device.vkDevice(),
+                                task.device.descriptorPoolHandle(), stack.longs(task.handle));
+                    }
+                }
                 case IMAGE_VIEW -> org.lwjgl.vulkan.VK10.vkDestroyImageView(task.device.vkDevice(), task.handle, null);
                 case SEMAPHORE -> org.lwjgl.vulkan.VK10.vkDestroySemaphore(task.device.vkDevice(), task.handle, null);
                 case FENCE -> org.lwjgl.vulkan.VK10.vkDestroyFence(task.device.vkDevice(), task.handle, null);
