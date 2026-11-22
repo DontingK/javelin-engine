@@ -5,6 +5,7 @@ import cn.donting.javelin.core.assets.shadow.SpvShader;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
+import cn.donting.javelin.core.render.ddgi.DdgiAtlases;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.rhi.Buffer;
 import cn.donting.javelin.rhi.Device;
@@ -146,6 +147,13 @@ public class LightingPass implements RenderPass {
             pass.addTextureRead(normal);
             pass.addTextureRead(worldPos);
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // DDGI 两张 atlas 的采样读（四期 P4-05 B3）：同一 javelinLighting 的环境项，
+            // 与更新段 compute 的 STORAGE 写配成读写对（布局转换 + 屏障由图插入）
+            DdgiAtlases ddgiAtlases = rs.ddgiAtlasesOf(view.name());
+            if (ddgiAtlases != null) {
+                pass.addTextureRead(ddgiAtlases.irradiance());
+                pass.addTextureRead(ddgiAtlases.depth());
+            }
             // set1 storage 读声明（本视口 cluster 套件：着色逐像素查询）
             for (Buffer b : rs.viewStorages(view.name())) {
                 pass.addBufferRead(b);

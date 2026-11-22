@@ -156,6 +156,12 @@ public final class RenderingSystem implements AutoCloseable {
     private final Color ambientColor = new Color(0.0f, 0.0f, 0.0f, 1.0f);
     /** 环境项强度（着色端 ambient.rgb * ambient.a 的 a） */
     private float ambientIntensity = 0.0f;
+    /**
+     * 环境光模式（四期 P4-04 步骤一 → P4-05 B3 扩 DDGI）：{@code OFF}/{@code CONSTANT} 走
+     * {@code ambient.rgb * ambient.a}；{@code DDGI} 由探针辐照度接管（打包进 set1 binding9 的
+     * {@code ddgiParams.x}，探针数据面未就绪时恒 0 = 回落常量项）。
+     */
+    private AmbientMode ambientMode = AmbientMode.OFF;
 
     // ── 主光阴影（批次④ → 四期 CSM，Engine_Lighting_Design §4.5 / Engine_Shadow_Quality_Design §4）──
     /**
@@ -197,6 +203,15 @@ public final class RenderingSystem implements AutoCloseable {
     // 拟合；分辨率/级联数变化即重建、旧图两帧退役）。多级联共图 = atlas（cascadeCount≥2 时 2×2）。
     private final Map<String, ViewShadow> viewShadows = new HashMap<>();
     private final Sampler shadowSampler;
+    /**
+     * DDGI 消费面采样器（set1 binding8/10：辐照度 / 深度矩 atlas）。consumption 侧手写
+     * 双线性（tile 内区 clamp，不跨 tile 渗漏），故 NEAREST + CLAMP 足够。
+     */
+    private final Sampler ddgiSampler;
+    /** DDGI 参数 UBO 尺寸（std140：网格 origin+spacing / counts+tilesPerRow / tile 参数 / 运行态） */
+    static final int DDGI_PARAM_BYTES = 96;
+    /** atlas 未就绪时 set1 binding8/10 的占位图（1×1；仅保证描述符完整，着色端按 mode 门控不采样） */
+    private Texture ddgiPlaceholder;
     /** G-Buffer 采样器（HYBRID 档 LightingPass 消费；逐像素一一对应，NEAREST + CLAMP） */
     private final Sampler gbufferSampler;
     /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据（全局，与视口无关） */
@@ -205,6 +220,8 @@ public final class RenderingSystem implements AutoCloseable {
     private ShadowSettings shadowSettings = new ShadowSettings();
     /** DDGI 参数（体素场分辨率/开关/探针网格/刷新节奏，Engine_DDGI_Design §3/§4） */
     private DdgiSettings ddgiSettings = new DdgiSettings();
+    /** 消费面接管状态上一次的打印键（只在变化时落日志，见 {@code writeDdgiParams}） */
+    private String ddgiStateLog;
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
     /** 逐级联光空间 z 范围回填暂存（CSM，1/zRange 折算除数来源） */
     private final float[] shadowZRangeTmp = new float[4];
@@ -259,6 +276,9 @@ public final class RenderingSystem implements AutoCloseable {
             .order(ByteOrder.LITTLE_ENDIAN);
     private final ByteBuffer lightListPack = ByteBuffer.allocateDirect(
             LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4)
+            .order(ByteOrder.LITTLE_ENDIAN);
+    /** DDGI 参数 UBO 打包暂存（96B，P4-05 B3 消费面） */
+    private final ByteBuffer ddgiPack = ByteBuffer.allocateDirect(DDGI_PARAM_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
     /** 末帧首视口灯数快照（F3 在册灯数） */
     private int lastPointLightCount;
@@ -396,6 +416,12 @@ public final class RenderingSystem implements AutoCloseable {
         // G-Buffer 采样器（HYBRID 档）：LightingPass 全屏逐像素读 G-Buffer——
         // 无缩放无 mip，NEAREST + CLAMP 最省且与写入像素一一对应
         this.gbufferSampler = device.createSampler(new SamplerDesc(
+                Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1.0f));
+        // DDGI 采样器（P4-05 B3）：与 G-Buffer 同档（NEAREST + CLAMP；双线性在着色端手写，
+        // 因为 tile 内区外的边框不参与插值，硬件 LINEAR 会跨 tile 渗漏）
+        this.ddgiSampler = device.createSampler(new SamplerDesc(
                 Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
                 SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1.0f));
@@ -818,6 +844,18 @@ public final class RenderingSystem implements AutoCloseable {
             retire(atlases.irradiance());
             retire(atlases.depth());
         }
+    }
+
+    /**
+     * 当前已绑定到该视口的 DDGI atlas（未建 = {@code null}）。
+     *
+     * <p>着色 Pass 的依赖声明用：辐照度/深度矩两张图既要被更新段 compute 以 STORAGE 写、
+     * 又要被 Forward/Lighting 以 SAMPLED 读，图里必须两侧都声明，否则布局在
+     * GENERAL / SHADER_READ_ONLY 之间无人负责转换与屏障（实测 VUID-09600 + 00344 刷屏、
+     * 画面闪）。这里只读现成绑定，不触发建图（建图归 {@link #ddgiAtlasesFor}）。</p>
+     */
+    public DdgiAtlases ddgiAtlasesOf(String cameraName) {
+        return cameraName == null ? null : ddgiAtlasSets.get(cameraName);
     }
 
     // ═══ TAA 历史色与状态面（TaaPass 消费） ═══
@@ -1714,6 +1752,14 @@ public final class RenderingSystem implements AutoCloseable {
                 new DescriptorSetLayoutDesc.Binding(6, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(7, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding8/10 = DDGI 辐照度 / 深度矩 atlas（四期 P4-05 B3 消费面；P4-17 退役
+                // 腾出的槽正好接上）；binding9 = DDGI 参数 UBO（网格 + 运行态 mode/强度）
+                new DescriptorSetLayoutDesc.Binding(8, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(9, DescriptorType.UNIFORM_BUFFER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(10, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -1748,29 +1794,140 @@ public final class RenderingSystem implements AutoCloseable {
         Buffer clusterIndices = device.createBuffer(new BufferDesc(
                 (long) ClusterBuilder.MAX_POOL_UINTS * 4,
                 Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
+        Buffer ddgiParams = device.createBuffer(new BufferDesc(
+                (long) DDGI_PARAM_BYTES, Set.of(BufferUsage.UNIFORM),
+                MemoryPreference.hostVisibleCoherent()), null);
         DescriptorSet set = device.createDescriptorSet(frameStorageSetLayout);
         // G-Buffer 三张（批次④-B）：材质 shader 不用、HYBRID 档 LightingPass 消费——
         // 同 set1 布局须给全 binding 有效描述符（Vulkan 绑定完整性），恒指向本视口附件
         Texture gbufferAlbedo = gbufferAlbedoFor(cameraName);
         Texture gbufferNormal = gbufferNormalFor(cameraName);
         Texture gbufferWorldPos = gbufferWorldPosFor(cameraName);
-        set.update(new DescriptorUpdate[]{
-                DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
-                DescriptorUpdate.storageBuffer(1, lightList),
-                DescriptorUpdate.storageBuffer(2, clusterGrid),
-                DescriptorUpdate.storageBuffer(3, clusterIndices),
-                DescriptorUpdate.sampledTexture(4, shadowMapFor(cameraName), shadowSampler),
-                DescriptorUpdate.sampledTexture(5, gbufferAlbedo, gbufferSampler),
-                DescriptorUpdate.sampledTexture(6, gbufferNormal, gbufferSampler),
-                DescriptorUpdate.sampledTexture(7, gbufferWorldPos, gbufferSampler)});
-        ViewLighting created = new ViewLighting(lightList, clusterGrid, clusterIndices,
-                gbufferAlbedo, gbufferNormal, gbufferWorldPos,
+        ViewLighting created = new ViewLighting(cameraName, lightList, clusterGrid, clusterIndices,
+                ddgiParams, gbufferAlbedo, gbufferNormal, gbufferWorldPos,
                 set, viewW, viewH, gridX, gridY);
+        // binding8/10 先指占位 1×1（探针 atlas 就绪后由 syncDdgi 重指）；
+        // 参数 UBO 恒存在，mode=0 时着色端直接回落常量环境项
+        updateLightingSet(created);
         viewLights.put(cameraName, created);
         log.info("视口灯光资源创建: camera[{}] viewport {}x{} grid {}x{}x{} ({}B/{}B)",
                 cameraName, viewW, viewH, gridX, gridY, ClusterBuilder.Z_SLICES,
                 gridX * gridY * ClusterBuilder.Z_SLICES * 8, ClusterBuilder.MAX_POOL_UINTS * 4);
         return created;
+    }
+
+    /**
+     * set1 全量描述符写入（创建与 DDGI atlas 换绑共用；Vulkan 要求布局内每个 binding 都有
+     * 有效描述符——材质 shader 不声明 binding5..10 也照填）。
+     */
+    private void updateLightingSet(ViewLighting vl) {
+        Texture irr = vl.ddgiIrradiance != null ? vl.ddgiIrradiance : ddgiPlaceholderTexture();
+        Texture dep = vl.ddgiDepth != null ? vl.ddgiDepth : ddgiPlaceholderTexture();
+        vl.set.update(new DescriptorUpdate[]{
+                DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
+                DescriptorUpdate.storageBuffer(1, vl.lightList),
+                DescriptorUpdate.storageBuffer(2, vl.clusterGrid),
+                DescriptorUpdate.storageBuffer(3, vl.clusterIndices),
+                DescriptorUpdate.sampledTexture(4, shadowMapFor(vl.cameraName), shadowSampler),
+                DescriptorUpdate.sampledTexture(5, vl.gbufferAlbedo, gbufferSampler),
+                DescriptorUpdate.sampledTexture(6, vl.gbufferNormal, gbufferSampler),
+                DescriptorUpdate.sampledTexture(7, vl.gbufferWorldPos, gbufferSampler),
+                DescriptorUpdate.sampledTexture(8, irr, ddgiSampler),
+                DescriptorUpdate.uniformBuffer(9, vl.ddgiParams, 0, DDGI_PARAM_BYTES),
+                DescriptorUpdate.sampledTexture(10, dep, ddgiSampler)});
+    }
+
+    /** DDGI 占位图（1×1）：atlas 未就绪/DDGI 关闭时 binding8/10 的描述符占位（着色端不采样） */
+    private Texture ddgiPlaceholderTexture() {
+        if (ddgiPlaceholder == null) {
+            ddgiPlaceholder = device.createTexture(TextureDesc.texture2D(
+                    HDR_SCENE_COLOR_FORMAT, 1, 1, Set.of(TextureUsage.SAMPLED)), null);
+        }
+        return ddgiPlaceholder;
+    }
+
+    /** 环境光模式（桥每帧推送；{@code DDGI} 档由探针辐照度接管环境项） */
+    public void setAmbientMode(AmbientMode mode) {
+        this.ambientMode = mode != null ? mode : AmbientMode.OFF;
+    }
+
+    /** 当前环境光模式（DdgiProbePass 判定是否推送 DDGI 数据面用） */
+    public AmbientMode ambientMode() {
+        return ambientMode;
+    }
+
+    /**
+     * DDGI 数据面绑定（P4-05 B3；{@code DdgiProbePass} 在 atlas 就绪后每帧调用）。
+     *
+     * <p>两张 atlas 句柄变 → 重建本视口 set1（旧 set 两帧退役，不原地 update，绕开 03047
+     * 在途约束）；参数 UBO 每帧重写——网格原点是相机居中滚动的，不刷就是上一帧的旧原点。</p>
+     */
+    public void syncDdgi(String cameraName, DdgiAtlases atlases, DdgiProbeGrid grid,
+                         DdgiSettings settings) {
+        checkOpen();
+        ViewLighting vl = viewLights.get(cameraName);
+        if (vl == null || atlases == null || grid == null || settings == null) {
+            return;
+        }
+        boolean rebound = vl.ddgiIrradiance != atlases.irradiance()
+                || vl.ddgiDepth != atlases.depth();
+        vl.ddgiIrradiance = atlases.irradiance();
+        vl.ddgiDepth = atlases.depth();
+        vl.ddgiGrid = grid;
+        if (rebound) {
+            rebuildLightingSet(vl);
+        }
+        writeDdgiParams(vl, grid, settings);
+    }
+
+    /** 本视口 set1 换代（DDGI atlas 换绑：新建 + 旧 set 两帧退役） */
+    private void rebuildLightingSet(ViewLighting vl) {
+        DescriptorSet fresh = device.createDescriptorSet(frameStorageSetLayout);
+        DescriptorSet old = vl.set;
+        vl.set = fresh;
+        updateLightingSet(vl);
+        retireResource(old::dispose);
+    }
+
+    /**
+     * DDGI 参数 UBO 打包（std140，与 ShaderInjector 的 {@code DdgiParamsBlock} 同源）：
+     * gridOriginSpacing（xyz 原点 / w 间距）、counts（xyz 三向数量 / w tilesPerRow）、
+     * tileParams（x 辐照度 tile 边长 / y 辐照度内区 / z 深度 tile 边长 / w 深度内区）、
+     * ddgiParams（x mode 0/1 / y 强度 / z 法线偏置（世界单位）/ w 预留）。
+     */
+    private void writeDdgiParams(ViewLighting vl, DdgiProbeGrid grid, DdgiSettings settings) {
+        boolean live = ambientMode == AmbientMode.DDGI && settings.isEnabled();
+        // 消费面接管状态只报变化（首跑排障用：数据面在跑但画面没变化，八成是这里 mode=0）
+        String state = live + "|" + ambientMode + "|" + settings.isEnabled() + "|" + grid;
+        if (!state.equals(ddgiStateLog)) {
+            ddgiStateLog = state;
+            if (live) {
+                log.info("DDGI 消费面接管：camera[{}] {}，强度 {}、法线偏置 {}（环境项由探针辐照度接管）",
+                        vl.cameraName, grid, settings.getIntensity(),
+                        settings.getNormalBiasScale() * grid.spacing());
+            } else if (settings.isEnabled()) {
+                log.warn("DDGI 数据面在跑但消费面没接管：camera[{}] 环境光模式 = {}（要选 DDGI / 「探针 GI（DDGI）」"
+                        + "才会由探针辐照度接管环境项，现在仍走常量项）", vl.cameraName, ambientMode);
+            } else {
+                log.info("DDGI 消费面关闭：camera[{}] 环境光模式 = {}、启用探针 GI = false",
+                        vl.cameraName, ambientMode);
+            }
+        }
+        ddgiPack.clear();
+        ddgiPack.putFloat(grid.originX()).putFloat(grid.originY()).putFloat(grid.originZ())
+                .putFloat(grid.spacing());
+        ddgiPack.putInt(grid.countX()).putInt(grid.countY()).putInt(grid.countZ())
+                .putInt(grid.tilesPerRow());
+        ddgiPack.putFloat(DdgiProbeGrid.IRRADIANCE_TILE)
+                .putFloat(DdgiProbeGrid.IRRADIANCE_INNER)
+                .putFloat(DdgiProbeGrid.DEPTH_TILE)
+                .putFloat(DdgiProbeGrid.DEPTH_INNER);
+        ddgiPack.putFloat(live ? 1.0f : 0.0f)
+                .putFloat(settings.getIntensity())
+                .putFloat(settings.getNormalBiasScale() * grid.spacing())
+                .putFloat(0.0f);
+        ddgiPack.flip();
+        vl.ddgiParams.update(0, ddgiPack);
     }
 
     /** set1 描述符集（本视口光照套件；collectFrame 先行建资源）。绑定带 1 个动态偏移（{@link RenderView#lightingOffset()}） */
@@ -1795,14 +1952,24 @@ public final class RenderingSystem implements AutoCloseable {
 
     /** 每视口灯光资源（binding1/2/3 三缓冲 + set1 描述符集；渲染域私有） */
     private static final class ViewLighting {
+        /** 视口名（set1 换绑时重指 shadowMap 等 per-view 资源用） */
+        final String cameraName;
         final Buffer lightList;
         final Buffer clusterGrid;
         final Buffer clusterIndices;
+        /** DDGI 参数 UBO（binding9；网格 origin/spacing/counts + 运行态 mode/强度/normalBias） */
+        final Buffer ddgiParams;
         /** 本视口 G-Buffer 三张（set1 binding5/6/7 指向；纹理归 RenderingSystem 每视口
          *  表持有，此处仅留引用供调试/读数） */
         final Texture gbufferAlbedo;
         final Texture gbufferNormal;
         final Texture gbufferWorldPos;
+        /** 当前指进 set1 binding8/10 的 DDGI atlas（null = 仍是占位图）；atlas 归
+         *  {@link RenderingSystem} 的 ddgiAtlasSets 持有，此处只留引用做换绑判据 */
+        Texture ddgiIrradiance;
+        Texture ddgiDepth;
+        /** 当前 atlas 对应网格（参数 UBO 的来源） */
+        DdgiProbeGrid ddgiGrid;
         /** 本视口 set1（视口尺寸变化时整套换新、旧 set retire——不原地 update，
          *  绕开 03047 在途约束；dispose 只管当前这套，旧套在 retire 队列各自走完） */
         DescriptorSet set;
@@ -1811,12 +1978,15 @@ public final class RenderingSystem implements AutoCloseable {
         final int gridX;
         final int gridY;
 
-        ViewLighting(Buffer lightList, Buffer clusterGrid, Buffer clusterIndices,
+        ViewLighting(String cameraName, Buffer lightList, Buffer clusterGrid, Buffer clusterIndices,
+                     Buffer ddgiParams,
                      Texture gbufferAlbedo, Texture gbufferNormal, Texture gbufferWorldPos,
                      DescriptorSet set, int viewW, int viewH, int gridX, int gridY) {
+            this.cameraName = cameraName;
             this.lightList = lightList;
             this.clusterGrid = clusterGrid;
             this.clusterIndices = clusterIndices;
+            this.ddgiParams = ddgiParams;
             this.gbufferAlbedo = gbufferAlbedo;
             this.gbufferNormal = gbufferNormal;
             this.gbufferWorldPos = gbufferWorldPos;
@@ -1832,6 +2002,7 @@ public final class RenderingSystem implements AutoCloseable {
             lightList.dispose();
             clusterGrid.dispose();
             clusterIndices.dispose();
+            ddgiParams.dispose();
         }
     }
 
@@ -2140,6 +2311,11 @@ public final class RenderingSystem implements AutoCloseable {
         viewShadows.clear();
         shadowSampler.dispose();
         gbufferSampler.dispose();
+        ddgiSampler.dispose();
+        if (ddgiPlaceholder != null) {
+            ddgiPlaceholder.dispose();
+            ddgiPlaceholder = null;
+        }
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

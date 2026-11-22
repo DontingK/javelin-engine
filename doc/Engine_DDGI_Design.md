@@ -1,5 +1,7 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.4（2026-11-21）｜**B3 消费面落码（待实跑）**：环境项由探针辐照度接管——`AmbientMode` 扩 `DDGI` 档、桥每帧推模式；set1 新占 binding8（辐照度 atlas）/ binding9（DDGI 参数 UBO 96B）/ binding10（深度矩 atlas）（P4-17 退役腾出的槽）；注入器新增 `DDGI_BLOCKS`（八面体编码 + tile 内区手写双线性 + 深度矩 Chebyshev 可见性 + 网格三线性），`javelinLighting` 环境项改为「DDGI 档且网格内 → 探针辐照度，否则常量项」。见 §13。
+>
 > v0.3（2026-11-21）｜**B2 落码 + B3 前置（探针网格按体素场收缩）**：两段 compute（`ddgi_trace.compute` 体素 DDA / `ddgi_update.compute` 余弦加权毯 + 深度矩 + hysteresis）+ 宿主 `DdgiProbePass`（切片派发、首圈不混合、atlas 换代重建临时 tile、诊断 SSBO 读回）。实跑两轮修三处（`ivec2` 隐式缩窄、`SAMPLED_IMAGE`→`COMBINED_IMAGE_SAMPLER`、探针全在场外）。**第三轮实测暴露尺度问题**：配置 16×4×16@2m = 30×6×30 m，体素场仅 ≈10.8×5.8×7.9 m ⇒ 只约 60/1024 个探针在场内，其余全走环境色兜底（命中 32~48 m）。**修法**：新增 `DdgiProbeGrid.fittedToField`（三向数量收缩到 `1+floor(场边长/spacing)`、上限仍取配置值；原点锚在场 min 的 spacing 格点、余量不足一格即居中于场），宿主改用收缩铺法；单测补 3 例（11 例全绿）。见 §12。
 >
 > v0.2（2026-11-21）｜**B1 数据面落码（未编译、待验收）**：`DdgiSettings`（探针数三向 / 间距 / 每探针射线数 / 每帧探针预算 / hysteresis / 强度 / 法线偏置，接项目设置「图形」页新组）+ `DdgiProbeGrid`（纯数学：相机居中按 spacing 吸附的原点、线性索引 ↔ 世界坐标、网格内判定与归一化、atlas 排版与字节账；辐照度 tile 10×10 / 深度 18×18，`cols = ceil(sqrt(N))`）+ 单测 `DdgiProbeGridTest`（7 例）+ `DdgiAtlases`（两张 atlas 的 GPU 资源与换代生命周期，验证件 `DdgiAtlasTest`）+ `DdgiVoxelField` / `DdgiVoxelizer` / `StaticSetSignature`（体素场与体素化重建，`voxelize.compute` 改为 albedo 通道 + 签名门控）。**尚未做**：追踪/更新着色器（B2）与消费面（B3）。§10 四点按推荐默认执行（单张 2D atlas / 纯相机滚动体积 / 体素 DDA / SSAO 0.25+0.45）。
@@ -211,4 +213,80 @@ v2 改为 update 段线程 `(0,0)` 直接统计内区 64 条射线（读 trace �
 SSBO 每探针 6 float（24B，8 探针 192B）。**判据**：命中率应显著非零（空场景朝天的方向自然低，属正常）、平均命中距离落在 0.3~4 m 量级、相邻探针之间的命中率应有差异（说明方向/位置真的影响到了求交）。
 
 **实跑结论（2026-11-21 21:19，用户确认通过）**：`#0` 100%（64/64）1.78 m、`#1` 31%（20/64）1.03 m、`#2` 100% 1.47 m、`#3` 27% 1.08 m、`#4` 13% 2.82 m、`#5` 8% 3.91 m、`#6` 11% 3.35 m、`#7` 8% 4.05 m；平均辐射 0.50~0.81。下层探针被几何包住（全命中、1.5 m 量级），上层探针朝外/朝上（大部分射线走环境色、命中距离变长），相邻探针命中率与辐射均有差异 ⇒ DDA 求交与遮蔽真在起作用。**B2 数据面关账**；下一段 B3 消费面。
+
+---
+
+## 13. B3 消费面（环境项接管，2026-11-21 落码）
+
+### 13.1 通道与布局
+
+| 槽 | 内容 | 归属 |
+|---|---|---|
+| set1 `binding8` | `sampler2D` 辐照度 atlas | 本视口 per-view；`DdgiProbePass` 经 `RenderingSystem.syncDdgi` 重指 |
+| set1 `binding9` | DDGI 参数 UBO（96B，非动态） | 本视口 `ViewLighting.ddgiParams`，每帧重写 |
+| set1 `binding10` | `sampler2D` 深度矩 atlas | 同上（可见性加权用） |
+
+参数 UBO（std140，与 `ShaderInjector.DDGI_BLOCKS` 的 `DdgiParamsBlock` 同源）：`gridOriginSpacing`（xyz 原点 / w 间距）、`counts`（xyz 三向数量 / w tilesPerRow）、`tileParams`（x 辐照度 tile 边长 10 / y 内区 8 / z 深度 tile 18 / w 深度内区 16）、`ddgiParams`（**x mode 0/1** / y 强度 / z 法线偏置（世界单位 = `normalBiasScale × spacing`）/ w 预留）。**`LightingParamsBlock` 一字未改**（656B/768B 步长不变），故已验收的阴影/簇通道零风险。
+
+### 13.2 场景开关
+
+`AmbientMode` 扩三档：`OFF` / `CONSTANT` / **`DDGI`**（i18n `ins.enum.ambientmode.ddgi` 中英各一）。`Environment` 的 `@InsFieldGroup` 加 `DDGI`（对应空串 = 不展开子组，探针参数在项目设置「探针 GI（DDGI）」组）。`SceneRenderBridge` 每帧推 `setAmbientMode`；`DDGI` 档同时把常量环境项置黑（着色端由探针接管）。
+
+mode 的实际取值 = `ambientMode == DDGI && DdgiSettings.enabled` → 1，否则 0。**0 时着色端完全回落常量项**，所以关掉探针 GI 或没建体素场都是安全的旧行为。
+
+### 13.3 着色端（`ShaderInjector.DDGI_BLOCKS`）
+
+- `javelinOctaEncode(vec3)` —— 与更新段 `octDecode` 对偶（八面体，uv∈[0,1]）。
+- `javelinProbeIrradiance(probe, dir)` —— 定 tile（`tx = probe % cols`、`ty = probe / cols`）→ 内区手写双线性（4 次 `texelFetch`，**clamp 在内区**）。不用硬件 LINEAR 的原因：B2 未填 1px 边框，硬件插值会跨 tile 借到邻探针 texel。
+- `javelinProbeVisibility(probe, dir, dist)` —— 深度矩 Chebyshev 上界 `var/(var+d²)`；`E(d)<=0`（该方向一条都没命中）返回 1.0 不降权。
+- `javelinDDGI(worldPos, worldNormal)` —— 法线偏置后的位置 → 网格三线性 8 探针（`base` 夹到 `cnt-2`，避免越界取邻）→ 每探针辐射 × 可见性 × 权重 → 除以权重和 × 强度。
+- `javelinLighting` 开头：`result = ambient.rgb*ambient.a`；若 `ddgiParams.x>0.5 && javelinDDGIInside(worldPos)`，则世界法线 = `transpose(mat3(cam.view)) * viewNormal`，`result = javelinDDGI(...)`。网格判定含**半格外扩**（外沿仍借边界探针，避免硬切边）。
+
+**注入顺序**：`CAMERA_BLOCK → DDGI_BLOCKS → LIGHTING_BLOCKS`（DDGI 函数须先于 `javelinLighting` 定义）。两处注入点（材质 fs 的 `LAMBERT` 分支、全屏光照段的 `injectLightingStage`）同源，故 FORWARD / HYBRID 两路一致。
+
+**开销账**：每像素 8 探针 ×（4 次辐照度 + 1 次深度矩）= **40 次 `texelFetch`**。首批要正确性；集显帧率不足再降探针数或改单 texel（转 Backlog）。
+
+### 13.4 落码与验证
+
+改动：`AmbientMode`（+DDGI）、`Environment`（分组键）、`SceneRenderBridge`（推模式）、`RenderingSystem`（`ambientMode` + `setAmbientMode`/`ambientMode()` + set1 三槽 + `ViewLighting.ddgiParams` + `syncDdgi`/`rebuildLightingSet`/`writeDdgiParams` + 1×1 占位图 + `close()` 释放）、`DdgiProbePass`（每帧 `syncDdgi`）、`ShaderInjector`（`DDGI_BLOCKS` + 环境项接管 + 保留字）、i18n 两条。
+
+**已做**：全模块编译通过；`javelin-editor:test --tests ...importer.shader.*` 全绿（其中 `litShaderEndToEnd` 是**真实 shaderc 编译注入后的 fs**，等于替用户先验了 GLSL 语法/布局）；`DdgiProbeGridTest` 11 例仍全绿。
+
+**待实跑**：①项目设置里把环境光模式切到「探针 GI（DDGI）」；②场景出现彩色环境渗色（灰白测试场景应见到墙面/地板颜色进阴影）；③`error.log` 无新 `[VVL]`；④关掉「启用探针 GI」应回到旧常量环境项（不崩）。
+
+**必做前置**：注入器改动 → **重导全部 `.shader` 与内置 `lighting.frag` 产物**（项目面板右键「重新导入」，或 `AssetImportPipeline.reimportAll`），否则运行的是旧注入、DDGI 静默不生效。
+
+**B3 残留（待后续）**：①只有首视口绑 DDGI 数据面，第二视口 mode 恒 0（回落常量项）；②深度矩按单 texel 取、未做方向插值；③命中点直射项未接 CSM 阴影、未命中未接天空盒（B2 遗留）；④tile 1px 边框仍未填；⑤40 次 `texelFetch` 的性能未实测。
+
+### 13.5 首跑排障（2026-11-21 21:52 用户实跑：过亮 / 闪烁 / 画面不对）
+
+实跑现象 = 环境项偏亮、画面成片闪、整体普亮。`error.log` 直接坐实第一条原因（每帧两组 VVL 刷屏，到 duplicate 上限：
+
+- `VUID-vkCmdDispatch-imageLayout-00344`：更新段以 `STORAGE_IMAGE`（`GENERAL`）写 atlas，但图里这张图当前是 `SHADER_READ_ONLY_OPTIMAL`；
+- `VUID-vkCmdDraw-None-09600`：`vkQueueSubmit` 时 Forward/Lighting 采样 atlas，期望 `SHADER_READ_ONLY_OPTIMAL`，实际是 `GENERAL`。
+
+**根因**：DDGI atlas 只被 compute Pass 声明了 `addTextureStorageWrite`，**着色 Pass 一侧没有 `addTextureRead`**——图里没有「写→读」这条边，于是既没有 `GENERAL ↔ SHADER_READ_ONLY` 的布局转换，也没有跨段屏障：着色端读到的是**本帧正在被 compute 改写的图**（闪、亮斑、错色全由此而来）。
+
+**四条修法**（同日落到工作区）：
+
+1. **补齐依赖声明**（治闪/错色，主因）：`RenderingSystem` 新增 `ddgiAtlasesOf(cameraName)`（只读现成绑定，不触发建图）；`OpaqueForwardPass` / `TransparentForwardPass` / `LightingPass` 在 `addToGraph` 里对辐照度/深度矩两张图 `addTextureRead`（与 `SsaoPass` 对 AO 图「compute 写 + 图形读」同构）。图据此插转换与屏障。
+2. **亮度除回 π**（治过亮）：更新段存的是辐照度 `E = ∫L·cosθ·dω ≈ π·L̄`，而 Lambert 出射辐射度是 `albedo·E/π`——调用方只乘 albedo，所以消费端必须除 π。`javelinDDGI` 返回值改 `… * 0.31830989`（实跑前实测约亮 3 倍，正是这个 π）。
+3. **八面体解码改正**（治方向错/渗色）：`ddgi_trace` / `ddgi_update` 的 `octDecode` 原写法是「先改 `n.x` 再用新 `n.x` 算 `n.y`」，下半球方向被扭歪，与消费端 `javelinOctaEncode` 的标准式不是互逆 → 朝下法线采到的是另一条方向的 texel。两处改成标准式 `n.xy = (1 - abs(n.yx)) * sign(n.xy)`（同时读未改写的 `n.yx`），与 `javelinOctaEncode` 严格对偶。
+4. **常量环境项不再置黑**（治网格外黑洞 / 天空无光）：`SceneRenderBridge` 对 `DDGI` 档也把 `AmbientSetting` 推给 `RenderingSystem`（原来只有 `CONSTANT` 才推、其余置黑）。它一身三用：网格外像素回落常量项、追踪段未命中射线的天空色、与 ambient 相乘的后处理不至于归零；网格内仍由探针接管，不重复累加。
+
+**验证**：`glslc -fshader-stage=compute --target-env=vulkan1.2` 两段 compute 均通过（13.6 KB / 16.0 KB SPIR-V）；`:javelin-core:compileJava :javelin-editor:compileJava` 通过；`--tests ...importer.shader.*` 全绿（`litShaderEndToEnd` 真 shaderc 编注入 fs）。**生效前提**：这次改的不只是注入器，`ddgi_trace.compute` / `ddgi_update.compute` 也变了 → **重导要连 `.compute` 一起**（`.shader` / `lighting.frag` / 两个 `.compute` 全部重导），漏一个就会出现「着色端除 π 了、图里还是 π 值」这种半生效。
+
+### 13.6 第二、三轮实跑（2026-11-21 23:45 / 11-22 09:38）
+
+**23:45 轮**：`error.log` 从「两组 VUID 每帧刷屏」降到只剩 1 条 `VUID-vkCmdDraw-None-09600`（首帧采样一张还是 `UNDEFINED` 的 atlas）；`Lit.shader` 产物里已能查到 `javelinDDGI` / `DdgiParamsBlock` / `ddgiIrradiance` 符号（注入确实生效）；但画面「开了跟没开一样」。判定 = **消费面没接管**（`ddgiParams.x==0`，`Environment.ambientMode` 没切到 DDGI）。补两处：①`DdgiAtlases.create` 改成建图时上传一张全零图（不再从 UNDEFINED 起，顺手消掉那条 VVL，边界 tile 也不会是垃圾值）；②`RenderingSystem.writeDdgiParams` 加状态日志——接管时报「DDGI 消费面接管：camera[...] 网格… 强度… 法线偏置…」，`启用探针 GI` 开着但模式不对时报 WARN 明确点出「环境光模式 = CONSTANT，要选 DDGI」，只在状态变化时落一条。
+
+**09:38 轮**：`DDGI 消费面接管：camera[Editor Camera Node] DdgiProbeGrid{8x4x6 probes=192, spacing=1.5 ...}，强度 1.0`——接管成立（探针网格随设置里的间距 1.5 收缩到 192 个）。用户反馈「**阴影太亮**」。读数 = 中心块平均入射辐射 0.52~0.83、命中率 13%~95%。0.78 radiance 意味着阴影区 ≈ 照亮区 78%，看着像没阴影。**根因**（两条，都不是强度数值）：
+
+1. **追踪段命中点没有直射遮挡测试**：原来只算 `ndl`，被别的几何挡住的墙面也按「正对太阳」出射全亮度 → 间接光整体偏高（这就是 B2 遗留项③「未接 CSM」的真正代价）；
+2. 常量 ambient 现在也进了追踪段的命中辐射（§13.5 第 4 条所需），而它本身代表天空环境——在封闭场景里等于把假环境光再弹一次。
+
+**修法（第 1 条已落码，第 2 条待定）**：`ddgi_trace.compute` 加 `sunVisible(hitPos, normal)`——从命中点沿太阳方向再走一次短程 DDA（起点沿面法线退 1.2 倍体素对角线避免撞自己），打出网格才算见太阳，被挡则直射项归零。代价 = 每条射线多一次 DDA（探针追踪成本约翻倍，性能账归 B5）。强度 1.0 是默认值、也是**线性**放大系数，等遮挡补上后仍偏亮再调它（或按场景调 0.6~0.8）。
+
+
+
 

@@ -98,14 +98,21 @@ public final class SceneRenderBridge {
 
         // 环境项推送（四期 P4-04 步骤一）：常量环境光——每帧推送（颜色/强度由检查器
         // 就地编辑、不换引用，身份门控反而漏推；4 个 float 写可忽略）。无环境组件 /
-        // 组件未激活 / 模式 OFF = 纯黑（与三期基线一致，正常域空状态）
-        if (environment != null && environment.isActiveAndEnabled()
-                && environment.getAmbientMode() == AmbientMode.CONSTANT) {
+        // 组件未激活 / 模式 OFF = 纯黑（与三期基线一致，正常域空状态）。
+        // 四期 P4-05 B3：DDGI 档只推模式码，常量环境项置黑（着色端由探针辐照度接管）
+        // 四期 P4-05 B3：DDGI 档同样把常量环境项推进去——它一身三用：①网格外像素回落
+        // 常量项（否则探针覆盖不到的地方纯黑，出现「网格内亮、网格外黑洞」的硬切）；
+        // ②追踪段未命中射线的天空色（探针外围有环境色，不接天空盒前的兜底）；③SSAO 等
+        // 与 ambient 相乘的后处理不至于归零。网格内由探针辐照度接管，不会重复累加。
+        AmbientMode ambientMode = environment != null && environment.isActiveAndEnabled()
+                ? environment.getAmbientMode() : AmbientMode.OFF;
+        if (ambientMode != AmbientMode.OFF) {
             AmbientSetting ambient = environment.getAmbientSetting();
             rs.setAmbient(ambient.getColor(), ambient.getIntensity());
         } else {
             rs.setAmbient(null, 0.0f);
         }
+        rs.setAmbientMode(ambientMode);
 
         List<Camera> sceneCameras = scene.getCameras();
         List<Renderable> sceneRenderables = scene.getRenderables();

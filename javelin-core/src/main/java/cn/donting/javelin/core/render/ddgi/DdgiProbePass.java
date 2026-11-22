@@ -171,6 +171,9 @@ public class DdgiProbePass implements RenderPass {
         if (!ensurePipelines() || !ensureAtlases(settings)) {
             return;
         }
+        // 消费面绑定（B3）：set1 binding8/10 指本视口 atlas、binding9 每帧重写网格参数。
+        // atlas 换代时 renderingSystem 内部会重建本视口描述符集（旧 set 两帧退役）
+        renderingSystem.syncDdgi(ctx.view().name(), atlases, grid, settings);
         DdgiVoxelField currentField = voxelizer.field();
         if (currentField != boundField) {
             // 体素图换代（场景改过）→ 追踪段描述符里的 voxels/params 要重指

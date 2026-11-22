@@ -47,8 +47,9 @@ vec3 octDecode(vec2 uv) {
     vec2 o = uv * 2.0 - 1.0;
     vec3 n = vec3(o.x, o.y, 1.0 - abs(o.x) - abs(o.y));
     if (n.z < 0.0) {
-        n.x = (1.0 - abs(n.y)) * (n.x >= 0.0 ? 1.0 : -1.0);
-        n.y = (1.0 - abs(n.x)) * (n.y >= 0.0 ? 1.0 : -1.0);
+        // 八面体标准式：必须同时用「未改写的 n.yx」算模长（先改 n.x 再用它算 n.y 会把
+        // 下半球方向整体扭歪，与消费端 javelinOctaEncode 就对不上了）
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
     }
     return normalize(n);
 }
@@ -109,6 +110,20 @@ float traceVoxel(vec3 ro, vec3 rd, out vec3 hitAlbedo, out vec3 hitNormal) {
     return -1.0;
 }
 
+// 命中点的太阳可见性（2026-11-22 补：此前只算 ndl，被挡住的墙面也按「正对太阳」出射，
+// 间接光整体偏高——实测阴影区亮度≈照亮区 78%，看着像没阴影）。
+// 做法 = 从命中点沿太阳方向再走一次短程体素 DDA，打出网格即视为见太阳。起点沿面法线
+// 退一格体素对角线，避免第一格就撞到自己所在的体素。
+bool sunVisible(vec3 hitPos, vec3 normal) {
+    vec3 vs = field.voxelSize.xyz;
+    float push = length(vs) * 1.2 + 1e-3;
+    vec3 ro = hitPos + normal * push;
+    vec3 albedo;
+    vec3 n;
+    float d = traceVoxel(ro, light.sunDir.xyz, albedo, n);
+    return d < 0.0;
+}
+
 void main() {
     uint probe = pc.sliceStart + gl_WorkGroupID.x;
     uint total = uint(grid.counts.x * grid.counts.y * grid.counts.z);
@@ -139,7 +154,12 @@ void main() {
         dist = pc.maxDistance;
     } else {
         float ndl = max(dot(normal, light.sunDir.xyz), 0.0);
-        radiance = albedo * (light.ambient.rgb * light.ambient.a + light.sunColor.rgb * ndl);
+        // 只有「面朝太阳且看得见太阳」的命中点才出射直射项（见 sunVisible 注释）
+        float sunVis = 1.0;
+        if (ndl > 0.0 && (light.sunColor.r + light.sunColor.g + light.sunColor.b) > 0.0) {
+            sunVis = sunVisible(probePos + dir * dist, normal) ? 1.0 : 0.0;
+        }
+        radiance = albedo * (light.ambient.rgb * light.ambient.a + light.sunColor.rgb * ndl * sunVis);
     }
 
     // 写入本探针 tile 的内区（1px 边框留给后续接缝处理，B2 不填）

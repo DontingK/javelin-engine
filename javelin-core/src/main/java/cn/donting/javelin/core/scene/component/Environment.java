@@ -41,10 +41,11 @@ public class Environment extends Component {
 
     /**
      * 环境光模式（四期 P4-04 步骤一）：选「直接环境光」时下方内联展开
-     * {@link #ambientSetting}（颜色 + 强度）。
+     * {@link #ambientSetting}（颜色 + 强度）；选「探针 GI」时不展开（参数在项目设置
+     * 图形页的「探针 GI（DDGI）」组）。
      */
     @InsField(label = "ins.environment.ambientMode")
-    @InsFieldGroup(keys = {"OFF", "CONSTANT"}, value = {"", "ambientSetting"},
+    @InsFieldGroup(keys = {"OFF", "CONSTANT", "DDGI"}, value = {"", "ambientSetting", ""},
             label = "ins.environment.ambientSetting")
     private AmbientMode ambientMode = AmbientMode.OFF;
 

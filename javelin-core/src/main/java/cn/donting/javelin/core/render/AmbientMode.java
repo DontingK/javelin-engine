@@ -17,7 +17,12 @@ public enum AmbientMode implements InsEnumLabel {
     /**
      * 直接环境光：无方向的常量颜色 + 强度（天空盒球谐环境光为后续步骤）
      */
-    CONSTANT("ins.enum.ambientmode.constant");
+    CONSTANT("ins.enum.ambientmode.constant"),
+    /**
+     * 探针实时 GI（DDGI，四期 P4-05 B3）：环境项改由体素追踪出的探针辐照度三线性插值，
+     * 未启用探针 GI（{@code DdgiSettings.enabled=false}）或探针数据面未就绪时回落纯黑。
+     */
+    DDGI("ins.enum.ambientmode.ddgi");
 
     private final String label;
 

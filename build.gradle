@@ -12,6 +12,19 @@ project.ext.jomlVersion = "1.10.8"
 project.ext.lombokVersion = "1.18.38"
 
 allprojects {
+    // 全模块统一 toolchain = Java 25（2026-11-21 修 IDEA 启动失败）：
+    // 此前只有 ast/core/log 声明 toolchain，editor/根模块跟随 Gradle 守护进程的 JVM——
+    // 一旦 IDEA 用非 25 的 Gradle JVM 启动，编辑器产物(target 24) 与依赖模块(target 25)
+    // 的 JVM 属性对不上，或解析到旧的 GraalVM 25.0.1 直接探测失败。
+    // 统一在此声明后，无论守护进程是什么 JVM，编译/运行都落到 gradle.properties 钉死的那份 JDK 25。
+    plugins.withId('java') {
+        java {
+            toolchain {
+                languageVersion = JavaLanguageVersion.of(25)
+            }
+        }
+    }
+
     repositories {
 //        maven { url 'https://maven.aliyun.com/repository/public' }
 //        maven { url 'https://maven.aliyun.com/repository/google' }

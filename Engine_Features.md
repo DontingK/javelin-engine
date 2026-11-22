@@ -316,9 +316,9 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账 1 项**（2026-11-21 DDGI B2 数据面已关账、B3 消费面未做；同日 BUG-11 / 体素 AO 退役 / BUG-12 / RHI 格式能力四笔已验收清零）。
+> **当前挂账 1 项**（2026-11-21 DDGI B2 数据面已关账；B3 消费面代码已落、待用户实跑；同日 BUG-11 / 体素 AO 退役 / BUG-12 / RHI 格式能力四笔已验收清零）。
 >
-> - **DDGI B2 数据面已关账 / B3 消费面未做（P4-05，2026-11-21 用户实跑确认）**：B1 已关账（`DdgiProbeGridTest` 7 例 ✅、`DdgiAtlasTest` ✅、体素化重建日志 ✅）。新增 `ddgi_trace.compute`（体素 DDA，一 workgroup 一探针 64 方向）+ `ddgi_update.compute`（余弦加权毯 ×π + 深度矩 + hysteresis，首圈不 `imageLoad`）+ 宿主 `DdgiProbePass`（切片派发、atlas 换代重建临时 tile、首圈 hysteresis=0、诊断 SSBO 读回「网格中心 2×2×2」（v2 口径：内区 64 射线平均入射辐射 + 命中率 + 平均命中距离，取代会误读的「单角 texel 均值」））。实跑三轮：修 `ivec2` 缩窄、`SAMPLED_IMAGE`→`COMBINED_IMAGE_SAMPLER`（三处）、探针全部场外；**第三轮暴露尺度不匹配**（配置 30×6×30 m 套 10.8×5.8×7.9 m 场 → 仅约 60/1024 探针在场内，`#4~#7` 命中 32~48 m 兜底）→ 新增 `DdgiProbeGrid.fittedToField`（数量收缩 `1+floor(场边长/spacing)`、原点锚场 min、余量不足一格居中），实测场景变成 **6×3×4 = 72 探针全在场内**，atlas 2096 KB → 约 150 KB；`DdgiProbeGridTest` **11 例全绿**（本地已编译实跑）。**未做**：消费面（`javelinDDGI` 注入 + `ambientMode=DDGI`，画面仍无非预期变化）。口径 `Engine_DDGI_Design.md` v0.3 §12。
+> - **DDGI B2 数据面已关账 / B3 消费面已落码待实跑（P4-05，2026-11-21）**：B1 已关账（`DdgiProbeGridTest` 7 例 ✅、`DdgiAtlasTest` ✅、体素化重建日志 ✅）；B2 关账（诊断 v2 口径实测：中心块命中率 8%~100%、命中距离 1.03~4.05 m、相邻探针有差异，`error.log` 空，提交 `2a2e3be`）。**B3 消费面（工作区、未提交）**：`AmbientMode` 扩 `DDGI` 档 + `Environment` 分组键 + 桥每帧推模式；set1 扩 binding8（辐照度 atlas `sampler2D`）/ 9（`DdgiParamsBlock` 96B）/ 10（深度矩 atlas），`RenderingSystem.syncDdgi` 每帧重指 + 未就绪 1×1 HDR 占位；`ShaderInjector.DDGI_BLOCKS` 注入 `javelinOctaEncode` / `javelinDDGIInside` / `javelinProbeIrradiance`（内区手写双线性）/ `javelinProbeVisibility`（深度矩 Chebyshev）/ `javelinDDGI`（8 探针三线性 + 法线偏置），`javelinLighting` 首行改「DDGI 档且网格内 → 探针辐照度，否则常量项」。验证 = 全模块编译通过 + `ShaderImporterTest.litShaderEndToEnd`（真实 shaderc 编注入后 fs）全绿 + 全量测试剩余红灯经 `git stash` 复验为既有红（18/5，改动前后逐条一致）。**实跑前置**：重导全部 `.shader` 与内置 `lighting.frag`、设置页 ambientMode 选「探针 GI（DDGI）」。**B3 残留**：第二视口不绑 DDGI（回落常量项）、每像素 40 次 `texelFetch` 性能未测、命中点直射项未接 CSM、未命中未接天空盒、tile 1px 边框未填、`MAX_RAY_DISTANCE` 固定 60 m。口径 `Engine_DDGI_Design.md` v0.4 §13。
 >
 > - ~~**RHI 格式能力查询与创建期 fail-fast（RHI-15 + RHI-08）**~~ **✅ 2026-11-21 用户实机验收**（`FormatCapabilityTest`：8 格式能力表 + 7 条必支持断言全通过、负例创建期抛 `IllegalStateException`；设备 AMD Radeon 780M。快照要点：`R32_UINT` color=true/blend=false/linear=false，`D32F` depth=true/storage=false）。口径 `RHI_Texture_Types_Design.md` v0.5 §7。
 >

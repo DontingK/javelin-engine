@@ -1,8 +1,8 @@
 package cn.donting.javelin.core.render.pipeline.pass;
 
-import cn.donting.javelin.core.render.RenderObject;
-import cn.donting.javelin.core.render.RenderView;
+import cn.donting.javelin.core.render.RenderObject;import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
+import cn.donting.javelin.core.render.ddgi.DdgiAtlases;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.rhi.Buffer;
@@ -82,6 +82,13 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             // 主光阴影图采样读（批次④）：set1 binding4 着色消费——依赖声明建 Shadow→Opaque
             // 边（图拓扑保证阴影先画）；恒声明保结构稳定（未采时零成本）
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // DDGI 两张 atlas 的采样读（四期 P4-05 B3）：set1 binding8/10——与更新段 compute
+            // 的 STORAGE 写配成读写对，图才会插 GENERAL↔SHADER_READ_ONLY 转换与跨段屏障
+            DdgiAtlases ddgiAtlases = rs.ddgiAtlasesOf(view.name());
+            if (ddgiAtlases != null) {
+                pass.addTextureRead(ddgiAtlases.irradiance());
+                pass.addTextureRead(ddgiAtlases.depth());
+            }
             int uboOffset = view.uboOffset();
             float tpf = ctx.frame().tpf();
             pass.setRenderCallback(cmd -> {

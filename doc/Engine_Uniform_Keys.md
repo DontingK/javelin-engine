@@ -36,7 +36,7 @@
 - 缓冲：hostVisibleCoherent 环形，**2 槽（frameIndex % 2）× 1280B**；
 - 槽内布局（CPU 侧引擎私有，256B 对齐）：相机块 ×4（偏移 0/256/512/768，viewProj@0 + view@64，128B 实需）+ **时间块 256B @1024 = { timeSec, tpf }**——时间块不占描述符范围（末槽末相机 offset+range 不越界）、无着色器 key；着色器侧时间目前走 `pc.tpf`。
 
-## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③已实装；**4 批次④-A 已实装——binding4 并入 set1 布局**；5/6/7 批次④-B；**8/9 四期 P4-17 体素 AO 已于 2026-11-20 删除，现布局只到 binding7**）
+## 4. set 1 灯光（binding0/1 批次②已实装；2/3 批次③已实装；**4 批次④-A 已实装——binding4 并入 set1 布局**；5/6/7 批次④-B；**8/9 四期 P4-17 体素 AO 已于 2026-11-20 删除，同日 2026-11-21 由 P4-05 DDGI 复用为 binding8 辐照度 atlas / binding9 DDGI 参数 UBO，并新增 binding10 深度矩 atlas，布局现到 binding10**）
 
 2026-10-28 拍板（Engine_Lighting_Design v0.1）：**跳过 UBO 数组中间档，直接 clustered + SSBO（Forward+ 形态）**——原 LightBlock UBO 落此预留口径作废。set1 = 光照域多 binding（FRAGMENT）：
 
@@ -72,9 +72,13 @@
 - clusterGrid（binding2）：`uvec2 clusterGrid[]`（std430 无名块，块名 clusterGridBuffer）；clusterIndices（binding3）：`uint clusterIndices[]`（块名 clusterIndicesBuffer）——cell 线性索引 = tileX + tileY×gridX + zSlice×gridX×gridY；
 - shadowMap（binding4）：`layout(set=1, binding=4) uniform sampler2DShadow`——采样结果 = compare LESS 深度比较（ref < 纹素深度=未遮挡=1.0）；
 - gbufferAlbedo/gbufferNormal/gbufferWorldPos（binding5/6/7，批次④-B）：LightingPass 全屏读 G-Buffer 三张（`RenderingSystem.frameStorageLayoutDesc` 与 `ShaderInjector` 的 G-Buffer 注入块同源）；G-Buffer 三张 per-view（与 depth 同尺码，resize 换绑并重建 set1 描述符集）；
-- ~~voxelAO（binding8，四期 P4-17）~~ **已删除（2026-11-20，P4-17 整体退役）**：原 `sampler3D` 体素 AO 模糊图与 `syncVoxelAo` 重指逻辑一并移除，set1 现只到 binding7；
-- ~~voxelParams（binding9，四期 P4-17）~~ **已删除（2026-11-20）**：`VoxelParamsBlock` / `VoxelGrid.writeParams` 同批移除；set1 布局回到 binding0~7；
-- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光 CSM 阴影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3/§4）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `float javelinCascadeShadow(int cascade, vec3 worldPos)`（单级联：矩阵投影 + atlas 象限定位 + 品质档 PCF，核夹在象限内）与 `float javelinShadowTapC(vec2, float, vec2, vec2)`（单 tap 深度比较，夹取象限界）；级联选择 + 相邻混合带在 `javelinLighting` 内（四期 CSM 2026-11-14）；另注入 `float javelinVoxelAO(...)` 已于 2026-11-20 随 P4-17 删除（环境项回到纯常量 `ambient.rgb * ambient.a`；遮蔽由 SSAO 承担）；**`javelinLighting` 签名未变**（世界法线由 `transpose(mat3(cam.view)) * viewNormal` 现推——该行亦随之精简），故调用方零改动，但注入器改动仍须强制重导。
+- ~~voxelAO（binding8，四期 P4-17）~~ **已删除（2026-11-20，P4-17 整体退役）**：原 `sampler3D` 体素 AO 模糊图与 `syncVoxelAo` 重指逻辑一并移除；**binding8 槽已于 2026-11-21 由 DDGI 辐照度 atlas 复用**（见下）；
+- ~~voxelParams（binding9，四期 P4-17）~~ **已删除（2026-11-20）**：`VoxelParamsBlock` / `VoxelGrid.writeParams` 同批移除；**binding9 槽已于 2026-11-21 由 DDGI 参数 UBO 复用**（见下）；
+- **ddgiIrradiance（binding8，四期 P4-05/B3）**：`layout(set=1,binding=8) uniform sampler2D`——探针辐照度 atlas（RGBA16F，10 列 × 8 内区 tile，NEAREST/CLAMP 采样器；采样走注入段 `javelinProbeIrradiance` 的 **内区手写双线性**，不依赖硬件 LINEAR 以免跨 tile 渗漏）；per-view，`RenderingSystem.syncDdgi` 在 atlas 句柄变化时重建 set1，未就绪时指 1×1 HDR 占位图；
+- **ddgiParams（binding9，四期 P4-05/B3）**：`DdgiParamsBlock` UBO（std140，实需 **96B**，range/步长 96B 非动态）——`vec4 gridOriginSpacing`(xyz 网格原点 / w 探针间距)、`ivec4 counts`(xyz 三向探针数 / w tilesPerRow)、`vec4 tileParams`(x 辐照度 tile 边长=10 / y 内区=8 / z 深度 tile=18 / w 深度内区=16)、`vec4 ddgiParams`(**x mode 0/1** / y 强度 / z 法线偏置（世界单位）/ w 预留)；CPU=`RenderingSystem.writeDdgiParams`、GLSL=`ShaderInjector.DDGI_BLOCKS` 同源，每帧重写（mode = `ambientMode==DDGI && DdgiSettings.enabled`）；
+- **ddgiDepth（binding10，四期 P4-05/B3）**：`layout(set=1,binding=10) uniform sampler2D`——深度矩 atlas（RG16F，18 × 16 tile），供 `javelinProbeVisibility` 做 Chebyshev 上界；per-view、与 binding8 同一 `syncDdgi` 生命周期；
+- **set1 布局现为 binding0~10**（8/9 由体素 AO 槽复用、10 为 DDGI 新增）；`@javelinLighting` 注入段对 DDGI 的消费是**超集**：`ddgiParams.x==0` 时环境项回落 `ambient.rgb*ambient.a`，不依赖 binding8/10 内容，故未接 DDGI 的视口行为与分批前一致；
+- **fs 光照段函数**：注入器随声明注入 `vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos)`（Lambert + 环境项 + 点/聚光衰减 + 主光 CSM 阴影，消费上述全部 binding；第三参=世界位置插值供阴影重建；定义归 `Engine_Lighting_Design.md` §7 / `Engine_Shadow_Quality_Design.md` §3/§4）；不调用即不受影响（超集合法）——**签名变更（批次④-A 三参）= 契约变更，调用方须随改，注入器改动须强制重导**；同段另注入辅助函数 `float javelinCascadeShadow(int cascade, vec3 worldPos)`（单级联：矩阵投影 + atlas 象限定位 + 品质档 PCF，核夹在象限内）与 `float javelinShadowTapC(vec2, float, vec2, vec2)`（单 tap 深度比较，夹取象限界）；级联选择 + 相邻混合带在 `javelinLighting` 内（四期 CSM 2026-11-14）；另注入 `float javelinVoxelAO(...)` 已于 2026-11-20 随 P4-17 删除（遮蔽由 SSAO 承担）；**环境项自 2026-11-21 起由 DDGI 接管**——`javelinLighting` 首行：`ddgiParams.x>0.5 && javelinDDGIInside(worldPos)` 时环境项 = `javelinDDGI(worldPos, worldNormal)`，否则 `ambient.rgb*ambient.a`（同段另注入 `javelinOctaEncode` / `javelinProbeIrradiance` / `javelinProbeVisibility` / `javelinDDGIInside` / `javelinDDGI` 五个辅助函数，定义归 `Engine_DDGI_Design.md` §13.3）；**`javelinLighting` 签名未变**（世界法线由 `transpose(mat3(cam.view)) * viewNormal` 现推——该行亦随之精简），故调用方零改动，但注入器改动仍须强制重导。
 
 ## 5. set 2 材质（MaterialBlock / `material` + 贴图槽）
 

@@ -91,6 +91,124 @@ public final class ShaderInjector {
      * 插值）+ 阴影重建世界位置插值（vs 从 {@code pc.model} 直出）。调用方：
      * {@code vec3 color = albedo * javelinLighting(n, p, wp);}。</p>
      */
+    /**
+     * DDGI 消费面（四期 P4-05 B3，Engine_DDGI_Design §5）：set1 binding8 辐照度 atlas /
+     * binding9 参数 UBO / binding10 深度矩 atlas + 采样链函数。
+     *
+     * <p>采样链：像素 → 网格三线性 8 探针 → 每探针按**世界法线**转八面体 uv → 内区手写双线性
+     * （4 次 texelFetch，clamp 在内区，不跨 tile 渗漏；B2 未填 1px 边框，硬件 LINEAR 会跨 tile
+     * 借到邻探针的 texel）→ 可见性加权（深度矩 Chebyshev 上界，墙后探针降权）→ 强度。</p>
+     *
+     * <p>代价账：每像素 8 探针×(4 辐照度 + 1 深度矩) = 40 次 texelFetch。首批口径先要正确性，
+     * 帧率不足再降探针数/改单 texel（记录在档 §13 残留）。</p>
+     *
+     * <p>{@code ddgiParams.x} = 运行态开关（1 = 探针辐照度接管环境项，0 = 回落常量项）；
+     * 关闭 / 探针数据面未就绪 / 网格外 时仍走 {@code lighting.ambient.rgb * lighting.ambient.a}。</p>
+     */
+    private static final String DDGI_BLOCKS = """
+            layout(set = 1, binding = 8) uniform sampler2D ddgiIrradiance;
+            layout(set = 1, binding = 10) uniform sampler2D ddgiDepth;
+            layout(std140, set = 1, binding = 9) uniform DdgiParamsBlock {
+                vec4 gridOriginSpacing;   // xyz = 网格原点，w = 探针间距
+                ivec4 counts;             // xyz = 三向探针数，w = atlas 每行 tile 数
+                vec4 tileParams;          // x = 辐照度 tile 边长(10)，y = 内区(8)，z = 深度 tile(18)，w = 深度内区(16)
+                vec4 ddgiParams;          // x = 开关(0/1)，y = 强度，z = 法线偏置(世界单位)，w = 预留
+            } ddgi;
+
+            // 八面体编码（与更新段 octDecode 对偶；uv 域 [0,1]）
+            vec2 javelinOctaEncode(vec3 n) {
+                vec2 o = n.xy / (abs(n.x) + abs(n.y) + abs(n.z) + 1e-6);
+                if (n.z < 0.0) {
+                    o = (1.0 - abs(o.yx)) * vec2(o.x >= 0.0 ? 1.0 : -1.0, o.y >= 0.0 ? 1.0 : -1.0);
+                }
+                return o * 0.5 + 0.5;
+            }
+
+            // 网格覆盖判定（含半格外扩：网格外沿仍借边界探针，避免硬切边）
+            bool javelinDDGIInside(vec3 worldPos) {
+                vec3 lo = ddgi.gridOriginSpacing.xyz;
+                float sp = ddgi.gridOriginSpacing.w;
+                vec3 hi = lo + vec3(ddgi.counts.xyz - 1) * sp;
+                vec3 pad = vec3(sp * 0.5);
+                return all(greaterThanEqual(worldPos, lo - pad)) && all(lessThanEqual(worldPos, hi + pad));
+            }
+
+            // 单探针辐照度（按世界法线方向）：tile 内区手写双线性
+            vec3 javelinProbeIrradiance(int probe, vec3 dir) {
+                int cols = ddgi.counts.w;
+                int ty = probe / cols;
+                int tx = probe - ty * cols;
+                int tileSize = int(ddgi.tileParams.x);
+                int inner = int(ddgi.tileParams.y);
+                ivec2 origin = ivec2(tx * tileSize + 1, ty * tileSize + 1);
+                vec2 st = javelinOctaEncode(dir) * float(inner) - 0.5;
+                vec2 f = floor(st);
+                vec2 t = clamp(st - f, 0.0, 1.0);
+                ivec2 i0 = clamp(ivec2(f), ivec2(0), ivec2(inner - 1));
+                ivec2 i1 = clamp(ivec2(f) + 1, ivec2(0), ivec2(inner - 1));
+                vec3 c00 = texelFetch(ddgiIrradiance, origin + ivec2(i0.x, i0.y), 0).rgb;
+                vec3 c10 = texelFetch(ddgiIrradiance, origin + ivec2(i1.x, i0.y), 0).rgb;
+                vec3 c01 = texelFetch(ddgiIrradiance, origin + ivec2(i0.x, i1.y), 0).rgb;
+                vec3 c11 = texelFetch(ddgiIrradiance, origin + ivec2(i1.x, i1.y), 0).rgb;
+                return mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
+            }
+
+            // 可见性（深度矩 Chebyshev 上界）：探针到像素的距离 < 该方向命中距离 → 可见（1.0）；
+            // 远大于 → 方差上界趋 0（墙后探针降权，抑制光渗）
+            float javelinProbeVisibility(int probe, vec3 dir, float dist) {
+                int cols = ddgi.counts.w;
+                int ty = probe / cols;
+                int tx = probe - ty * cols;
+                int depthTile = int(ddgi.tileParams.z);
+                int depthInner = int(ddgi.tileParams.w);
+                ivec2 origin = ivec2(tx * depthTile + 1, ty * depthTile + 1);
+                ivec2 ij = clamp(ivec2(javelinOctaEncode(dir) * float(depthInner)),
+                        ivec2(0), ivec2(depthInner - 1));
+                vec2 moments = texelFetch(ddgiDepth, origin + ij, 0).rg;   // E(d) / E(d²)
+                float m1 = moments.x;
+                if (m1 <= 0.0) {
+                    return 1.0;   // 该方向一条都没命中（朝天）→ 不降权
+                }
+                float var = max(moments.y - m1 * m1, 1e-4);
+                float d = dist - m1;
+                if (d <= 0.0) {
+                    return 1.0;
+                }
+                return clamp(var / (var + d * d), 0.0, 1.0);
+            }
+
+            vec3 javelinDDGI(vec3 worldPos, vec3 worldNormal) {
+                float sp = ddgi.gridOriginSpacing.w;
+                vec3 lo = ddgi.gridOriginSpacing.xyz;
+                ivec3 cnt = ddgi.counts.xyz;
+                vec3 p = worldPos + worldNormal * ddgi.ddgiParams.z;   // 法线偏置：抑制自遮蔽与光渗
+                vec3 local = (p - lo) / sp;
+                ivec3 base = clamp(ivec3(floor(local)), ivec3(0), cnt - 2);
+                vec3 frac = clamp(local - vec3(base), 0.0, 1.0);
+                vec3 sum = vec3(0.0);
+                float wsum = 0.0;
+                for (int z = 0; z < 2; z++) {
+                    for (int y = 0; y < 2; y++) {
+                        for (int x = 0; x < 2; x++) {
+                            ivec3 c = base + ivec3(x, y, z);
+                            int probe = c.x + cnt.x * (c.y + cnt.y * c.z);
+                            vec3 probePos = lo + vec3(c) * sp;
+                            float vis = javelinProbeVisibility(probe, worldNormal,
+                                    length(probePos - worldPos));
+                            float w = (x == 0 ? 1.0 - frac.x : frac.x)
+                                    * (y == 0 ? 1.0 - frac.y : frac.y)
+                                    * (z == 0 ? 1.0 - frac.z : frac.z);
+                            sum += javelinProbeIrradiance(probe, worldNormal) * w * vis;
+                            wsum += w;
+                        }
+                    }
+                }
+                // atlas 存的是辐照度 E（∫L·cosθ·dω，更新段归一后乘了 π）；Lambert 出射辐射度
+                // 是 albedo·E/π，调用方只乘 albedo，所以这里必须除回 π，否则整体亮 π 倍
+                return wsum > 0.0 ? sum / wsum * ddgi.ddgiParams.y * 0.31830989 : vec3(0.0);
+            }
+            """;
+
     private static final String LIGHTING_BLOCKS = """
             layout(std140, set = 1, binding = 0) uniform LightingParamsBlock {
                 vec4 directional[16];
@@ -194,7 +312,12 @@ public final class ShaderInjector {
             }
 
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
+                // 环境项（四期 P4-05 B3）：DDGI 档且网格内 → 探针辐照度接管；否则常量项回落
                 vec3 result = lighting.ambient.rgb * lighting.ambient.a;
+                if (ddgi.ddgiParams.x > 0.5 && javelinDDGIInside(worldPos)) {
+                    vec3 worldNormal = transpose(mat3(cam.view)) * viewNormal;
+                    result = javelinDDGI(worldPos, worldNormal);
+                }
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);
@@ -317,6 +440,8 @@ public final class ShaderInjector {
         injected.append(body, 0, versionEnd);
         injected.append("\n// ── engine injected lighting stage (auto-generated, do not write) ──\n");
         injected.append(CAMERA_BLOCK).append('\n');
+        // DDGI 采样链函数须先于 javelinLighting（后者在环境项里调用它）
+        injected.append(DDGI_BLOCKS).append('\n');
         injected.append(LIGHTING_BLOCKS).append('\n');
         // G-Buffer 三采样声明必须先于 RECEIVE_SHADOW_GBUFFER 函数体（其读 gbufferAlbedo）
         injected.append(GBUFFER_BLOCKS).append('\n');
@@ -369,7 +494,7 @@ public final class ShaderInjector {
      */
     private static String lightingStageBlocks(LightingModel lightingModel) {
         return switch (lightingModel) {
-            case LAMBERT -> LIGHTING_BLOCKS + "\n" + RECEIVE_SHADOW_PUSH + "\n";
+            case LAMBERT -> DDGI_BLOCKS + "\n" + LIGHTING_BLOCKS + "\n" + RECEIVE_SHADOW_PUSH + "\n";
             case UNLIT -> "";
         };
     }
@@ -438,7 +563,8 @@ public final class ShaderInjector {
         for (String reserved : new String[]{"CameraBlock", "PushBlock", "MaterialBlock",
                 "LightingParamsBlock", "lighting", "lightList",
                 "clusterGridBuffer", "clusterIndicesBuffer", "clusterGrid", "clusterIndices",
-                "shadowMap", "gbufferAlbedo", "gbufferNormal", "gbufferWorldPos"}) {
+                "shadowMap", "gbufferAlbedo", "gbufferNormal", "gbufferWorldPos",
+                "DdgiParamsBlock", "ddgiIrradiance", "ddgiDepth", "ddgi"}) {
             if (body.contains(reserved)) {
                 found.add(reserved);
             }

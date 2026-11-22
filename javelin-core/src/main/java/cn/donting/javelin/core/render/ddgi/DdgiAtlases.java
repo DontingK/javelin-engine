@@ -3,6 +3,7 @@ package cn.donting.javelin.core.render.ddgi;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.FormatSupport;
 import cn.donting.javelin.rhi.Texture;
+import cn.donting.javelin.rhi.UploadData;
 import cn.donting.javelin.rhi.desc.MemoryPreference;
 import cn.donting.javelin.rhi.desc.TextureDesc;
 import cn.donting.javelin.rhi.types.Format;
@@ -10,6 +11,7 @@ import cn.donting.javelin.rhi.types.SampleCount;
 import cn.donting.javelin.rhi.types.TextureType;
 import cn.donting.javelin.rhi.types.TextureUsage;
 
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
@@ -92,9 +94,24 @@ public final class DdgiAtlases {
     }
 
     private static Texture createAtlas(Device device, Format format, int width, int height) {
+        // 建图时直接上传一张全零图（而不是传 null）：①首帧 atlas 从「未定义内存」变成确定的 0，
+        // 边界 tile / 尚未被 probe 圈到的 texel 不会是垃圾值；②布局从 UNDEFINED 起就有一次
+        // 真实转换，绕开「draw 采样时图还是 UNDEFINED」的 VUID-vkCmdDraw-None-09600
         return device.createTexture(new TextureDesc(TextureType.TYPE_2D, format,
                 width, height, 1, 1, 1, SampleCount.COUNT_1, USAGE,
-                MemoryPreference.deviceLocal()), null);
+                MemoryPreference.deviceLocal()), UploadData.of(zeroBytes(format, width, height)));
+    }
+
+    /** 全零上传数据（逐像素字节数按格式定：RGBA16F=8、RG16F=4） */
+    private static ByteBuffer zeroBytes(Format format, int width, int height) {
+        int bpp = switch (format) {
+            case R16G16B16A16_SFLOAT -> 8;
+            case R16G16_SFLOAT -> 4;
+            default -> 8;
+        };
+        ByteBuffer buffer = ByteBuffer.allocateDirect(width * height * bpp);
+        buffer.limit(buffer.capacity());
+        return buffer;
     }
 
     /** 格式能力前置（STORAGE 写 + SAMPLED 读两必需位；缺位立即抛） */

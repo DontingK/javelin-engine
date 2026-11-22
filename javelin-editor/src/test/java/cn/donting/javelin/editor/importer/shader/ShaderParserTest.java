@@ -231,7 +231,8 @@ public class ShaderParserTest extends EditorLangTestBase {
         // #version 仍最前，注入紧随其后
         assertTrue(injected.startsWith("#version 450\n"));
         int versionLine = injected.indexOf('\n');
-        int cameraBlock = injected.indexOf("uniform CameraBlock { mat4 viewProj; } cam;");
+        // 相机块是多行声明（viewProj + view 两块矩阵），断言按块首行匹配
+        int cameraBlock = injected.indexOf("uniform CameraBlock {");
         int pushBlock = injected.indexOf("layout(push_constant) uniform PushBlock");
         int materialBlock = injected.indexOf("layout(std140, set = 2, binding = 0) uniform MaterialBlock");
         assertTrue(versionLine < cameraBlock);
