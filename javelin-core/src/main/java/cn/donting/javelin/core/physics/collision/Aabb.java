@@ -98,9 +98,12 @@ public class Aabb {
         float hX = (max.x - min.x) * 0.5f;
         float hY = (max.y - min.y) * 0.5f;
         float hZ = (max.z - min.z) * 0.5f;
-        float eX = Math.abs(m.m00()) * hX + Math.abs(m.m01()) * hY + Math.abs(m.m02()) * hZ;
-        float eY = Math.abs(m.m10()) * hX + Math.abs(m.m11()) * hY + Math.abs(m.m12()) * hZ;
-        float eZ = Math.abs(m.m20()) * hX + Math.abs(m.m21()) * hY + Math.abs(m.m22()) * hZ;
+        // JOML 访问器命名是 m<列><行>（受列向量约定：m30/m31/m32 = 平移 xyz），
+        // 故 out 第 i 轴的一半宽 = 第 i **行** 与半尺寸的点积：m00/m10/m20 才同属 x 行。
+        // 原写法 m00/m01/m02 取的是第 0 **列**，只有均匀缩放时才碰巧等价。
+        float eX = Math.abs(m.m00()) * hX + Math.abs(m.m10()) * hY + Math.abs(m.m20()) * hZ;
+        float eY = Math.abs(m.m01()) * hX + Math.abs(m.m11()) * hY + Math.abs(m.m21()) * hZ;
+        float eZ = Math.abs(m.m02()) * hX + Math.abs(m.m12()) * hY + Math.abs(m.m22()) * hZ;
         out.min.set(center.x - eX, center.y - eY, center.z - eZ);
         out.max.set(center.x + eX, center.y + eY, center.z + eZ);
         return out;

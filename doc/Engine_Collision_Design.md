@@ -1,6 +1,6 @@
 # 引擎碰撞设计（Engine Collision Design）
 
-> 版本：v0.2（2026-10-28：**L1 场景级 raycast 落地，2026-10-30 PhysicsTest 14 用例验收销账**——静态门面 Physics + RaycastHit + Scene.getColliders 注册表投影，§10；片①②③④于 2026-10-06 全片单测验收）
+> 版本：v0.3（2026-11-23：**修正 `Aabb.transform` 的行和取元素索引（列↔行取反）**——非均匀缩放 + 绕 X/Z 旋转时 AABB 该轴半宽恒取「小缩放」那一档（症状：`5/0.1/5` 薄板怎么转，包围盒高度都是 0.1）；补回归用例 `transformNonUniformScaleRotationUsesRowElements`，§5 第二条加实现勘误；v0.2（2026-10-28：**L1 场景级 raycast 落地，2026-10-30 PhysicsTest 14 用例验收销账**——静态门面 Physics + RaycastHit + Scene.getColliders 注册表投影，§10；片①②③④于 2026-10-06 全片单测验收）
 > 范围：二期②「碰撞检查」的**纯数学层（L0）**——Ray、碰撞形状、相交例程、包围盒；**L1 运行时物理查询（本节起随 §10 在档）**——游戏射线检测与后期物理系统共用的几何地基，编辑器拾取已全线改道 GPU ID-buffer 不经本档射线（2026-10-23 落地，Engine_Picking_Design v0.1）。
 > 定位：本文设计 L0 并承载 L1 场景查询设计（§10，2026-10-28 落地）；物理系统（L2）选型后立项，归其档，本文不展开其内部。
 > 配套：`doc/Engine_Roadmap.md` §2.2/§2.3；物理步进挂点见 `Engine_Design.md` §2.2/§3。
@@ -102,6 +102,7 @@ M·p_l = M·(M⁻¹·o_w) + t·(M·(M⁻¹·d̂_w)) = o_w + t·d̂_w
 
 - **Mesh.bounds 三条计算路径**（read 不可派生——红线 10：嵌套属性此时可未 populate）：① `setPositions`/`setAttribute(POSITION)` **set 即失效清除+有效数据即算**（空/短数据 → null，不残留旧盒——setFromPoints 对短数据不改变当前盒，不清除会残留旧盒，用户指正 2026-10-05）；② 导入产物首次 `getBounds()` 惰性兜底（CPU 副本尚在）；③ MeshUpload 释放 CPU 副本前调用 `getBounds()` 钉死（此后无数据可算）。无 POSITION 且 CPU 副本已释放 → null（fitFromMesh 消费侧显式报错）；
 - **世界 Aabb**：`transform` = 中心经 M 变换 + 半尺寸按 |M₃ₓ₃| 行绝对值加权和展开。**实现期勘误**：对盒子此式与 8 角点极值**数学等价**（盒=区间积，各输出轴极值恒为 中心′ᵢ ± Σ|M_ij|·he_j）——原「精确/保守两档」设计不成立，行和即精确值且省 7 次矩阵-向量积；8 角点仅作单测对照基准；
+- **实现勘误（2026-11-23）**：轮子公式成立，但**取元素的索引写反了**。JOML 访问器是 `m<列><行>`（列向量约定：`getTranslation` 读 `m30/m31/m32`、`mul` 的 `nm00` 用 `m00/m10/m20/m30`、`rotationY` 设 `_m00/_m02/_m20/_m22`），而代码写成 `eX = |m00|·hX + |m01|·hY + |m02|·hZ`——取的是第 0 **列**（即 y、z 输出轴的分量）。正确口径：**输出第 i 轴取第 i 行**，`eX = |m00|·hX + |m10|·hY + |m20|·hZ`（eY / eZ 同理换行）。偏差只在**非均匀缩放 + 旋转**同时出现时外露（均匀缩放下两式等价）：`diag(5,0.1,5)` 的薄板绕 X/Z 旋转，该轴半宽只读到 `0.1` 那一档 ⇒ 高度恒 ≈0.1。回归钩子 `AabbTest.transformNonUniformScaleRotationUsesRowElements`（8 角点对照 + 高度 > 3 直证）；受影响的消费方 = 拾取/视锥粗筛（`EditorCameraAppState`）、调试绿框（`MeshDebugLine`）、DDGI 静态集包围盒（`DdgiVoxelizer`）、`ShadowMath` 的 caster 并集——修复后非均匀缩放物体的世界盒会变大（属纠对，阴影级联紧的场景需复验裁边）；
 - `RayAabIntersection` 后置：v0.1 拾取线性遍历物体量级下够用。
 
 ## 6. 物理系统预留（L2 契约面，不实现）

@@ -171,6 +171,38 @@ public class AabbTest {
     }
 
     @Test
+    void transformNonUniformScaleRotationUsesRowElements() {
+        // 回归：非均匀缩放 + 旋转时，行和公式必须按「行」取元素（JOML m<列><行>，
+        // 曾经写成 m00/m01/m02 = 第 0 列，均匀缩放下碰巧等价，非均匀缩放时 y 向永远
+        // 取不到大缩放那一档 → 5/0.1/5 的薄板绕 X/Z 旋转，AABB 高度恒为 0.1）。
+        Aabb box = new Aabb(new Vector3f(-0.5f, -0.5f, -0.5f), new Vector3f(0.5f, 0.5f, 0.5f));
+        Matrix4f m = new Matrix4f()
+                .rotateZ((float) Math.toRadians(45.0))
+                .scale(5.0f, 0.1f, 5.0f);
+
+        Aabb out = new Aabb();
+        box.transform(m, out);
+
+        // 8 角点对照基准
+        float nY = Float.POSITIVE_INFINITY, mY = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < 8; i++) {
+            Vector3f corner = new Vector3f(
+                    ((i & 1) == 0) ? -0.5f : 0.5f,
+                    ((i & 2) == 0) ? -0.5f : 0.5f,
+                    ((i & 4) == 0) ? -0.5f : 0.5f);
+            m.transformPosition(corner);
+            nY = Math.min(nY, corner.y);
+            mY = Math.max(mY, corner.y);
+        }
+        assertEquals(nY, out.getMin().y, EPS);
+        assertEquals(mY, out.getMax().y, EPS);
+
+        // 直证症状：45° 旋转后高度应约为 0.5×(5+0.1)×√2 ≈ 3.6，绝不再是 0.1
+        float height = out.getMax().y - out.getMin().y;
+        assertTrue(height > 3.0f, "非均匀缩放的薄板旋转后 AABB 高度应显著增长，实际: " + height);
+    }
+
+    @Test
     void rayIntersectUnnormalizedDirectionTInDirectionUnits() {
         Aabb box = new Aabb(new Vector3f(-1, -1, -1), new Vector3f(1, 1, 1));
         Ray ray = new Ray(new Vector3f(0, 0, -5), new Vector3f(0, 0, 2));
