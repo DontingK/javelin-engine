@@ -50,6 +50,11 @@ import java.util.List;
  * 正在移动时签名每帧都变，此时重建等于每帧全量重刷（BUG-13 的教训）。停住两帧后重建一次，
  * 期间用旧体素（动态物体滞后本就由 SSAO 接触层兜）。</p>
  *
+ * <p><b>场盒只增不减（2026-11-23，止血 b）</b>：体素场 AABB = 历次集合包围盒的并集，不随集合
+ * 即时缩放。场盒一变，探针网格 {@code fittedToField} 就跟着变 → atlas 换代/整圈重扫，等于每挪
+ * 一下物体闪一下；并集化后场内移动不再动场盒、网格与探针数稳定。删大件要回收场盒走
+ * {@link #requestRebuild()}。</p>
+ *
  * <p><b>派发</b>：一个网格实例一个 dispatch（三角形数 / 64），默认只在本帧第一个视口挂载
  * （体素图与视口无关，多视口重复派发纯属浪费）。</p>
  */
@@ -86,6 +91,9 @@ public class DdgiVoxelizer implements RenderPass {
     private StaticSetSignature builtSignature;
     /** 上一帧的候选签名（两帧稳定判据） */
     private StaticSetSignature candidateSignature;
+    /** 「只增不减」场盒并集（止血 b）：本帧集合盒 vs 已增长盒，外扩即换代重建、收缩不缩盒 */
+    private Vector3f grownMin;
+    private Vector3f grownMax;
     private int lastResolution = -1;
     private boolean pendingDispatch;
     private long buildStamp;
@@ -120,10 +128,13 @@ public class DdgiVoxelizer implements RenderPass {
         return buildStamp;
     }
 
-    /** 强制重建（编辑器命令 / 设置变更后调用）：下一帧重新走一遍两帧稳定判定 */
+    /** 强制重建（编辑器命令 / 设置变更后调用）：下一帧重新走一遍两帧稳定判定。
+     *  同时重置「只增不减」场盒（2026-11-23 止血 b）：删大件后要回收场地，就从这走 */
     public void requestRebuild() {
         builtSignature = null;
         candidateSignature = null;
+        grownMin = null;
+        grownMax = null;
     }
 
     @Override
@@ -298,8 +309,22 @@ public class DdgiVoxelizer implements RenderPass {
             releaseField();
             return;
         }
-        Vector3f min = new Vector3f(bounds.getMin());
-        Vector3f max = new Vector3f(bounds.getMax());
+        // 场盒并集（止血 b）：本次集合盒并入历史盒再建场。不并的话物体一挪场 AABB 就变 →
+        // 探针网格 fittedToField 跟着变（探针数/原点）→ atlas 换代或整圈重扫，每挪一下闪一下；
+        // 并集化后场内移动场盒恒定，网格与探针数稳定。场盒只增不减，删大件回收走 requestRebuild
+        if (grownMin == null) {
+            grownMin = new Vector3f(bounds.getMin());
+            grownMax = new Vector3f(bounds.getMax());
+        } else {
+            grownMin.set(Math.min(grownMin.x, bounds.getMin().x),
+                    Math.min(grownMin.y, bounds.getMin().y),
+                    Math.min(grownMin.z, bounds.getMin().z));
+            grownMax.set(Math.max(grownMax.x, bounds.getMax().x),
+                    Math.max(grownMax.y, bounds.getMax().y),
+                    Math.max(grownMax.z, bounds.getMax().z));
+        }
+        Vector3f min = new Vector3f(grownMin);
+        Vector3f max = new Vector3f(grownMax);
         float pad = Math.max(1e-3f, max.distance(min) * BOUNDS_PAD_RATIO);
         // JOML 的 Vector3f 只收向量重载：标量外扩须三参写法
         min.sub(pad, pad, pad);
@@ -329,7 +354,7 @@ public class DdgiVoxelizer implements RenderPass {
         pendingDispatch = true;
         long totalMs = (System.nanoTime() - start) / 1_000_000L;
         long collectMs = collectNanos / 1_000_000L;
-        log.info("体素化重建完成：体素图 {}³（{} MB）、实例 {} 个、包围盒 [{}, {}]"
+        log.info("体素化重建完成：体素图 {}³（{} MB）、实例 {} 个、场盒(只增不减) [{}, {}]"
                         + "、收集 {} ms、建资源 {} ms（{}）",
                 resolution, field.bytes() / (1024 * 1024), entries.size(), min, max,
                 collectMs, totalMs, signature);
@@ -349,6 +374,8 @@ public class DdgiVoxelizer implements RenderPass {
         }
         builtSignature = null;
         candidateSignature = null;
+        grownMin = null;
+        grownMax = null;
         lastResolution = -1;
         pendingDispatch = false;
     }

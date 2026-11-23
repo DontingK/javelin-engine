@@ -1,5 +1,7 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.6（2026-11-23）｜**移动闪烁止血 + 阴影区反弹修复（落码待实机验收）**：用户实跑反馈两症状——①移动物体时闪烁；②阴影/背光墙的颜色反弹看不到。**①根因**：体素场 AABB = 集合包围盒，物体一停（两帧稳定门控放行）就重建 → 场盒随物体变 → 探针网格 `fittedToField` 跟着变（探针数/原点）→ atlas 换代或整圈 hysteresis=0 硬覆盖，每挪一下闪一下（相机跟随走时每 2m 再叠一发）。**修法两件（止血 a+b，跳过 atlas 双缓冲——留给近景档的位移重投影一并做）**：a=跳格重扫保持设置 hysteresis（不清 firstSweepDone，错位一格的旧值混几圈收敛，hysteresis=0 只留给 atlas 换代/真首圈）；b=场盒只增不减（`grownMin/grownMax` 历次并集，`requestRebuild`/`releaseField` 重置）。**②根因 = §13.7 档位门控的推理错误**：消费面 DDGI 档是「整项替换」不是叠加（`result = javelinDDGI` 直接顶掉常量环境项），不存在「弹两次」；门控成 0 时阴影/背光面命中辐射 = 0 → 阴影区环境项被替换成 ≈0（比不开 DDGI 还黑）。**修法**：`ambientInHit` 恒 1——ambient 进命中辐射参与一次反弹（被命中面 albedo 着色），阴影里的墙也能弹出自己的颜色。反弹淡的其余构成（单弹无反馈、点光不进 GI、体素基色只取 `_Color` 不采贴图）为已知边界不入本批。见 §13.8。
+>
 > v0.5（2026-11-22）｜**直射项终态：体素 sunVisible → CSM 阴影图（落码待实机验收）**：trace 段命中点直射项的遮挡改采主视口 CSM 阴影图（binding6 深度比较采样 + binding7 352B 阴影参数 UBO，`packDdgiShadowParams` 每帧打包）——与主画面同一张图同一套矩阵，阴影边界对齐、两套影子系统不一致的渗光销账；同批把 §13.6 遗留第 2 条一并收口（DDGI 档下命中辐射不再含常量 ambient，档位开关经 Light UBO `lightingFlags.x` 下发）。无阴影回落（`shadowMapOrNull` 非抛出口 + 占位图 + 级联数 0 恒受光）。见 §13.7。
 >
 > v0.4（2026-11-21）｜**B3 消费面落码（待实跑）**：环境项由探针辐照度接管——`AmbientMode` 扩 `DDGI` 档、桥每帧推模式；set1 新占 binding8（辐照度 atlas）/ binding9（DDGI 参数 UBO 96B）/ binding10（深度矩 atlas）（P4-17 退役腾出的槽）；注入器新增 `DDGI_BLOCKS`（八面体编码 + tile 内区手写双线性 + 深度矩 Chebyshev 可见性 + 网格三线性），`javelinLighting` 环境项改为「DDGI 档且网格内 → 探针辐照度，否则常量项」。见 §13。
@@ -306,3 +308,29 @@ mode 的实际取值 = `ambientMode == DDGI && DdgiSettings.enabled` → 1，否
 - **09600（首帧采样 UNDEFINED 颜色图，3 条）**：全部落在启动首帧 resize（737x515→513）重建前的首次提交，之后整场零复发——是 §13.5 已录过的 legacy 首帧现象，与本批改动无关。但排查中发现一个真隐患：**占位深度图**（无阴影时 binding6 的 1×1 D32）创建时传 null、又不进图声明（`addTextureRead` 只挂真 shadowMap）→ 永不转布局、采样即同款 09600。**修法**：改带数据创建（D32 + SAMPLED + TRANSFER_DST，深度值 1.0 = 远平面恒未遮挡）——上传路径把布局走到 SHADER_READ_ONLY，与 binding6 描述符声明一致（`DdgiAtlases.createAtlas` 同款思路，Pitfalls #37）。
 
 **验收清单**（待实机）：①重导 `ddgi_trace.compute`（项目面板右键「重新导入」；只动这一个，update 段无改动）；②阴影边界摄影验证阴影区间接光变暗、过渡与主画面 CSM 对齐；③诊断行「平均入射辐射」应比修前下降（阴影贡献不再虚高）；④`--debug=true` 跑一次 VVL（重点看 compute 里采 sampler2DShadow 有无校验层抱怨）；⑤无主光场景不崩（占位图 + 恒受光回落）。
+
+### 13.8 移动闪烁止血 + 阴影区反弹修复（2026-11-23 落码，待实机验收）
+
+用户实跑报两症状：**移动物体时间接光闪烁**、**阴影/背光墙的颜色反弹看不到（疑似太淡）**。全链路静态排查（体素化 → trace → update → 消费面注入段）定位根因，用户拍板止血组合 a+b（atlas 双缓冲 c 不做）；反弹修复随诊断坐实。
+
+**症状①机制链（两条复合）**：
+
+1. **场盒随集合即时缩放**：移动物体（不透明 + castShadow，属体素化集合）停顿 ≥2 帧 → 签名两帧稳定 → `DdgiVoxelizer.prepare` 整场重建。场 AABB = 集合包围盒随物体位置变 → 探针网格 `fittedToField` 跟着变：探针数跨 spacing 整数倍 → **atlas 换代（全零新图）**，重扫完成前（探针数 ÷ 每帧预算 ≈ 1~2 帧）探针值全零 → 掉黑再爬升；只是原点滑移步数变 → `moved` 分支清 `firstSweepDone` → **整圈 hysteresis=0 硬覆盖**，收敛值瞬间换生值。编辑器拖拽中手常有 ≥2 帧微停顿 → 每次微停顿都重建一发 → 「移动全程闪烁」。
+2. **网格原点跟随相机整格跳**：`fitOrigin` 在场盒余量 ≥ spacing 时按相机滑动，每约 spacing（2m）跳一格 → 同样触发整圈 hysteresis=0 重扫。相机跟物走（第三人称/编辑器跟随）时与 1 叠加。
+
+**修法（两件，均纯 Java 宿主侧，`.compute`/`.shader` 零改动、无需重导）**：
+
+- **止血 a（`DdgiProbePass.ensureAtlases` 的 `moved` 分支）**：只把 `sliceCursor` 归零重扫，**不清 `firstSweepDone`**。旧探针值只错位一格（探针本是低频数据），按设置 hysteresis 混几圈收敛（0.85 时 ≈ 1/(1−0.85) ≈ 7 圈），远好于硬切；hysteresis=0 只留给 atlas 换代/真首圈——新图全零，混历史等于从黑往上爬。
+- **止血 b（`DdgiVoxelizer` 场盒只增不减）**：新增 `grownMin/grownMax` 历史盒 = 历次集合包围盒的并集，`prepare()` 并入再建场。物体在场内移动不再动场盒 → 网格与探针数稳定 → 不触发换代/重扫，重建只静默换体素内容（探针按 hysteresis 平滑过渡到新体素图）。重置口：`requestRebuild()`（删大件回收场地）与 `releaseField()`（场景清空/关开关）。
+- **遗留（近景档预告内）**：跳格的完美过渡要 atlas 位移重投影（原点平移一格 = tile 平移搬运）或探针 relocation；atlas 换代双缓冲（新图后台扫完再切，消掉黑窗）= 本次评估的方案 c，与重投影一并归近景档。
+
+**症状②根因 = §13.7 档位门控的推理不成立（本批推翻）**：
+
+- §13.7 把 DDGI 档命中辐射的 ambient 门控成 0，理由「常量环境项已由消费面负责，探针里再弹一次等于假环境光弹两次」。逐字核对消费面（`ShaderInjector` 的 `javelinLighting`）：DDGI 档是 **`result = javelinDDGI(...)` 整项替换**常量环境项、不是叠加——「弹两次」不存在。
+- 反向代价：命中辐射 = `albedo × (0 + 直射)`，墙在阴影/背光时直射项（ndl×CSM）= 0 → 命中辐射 = 0 → 封闭/阴影区探针辐照度 ≈ 0 → **环境项被替换成 ≈0**（比不开 DDGI 还黑），反弹整体消失——即用户报的「墙壁颜色反射看不到」。
+- **修法（`DdgiProbePass.writeLightUbo`）**：`ambientInHit` 恒 1（`lightingFlags.x` 通道与 `.compute` 侧读取保留，无需重导）。ambient 进命中辐射 = 环境光参与一次反弹（被命中面 albedo 着色），阴影里的墙也弹出自己的颜色。与 §13.6「阴影太亮」不冲突——那轮 0.78 是「无遮挡下阴影墙出射全直射」；现在阴影墙出射的是 ambient 量级（远低于直射）。
+- **使用口径**：ambient 从此是 GI 的**环境源光**——DDGI 档下 `Environment` 环境光仍要设非零（设 0 且全场阴影 → 反弹也归 0）；反弹总量 = 命中面 albedo × (ambient + 直射)，嫌淡先拉环境光强度或 `ddgiIntensity`。已知边界（不入本批）：反弹色只来自材质 `_Color`（贴图 albedo 不进体素化）；单弹、无原版 DDGI 的多弹时域反馈；点光/聚光不进探针光照。
+
+**改动面**：`DdgiProbePass`（moved 分支 + `writeLightUbo` + 删 `AmbientMode` import）/ `DdgiVoxelizer`（`grownMin/grownMax` + `prepare`/`releaseField`/`requestRebuild` + 类注释）。IDEA inspections 零 error。
+
+**验收清单（待实机）**：①编辑器拖拽物体（含微停顿）不再闪烁——`体素化重建完成` 日志可照刷，但 `DDGI 探针数据面就绪` 不应跟着刷（场盒稳定 = 不换代）；②相机走动每 ~2m 跳格处过渡平滑（hysteresis 混合、无硬切）；③阴影/背光墙能看出反弹色（墙 `_Color` 设彩色验证），室内不再比不开 DDGI 暗；④诊断行「平均入射辐射」阴影区探针不再 ≈0；⑤环境光强度 / `ddgiIntensity` 调反弹量即时生效。

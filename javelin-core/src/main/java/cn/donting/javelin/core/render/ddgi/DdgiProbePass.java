@@ -1,7 +1,6 @@
 package cn.donting.javelin.core.render.ddgi;
 
 import cn.donting.javelin.core.assets.AssetManager;
-import cn.donting.javelin.core.render.AmbientMode;
 import cn.donting.javelin.core.render.RenderCamera;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.compute.ComputeShader;
@@ -349,10 +348,11 @@ public class DdgiProbePass implements RenderPass {
             boolean moved = !sameGrid(grid, newGrid);
             grid = newGrid;   // 原点/间距可能变了，UBO 与探针位置要用新的
             if (moved) {
-                // 网格整格跳动：旧探针值对不上号，本圈全量重扫（首圈规则同样适用）
+                // 网格整格跳动：旧探针值只错位一格（探针本是低频数据），游标归零重扫、按设置
+                // hysteresis 混几圈收敛（2026-11-23 拍板，止血 a）——不清 firstSweepDone：清了
+                // 等于整圈 hysteresis=0 硬覆盖，跳格瞬间新旧值硬切，就是「移动时周期性闪变」；
+                // hysteresis=0 只留给 atlas 换代/真首圈（新图全零，混历史等于从黑往上爬）
                 sliceCursor = 0;
-                firstSweepDone = false;
-                frameWrapsFirstSweep = false;
                 // debugLogged 不复位：调试打印一场会话只出一次，否则每走两米刷一行
             }
             return true;
@@ -506,10 +506,12 @@ public class DdgiProbePass implements RenderPass {
 
     private void writeLightUbo() {
         renderingSystem.packDdgiLighting(lighting);
-        // 命中辐射是否含 ambient 项：DDGI 档（消费面接管）= 0——常量环境项已由消费面负责，
-        // 探针里再弹一次等于假环境光弹两次（§13.6 遗留第 2 条）；其他档保留（探针全黑会让
-        // 诊断读数失真）
-        float ambientInHit = renderingSystem.ambientMode() == AmbientMode.DDGI ? 0f : 1f;
+        // 命中辐射恒含 ambient 项（2026-11-23 改拍，推翻 §13.7 档位门控）：消费面 DDGI 档是
+        // 「整项替换」不是叠加（javelinLighting 里 result = javelinDDGI 直接顶掉常量环境项），
+        // 不存在翻倍；门控成 0 时阴影/背光面的命中辐射 = 0，室内与阴影区的环境项被替换成 ≈0，
+        // 反弹整体消失且比不开 DDGI 还暗。ambient 进命中辐射 = 环境光参与一次反弹（被命中面
+        // 的 albedo 着色），阴影里的墙也能弹出自己的颜色
+        float ambientInHit = 1f;
         lightUboData.clear();
         lightUboData.putFloat(lighting[0]).putFloat(lighting[1]).putFloat(lighting[2]).putFloat(0f);
         lightUboData.putFloat(lighting[3]).putFloat(lighting[4]).putFloat(lighting[5]).putFloat(0f);
