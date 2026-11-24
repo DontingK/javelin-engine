@@ -20,6 +20,7 @@ import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
 import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
 import cn.donting.javelin.editor.debug.LightGizmoAppState;
+import cn.donting.javelin.editor.debug.RayTraceDebugAppState;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.picking.PickSystem;
 import cn.donting.javelin.core.settings.JavelinSetting;
@@ -156,6 +157,8 @@ public class JavelinEditor extends JavelinEngine {
             stateManager.attach(new ShadowMapDebugAppState());
             // 光照 gizmo（REND-13）：全场景灯线框（经 DebugLineAppState 统一提交）、工具菜单/F7 切换
             stateManager.attach(new LightGizmoAppState());
+            // 光追求交直显（P4-06 B3）：F9 开关，半分辨率相机主射线命中距离铺满视口
+            stateManager.attach(new RayTraceDebugAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());

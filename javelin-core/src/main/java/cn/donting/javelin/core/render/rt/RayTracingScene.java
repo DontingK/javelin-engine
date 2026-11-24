@@ -3,9 +3,15 @@ package cn.donting.javelin.core.render.rt;
 import cn.donting.javelin.core.render.RenderObject;
 import cn.donting.javelin.core.render.mesh.Mesh;
 import cn.donting.javelin.rhi.CommandBuffer;
+import cn.donting.javelin.rhi.DescriptorSet;
+import cn.donting.javelin.rhi.DescriptorSetLayout;
+import cn.donting.javelin.rhi.DescriptorUpdate;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.Tlas;
+import cn.donting.javelin.rhi.desc.DescriptorSetLayoutDesc;
 import cn.donting.javelin.rhi.desc.TlasInstance;
+import cn.donting.javelin.rhi.types.DescriptorType;
+import cn.donting.javelin.rhi.types.ShaderStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +40,10 @@ public final class RayTracingScene {
     private final List<TlasInstance> instances = new ArrayList<>();
     private final List<RenderObject> indexTable = new ArrayList<>();
     private Tlas tlas;
+    private DescriptorSet tlasSet;
+    private DescriptorSetLayout tlasSetLayout;
+    /** 描述符集缓存的 TLAS 身份（TLAS 换代即重建） */
+    private Tlas setTlas;
 
     public RayTracingScene(Device device) {
         if (device == null || !device.rayQueryEnabled()) {
@@ -90,6 +100,33 @@ public final class RayTracingScene {
         return tlas;
     }
 
+    /**
+     * TLAS 的 compute 侧描述符集（set0 binding0 = 加速结构，P4-06 B3）。
+     *
+     * <p>TLAS 换代（容量扩张）时自动重建集并重指；调用方须在 {@link #build} 之后取，
+     * 否则还没有可绑的加速结构。</p>
+     */
+    public DescriptorSet tlasDescriptorSet() {
+        if (tlas == null) {
+            throw new IllegalStateException("TLAS 尚未构建，不能取加速结构描述符集");
+        }
+        if (tlasSet != null && setTlas == tlas) {
+            return tlasSet;
+        }
+        if (tlasSetLayout == null) {
+            tlasSetLayout = device.createDescriptorSetLayout(new DescriptorSetLayoutDesc(List.of(
+                    new DescriptorSetLayoutDesc.Binding(0, DescriptorType.ACCELERATION_STRUCTURE, 1,
+                            ShaderStage.COMPUTE))));
+        }
+        if (tlasSet != null) {
+            tlasSet.dispose();
+        }
+        tlasSet = device.createDescriptorSet(tlasSetLayout);
+        tlasSet.update(DescriptorUpdate.accelerationStructure(0, tlas));
+        setTlas = tlas;
+        return tlasSet;
+    }
+
     /** 本帧实例数 */
     public int instanceCount() {
         return instances.size();
@@ -103,12 +140,21 @@ public final class RayTracingScene {
         return indexTable.get(customIndex);
     }
 
-    /** 释放 TLAS（Mesh 上的 BLAS 归 Mesh 自己管） */
+    /** 释放 TLAS 与其描述符集（Mesh 上的 BLAS 归 Mesh 自己管） */
     public void dispose() {
         if (tlas != null) {
             tlas.dispose();
             tlas = null;
         }
+        if (tlasSet != null) {
+            tlasSet.dispose();
+            tlasSet = null;
+        }
+        if (tlasSetLayout != null) {
+            tlasSetLayout.dispose();
+            tlasSetLayout = null;
+        }
+        setTlas = null;
         slots.clear();
         instances.clear();
         indexTable.clear();

@@ -1,6 +1,6 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
+> 版本：v0.6（2026-11-25 补 §3.8 光追求交直显 = P4-06 B3）；v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
 > 日期：2026-11-10（v0.3：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
@@ -146,6 +146,20 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | `LightGizmoMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 工具菜单新增子菜单两项；`attach(new LightGizmoAppState())` 紧随阴影图视图；zh/en 补 `tools.lightGizmo*` 四项 |
 
 **自验口径**：开 gizmo 后场景灯位/朝向一眼可见；转动方向光节点箭头跟着转、方向与投影方向一致；点光圆随 range 缩张；选中灯变白；F7 与菜单勾选同步；线数不触发 batch 溢出（默认 1 主光 + 数盏点光远低于 8192 线预算）。
+
+---
+
+## 3.8 光追求交直显（P4-06 B3，2026-11-25）
+
+> 归属 = 编辑器排障面；方案与批次口径见 `Engine_RayTracing_Plan.md` §3.4。
+
+| 落点 | 改动 |
+|------|------|
+| `RayTraceViewPass` | 两段图：①半分辨率 compute（相机主射线 ray query → 命中距离写 r32f）；②全屏大三角把距离图铺满视口（近蓝远橙、miss 深蓝）。compute 回调内先 `RayTracingScene.build` 重建 TLAS 再派发 |
+| `RayTraceDebugAppState` + `JavelinEditor` | F9 开关、`DebugText` 第 14 行（实例数 / TLAS 容量）；设备无 ray query 或场景未建时写「未就绪」且不进图 |
+| 内置资产 | `editor/debug/raytrace.compute`、`editor/debug/raytraceview.frag`（各带 `.meta`，需重导出 SPIR-V） |
+
+**后置**：工具菜单项、主光方向求交（与 shadow map 逐像素对照）、半分辨率上采样。
 
 ---
 

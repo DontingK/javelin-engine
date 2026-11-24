@@ -219,6 +219,8 @@ final class VulkanDevice implements Device {
                     {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 256},
                     {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 256},
                     {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 256},
+                    // 光追：TLAS 描述符（P4-06 B3）
+                    {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 64},
             };
             VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(poolTypeCounts.length, stack);
             for (int i = 0; i < poolTypeCounts.length; i++) {

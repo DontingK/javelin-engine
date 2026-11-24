@@ -1,0 +1,47 @@
+#version 450
+// 光追求交可视化 compute（P4-06 B3，Engine_RayTracing_Plan §2 B3）。
+//
+// 半分辨率每个像素发一条相机主射线，ray query 对 TLAS 求最近命中，把「命中距离 / TLAS
+// 归一化」写进 r32f 存储图（miss = -1）。先只做几何命中验证——与深度图/阴影图对照，
+// 偏移、漏光、自交这类问题在直显画面里一眼可见，之后才谈替换 CSM。
+//
+// 射线原点取相机位置、tMin = 0.05（避免与近平面自交），方向由 invViewProj 反投影
+// far 平面点求得（与引擎 zZeroToOne 投影一致）。
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform accelerationStructureEXT uTlas;
+layout(binding = 1, r32f) uniform image2D uHitDistance;
+
+layout(push_constant) uniform PushBlock {
+    mat4 invViewProj;   // 相机 viewProj 的逆（far 平面 z = 1）
+    vec4 camPos;        // xyz = 相机世界位置
+    vec4 params;        // x = 最远求交距离（归一化分母）
+} pc;
+
+void main() {
+    ivec2 size = imageSize(uHitDistance);
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= size.x || px.y >= size.y) {
+        return;
+    }
+
+    // 半分辨率像素中心 → NDC；与全分辨率共用同一视锥，故放大不改变方向
+    vec2 ndc = (vec2(px) + 0.5) / vec2(size) * 2.0 - 1.0;
+    vec4 farPoint = pc.invViewProj * vec4(ndc, 1.0, 1.0);
+    vec3 dir = normalize(farPoint.xyz / farPoint.w - pc.camPos.xyz);
+
+    float tMax = pc.params.x;
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+            pc.camPos.xyz, 0.05, dir, tMax);
+    while (rayQueryProceedEXT(query)) {
+    }
+
+    float normalized = -1.0;
+    if (rayQueryGetIntersectionTypeEXT(query, true) == gl_HitTEXT) {
+        normalized = rayQueryGetIntersectionTEXT(query, true) / tMax;
+    }
+    imageStore(uHitDistance, px, vec4(normalized));
+}

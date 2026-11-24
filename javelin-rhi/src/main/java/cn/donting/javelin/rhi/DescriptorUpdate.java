@@ -15,7 +15,8 @@ public final class DescriptorUpdate {
         STORAGE_BUFFER,
         SAMPLED_TEXTURE,
         STORAGE_TEXTURE,
-        SAMPLER
+        SAMPLER,
+        ACCELERATION_STRUCTURE
     }
 
     private final Type type;
@@ -26,10 +27,17 @@ public final class DescriptorUpdate {
     private final long range;
     private final Texture texture;
     private final Sampler sampler;
+    private final Tlas tlas;
 
     private DescriptorUpdate(Type type, int binding, int arrayElement,
                              Buffer buffer, long offset, long range,
                              Texture texture, Sampler sampler) {
+        this(type, binding, arrayElement, buffer, offset, range, texture, sampler, null);
+    }
+
+    private DescriptorUpdate(Type type, int binding, int arrayElement,
+                             Buffer buffer, long offset, long range,
+                             Texture texture, Sampler sampler, Tlas tlas) {
         this.type = type;
         this.binding = binding;
         this.arrayElement = arrayElement;
@@ -38,6 +46,7 @@ public final class DescriptorUpdate {
         this.range = range;
         this.texture = texture;
         this.sampler = sampler;
+        this.tlas = tlas;
     }
 
     public static DescriptorUpdate uniformBuffer(int binding, Buffer buffer, long offset, long range) {
@@ -85,6 +94,18 @@ public final class DescriptorUpdate {
         return new DescriptorUpdate(Type.STORAGE_BUFFER, binding, 0, buffer, offset, range, null, null);
     }
 
+    /**
+     * 加速结构绑定（P4-06 B3）：描述符类型
+     * {@code VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR}，着色器侧对应
+     * {@code uniform accelerationStructureEXT}。
+     */
+    public static DescriptorUpdate accelerationStructure(int binding, Tlas tlas) {
+        if (tlas == null) {
+            throw new IllegalArgumentException("Acceleration structure must not be null");
+        }
+        return new DescriptorUpdate(Type.ACCELERATION_STRUCTURE, binding, 0, null, 0, 0, null, null, tlas);
+    }
+
     public Type type() { return type; }
     public int binding() { return binding; }
     public int arrayElement() { return arrayElement; }
@@ -93,4 +114,5 @@ public final class DescriptorUpdate {
     public long range() { return range; }
     public Texture texture() { return texture; }
     public Sampler sampler() { return sampler; }
+    public Tlas tlas() { return tlas; }
 }

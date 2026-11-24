@@ -1,6 +1,7 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
+> 版本：v0.5（2026-11-25，B3 落码：加速结构描述符 + 半分辨率相机主射线求交直显 F9）
+> v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
 > v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
 > v0.2（2026-11-25，B0 + B1 均已落码；B2 起待拍板）
 > v0.1（2026-11-25，B0 已落码；B1 起待拍板）
@@ -29,7 +30,7 @@
 | **B0** | 能力探针：`VulkanPhysicalDevice` 枚举设备扩展（懒算一次）、`Device.hasDeviceExtension(String)` / `Device.supportsRayQuery()`（扩展位 + feature 位双判）、启动期一行日志 | 能否开工的判据 | ✅ 2026-11-25 落码（未编译） |
 | **B1** | 能力启用：`VkDeviceCreateInfo` 按「驱动真的上报」拼装扩展列表（`VK_KHR_deferred_host_operations` → `VK_KHR_acceleration_structure` → `VK_KHR_ray_query` / `VK_KHR_buffer_device_address`）+ 对应特性链；`BufferUsage` 加 `SHADER_DEVICE_ADDRESS` / AS 存储 / AS 构建输入三档；**能力可选不阻断启动**，但 `Device.rayQueryEnabled()` 报「这一台设备真的能用」，B2 建 AS 前查它、false 就显性抛错 | 设备能创建 AS | ✅ 2026-11-25 落码（未编译） |
 | **B2** | AS 构建：每 `Mesh` 一条 BLAS（静态、`MeshUpload` 后一次性建）、每帧一条 TLAS（instances = `RenderObject` 世界矩阵 + 实例自定义索引）；AS 缓冲走 device-local，构建用一次性 command buffer + fence | `rayQuery` 可求交 | ✅ B2a + B2b 2026-11-25 落码（未编译） |
-| **B3** | 最小消费：半分辨率 compute Pass 里对每个像素投一条主光方向射线，输出 `命中距离 / miss` 可视化（先验证数值与 shadow map 一致），再决定是「替换 CSM」还是「与 CSM 混合」 | 可验收的求交画面 | 待拍板 |
+| **B3** | 最小消费：半分辨率 compute Pass 里对每个像素投一条主光方向射线，输出 `命中距离 / miss` 可视化（先验证数值与 shadow map 一致），再决定是「替换 CSM」还是「与 CSM 混合」 | 可验收的求交画面 | ✅ 2026-11-25 落码（未编译）；首批用**相机主射线**，主光方向求交后置 |
 
 **刻意的顺序**：B3 先做**可视化**而不是直接接阴影——光追一旦接进主光，跑出来的画面异常（偏移、漏光、自交）很难归因；先出「命中距离直显」图，能和 shadow map 的深度图逐像素对照，错误一眼可见。
 
@@ -92,6 +93,23 @@
 
 ---
 
+## 3.4 B3 落码点（2026-11-25）
+
+| 落点 | 改动 |
+|------|------|
+| `DescriptorType.ACCELERATION_STRUCTURE` + 映射 | 新枚举 + `VulkanDescriptorSetLayout` 映射 `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR` |
+| `DescriptorUpdate.accelerationStructure(binding, Tlas)` | 新工厂 + `Tlas` 字段/访问器；`VulkanDescriptorSet.update` 走 `VkWriteDescriptorSetAccelerationStructureKHR` 挂 `pNext`（不占 pImageInfo） |
+| 描述符池 | `VulkanDevice` 池尺寸表补 AS 档 64 |
+| `RayTracingScene.tlasDescriptorSet()` | set0 binding0 = 加速结构（COMPUTE 阶段），TLAS 换代自动重建并重指；`dispose()` 一并释放集与布局 |
+| `raytrace.compute`（新资产 + `.meta`） | 半分辨率每像素：`invViewProj` 反投影 far 平面点求方向 → `rayQueryInitializeEXT`（`Opaque`、mask 0xFF、tMin 0.05、tMax = farZ）→ `while(rayQueryProceedEXT)` → 写 `r32f` 存储图（命中 = t/tMax，miss = -1） |
+| `raytraceview.frag`（新资产 + `.meta`） | 全屏采样距离图：命中近蓝远橙渐变、miss 深蓝 |
+| `RayTraceViewPass`（editor/debug） | 两段图：compute（回调内先 `scene.build(cmd, renderers)` 再绑集派发，8×8 workgroup）+ 全屏大三角直显；距离图尺寸变经 `RenderingSystem.retireResource` 延迟换代 |
+| `RayTraceDebugAppState` + `JavelinEditor` | F9 开关、第 14 行状态（实例数 / TLAS 容量）；设备无 ray query 或场景未建时写「未就绪」且不进图；语言包 4 键 |
+
+**B3 未做**：①**主光方向求交**（需 G-Buffer 世界位置 + 与 shadow map 逐像素对照）——首批特意先用相机主射线，几何/自交/漏检问题更直观；②菜单项（当前只有 F9）；③半分辨率上采样（现在最近邻直接放大，边缘有块状）；④「替换 CSM 还是混合」的决策留待可视化验收后再拍。
+
+---
+
 ## 4. 风险与后置
 
 - **R1 780M 不支持**：若日志三项全 false，光追主线就地改为「先补 RHI-14 + L5 后处理」或换硬件，**不硬啃软件回退**（软件 RT 在这个引擎里没有意义）。
@@ -106,3 +124,4 @@
 3. 现有渲染画面、`error.log` 与 B0 之前**无差异**（探测不改任何状态）。
 4. B1 后：启动日志改四态 `光追能力: supported(rayQuery=…) enabled(rayQuery=…) accelExt=… bdaExt=…`；RTX 机器上 `enabled(rayQuery)=true`，780M 上允许 false 且引擎照常跑。
 5. B2a 后：控制台出现 `BLAS 构建` 一行（网格、图元数、AS 字节数）；构建失败时抛 `IllegalStateException`/`VulkanException` 并带 Vulkan 结果码，不允许静默。
+6. B3 后：按 F9 画面切为求交直显——命中近蓝远橙、天空/miss 深蓝；第 14 行报实例数与 TLAS 容量；物体轮廓与光栅画面贴合（无整体偏移、无条纹自交、无穿透漏检）。设备无 ray query（780M）时写「未就绪」且画面不变。

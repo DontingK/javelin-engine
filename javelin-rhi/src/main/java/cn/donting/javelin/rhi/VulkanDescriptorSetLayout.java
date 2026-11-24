@@ -10,6 +10,7 @@ import org.lwjgl.vulkan.*;
 import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
 /**
  * DescriptorSetLayout 实现。
@@ -82,6 +83,7 @@ final class VulkanDescriptorSetLayout implements DescriptorSetLayout {
             case UNIFORM_BUFFER_DYNAMIC -> VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
             case STORAGE_BUFFER_DYNAMIC -> VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
             case INPUT_ATTACHMENT -> VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+            case ACCELERATION_STRUCTURE -> VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         };
     }
 

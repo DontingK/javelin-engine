@@ -4,6 +4,7 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
 /**
  * DescriptorSet 实现。
@@ -71,6 +72,14 @@ final class VulkanDescriptorSet implements DescriptorSet {
                                 .imageLayout(VK_IMAGE_LAYOUT_UNDEFINED);
                         write.pImageInfo(imgInfo);
                     }
+                    case ACCELERATION_STRUCTURE -> {
+                        // 加速结构描述符走独立的 pNext 结构（P4-06 B3）
+                        VkWriteDescriptorSetAccelerationStructureKHR accel =
+                                VkWriteDescriptorSetAccelerationStructureKHR.calloc(stack).sType$Default();
+                        accel.accelerationStructureCount(1);
+                        accel.pAccelerationStructures(stack.longs(update.tlas().handle()));
+                        write.pNext(accel);
+                    }
                 }
             }
 
@@ -103,6 +112,7 @@ final class VulkanDescriptorSet implements DescriptorSet {
             case SAMPLED_TEXTURE -> VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             case STORAGE_TEXTURE -> VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             case SAMPLER -> VK_DESCRIPTOR_TYPE_SAMPLER;
+            case ACCELERATION_STRUCTURE -> VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         };
     }
 }
