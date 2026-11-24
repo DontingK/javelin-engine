@@ -81,8 +81,8 @@ public class DdgiProbePass implements RenderPass {
     private static final int LIGHT_UBO_BYTES = 80;
     /** CSM 阴影参数 UBO（352B，std140：头 vec4 16 + mat4×4 256 + cascadeSplits/shadowParams/shadowParams2/cascadeInvZ 各 16） */
     private static final int SHADOW_UBO_BYTES = 352;
-    /** 单条射线最长距离（世界单位；先固定，B5 再按场景尺寸自适应） */
-    private static final float MAX_RAY_DISTANCE = 60f;
+    /** 单条射线最长距离（世界单位；先固定，B5 再按场景尺寸自适应）。public：探针可视化按它归一化深度矩 */
+    public static final float MAX_RAY_DISTANCE = 60f;
     /** 首圈完成后做一次诊断读回打印的探针数 */
     private static final int DEBUG_PROBES = 8;
     /** 诊断 SSBO 每条记录的 float 数（平均辐射 rgb / 命中率 / 平均命中距离 / 保留） */
@@ -170,6 +170,16 @@ public class DdgiProbePass implements RenderPass {
     /** 已完成的圈数（调试与验收用） */
     public int completedSweeps() {
         return firstSweepDone ? 1 : 0;
+    }
+
+    /** 当前探针网格（null = 数据面未就绪；调试视图只读，不得改动） */
+    public DdgiProbeGrid grid() {
+        return grid;
+    }
+
+    /** 当前 atlas 对（null = 数据面未就绪；调试视图只读，不得改动） */
+    public DdgiAtlases atlases() {
+        return atlases;
     }
 
     @Override

@@ -673,6 +673,14 @@ public class JavelinEngine {
         return ddgiVoxelizer;
     }
 
+    /**
+     * DDGI 探针追踪 + 更新 Pass（未建管线为 null）。只读消费口：调试视图取探针网格与
+     * 两张 atlas 用；编辑器侧不得经此改动探针数据面（Engine_DDGI_ProbeViz_Design §2 P4）。
+     */
+    public DdgiProbePass ddgiProbePass() {
+        return ddgiProbePass;
+    }
+
     public AssetManager getAssetManager() {
         return assetManager;
     }

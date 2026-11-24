@@ -1,6 +1,6 @@
 # 引擎阶段路线——批次索引（Engine Roadmap Progress）
 
-> 版本：v0.19（2026-11-23 补 DDGI 近景窗口方案件条目）；v0.18（2026-11-18 补 RHI 纹理底座/跨帧布局记忆 RHI-13 验收销账 + BUG-10 复测通过挂靠 + 当日 CSM 坑 #41 条目）
+> 版本：v0.20（2026-11-24 补 DDGI 探针可视化落码条目）；v0.19（2026-11-23 补 DDGI 近景窗口方案件条目）；v0.18（2026-11-18 补 RHI 纹理底座/跨帧布局记忆 RHI-13 验收销账 + BUG-10 复测通过挂靠 + 当日 CSM 坑 #41 条目）
 > 定位：`Engine_Roadmap.md` 的**分卷**（2026-11-08 拆分，同日由逐字流水压成索引）。总纲承载各期目标 / 拍板 / 验收标准 / 状态摘要；本文承载**批次索引**——哪个日期、做了哪一批、关键改动是什么、落点在哪个设计档、验收状态如何。
 > 压缩口径：每条一行要点，**散文细节不再复述**（实现过程、逐文件枚举、方案论证）——它们归各设计档的**版本沿革**与 `Engine_Features.md` 的**验收状态行**（验收状态/日期全项目单点）。**只在台账出现过、别处无副本的要点**（各条挂靠关系、跨档散件、排障事实）保留在条目内与 §5/§6 归档。
 > 维护口径：新批次的进度明细写本文（AGENTS 红线 12），`Engine_Roadmap.md` 只同步**状态摘要**与 §5 映射表。条目内「见 §x」指 `Engine_Roadmap.md` 同号节。
@@ -126,6 +126,7 @@
 - 2026-11-22｜B3 终态：直射项体素 sunVisible → CSM 阴影图 + 描述符池归还（P4-05）｜⏳ 待验收
 - 2026-11-21｜构建侧修：toolchain 钉死 GraalVM 25.0.3（IDEA 主类启动失败）｜（状态见分卷）
 - 2026-11-23｜出「DDGI 近景窗口」方案件（低优先级后置，不排入 §4 施工序）：探针块已随相机、但体素层仍是整世界单张 N³（200m 场景默认档 1.56m 体素，薄构件从 GI 消失）→ 方案 = 64m 滚动窗口 + 8m chunk 位移 + 乒乓拷贝与 slab 增量体素化 + 探针 chunk 吸附与位移重投影 + `MAX_RAY_DISTANCE` 40m；§10 记动态物体（角色）现状 = 角色被并入静态集致体素图冻结、停下才整场重建，口径定「只接收 GI、发射与遮挡交 rayQuery」 → `doc/Engine_DDGI_NearField_Design.md` v0.2 ｜📌 后置方案件（未排期）
+- 2026-11-24｜DDGI 探针可视化落码（DBG-07 / dbg-3，L3 验收依赖件；用户「先做可视化、验收靠后」）：新档 `Engine_DDGI_ProbeViz_Design.md` v0.1 方案 → v0.2 落码——三视图 = 探针网格盒 + 三轴十字（世界空间 `DebugDrawLine`，由 `DebugLineAppState` 在每帧 clear 后统一代提交，超 2000 十字按整数步长降采样）+ atlas 直显（`DdgiProbeViewPass` 全屏三角、push `{mode, scale}`、自建 set0 单采样器，`texelFetch` 1:1 + tile 边框「未扫红 / 已扫暗灰」+ 溢出洋红，零 CPU 回读）+ `DebugText` 第 11 行数值行（网格/atlas 尺寸/首圈/十字 1/N/每帧探针数）；入口 = 菜单「工具 | DDGI 探针视图」四项 + F5 循环，未就绪置灰；core 只加只读 `DdgiProbePass.grid()/atlases()` + `JavelinEngine.ddgiProbePass()`（`MAX_RAY_DISTANCE` 提 public）；新内置资产 `builtin-asset-editor/debug/ddgiView.frag`(+`.meta`) 与 test-project 副本 → `doc/Engine_DDGI_ProbeViz_Design.md` v0.2 ｜⏳ 待验收（未编译；`ddgiView.frag` 需重导出 SPIR-V 产物后 atlas 视图才可点亮）
 
 ---
 

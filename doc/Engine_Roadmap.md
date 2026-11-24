@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.31（2026-11-24）
+> v0.31 变更（2026-11-24）：**L3 探针可视化落码（DBG-07 / dbg-3）**——按用户「先做可视化、验收靠后」落三视图：探针网格盒 + 三轴十字（`DebugDrawLine` 由 `DebugLineAppState` 统一代提交）、atlas 直显覆盖 Pass（`DdgiProbeViewPass`，`texelFetch` 1:1 + 未扫 tile 红框 + 溢出洋红，零 CPU 回读）、`DebugText` 第 11 行数值行；入口菜单「工具 | DDGI 探针视图」四项 + F5；core 仅加只读 `DdgiProbePass.grid()/atlases()` 与 `JavelinEngine.ddgiProbePass()`。方案件 `Engine_DDGI_ProbeViz_Design.md` v0.2；未编译，`ddgiView.frag` 待重导出 SPIR-V。**下一步 = DBG-03 shadowMap 可视化（L4 开工前的调参眼）→ 再进 L4 REND-21-A cutout 阴影**。
 > 版本：v0.30（2026-11-21）
 > v0.30 变更（2026-11-21）：**L2 第一笔关账**——RHI-15 + RHI-08 格式能力查询**用户实机验收通过**（`FormatCapabilityTest` 设备 AMD 780M：8 格式能力表 + 7 条必支持断言全过、负例创建期抛错；快照 `R32_UINT` color=true/blend=false/linear=false、`D32F` depth=true/storage=false）。`RHI_Texture_Types_Design.md` → v0.5 §7 验收记录；Backlog 两行移出；**L2 剩 RHI-14（按 DDGI 单张 atlas 选型后置）**。主线转入 **L3 DDGI 首版**：§10 四点按推荐默认拍板（单张 2D atlas / 纯相机滚动体积 / 体素 DDA / SSAO 0.25+0.45），**B1 数据面同日落码**（`DdgiSettings` + `DdgiProbeGrid` + 单测 `DdgiProbeGridTest` + `DdgiAtlases`（两张 atlas GPU 资源，验证件 `DdgiAtlasTest`）；档 v0.2 §11），残留 = 两支 compute（追踪/更新）与消费面；**B1 残留②体素化重建同批落码**（`DdgiVoxelField` 128³ `RGBA8`（基色 + 占用）+ `DdgiVoxelizer`（不透明 + `castShadow` 集合、静态集签名两帧稳定门控）+ 改写版 `voxelize.compute`）。
 > v0.29 变更（2026-11-21）：**L2 硬前置第一笔（RHI-15 + RHI-08 格式能力查询）落码，待编译验收**——`FormatSupport`（`vkGetPhysicalDeviceFormatProperties` 能力快照 + `supports(TextureUsage)`）+ `Device.formatSupport(Format)`（按格式缓存）+ 纹理创建期 usage 校验 + PSO 附件校验（颜色/混合/深度），缺项 `IllegalStateException` 带设备名；验证件 `FormatCapabilityTest`（能力表 + 7 条必支持断言 + 负例）。口径 `RHI_Texture_Types_Design.md` v0.4 §7。**RHI-14（mip 链/逐层屏障/createView）未开工**——按 DDGI 选型「单张 2D atlas」可后置，待用户拍板后定序。
@@ -165,7 +167,7 @@
 | | 格式能力查询 | RHI-15（并 RHI-08） | 非法 `STORAGE`+格式组合创建期 fail-fast | ✅ 2026-11-21 用户实机验收（`FormatCapabilityTest`，设备 AMD 780M）；档 v0.5 §7；RHI-14 按「DDGI 单张 atlas」选型后置 |
 | **L3** GI 主体 | DDGI 首版 | P4-05 / **`Engine_DDGI_Design.md` v0.2** | 单色房间有渗色、关主光墙角仍有方向性、无黑斑 | **B1 数据面 2026-11-21 落码待验收**（`DdgiSettings` + `DdgiProbeGrid` + 单测）；§10 四点按推荐默认拍板；残留 = atlas GPU 资源 + 体素化重建 + 两支 compute｜投射线走体素 DDA；网格外回落 `ambient` |
 | | 环境遮蔽层收敛 | P4-05 备注② / `SsaoPass` | DDGI 档下不与 SSAO 双层压暗 | 体素 AO 已退役（2026-11-20），现只剩 SSAO 一层 |
-| | 探针可视化 | DBG 族 | 探针位置 / 辐照度 / 可见性可读 | 验收依赖件 |
+| | 探针可视化 | DBG-07 / `Engine_DDGI_ProbeViz_Design.md` | 探针位置 / 辐照度 / 可见性可读 | ✅ 2026-11-24 落码（网格线框 + atlas 直显 + 数值行；未编译待验收）|
 | **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | `shadow.frag` 现零 alpha 采样；成本最低、素材相关，优先 |
 | | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | 必须拆两套集合（可见性 vs caster）；距离门限用 `shadowDistance` |
 | | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | 接触漏光的根治面 |
