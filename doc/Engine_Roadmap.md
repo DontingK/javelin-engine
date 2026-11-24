@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.33（2026-11-25）
+> v0.33 变更（2026-11-25）：**L4 第二笔 REND-21-C 的 C1（PCSS）落码**——按方案 §5 五点默认（C 与 B 对调已获认可）：`ShadowSettings` 新增 `softness`（缺省 1.0，0 = 关），经 `shadowParams2.w` 进 UBO（`LIGHTING_STRIDE` 768 不变）；set1 新增 **binding11 `shadowMapRaw`**（同一张 atlas、NEAREST 非比较采样器——阻挡搜索要真实深度，比较采样器只给 0/1）；注入段新增 `javelinPcssBlockerDepth`（黄金角螺旋 16/24 tap）+ `javelinCascadeShadow` 内把 PCF 核半径换成由遮挡距离推出的半影（钳制 `[pcfRadius, ×4]`），关档逐像素回退旧路径。C2 接触阴影挂 `Engine_Backlog.md`（需深度附件加 `SAMPLED`）。方案件 `Engine_Shadow_PCSS_Design.md` v0.2。**未编译**（注入段改动 = 全部 `.shader` 与内置 `lighting.frag` 强制重导）。
 > 版本：v0.32（2026-11-24）
 > v0.32 变更（2026-11-24）：**L4 首笔 REND-21-A（cutout/alpha-test 阴影）落码**——按方案 §4 五点默认执行：①语义载体 = 只加 shader 属性 `_AlphaCutoff`（`Range(0,1)`，缺省 0 = 关，不动 `SurfaceType` 枚举）；②阴影侧以 push 128→144B 传 cutoff / hasAlbedoTex（`Device.maxPushConstantsSize()` 新增只读口，超限构造期抛错）；③贴图槽固定 `_MainTex`；④主渲染与阴影同批开（`ShaderInjector` 新增 fs 注入助手 `javelinAlphaClip`，内置 `Lit.shader` Forward/GBuffer 两条 fs 各接一行）；⑤作为 L4 首笔。`ShadowPass` 首次获得专属 set0（binding0 = 材质 `_MainTex`，每材质描述符集按贴图版本重建、旧集两帧退役），`shadow.vert` 补 `aUV`→`vUV`，`shadow.frag` 由空体改为按阈值 `discard`。方案件 `Engine_Shadow_Cutout_Design.md` v0.2（§9 落码记录）。**未编译**：内置 `Lit.shader` / `shadow.vert/.frag` 需 reimport 出 SPIR-V；`DdgiVoxelizer` 不吃 alpha 记为后置。
 > 版本：v0.31（2026-11-24）
@@ -172,7 +174,7 @@
 | | 探针可视化 | DBG-07 / `Engine_DDGI_ProbeViz_Design.md` | 探针位置 / 辐照度 / 可见性可读 | ✅ 2026-11-24 落码（网格线框 + atlas 直显 + 数值行；未编译待验收）|
 | **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | ✅ 2026-11-24 落码（`Engine_Shadow_Cutout_Design.md` v0.2）：材质 `_AlphaCutoff` 语义 + 阴影专 set0 采样 `_MainTex` + push 144B；主渲染同口径 discard；未编译待验收 |
 | | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | 必须拆两套集合（可见性 vs caster）；距离门限用 `shadowDistance` |
-| | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | 接触漏光的根治面 |
+| | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | **C1 PCSS 2026-11-25 落码待验收**（`softness` + binding11 原始深度 + 变半径 PCF，`Engine_Shadow_PCSS_Design.md` v0.2）；C2 接触阴影挂 Backlog（需相机深度加 `SAMPLED`）；接触漏光的根治面 |
 | | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |
 | **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | 与 BRDF 无关，故排在光追前 |
 | **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链 |

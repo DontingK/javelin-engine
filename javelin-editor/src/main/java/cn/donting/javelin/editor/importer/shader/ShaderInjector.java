@@ -233,6 +233,9 @@ public final class ShaderInjector {
                 uint clusterIndices[];
             };
             layout(set = 1, binding = 4) uniform sampler2DShadow shadowMap;
+            // 同一张 atlas 的原始深度（无 compare）：PCSS 阻挡搜索要真实深度值，比较采样器只给
+            // 0/1 可见性（REND-21-C1）
+            layout(set = 1, binding = 11) uniform sampler2D shadowMapRaw;
 
             // per-object 接收阴影标志（变体实现见 RECEIVE_SHADOW_PUSH / RECEIVE_SHADOW_GBUFFER）
             float javelinReceiveShadow();
@@ -240,6 +243,29 @@ public final class ShaderInjector {
             // 单 tap 深度比较（夹取到象限界内——PCF 核不跨 atlas 象限渗漏）
             float javelinShadowTapC(vec2 tuv, float refZ, vec2 qmin, vec2 qmax) {
                 return texture(shadowMap, vec3(clamp(tuv, qmin, qmax), refZ));
+            }
+
+            // PCSS 段一：阻挡搜索（REND-21-C1）——在 uv 圆盘上取 taps 个原始深度，统计 refZ
+            // 以下的平均遮挡深度；无遮挡返回 -1（调用方据此直接判受光）。
+            // 用黄金角螺旋散布（避免固定盘出现方向性锯齿）；半径以纹素计，逐 tap 折算成 uv。
+            float javelinPcssBlockerDepth(vec2 uv, float refZ, vec2 qmin, vec2 qmax,
+                    float radiusTexels, float texelSize, int taps) {
+                float sum = 0.0;
+                int count = 0;
+                for (int i = 0; i < 24; i++) {
+                    if (i >= taps) {
+                        break;
+                    }
+                    float ang = float(i) * 2.39996323;
+                    float r = sqrt((float(i) + 0.5) / float(taps)) * radiusTexels * texelSize;
+                    vec2 suv = clamp(uv + vec2(cos(ang), sin(ang)) * r, qmin, qmax);
+                    float d = texture(shadowMapRaw, suv).r;
+                    if (d < refZ) {
+                        sum += d;
+                        count++;
+                    }
+                }
+                return count == 0 ? -1.0 : sum / float(count);
             }
 
             // 单级联阴影因子（四期 CSM §4.5/§4.6）：该级联矩阵投影 → atlas 象限定位 →
@@ -281,11 +307,26 @@ public final class ShaderInjector {
                 vec2 uvT = uv * atlasSize + 0.5;
                 vec2 st = fract(uvT);
                 vec2 base = (floor(uvT) - 0.5) * texelSize;
+                // PCSS 段二（REND-21-C1）：软化系数 > 0 时先做阻挡搜索，把 PCF 核半径换成由
+                // 遮挡距离推出的半影；无阻挡直接判受光，关档（w = 0）时核半径 = pcfRadius
+                // ——退回改前的固定核 PCF，逐像素一致（判据 D）。
+                // 半影尺度是相对量：遮挡深度差（归一化光空间 z）× softness × atlas 边长系数，
+                // 近级联 z 范围小 → 同样世界距离的遮挡差给出更大半影，符合近处更软的直觉。
+                float kernelRadius = pcfRadius;
+                if (lighting.shadowParams2.w > 0.0) {
+                    float blockerZ = javelinPcssBlockerDepth(uv, refZ, qmin, qmax,
+                            pcfRadius * 8.0, texelSize, pcfMode == 1 ? 16 : 24);
+                    if (blockerZ < 0.0) {
+                        return 1.0;
+                    }
+                    float penumbra = (refZ - blockerZ) * lighting.shadowParams2.w * atlasSize * 0.05;
+                    kernelRadius = clamp(penumbra, pcfRadius, pcfRadius * 4.0);
+                }
                 if (pcfMode == 1) {
                     vec2 uvw0 = 3.0 - 2.0 * st;
                     vec2 uvw1 = 1.0 + 2.0 * st;
-                    vec2 u = vec2((2.0 - st.x) / uvw0.x - 1.0, st.x / uvw1.x + 1.0) * texelSize * pcfRadius;
-                    vec2 v = vec2((2.0 - st.y) / uvw0.y - 1.0, st.y / uvw1.y + 1.0) * texelSize * pcfRadius;
+                    vec2 u = vec2((2.0 - st.x) / uvw0.x - 1.0, st.x / uvw1.x + 1.0) * texelSize * kernelRadius;
+                    vec2 v = vec2((2.0 - st.y) / uvw0.y - 1.0, st.y / uvw1.y + 1.0) * texelSize * kernelRadius;
                     float s = uvw0.x * uvw0.y * javelinShadowTapC(base + vec2(u.x, v.x), refZ, qmin, qmax)
                             + uvw1.x * uvw0.y * javelinShadowTapC(base + vec2(u.y, v.x), refZ, qmin, qmax)
                             + uvw0.x * uvw1.y * javelinShadowTapC(base + vec2(u.x, v.y), refZ, qmin, qmax)
@@ -296,9 +337,9 @@ public final class ShaderInjector {
                 vec2 uvw1 = vec2(7.0);
                 vec2 uvw2 = 1.0 + 3.0 * st;
                 vec3 u = vec3((3.0 - 2.0 * st.x) / uvw0.x - 2.0, (3.0 + st.x) / uvw1.x,
-                        st.x / uvw2.x + 2.0) * texelSize * pcfRadius;
+                        st.x / uvw2.x + 2.0) * texelSize * kernelRadius;
                 vec3 v = vec3((3.0 - 2.0 * st.y) / uvw0.y - 2.0, (3.0 + st.y) / uvw1.y,
-                        st.y / uvw2.y + 2.0) * texelSize * pcfRadius;
+                        st.y / uvw2.y + 2.0) * texelSize * kernelRadius;
                 float s = uvw0.x * uvw0.y * javelinShadowTapC(base + vec2(u.x, v.x), refZ, qmin, qmax)
                         + uvw1.x * uvw0.y * javelinShadowTapC(base + vec2(u.y, v.x), refZ, qmin, qmax)
                         + uvw2.x * uvw0.y * javelinShadowTapC(base + vec2(u.z, v.x), refZ, qmin, qmax)

@@ -1,6 +1,6 @@
 # 引擎阴影质量分级设计（Engine Shadow Quality Design）
 
-> 版本：v0.8（**2026-11-24 随 REND-21-A 同步 §4.7 push/set 形态**：push 128→144B + ShadowPass 首获 set0（alpha 裁剪），落码件见 `Engine_Shadow_Cutout_Design.md` v0.2）；v0.7（**2026-11-21 接触漏光修复用户实机验收通过，BUG-11 销账**；v0.6 = 该修复落码待验收；v0.5 = 步骤一 + 步骤二 CSM 全件 2026-11-14 验收、P4-03 关账）
+> 版本：v0.9（**2026-11-25 REND-21-C1 PCSS 落码**：`pcfRadius` 变核半径下限 + set1 binding11 原始深度 + 注入段 `javelinPcssBlockerDepth`，落码件 `Engine_Shadow_PCSS_Design.md` v0.2）；v0.8（**2026-11-24 随 REND-21-A 同步 §4.7 push/set 形态**：push 128→144B + ShadowPass 首获 set0（alpha 裁剪））
 > 日期：2026-11-21
 > v0.7 变更（2026-11-21）：**§9.6 接触漏光修复验收关账**——用户重导 `.shader` 与内置 `lighting.frag`、项目设置「阴影」组恢复默认后实机「没问题了」；接触环亮缝收窄到设计预期（1~2 纹素），无 acne 暗斑、无阴影包裹感。**BUG-11 从 `Engine_Backlog.md` 移出**，验收状态归 `Engine_Features.md` §2.4 行。残留不变：接触处半影仍 1~2 纹素（PCSS/SSCT 归步骤三可选收尾；环境光侧漏光随体素 AO 退役已消失）。
 > v0.6 变更（2026-11-20）：**接触漏光（contact gap）修复**——物体半埋进平面时，两者接触处出现一圈亮线（cube 底部与地面交界最明显），根因是「shadow map 遮挡轮廓只能落在纹素边界 + PCF 核 + 掠射面 slope bias」三者同向叠加，与本档原「bias 抗 acne ↔ 漏影」预算争夺是同一件事。修法 = ①注入段 `refZ` 增加**固定半纹素外扩**（`0.5 / (atlasSize/grid)`，归一化深度口径，见 §3.4-4/§9.6）；②`ShadowSettings` 五项缺省重标：`pcfRadius` 1.0→**0.6**、`refDepthOffset` 0→**0.02**、`biasSlope` 1.5→**0.6**、`cascadeCount` 2→**4**、`shadowDistance` 100→**80**（近级联纹素 ~3.3cm→~1.3cm，atlas 仍 2×2 全用、显存不变）。**注入器改动 = 强制重导 `.shader` 与内置 `lighting.frag`**。**旧工程设置档已序列化旧值 → 需在项目设置「阴影」组点「恢复默认」或手动改为新缺省**，否则本批只在新建工程生效。残留见 §9.7。
@@ -403,6 +403,12 @@ CSM 的切分/盒拟合依赖**各相机自己的视锥**，故：
 x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数），`base`/`u`/`v` 全改标量乘。
 **教训**：Babylon 式的标量/向量混用别照抄成向量——glsl 标量广播方向合法性和「向量×向量
 逐分量」语义不同，编译器只在维度不匹配时报错，维度凑巧匹配时**静默改义**。
+
+**2026-11-25 延伸（REND-21-C1 PCSS）**：`pcfRadius` 从「固定核偏移缩放」升级为「**核半径下限**」
+——`ShadowSettings.softness > 0` 时先做阻挡搜索（`javelinPcssBlockerDepth` 读 set1 binding11 原始
+深度，黄金角螺旋 16/24 tap），核半径改由半影 `(refZ-blockerZ) * softness * atlasSize * 0.05`
+推出并钳制在 `[pcfRadius, pcfRadius × 4]`；`softness = 0` 时核半径 = `pcfRadius`，与本节改前
+逐像素一致。细节见 `Engine_Shadow_PCSS_Design.md` v0.2 §9。
 
 ### 9.3 验收口径（步骤一-A/-B/-D，用户实机）
 

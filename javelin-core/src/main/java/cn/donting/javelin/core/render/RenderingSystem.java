@@ -213,6 +213,13 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, ViewShadow> viewShadows = new HashMap<>();
     private final Sampler shadowSampler;
     /**
+     * 阴影原始深度采样器（REND-21-C1 PCSS 阻挡搜索，2026-11-25）：与 {@link #shadowSampler}
+     * 绑同一张 atlas，但**不带深度比较**、NEAREST 取样——阻挡搜索要真实深度值而不是 0/1
+     * 可见性。NEAREST 而非 LINEAR：深度格式的线性过滤支持因设备而异（RHI-15 能力表不校验采样
+     * 滤波），NEAREST 全平台安全，16/24 tap 圆盘本身已足够平滑。
+     */
+    private final Sampler shadowRawSampler;
+    /**
      * DDGI 消费面采样器（set1 binding8/10：辐照度 / 深度矩 atlas）。consumption 侧手写
      * 双线性（tile 内区 clamp，不跨 tile 渗漏），故 NEAREST + CLAMP 足够。
      */
@@ -422,6 +429,11 @@ public final class RenderingSystem implements AutoCloseable {
                 Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
                 SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f, CompareOp.LESS));
+        // 阴影原始深度采样器（PCSS 阻挡搜索，REND-21-C1）：同 atlas、无 compare、NEAREST
+        this.shadowRawSampler = device.createSampler(new SamplerDesc(
+                Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f));
         // G-Buffer 采样器（HYBRID 档）：LightingPass 全屏逐像素读 G-Buffer——
         // 无缩放无 mip，NEAREST + CLAMP 最省且与写入像素一一对应
         this.gbufferSampler = device.createSampler(new SamplerDesc(
@@ -1276,6 +1288,8 @@ public final class RenderingSystem implements AutoCloseable {
             ViewLighting vl = viewLights.get(cam.name());
             if (vl != null) {
                 vl.set.update(DescriptorUpdate.sampledTexture(4, vs.map, shadowSampler));
+                // binding11 = 同一张图的原始深度（PCSS 阻挡搜索），必须与 binding4 同步换指
+                vl.set.update(DescriptorUpdate.sampledTexture(11, vs.map, shadowRawSampler));
             }
             log.info("视口阴影图创建: camera[{}] {}²×级联 {} → atlas {}²（grid {}）",
                     cam.name(), resolution, count, atlasSize, grid);
@@ -1615,11 +1629,12 @@ public final class RenderingSystem implements AutoCloseable {
                 .putFloat(shadow.getPcfRadius())
                 .putFloat(shadow.getStrength())
                 .putFloat(shadow.getRefDepthOffset());
-        // shadowParams2（@624）：x=atlas 每轴象限数 / y=atlas 边长 / z=级联混合带比例 / w=0
+        // shadowParams2（@624）：x=atlas 每轴象限数 / y=atlas 边长 / z=级联混合带比例 /
+        // w=PCSS 软化系数（REND-21-C1；0 = 关 PCSS，走固定核 PCF）
         lightingPack.putFloat(vs.grid)
                 .putFloat(vs.atlasSize)
                 .putFloat(SHADOW_CASCADE_BLEND)
-                .putFloat(0.0f);
+                .putFloat(shadow.getSoftness());
         // cascadeInvZ（@640）：逐级联 1/光空间 z 范围（参考深度偏移折算除数）
         for (int c = 0; c < 4; c++) {
             lightingPack.putFloat(vs.invZ[c]);
@@ -1879,6 +1894,10 @@ public final class RenderingSystem implements AutoCloseable {
                 new DescriptorSetLayoutDesc.Binding(9, DescriptorType.UNIFORM_BUFFER, 1,
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(10, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding11 = shadowMap 原始深度（REND-21-C1 PCSS 阻挡搜索：与 binding4 同一张
+                // atlas，不同采样器——无 compare 才能读到真实深度）
+                new DescriptorSetLayoutDesc.Binding(11, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -1942,18 +1961,20 @@ public final class RenderingSystem implements AutoCloseable {
     private void updateLightingSet(ViewLighting vl) {
         Texture irr = vl.ddgiIrradiance != null ? vl.ddgiIrradiance : ddgiPlaceholderTexture();
         Texture dep = vl.ddgiDepth != null ? vl.ddgiDepth : ddgiPlaceholderTexture();
+        Texture shadowMap = shadowMapFor(vl.cameraName);
         vl.set.update(new DescriptorUpdate[]{
                 DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
                 DescriptorUpdate.storageBuffer(1, vl.lightList),
                 DescriptorUpdate.storageBuffer(2, vl.clusterGrid),
                 DescriptorUpdate.storageBuffer(3, vl.clusterIndices),
-                DescriptorUpdate.sampledTexture(4, shadowMapFor(vl.cameraName), shadowSampler),
+                DescriptorUpdate.sampledTexture(4, shadowMap, shadowSampler),
                 DescriptorUpdate.sampledTexture(5, vl.gbufferAlbedo, gbufferSampler),
                 DescriptorUpdate.sampledTexture(6, vl.gbufferNormal, gbufferSampler),
                 DescriptorUpdate.sampledTexture(7, vl.gbufferWorldPos, gbufferSampler),
                 DescriptorUpdate.sampledTexture(8, irr, ddgiSampler),
                 DescriptorUpdate.uniformBuffer(9, vl.ddgiParams, 0, DDGI_PARAM_BYTES),
-                DescriptorUpdate.sampledTexture(10, dep, ddgiSampler)});
+                DescriptorUpdate.sampledTexture(10, dep, ddgiSampler),
+                DescriptorUpdate.sampledTexture(11, shadowMap, shadowRawSampler)});
     }
 
     /** DDGI 占位图（1×1）：atlas 未就绪/DDGI 关闭时 binding8/10 的描述符占位（着色端不采样） */
@@ -2435,6 +2456,7 @@ public final class RenderingSystem implements AutoCloseable {
         viewShadows.values().forEach(ViewShadow::dispose);
         viewShadows.clear();
         shadowSampler.dispose();
+        shadowRawSampler.dispose();
         gbufferSampler.dispose();
         ddgiSampler.dispose();
         if (ddgiPlaceholder != null) {

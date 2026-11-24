@@ -10,15 +10,15 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * 阴影参数（Engine_Shadow_Quality_Design §3.2/§3.5）：品质档 / 强度 / PCF 半径 /
- * 参考深度偏移 / PSO 静态 depth bias 两项 / CSM 级联三项。
+ * 阴影参数（Engine_Shadow_Quality_Design §3.2/§3.5）：品质档 / 强度 / PCF 半径（PCSS 下为核半径
+ * 下限）/ PCSS 软化系数 / 参考深度偏移 / PSO 静态 depth bias 两项 / CSM 级联三项。
  *
  * <p><b>为何独立成对象</b>：阴影参数域内聚——面板按它展开成「阴影」分组，引擎侧按它整体
  * 取用。字段级缺键回退由 {@link InputCapsule} 的默认值重载负责（默认值 = 字段声明初值），
  * 嵌套对象自身的缺键回退走 {@code readSerializable} 的 null 判定。</p>
  *
- * <p><b>生效路径</b>：品质档/强度/PCF 半径/参考深度偏移每帧打包进 set1 UBO
- * （{@code LightingParamsBlock.shadowParams}），改后即时生效；bias 两项是 PSO 静态态，
+ * <p><b>生效路径</b>：品质档/强度/PCF 半径/软化系数/参考深度偏移每帧打包进 set1 UBO
+ * （{@code LightingParamsBlock.shadowParams/shadowParams2}），改后即时生效；bias 两项是 PSO 静态态，
  * 改动触发 {@code ShadowPass} 重建 PSO 缓存（下一帧起生效）。</p>
  *
  * <p><b>面板声明（2026-11-14）</b>：字段贴 {@link InsField}/{@link InsFloatRange}/
@@ -80,6 +80,16 @@ public class ShadowSettings implements Serializable {
     @InsSlider
     @SettingHint("projectSettings.shadowCascadeHint")
     private float cascadeLambda = 0.5f;
+    /**
+     * PCSS 软化系数（REND-21-C1，2026-11-25）：0 = 关 PCSS（退回固定核 PCF，与改前逐像素
+     * 一致）；&gt; 0 时做阻挡搜索，半影宽度随「接收面与遮挡体的光空间深度差」变化。
+     * 缺省 1.0（软影档下近处约 1~2 纹素、分隔 1m 量级的遮挡约 3~4 纹素）。
+     */
+    @InsField(label = "projectSettings.shadowSoftness")
+    @InsFloatRange(min = 0f, max = 4f, step = 0.05f)
+    @InsSlider
+    @SettingHint("projectSettings.shadowSoftnessHint")
+    private float softness = 1.0f;
 
     public ShadowQuality getQuality() {
         return quality;
@@ -159,6 +169,15 @@ public class ShadowSettings implements Serializable {
         this.cascadeLambda = Math.min(Math.max(cascadeLambda, 0.0f), 1.0f);
     }
 
+    public float getSoftness() {
+        return softness;
+    }
+
+    /** 软化系数下限 0（0 = 关 PCSS，走固定核 PCF） */
+    public void setSoftness(float softness) {
+        this.softness = Math.max(softness, 0.0f);
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("quality", quality);
@@ -170,6 +189,7 @@ public class ShadowSettings implements Serializable {
         output.write("cascadeCount", cascadeCount);
         output.write("shadowDistance", shadowDistance);
         output.write("cascadeLambda", cascadeLambda);
+        output.write("softness", softness);
     }
 
     @Override
@@ -185,5 +205,6 @@ public class ShadowSettings implements Serializable {
         cascadeCount = input.readInt("cascadeCount", 4);
         shadowDistance = input.readFloat("shadowDistance", 80.0f);
         cascadeLambda = input.readFloat("cascadeLambda", 0.5f);
+        softness = input.readFloat("softness", 1.0f);
     }
 }
