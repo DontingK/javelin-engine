@@ -18,6 +18,7 @@ import java.nio.LongBuffer;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static org.lwjgl.vulkan.VK10.*;
@@ -39,6 +40,8 @@ final class VulkanDevice implements Device {
     private final long descriptorPoolHandle;
     private final RenderStats stats = new RenderStats();
     private final GPUInfo gpuInfo;
+    /** 光追能力是否**已启用**（扩展 + 特性都进 device；P4-06 B1）。B2 建 AS 前必须查 */
+    private final boolean rayQueryEnabled;
     private volatile boolean disposed;
 
     VulkanDevice(VulkanInstance instance, VkInstance vkInstance,
@@ -91,9 +94,80 @@ final class VulkanDevice implements Device {
             features13.dynamicRendering(true);
             createInfo.pNext(features13);
 
-            // 扩展：swapchain
-            PointerBuffer extBuf = stack.mallocPointer(1);
-            extBuf.put(stack.UTF8(KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME));
+            // ── 光追能力（P4-06 B1）：扩展只在该驱动真的会上报时才加进启用列表，
+            // 特性链同理——**能力可选不阻断引擎启动**，但真正要建 AS 的批次
+            // （B2）必须先查 Device.rayQueryEnabled()，缺失就显性抛错（红线 15）
+            VkPhysicalDeviceFeatures2 probe = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default();
+            VkPhysicalDeviceAccelerationStructureFeaturesKHR asProbe =
+                    VkPhysicalDeviceAccelerationStructureFeaturesKHR.calloc(stack).sType$Default();
+            VkPhysicalDeviceRayQueryFeaturesKHR rqProbe =
+                    VkPhysicalDeviceRayQueryFeaturesKHR.calloc(stack).sType$Default();
+            VkPhysicalDeviceBufferDeviceAddressFeatures bdaProbe =
+                    VkPhysicalDeviceBufferDeviceAddressFeatures.calloc(stack).sType$Default();
+            probe.pNext(asProbe);
+            asProbe.pNext(rqProbe);
+            rqProbe.pNext(bdaProbe);
+            vkGetPhysicalDeviceFeatures2(physicalDevice.device(), probe);
+
+            Set<String> enabledExtensions = new LinkedHashSet<>();
+            enabledExtensions.add(KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+            boolean accelSupported = physicalDevice.hasExtension(KHRAccelerationStructure.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+                    && asProbe.accelerationStructure();
+            boolean rayQuerySupported = physicalDevice.hasExtension(KHRRayQuery.VK_KHR_RAY_QUERY_EXTENSION_NAME)
+                    && rqProbe.rayQuery();
+            boolean bdaSupported = physicalDevice.hasExtension(KHRBufferDeviceAddress.VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
+                    && bdaProbe.bufferDeviceAddress();
+            // VK_KHR_acceleration_structure 规范依赖 deferred_host_operations（同步构建也用得上）
+            boolean deferredSupported = physicalDevice.hasExtension(
+                    KHRDeferredHostOperations.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            if (accelSupported && deferredSupported) {
+                enabledExtensions.add(KHRDeferredHostOperations.VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+                enabledExtensions.add(KHRAccelerationStructure.VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            } else {
+                accelSupported = false;
+            }
+            if (rayQuerySupported && accelSupported) {
+                enabledExtensions.add(KHRRayQuery.VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            } else {
+                rayQuerySupported = false;
+            }
+            if (bdaSupported && accelSupported) {
+                enabledExtensions.add(KHRBufferDeviceAddress.VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+            } else {
+                bdaSupported = false;
+            }
+
+            // 特性链：另建一套结构（探测那套用完即弃，避免 pNext 复用出错）
+            if (accelSupported) {
+                VkPhysicalDeviceAccelerationStructureFeaturesKHR asEnable =
+                        VkPhysicalDeviceAccelerationStructureFeaturesKHR.calloc(stack).sType$Default();
+                asEnable.accelerationStructure(true);
+                VkPhysicalDeviceBufferDeviceAddressFeatures bdaEnable = null;
+                if (bdaSupported) {
+                    bdaEnable = VkPhysicalDeviceBufferDeviceAddressFeatures.calloc(stack).sType$Default();
+                    bdaEnable.bufferDeviceAddress(true);
+                }
+                if (rayQuerySupported) {
+                    VkPhysicalDeviceRayQueryFeaturesKHR rqEnable =
+                            VkPhysicalDeviceRayQueryFeaturesKHR.calloc(stack).sType$Default();
+                    rqEnable.rayQuery(true);
+                    if (bdaEnable != null) {
+                        rqEnable.pNext(bdaEnable);
+                    }
+                    asEnable.pNext(rqEnable);
+                } else if (bdaEnable != null) {
+                    asEnable.pNext(bdaEnable);
+                }
+                features13.pNext(asEnable);
+            }
+
+            this.rayQueryEnabled = rayQuerySupported;
+
+            // 扩展启用列表（按实际可用拼装）
+            PointerBuffer extBuf = stack.mallocPointer(enabledExtensions.size());
+            for (String name : enabledExtensions) {
+                extBuf.put(stack.UTF8(name));
+            }
             extBuf.flip();
             createInfo.ppEnabledExtensionNames(extBuf);
 
@@ -356,6 +430,11 @@ final class VulkanDevice implements Device {
             vkGetPhysicalDeviceFeatures2(physicalDevice.device(), features2);
             return rayQuery.rayQuery();
         }
+    }
+
+    @Override
+    public boolean rayQueryEnabled() {
+        return rayQueryEnabled;
     }
 
     /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */

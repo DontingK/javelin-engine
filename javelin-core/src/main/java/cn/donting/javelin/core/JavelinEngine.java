@@ -181,8 +181,8 @@ public class JavelinEngine {
                 setting.getWindowSettings().isVsync(), setting.getWindowSettings().getMaxFps());
         // 光追首范围（P4-06）能力探针：启动期显性报一行，缺能力就当场看见，
         // 不等到 AS 构建批次才发现驱动不认（红线 15 口径：错误显性化）
-        log.info("光追能力探针: rayQuery={} accelerationStructure={} bufferDeviceAddress={}",
-                device.supportsRayQuery(),
+        log.info("光追能力: supported(rayQuery={}) enabled(rayQuery={}) accelExt={} bdaExt={}",
+                device.supportsRayQuery(), device.rayQueryEnabled(),
                 device.hasDeviceExtension("VK_KHR_acceleration_structure"),
                 device.hasDeviceExtension("VK_KHR_buffer_device_address"));
 

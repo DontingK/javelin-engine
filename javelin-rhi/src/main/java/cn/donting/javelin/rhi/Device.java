@@ -102,6 +102,14 @@ public interface Device extends GPUResource {
      */
     boolean supportsRayQuery();
 
+    /**
+     * 光追能力是否**已在逻辑设备上启用**（扩展与 feature 同时进 {@code VkDeviceCreateInfo}）。
+     *
+     * <p>与 {@link #supportsRayQuery()} 的区别：后者只报驱动能力，本方法报「这一台设备真的能用」。
+     * B2 建 AS 前查本方法，false 就显性抛错，不做软件回退。</p>
+     */
+    boolean rayQueryEnabled();
+
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();
 

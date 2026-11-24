@@ -11,6 +11,8 @@ import java.nio.FloatBuffer;
 import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.VK12.*;
+import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
 /**
  * Buffer 实现。
@@ -174,6 +176,11 @@ final class VulkanBuffer implements Buffer {
                 case INDEX -> flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
                 case VERTEX -> flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
                 case INDIRECT -> flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+                case SHADER_DEVICE_ADDRESS -> flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                case ACCELERATION_STRUCTURE_STORAGE ->
+                        flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+                case ACCELERATION_STRUCTURE_BUILD_INPUT ->
+                        flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
             }
         }
         return flags;

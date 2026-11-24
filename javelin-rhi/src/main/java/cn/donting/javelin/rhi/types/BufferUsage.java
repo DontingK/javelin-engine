@@ -22,5 +22,11 @@ public enum BufferUsage {
     /** 可作为顶点缓冲 */
     VERTEX,                 // VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
     /** 可作为间接绘制参数来源 */
-    INDIRECT;               // VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+    INDIRECT,               // VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+    /** 可取设备地址（BDA，光追 AS 实例/顶点引用需要；P4-06 B1） */
+    SHADER_DEVICE_ADDRESS,  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+    /** 可作为光追加速结构存储 */
+    ACCELERATION_STRUCTURE_STORAGE,          // ..._ACCELERATION_STRUCTURE_STORAGE_BIT_KHR
+    /** 可作为 AS 构建输入（顶点/索引/实例数据只读） */
+    ACCELERATION_STRUCTURE_BUILD_INPUT;      // ..._ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
 }
