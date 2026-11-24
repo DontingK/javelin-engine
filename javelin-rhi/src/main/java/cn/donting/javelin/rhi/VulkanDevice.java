@@ -332,6 +332,11 @@ final class VulkanDevice implements Device {
         return decodeSampleCounts(physicalDevice.properties().limits().framebufferDepthSampleCounts());
     }
 
+    @Override
+    public int maxPushConstantsSize() {
+        return physicalDevice.properties().limits().maxPushConstantsSize();
+    }
+
     /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */
     private static Set<SampleCount> decodeSampleCounts(int vkBits) {
         EnumSet<SampleCount> out = EnumSet.of(SampleCount.COUNT_1);

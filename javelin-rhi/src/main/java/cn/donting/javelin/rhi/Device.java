@@ -84,6 +84,12 @@ public interface Device extends GPUResource {
     /** 深度附件支持的采样档位（规范保证含 COUNT_1，返回不可变集） */
     Set<SampleCount> supportedDepthSampleCounts();
 
+    /**
+     * push 常量最大字节数（VkPhysicalDeviceLimits::maxPushConstantsSize，规范保底 128）。
+     * 管线描述 pushConstantSize 超出即 Vulkan 校验报错——调用方建管线前先用本值显性判定。
+     */
+    int maxPushConstantsSize();
+
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();
 

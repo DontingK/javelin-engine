@@ -451,6 +451,20 @@ public final class ShaderInjector {
         return injected.toString();
     }
 
+    /**
+     * alpha 裁剪助手（REND-21-A，Engine_Shadow_Cutout_Design §5.1）：只注入 fs（含
+     * {@code discard}，片元专属）。用户 shader 在取回 albedo 后调用，阈值一般取材质属性
+     * {@code _AlphaCutoff}（内置 Lit 已接）；阴影 Pass 的 {@code shadow.frag} 走同一阈值口径
+     * （cutoff > 0 才启用，缺省 0 = 逐像素零变化）。
+     */
+    private static final String ALPHA_CLIP = """
+            // alpha 裁剪（REND-21-A）：cutoff > 0 且 albedo.a < cutoff 时丢弃片元
+            void javelinAlphaClip(vec4 albedo, float cutoff) {
+                if (cutoff > 0.0 && albedo.a < cutoff) {
+                    discard;
+                }
+            }""";
+
     private ShaderInjector() {
     }
 
@@ -480,6 +494,8 @@ public final class ShaderInjector {
         // set1 光照声明只入 fs（消费在片元；vs 声明未用 binding 反增布局面）
         if ("fs".equals(stageName)) {
             injected.append(lightingStageBlocks(lightingModel));
+            // alpha 裁剪助手（含 discard → 仅 fs）
+            injected.append(ALPHA_CLIP).append('\n');
         }
         appendMaterialDeclaration(injected, properties);
         injected.append("// ── injection end ──\n");

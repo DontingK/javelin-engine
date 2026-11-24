@@ -149,7 +149,7 @@
 | REND-18 | **后处理栈扩容**：曝光/测光（EV 自动曝光）、景深 DOF、运动模糊、体积雾/体积光、色彩分级（LUT）、镜头效果（色差/暗角/畸变/光晕）；现链仅 Tonemap + Bloom + Sharpen(RCAS) + TAA | 后处理档 §4 / §9 | 后置项 | **画质对标族序 4**｜HDRP「电影感」一半来自这一栈；体积雾与 REND-12 环境雾同源（REND-12 先落字段） |
 | REND-19 | **色彩与曝光管理**：线性工作流全链统一（sRGB 口径随 AST-03）+ ACES 等 tonemap 曲线族 + 物理相机参数（EV/ISO/快门/白平衡） | 后处理档 §4 / 贴图 AST-03 | 后置项 | **画质对标族序 4**｜与 REND-18 曝光项耦合（自动测光依赖统一曝光口径） |
 | REND-20 | **材质与工具链长期面**：Shader Graph 等价物（`.shader` 可视化编排）、材质库/模板、GPU 抓帧集成（RenderDoc 内嵌）、材质特性覆盖（清漆/次表面/各向异性/毛发/贴花）、贴图压缩与流送 | 材质档 / 编辑器 §6 / AST-02 | 后置项 | **画质对标族序 6**｜与光追无关，是「全面追上 HDRP」的真实长期差距 |
-| REND-21 | **阴影质量延伸**：PCSS（软影随距离变糊）、接触阴影（屏幕空间或 RT）、多灯阴影、逐级联剔除；现仅 CSM + PCF 三档 | `Engine_Shadow_Quality_Design.md` §B（步骤三） | 后置项 | **画质对标族序 4**｜P4-03 步骤三余项，此前未单列，随本族补登记；逐级联剔除与 REND-01 联动 |
+| REND-21 | **阴影质量延伸**：PCSS（软影随距离变糊）、接触阴影（屏幕空间或 RT）、多灯阴影、逐级联剔除；现仅 CSM + PCF 三档。分支：**REND-21-A cutout/alpha-test 阴影**已于 2026-11-24 落码（材质 `_AlphaCutoff` + 阴影专 set0 采样 `_MainTex` + push 144B + 主渲染同口径 discard，`Engine_Shadow_Cutout_Design.md` v0.2），**未编译待验收**；其后置项 = `DdgiVoxelizer` 体素化不吃 alpha（镂空物体素仍是实心，GI 会「透不过去」） | `Engine_Shadow_Quality_Design.md` §B（步骤三） | 后置项 | **画质对标族序 4**｜P4-03 步骤三余项，此前未单列，随本族补登记；逐级联剔除与 REND-01 联动 |
 | REND-22 | **SSAO 精细化后置**：采样数可配（16/32/64，需多套核常量 + 设置项 + i18n）；半分辨率 AO 的**深度感知上采样**（替代 LINEAR 2×2 块状，需读深度或世界位置做权重） | `Engine_SSAO_Design.md` §10.4 | 后置项 | BUG-12 收口时留项（2026-11-21）——先看实机是否仍有颗粒；DDGI 落地后 SSAO 降为「接触 AO」，届时按降档口径再评估是否需要 |
 
 > ~~REND-15 体素 AO 手动重建命令~~ **已随 P4-17 退役作废（2026-11-20）**：原 2026-11-19 落码的 `tools.voxelAoRebuild` 命令与 `JavelinEngine.requestVoxelRebuild()` 同批删除，编号留空档。

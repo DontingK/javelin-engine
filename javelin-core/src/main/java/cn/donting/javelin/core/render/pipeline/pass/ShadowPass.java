@@ -5,23 +5,31 @@ import cn.donting.javelin.core.assets.shadow.SpvShader;
 import cn.donting.javelin.core.render.RenderObject;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
+import cn.donting.javelin.core.render.material.Material;
+import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.mesh.MeshDraw;
 import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.rhi.CommandBuffer;
+import cn.donting.javelin.rhi.DescriptorSet;
+import cn.donting.javelin.rhi.DescriptorSetLayout;
+import cn.donting.javelin.rhi.DescriptorUpdate;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.GraphicsPipeline;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
 import cn.donting.javelin.rhi.Texture;
+import cn.donting.javelin.rhi.VertexLayout;
 import cn.donting.javelin.rhi.data.RHIClearDepthStencil;
 import cn.donting.javelin.rhi.data.RHILoadOp;
 import cn.donting.javelin.rhi.data.RHIScissor;
 import cn.donting.javelin.rhi.data.RHIViewport;
+import cn.donting.javelin.rhi.desc.DescriptorSetLayoutDesc;
 import cn.donting.javelin.rhi.desc.GraphicsPipelineDesc;
 import cn.donting.javelin.rhi.desc.ShaderDesc;
 import cn.donting.javelin.rhi.types.BlendFactor;
 import cn.donting.javelin.rhi.types.BlendOp;
 import cn.donting.javelin.rhi.types.CompareOp;
 import cn.donting.javelin.rhi.types.CullMode;
+import cn.donting.javelin.rhi.types.DescriptorType;
 import cn.donting.javelin.rhi.types.DynamicState;
 import cn.donting.javelin.rhi.types.Format;
 import cn.donting.javelin.rhi.types.FrontFace;
@@ -34,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -53,9 +62,11 @@ import java.util.Set;
  * 复用）。恒清空：主光不投影（无/关阴影/无 caster）时只清不画——全图深度 1.0 采样恒受光，
  * 图结构不随光照态抖动。</p>
  *
- * <p><b>PSO</b>：无描述符集（vs 只消费 push），push 布局 128B 专属（lightViewProj@0 +
- * model@64，非引擎材质 80B 布局）；depthBias 静态两项取阴影设置（改设置即整批重建，
- * 旧管线两帧退役）。透明物不投影（v0.x）。</p>
+ * <p><b>PSO</b>：set0 为阴影专有（binding0 = 材质 {@code _MainTex} 采样器，REND-21-A alpha
+ * 裁剪），push 布局 144B 专属（lightViewProj@0 + model@64 + cutoff@128 + hasAlbedoTex@132，
+ * 非引擎材质 80B 布局）；depthBias 静态两项取阴影设置（改设置即整批重建，
+ * 旧管线两帧退役）。透明物不投影（v0.x）；声明 {@code _AlphaCutoff} 的材质按 alpha 裁剪
+ * （Engine_Shadow_Cutout_Design）。</p>
  */
 public class ShadowPass implements RenderPass {
 
@@ -64,14 +75,28 @@ public class ShadowPass implements RenderPass {
     /** 内置阴影着色器 loadAsset 路径（builtin-asset-core 释放到 .javelin/assets 后的相对路径） */
     private static final String VERT_SHADER_PATH = "core/shadow/shadow.vert";
     private static final String FRAG_SHADER_PATH = "core/shadow/shadow.frag";
-    /** push 布局：lightViewProj@0(64B) + model@64(64B) = 128B（ShadowPass 专属） */
-    static final int SHADOW_PUSH_SIZE = 128;
+    /**
+     * push 布局：lightViewProj@0(64B) + model@64(64B) + cutoff@128(4B) + hasAlbedoTex@132(4B)
+     * = 144B（ShadowPass 专属；GLSL 块按 16B 对齐收官，故 vs/fs 两侧同声明同一结构）。
+     */
+    static final int SHADOW_PUSH_SIZE = 144;
 
     private final Device device;
     private final byte[] vertSpv;
     private final byte[] fragSpv;
     /** 覆盖制 PSO 缓存：key = layoutIdentity:topology（与材质无关，PSO 不每帧新建） */
     private final Map<String, GraphicsPipeline> pipelines = new HashMap<>();
+    /** 阴影专 set0 布局（binding0 = albedo 采样器；REND-21-A alpha 裁剪） */
+    private final DescriptorSetLayoutDesc shadowSetDesc = new DescriptorSetLayoutDesc(List.of(
+            new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                    ShaderStage.FRAGMENT)));
+    private DescriptorSetLayout shadowSetLayout;
+    /** 每材质 alpha 集（贴图版本/材质 shader 变即重建，旧集两帧退役） */
+    private final Map<Material, AlphaBinding> alphaBindings = new IdentityHashMap<>();
+    /** 不裁剪 caster 共用的白图集（懒建一次） */
+    private DescriptorSet whiteAlphaSet;
+    /** 「声明裁剪但网格无 UV」告警只打一次（避免每帧刷屏） */
+    private boolean warnedMissingUv;
     /** 每帧复用的 push constants 打包缓冲（引擎线程录制串行，非线程共享） */
     private final ByteBuffer pushData = ByteBuffer.allocateDirect(SHADOW_PUSH_SIZE)
             .order(ByteOrder.LITTLE_ENDIAN);
@@ -88,6 +113,12 @@ public class ShadowPass implements RenderPass {
      */
     public ShadowPass(Device device, AssetManager assetManager) {
         this.device = device;
+        // 红线 15：push 144B 超出设备上限（规范保底 128）时显性报错，不静默降级
+        if (SHADOW_PUSH_SIZE > device.maxPushConstantsSize()) {
+            throw new IllegalStateException("阴影 Pass push 需 " + SHADOW_PUSH_SIZE
+                    + "B（alpha 裁剪），设备上限仅 " + device.maxPushConstantsSize()
+                    + "B——alpha 裁剪需改走 UBO 传输（Engine_Shadow_Cutout_Design §4 P2 备选）");
+        }
         this.vertSpv = loadSpv(assetManager, VERT_SHADER_PATH, "shadow.vert");
         this.fragSpv = loadSpv(assetManager, FRAG_SHADER_PATH, "shadow.frag");
     }
@@ -142,21 +173,45 @@ public class ShadowPass implements RenderPass {
                     cmd.setScissor(new RHIScissor(qx, qy, quadSize, quadSize));
                     float[] lightViewProj = rs.shadowCascadeMatrix(view.name(), c).get(lightViewProjTmp);
                     for (RenderObject ro : casters) {
-                        drawCaster(cmd, ro, lightViewProj);
+                        drawCaster(cmd, ro, lightViewProj, rs);
                     }
                 }
             });
         });
     }
 
-    /** 释放 PSO 缓存（须 device waitIdle 后） */
+    /** 释放 PSO 缓存与 alpha 描述符集（须 device waitIdle 后） */
     public void close() {
         pipelines.values().forEach(GraphicsPipeline::dispose);
         pipelines.clear();
+        alphaBindings.values().forEach(binding -> binding.set.dispose());
+        alphaBindings.clear();
+        if (whiteAlphaSet != null) {
+            whiteAlphaSet.dispose();
+            whiteAlphaSet = null;
+        }
+        if (shadowSetLayout != null) {
+            shadowSetLayout.dispose();
+            shadowSetLayout = null;
+        }
     }
 
-    private void drawCaster(CommandBuffer cmd, RenderObject ro, float[] lightViewProj) {
+    private void drawCaster(CommandBuffer cmd, RenderObject ro, float[] lightViewProj,
+                            RenderingSystem rs) {
+        Material material = ro.material();
+        float cutoff = rs.alphaCutoff(material);
+        boolean hasUv = hasUv(ro.mesh().layout());
+        if (cutoff > 0.0f && !hasUv && !warnedMissingUv) {
+            warnedMissingUv = true;
+            log.warn("材质声明 alpha 裁剪（cutoff={}）但网格无 UV0 属性——该 caster 按不裁剪绘制:"
+                    + "（着色器属性 {} 已开但无法取 alpha）", cutoff,
+                    RenderingSystem.ALPHA_CUTOFF_PROPERTY);
+        }
+        float hasAlbedoTex = cutoff > 0.0f && hasUv ? 1.0f : 0.0f;
         cmd.bindPipeline(pipelineFor(ro));
+        // set0 恒绑（管线布局含该集）：不裁剪时白图 alpha 恒 1，等价现状
+        cmd.bindDescriptorSet(0, hasAlbedoTex > 0.0f
+                ? alphaBindingFor(material, rs) : whiteAlphaSet(rs), 0, null);
         MeshDraw.bindBuffers(cmd, ro.mesh());
         pushData.clear();
         for (float v : lightViewProj) {
@@ -165,9 +220,76 @@ public class ShadowPass implements RenderPass {
         for (float v : ro.world().get(worldTmp)) {
             pushData.putFloat(v);
         }
+        pushData.putFloat(cutoff);
+        pushData.putFloat(hasAlbedoTex);
         pushData.position(0);
         cmd.pushConstants(0, pushData);
         MeshDraw.drawIndexed(cmd, ro.mesh(), ro.submesh());
+    }
+
+    /** 网格是否有 UV0（规范序 location 3；无 UV 取不到 alpha，按不裁剪绘制） */
+    private static boolean hasUv(VertexLayout layout) {
+        for (VertexLayout.Attribute attribute : layout.attributes()) {
+            if (attribute.location() == 3) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 每材质 alpha 集（set0 binding0 = 材质 {@code _MainTex} 的 GPU 纹理）。
+     * 贴图版本（{@code getTextureRevision}）或 shader 变即重建；旧集走
+     * {@code retireResource} 两帧退役（GPU in-flight 安全）。
+     */
+    private DescriptorSet alphaBindingFor(Material material, RenderingSystem rs) {
+        int revision = material == null ? -1 : material.getTextureRevision();
+        Shader shader = material == null ? null : material.getShader();
+        AlphaBinding existing = material == null ? null : alphaBindings.get(material);
+        if (existing != null && existing.revision == revision && existing.shader == shader) {
+            return existing.set;
+        }
+        if (shadowSetLayout == null) {
+            shadowSetLayout = device.createDescriptorSetLayout(shadowSetDesc);
+        }
+        if (existing != null) {
+            DescriptorSet retiredSet = existing.set;
+            rs.retireResource(retiredSet::dispose);
+        }
+        DescriptorSet set = device.createDescriptorSet(shadowSetLayout);
+        set.update(DescriptorUpdate.sampledTexture(0,
+                rs.shadowAlbedoTexture(material), rs.shadowAlbedoSampler(material)));
+        if (material != null) {
+            alphaBindings.put(material, new AlphaBinding(set, revision, shader));
+        }
+        return set;
+    }
+
+    /** 不裁剪 caster 共用集（1×1 白图，alpha 恒 1） */
+    private DescriptorSet whiteAlphaSet(RenderingSystem rs) {
+        if (whiteAlphaSet != null) {
+            return whiteAlphaSet;
+        }
+        if (shadowSetLayout == null) {
+            shadowSetLayout = device.createDescriptorSetLayout(shadowSetDesc);
+        }
+        whiteAlphaSet = device.createDescriptorSet(shadowSetLayout);
+        whiteAlphaSet.update(DescriptorUpdate.sampledTexture(0,
+                rs.shadowAlbedoTexture(null), rs.shadowAlbedoSampler(null)));
+        return whiteAlphaSet;
+    }
+
+    /** 材质 alpha 集缓存项（贴图版本 / shader 任一变化即重建） */
+    private static final class AlphaBinding {
+        final DescriptorSet set;
+        final int revision;
+        final Shader shader;
+
+        AlphaBinding(DescriptorSet set, int revision, Shader shader) {
+            this.set = set;
+            this.revision = revision;
+            this.shader = shader;
+        }
     }
 
     private GraphicsPipeline pipelineFor(RenderObject ro) {
@@ -189,9 +311,9 @@ public class ShadowPass implements RenderPass {
                 true, true, CompareOp.LESS,
                 false, BlendFactor.ONE, BlendFactor.ZERO, BlendOp.ADD,
                 BlendFactor.ONE, BlendFactor.ZERO, BlendOp.ADD,
-                null,
+                null,                           // 无颜色组件掩码（depth-only）
                 List.of(), Format.D32_SFLOAT,   // depth-only：无颜色附件（RHI 允许空列表）
-                List.of(),                      // 无描述符集（vs 只消费 push）
+                List.of(shadowSetDesc),         // 阴影专 set0：binding0 = alpha 裁剪 albedo
                 SHADOW_PUSH_SIZE,
                 Set.of(DynamicState.VIEWPORT, DynamicState.SCISSOR),
                 SampleCount.COUNT_1,

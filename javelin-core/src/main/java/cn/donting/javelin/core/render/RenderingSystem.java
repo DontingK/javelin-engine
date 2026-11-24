@@ -170,6 +170,15 @@ public final class RenderingSystem implements AutoCloseable {
      */
     public static final int SHADOW_MAP_SIZE = 2048;
 
+    /**
+     * 材质 alpha 裁剪阈值属性名（REND-21-A，Engine_Shadow_Cutout_Design §5）：与内置
+     * {@code Lit.shader} 的 {@code _AlphaCutoff ("Alpha Cutoff", Range(0,1))} 同名同义，
+     * 缺省 0 = 不裁剪。阴影 Pass 与主渲染注入的 {@code javelinAlphaClip} 共用此阈值。
+     */
+    public static final String ALPHA_CUTOFF_PROPERTY = "_AlphaCutoff";
+    /** alpha 裁剪取样纹理槽名（与内置 Lit 的 albedo 槽一致） */
+    public static final String ALBEDO_TEXTURE_PROPERTY = "_MainTex";
+
     private final Device device;
     private final FrameLoop frameLoop;
     private final int frameSlots;
@@ -637,6 +646,52 @@ public final class RenderingSystem implements AutoCloseable {
     /** Pass 回调内绑 set0（UBO1 帧槽，dynamic offset 由 RenderView.uboOffset 提供） */
     public DescriptorSet frameSet() {
         return frameSet;
+    }
+
+    // ═══ 阴影 alpha 裁剪取数口（REND-21-A，Engine_Shadow_Cutout_Design §5.2）═══
+
+    /**
+     * 材质 alpha 裁剪阈值：材质未声明 {@code _AlphaCutoff}（shader 无此属性）或未赋值 → 0。
+     *
+     * <p>0 = 不裁剪，阴影 Pass 据此跳过贴图采样（省一次 per-fragment fetch）；
+     * 与主渲染注入段 {@code javelinAlphaClip} 读的是同一个 shader 属性，两路阈值同源。</p>
+     */
+    public float alphaCutoff(Material material) {
+        if (material == null) {
+            return 0.0f;
+        }
+        Shader shader = material.getShader();
+        if (shader == null || shader.findProperty(ALPHA_CUTOFF_PROPERTY) == null) {
+            return 0.0f;
+        }
+        material.fillMissingDefaults();
+        return material.getFloat(ALPHA_CUTOFF_PROPERTY);
+    }
+
+    /**
+     * 阴影 alpha 裁剪用 albedo 纹理（材质 {@code _MainTex} 的 GPU 句柄）。
+     * 未声明槽 / 未赋图 / 空纹理壳 → 1×1 白图（alpha 恒 1，等价于不裁剪）。
+     */
+    public Texture shadowAlbedoTexture(Material material) {
+        return TextureUpload.upload(device, shadowAlbedoTexture2D(material));
+    }
+
+    /** 阴影 alpha 裁剪用 albedo 采样器（按该纹理的 filter/wrap 取缓存采样器） */
+    public Sampler shadowAlbedoSampler(Material material) {
+        Texture2D texture = shadowAlbedoTexture2D(material);
+        return samplerFor(texture.getFilterMode(), texture.getWrapMode());
+    }
+
+    private Texture2D shadowAlbedoTexture2D(Material material) {
+        if (material == null || material.getShader() == null
+                || material.getShader().findProperty(ALBEDO_TEXTURE_PROPERTY) == null) {
+            return Texture2D.whiteTexture();
+        }
+        Texture2D assigned = material.getTexture(ALBEDO_TEXTURE_PROPERTY);
+        if (assigned == null || assigned.getImage() == null) {
+            return Texture2D.whiteTexture();
+        }
+        return assigned;
     }
 
     /** 每相机深度纹理（视口独立；首次访问按当前交换链尺寸创建，resize 换绑） */

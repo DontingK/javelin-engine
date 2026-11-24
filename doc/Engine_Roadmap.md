@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.32（2026-11-24）
+> v0.32 变更（2026-11-24）：**L4 首笔 REND-21-A（cutout/alpha-test 阴影）落码**——按方案 §4 五点默认执行：①语义载体 = 只加 shader 属性 `_AlphaCutoff`（`Range(0,1)`，缺省 0 = 关，不动 `SurfaceType` 枚举）；②阴影侧以 push 128→144B 传 cutoff / hasAlbedoTex（`Device.maxPushConstantsSize()` 新增只读口，超限构造期抛错）；③贴图槽固定 `_MainTex`；④主渲染与阴影同批开（`ShaderInjector` 新增 fs 注入助手 `javelinAlphaClip`，内置 `Lit.shader` Forward/GBuffer 两条 fs 各接一行）；⑤作为 L4 首笔。`ShadowPass` 首次获得专属 set0（binding0 = 材质 `_MainTex`，每材质描述符集按贴图版本重建、旧集两帧退役），`shadow.vert` 补 `aUV`→`vUV`，`shadow.frag` 由空体改为按阈值 `discard`。方案件 `Engine_Shadow_Cutout_Design.md` v0.2（§9 落码记录）。**未编译**：内置 `Lit.shader` / `shadow.vert/.frag` 需 reimport 出 SPIR-V；`DdgiVoxelizer` 不吃 alpha 记为后置。
 > 版本：v0.31（2026-11-24）
 > v0.31 变更（2026-11-24）：**L3 探针可视化落码（DBG-07 / dbg-3）**——按用户「先做可视化、验收靠后」落三视图：探针网格盒 + 三轴十字（`DebugDrawLine` 由 `DebugLineAppState` 统一代提交）、atlas 直显覆盖 Pass（`DdgiProbeViewPass`，`texelFetch` 1:1 + 未扫 tile 红框 + 溢出洋红，零 CPU 回读）、`DebugText` 第 11 行数值行；入口菜单「工具 | DDGI 探针视图」四项 + F5；core 仅加只读 `DdgiProbePass.grid()/atlases()` 与 `JavelinEngine.ddgiProbePass()`。方案件 `Engine_DDGI_ProbeViz_Design.md` v0.2；未编译，`ddgiView.frag` 待重导出 SPIR-V。**下一步 = DBG-03 shadowMap 可视化（L4 开工前的调参眼）→ 再进 L4 REND-21-A cutout 阴影**。
 > 版本：v0.30（2026-11-21）
@@ -168,7 +170,7 @@
 | **L3** GI 主体 | DDGI 首版 | P4-05 / **`Engine_DDGI_Design.md` v0.2** | 单色房间有渗色、关主光墙角仍有方向性、无黑斑 | **B1 数据面 2026-11-21 落码待验收**（`DdgiSettings` + `DdgiProbeGrid` + 单测）；§10 四点按推荐默认拍板；残留 = atlas GPU 资源 + 体素化重建 + 两支 compute｜投射线走体素 DDA；网格外回落 `ambient` |
 | | 环境遮蔽层收敛 | P4-05 备注② / `SsaoPass` | DDGI 档下不与 SSAO 双层压暗 | 体素 AO 已退役（2026-11-20），现只剩 SSAO 一层 |
 | | 探针可视化 | DBG-07 / `Engine_DDGI_ProbeViz_Design.md` | 探针位置 / 辐照度 / 可见性可读 | ✅ 2026-11-24 落码（网格线框 + atlas 直显 + 数值行；未编译待验收）|
-| **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | `shadow.frag` 现零 alpha 采样；成本最低、素材相关，优先 |
+| **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | ✅ 2026-11-24 落码（`Engine_Shadow_Cutout_Design.md` v0.2）：材质 `_AlphaCutoff` 语义 + 阴影专 set0 采样 `_MainTex` + push 144B；主渲染同口径 discard；未编译待验收 |
 | | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | 必须拆两套集合（可见性 vs caster）；距离门限用 `shadowDistance` |
 | | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | 接触漏光的根治面 |
 | | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |

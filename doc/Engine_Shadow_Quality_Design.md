@@ -1,6 +1,6 @@
 # 引擎阴影质量分级设计（Engine Shadow Quality Design）
 
-> 版本：v0.7（**2026-11-21 接触漏光修复用户实机验收通过，BUG-11 销账**；v0.6 = 该修复落码待验收；v0.5 = 步骤一 + 步骤二 CSM 全件 2026-11-14 验收、P4-03 关账）
+> 版本：v0.8（**2026-11-24 随 REND-21-A 同步 §4.7 push/set 形态**：push 128→144B + ShadowPass 首获 set0（alpha 裁剪），落码件见 `Engine_Shadow_Cutout_Design.md` v0.2）；v0.7（**2026-11-21 接触漏光修复用户实机验收通过，BUG-11 销账**；v0.6 = 该修复落码待验收；v0.5 = 步骤一 + 步骤二 CSM 全件 2026-11-14 验收、P4-03 关账）
 > 日期：2026-11-21
 > v0.7 变更（2026-11-21）：**§9.6 接触漏光修复验收关账**——用户重导 `.shader` 与内置 `lighting.frag`、项目设置「阴影」组恢复默认后实机「没问题了」；接触环亮缝收窄到设计预期（1~2 纹素），无 acne 暗斑、无阴影包裹感。**BUG-11 从 `Engine_Backlog.md` 移出**，验收状态归 `Engine_Features.md` §2.4 行。残留不变：接触处半影仍 1~2 纹素（PCSS/SSCT 归步骤三可选收尾；环境光侧漏光随体素 AO 退役已消失）。
 > v0.6 变更（2026-11-20）：**接触漏光（contact gap）修复**——物体半埋进平面时，两者接触处出现一圈亮线（cube 底部与地面交界最明显），根因是「shadow map 遮挡轮廓只能落在纹素边界 + PCF 核 + 掠射面 slope bias」三者同向叠加，与本档原「bias 抗 acne ↔ 漏影」预算争夺是同一件事。修法 = ①注入段 `refZ` 增加**固定半纹素外扩**（`0.5 / (atlasSize/grid)`，归一化深度口径，见 §3.4-4/§9.6）；②`ShadowSettings` 五项缺省重标：`pcfRadius` 1.0→**0.6**、`refDepthOffset` 0→**0.02**、`biasSlope` 1.5→**0.6**、`cascadeCount` 2→**4**、`shadowDistance` 100→**80**（近级联纹素 ~3.3cm→~1.3cm，atlas 仍 2×2 全用、显存不变）。**注入器改动 = 强制重导 `.shader` 与内置 `lighting.frag`**。**旧工程设置档已序列化旧值 → 需在项目设置「阴影」组点「恢复默认」或手动改为新缺省**，否则本批只在新建工程生效。残留见 §9.7。
@@ -242,6 +242,7 @@ CSM 的切分/盒拟合依赖**各相机自己的视锥**，故：
 ### 4.7 ShadowPass 改造
 
 - 每视口为每级联挂一个 depth-only Pass；push 仍 128B（`lightViewProj@0` 换第 i 张矩阵 + `model@64`），**PSO 不变**（viewport/scissor 已是动态态 ✓，同一 PSO 复用）；
+  - **2026-11-24 更新（REND-21-A）**：push 由 128B 扩到 **144B**（尾 16B = `cutoff@128` / `hasAlbedoTex@132`），PSO 首次带 **set0**（binding0 = 材质 `_MainTex` 采样器）；PSO 结构变了但仍按 layout+topology 复用、bias 改档整批重建的逻辑不变。详见 `Engine_Shadow_Cutout_Design.md` v0.2 §5.2/§9；
 - caster 集：v1 每级联**全量绘制**（超集保守、正确优先）——逐级联剔除（按级联视锥/距离）归**步骤三**性能项；
 - 恒清空语义保持（级联数变化/无主光时只清不画）。
 
