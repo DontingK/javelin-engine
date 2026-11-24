@@ -10,6 +10,7 @@ import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.material.LightingModel;
 import cn.donting.javelin.core.render.material.PassState;
 import cn.donting.javelin.core.render.material.Shader;
+import cn.donting.javelin.core.render.rt.RayTracingScene;
 import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
 import cn.donting.javelin.core.render.ddgi.DdgiAtlases;
@@ -187,6 +188,8 @@ public final class RenderingSystem implements AutoCloseable {
     private final Device device;
     private final FrameLoop frameLoop;
     private final int frameSlots;
+    /** 光追场景（P4-06 B2b；设备支持才建，否则 null——B3 消费前每帧 build 不占开销） */
+    private RayTracingScene rayTracingScene;
 
     private final List<RenderCamera> cameras = new ArrayList<>();
     private final List<RenderObject> renderers = new ArrayList<>();
@@ -406,6 +409,8 @@ public final class RenderingSystem implements AutoCloseable {
         this.device = device;
         this.frameLoop = frameLoop;
         this.frameSlots = frameSlots;
+        // 光追场景只在设备真的启用 ray query 时创建（B3 之前不 build，无 GPU 开销）
+        this.rayTracingScene = device.rayQueryEnabled() ? new RayTracingScene(device) : null;
 
         this.uboBuffer = device.createBuffer(
                 new BufferDesc(frameSlots * SLOT_SIZE, Set.of(BufferUsage.UNIFORM),
@@ -509,6 +514,11 @@ public final class RenderingSystem implements AutoCloseable {
 
     public List<RenderObject> renderers() {
         return renderers;
+    }
+
+    /** 光追场景（P4-06 B2b；设备不支持光追时为 null） */
+    public RayTracingScene rayTracingScene() {
+        return rayTracingScene;
     }
 
     // ═══ 灯注册表（SceneRenderBridge pull 翻译；Engine_Lighting_Design §4 批次②） ═══
@@ -2423,6 +2433,10 @@ public final class RenderingSystem implements AutoCloseable {
             return;
         }
         closed = true;
+        if (rayTracingScene != null) {
+            rayTracingScene.dispose();
+            rayTracingScene = null;
+        }
         pipelines.values().forEach(GraphicsPipeline::dispose);
         pipelines.clear();
         pipelineOwners.clear();

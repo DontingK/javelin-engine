@@ -35,6 +35,12 @@ public interface CommandBuffer extends GPUResource {
                    cn.donting.javelin.rhi.desc.BlasDesc desc, long scratchAddress);
 
     /**
+     * 记录一次 TLAS 重建（P4-06 B2b）：发 {@code vkCmdBuildAccelerationStructuresKHR} 并补
+     * 构建后屏障（AS 写 → 着色器读）。实例缓冲与 scratch 由调用方准备。
+     */
+    void buildTlas(Tlas tlas, int instanceCount, long instancesAddress, long scratchAddress);
+
+    /**
      * 开始渲染通道（dynamic rendering，Vulkan 1.3 核心）。
      * 由 RenderGraph 执行器根据 Pass 的附件声明自动调用（24.3），上层业务禁止直接调用。
      *

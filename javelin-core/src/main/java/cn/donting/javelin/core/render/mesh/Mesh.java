@@ -395,6 +395,11 @@ public class Mesh extends AbsAsset {
         }
     }
 
+    /** 是否具备建 BLAS 的条件（已上传 + 有三角形索引；P4-06 B2b 场景装配用） */
+    public boolean hasTriangles() {
+        return uploaded && indices != null && indexCount >= 3 && indexCount % 3 == 0;
+    }
+
     // ═══ 包内共享（MeshUpload/MeshDraw 消费；勿跨包使用） ═══
 
     float[] positions() {

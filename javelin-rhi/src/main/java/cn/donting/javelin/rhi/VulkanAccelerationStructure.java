@@ -46,9 +46,9 @@ final class VulkanAccelerationStructure implements AccelerationStructure {
         this.device = device;
         VkDevice vkDevice = device.vkDevice();
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkAccelerationStructureGeometryKHR.Buffer geometry = VkBlasGeometry.geometry(stack, desc);
+            VkAccelerationStructureGeometryKHR.Buffer geometry = VkAsGeometry.blasGeometry(stack, desc);
             VkAccelerationStructureBuildGeometryInfoKHR buildInfo =
-                    VkBlasGeometry.buildInfo(stack, desc, geometry);
+                    VkAsGeometry.blasBuildInfo(stack, geometry);
 
             VkAccelerationStructureBuildSizesInfoKHR sizes =
                     VkAccelerationStructureBuildSizesInfoKHR.calloc(stack).sType$Default();
@@ -93,9 +93,9 @@ final class VulkanAccelerationStructure implements AccelerationStructure {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkAccelerationStructureBuildSizesInfoKHR sizes =
                     VkAccelerationStructureBuildSizesInfoKHR.calloc(stack).sType$Default();
-            VkAccelerationStructureGeometryKHR.Buffer geometry = VkBlasGeometry.geometry(stack, desc);
+            VkAccelerationStructureGeometryKHR.Buffer geometry = VkAsGeometry.blasGeometry(stack, desc);
             VkAccelerationStructureBuildGeometryInfoKHR buildInfo =
-                    VkBlasGeometry.buildInfo(stack, desc, geometry);
+                    VkAsGeometry.blasBuildInfo(stack, geometry);
             IntBuffer maxPrimitives = stack.ints(desc.primitiveCount());
             vkGetAccelerationStructureBuildSizesKHR(device.vkDevice(),
                     VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, buildInfo, maxPrimitives, sizes);
@@ -106,7 +106,7 @@ final class VulkanAccelerationStructure implements AccelerationStructure {
                     Set.of(BufferUsage.STORAGE, BufferUsage.SHADER_DEVICE_ADDRESS),
                     MemoryPreference.deviceLocal()));
             try {
-                long scratchAligned = VkBlasGeometry.alignUp(scratch.deviceAddress(), alignment);
+                long scratchAligned = VkAsGeometry.alignUp(scratch.deviceAddress(), alignment);
                 CommandBuffer cmd = device.allocateCommandBuffer(false);
                 try {
                     cmd.begin();

@@ -64,12 +64,13 @@ final class VulkanCommandBuffer implements CommandBuffer {
     public void buildBlas(AccelerationStructure accelerationStructure,
                           cn.donting.javelin.rhi.desc.BlasDesc desc, long scratchAddress) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            VkAccelerationStructureGeometryKHR.Buffer geometry = VkBlasGeometry.geometry(stack, desc);
+            VkAccelerationStructureGeometryKHR.Buffer geometry = VkAsGeometry.blasGeometry(stack, desc);
             VkAccelerationStructureBuildGeometryInfoKHR buildInfo =
-                    VkBlasGeometry.buildInfo(stack, desc, geometry);
+                    VkAsGeometry.blasBuildInfo(stack, geometry);
             buildInfo.dstAccelerationStructure(accelerationStructure.handle());
             buildInfo.scratchData(VkDeviceOrHostAddressKHR.calloc(stack).deviceAddress(scratchAddress));
-            VkAccelerationStructureBuildRangeInfoKHR.Buffer range = VkBlasGeometry.range(stack, desc);
+            VkAccelerationStructureBuildRangeInfoKHR.Buffer range =
+                    VkAsGeometry.range(stack, desc.primitiveCount());
 
             PointerBuffer ppRanges = stack.mallocPointer(1);
             ppRanges.put(0, range.address());
@@ -77,6 +78,30 @@ final class VulkanCommandBuffer implements CommandBuffer {
                     VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack);
             infos.put(0, buildInfo);
             vkCmdBuildAccelerationStructuresKHR(vkCommandBuffer, infos, ppRanges);
+            // 构建写 → 着色器读（P4-06 B2b）
+            VkAsGeometry.buildToReadBarrier(vkCommandBuffer, stack);
+        }
+    }
+
+    @Override
+    public void buildTlas(Tlas tlas, int instanceCount, long instancesAddress, long scratchAddress) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkAccelerationStructureGeometryKHR.Buffer geometry =
+                    VkAsGeometry.tlasGeometry(stack, instancesAddress);
+            VkAccelerationStructureBuildGeometryInfoKHR buildInfo =
+                    VkAsGeometry.tlasBuildInfo(stack, geometry);
+            buildInfo.dstAccelerationStructure(tlas.handle());
+            buildInfo.scratchData(VkDeviceOrHostAddressKHR.calloc(stack).deviceAddress(scratchAddress));
+            VkAccelerationStructureBuildRangeInfoKHR.Buffer range =
+                    VkAsGeometry.range(stack, instanceCount);
+
+            PointerBuffer ppRanges = stack.mallocPointer(1);
+            ppRanges.put(0, range.address());
+            VkAccelerationStructureBuildGeometryInfoKHR.Buffer infos =
+                    VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack);
+            infos.put(0, buildInfo);
+            vkCmdBuildAccelerationStructuresKHR(vkCommandBuffer, infos, ppRanges);
+            VkAsGeometry.buildToReadBarrier(vkCommandBuffer, stack);
         }
     }
 

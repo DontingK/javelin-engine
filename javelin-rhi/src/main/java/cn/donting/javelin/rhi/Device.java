@@ -118,6 +118,12 @@ public interface Device extends GPUResource {
      */
     AccelerationStructure createBlas(cn.donting.javelin.rhi.desc.BlasDesc desc);
 
+    /**
+     * 创建顶层加速结构（TLAS，P4-06 B2b），容量 = 最大实例数，每帧 {@code build} 重建。
+     * 设备无光追能力时显性抛错。
+     */
+    Tlas createTlas(int capacity);
+
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();
 

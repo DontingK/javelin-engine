@@ -7,6 +7,8 @@ group = 'cn.donting.javelin'
 
 dependencies {
     implementation "org.slf4j:slf4j-api:$slf4jVersion"
+    // JOML：TLAS 实例的世界变换（P4-06 B2b，与 core 同版本）
+    implementation "org.joml:joml:$jomlVersion"
 
     // LWJGL 3 - Vulkan
     implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")

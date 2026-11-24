@@ -443,6 +443,11 @@ final class VulkanDevice implements Device {
         return new VulkanAccelerationStructure(this, desc);
     }
 
+    @Override
+    public Tlas createTlas(int capacity) {
+        return new VulkanTlas(this, capacity);
+    }
+
     /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */
     private static Set<SampleCount> decodeSampleCounts(int vkBits) {
         EnumSet<SampleCount> out = EnumSet.of(SampleCount.COUNT_1);

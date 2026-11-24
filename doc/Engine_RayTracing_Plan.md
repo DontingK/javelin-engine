@@ -1,6 +1,7 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
+> 版本：v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
+> v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
 > v0.2（2026-11-25，B0 + B1 均已落码；B2 起待拍板）
 > v0.1（2026-11-25，B0 已落码；B1 起待拍板）
 > 定位：`Engine_Roadmap.md` §4.1 **L6**；`Engine_Backlog.md` P4-06。
@@ -27,7 +28,7 @@
 |----|------|------|------|
 | **B0** | 能力探针：`VulkanPhysicalDevice` 枚举设备扩展（懒算一次）、`Device.hasDeviceExtension(String)` / `Device.supportsRayQuery()`（扩展位 + feature 位双判）、启动期一行日志 | 能否开工的判据 | ✅ 2026-11-25 落码（未编译） |
 | **B1** | 能力启用：`VkDeviceCreateInfo` 按「驱动真的上报」拼装扩展列表（`VK_KHR_deferred_host_operations` → `VK_KHR_acceleration_structure` → `VK_KHR_ray_query` / `VK_KHR_buffer_device_address`）+ 对应特性链；`BufferUsage` 加 `SHADER_DEVICE_ADDRESS` / AS 存储 / AS 构建输入三档；**能力可选不阻断启动**，但 `Device.rayQueryEnabled()` 报「这一台设备真的能用」，B2 建 AS 前查它、false 就显性抛错 | 设备能创建 AS | ✅ 2026-11-25 落码（未编译） |
-| **B2** | AS 构建：每 `Mesh` 一条 BLAS（静态、`MeshUpload` 后一次性建）、每帧一条 TLAS（instances = `RenderObject` 世界矩阵 + 实例自定义索引）；AS 缓冲走 device-local，构建用一次性 command buffer + fence | `rayQuery` 可求交 | ✅ B2a 2026-11-25 落码（未编译）；B2b（TLAS）待做 |
+| **B2** | AS 构建：每 `Mesh` 一条 BLAS（静态、`MeshUpload` 后一次性建）、每帧一条 TLAS（instances = `RenderObject` 世界矩阵 + 实例自定义索引）；AS 缓冲走 device-local，构建用一次性 command buffer + fence | `rayQuery` 可求交 | ✅ B2a + B2b 2026-11-25 落码（未编译） |
 | **B3** | 最小消费：半分辨率 compute Pass 里对每个像素投一条主光方向射线，输出 `命中距离 / miss` 可视化（先验证数值与 shadow map 一致），再决定是「替换 CSM」还是「与 CSM 混合」 | 可验收的求交画面 | 待拍板 |
 
 **刻意的顺序**：B3 先做**可视化**而不是直接接阴影——光追一旦接进主光，跑出来的画面异常（偏移、漏光、自交）很难归因；先出「命中距离直显」图，能和 shadow map 的深度图逐像素对照，错误一眼可见。
@@ -71,7 +72,23 @@
 | `Mesh.blas(device)` / `disposeBlas()` | 每网格一条 BLAS，惰性构建（整网格单几何，子网格不拆）；校验 location0 = `R32G32B32_SFLOAT`、索引数 %3；重新上传后须先 `disposeBlas` |
 | `MeshUpload` | 顶点/索引缓冲用途补 `SHADER_DEVICE_ADDRESS`（否则 `BlasDesc` 构造即抛） |
 
-**B2a 未做**：TLAS（instances 缓冲 + 每帧重建/更新 + 自定义索引语义）、BLAS 构建后的 GPU 侧屏障（`BUILD_WRITE → READ`，当前只靠 fence 主机等待，B3 若同队列后续读需补 `vkCmdPipelineBarrier`）、RHI 外零接线（`RenderingSystem` 尚未挂 BLAS/TLAS）。
+**B2a 未做（B2b 已补）**：TLAS、AS 构建后的 GPU 侧屏障、RHI 外接线——见 §3.3。
+
+---
+
+## 3.3 B2b 落码点（2026-11-25）
+
+| 落点 | 改动 |
+|------|------|
+| `VkAsGeometry` | 原 `VkBlasGeometry` 更名并扩 TLAS：实例几何（`VK_GEOMETRY_TYPE_INSTANCES_KHR`、`arrayOfPointers=false`、`data` = 实例缓冲设备地址）、TLAS 构建信息（`TOP_LEVEL` + `PREFER_FAST_TRACE`）、共用 `range(primitiveCount)`；新增 `buildToReadBarrier`（`ACCELERATION_STRUCTURE_BUILD` 写 → 顶点/片元/计算读） |
+| `TlasInstance` | 实例描述：世界变换（3×4 行主序，占 64B 记录的前 48B）+ BLAS 设备地址 + 24 位自定义索引 + 8 位掩码 + `FORCE_OPAQUE`（默认开） |
+| `Tlas` / `VulkanTlas` | 固定容量 TLAS：实例缓冲（host-visible 直写 + `SHADER_DEVICE_ADDRESS` + AS 构建输入用途）、AS 存储、预分配 scratch（对齐后地址）；`build(cmd, instances)` 写实例缓冲 + 记录一次重建 + 屏障；`capacity()` / `deviceAddress()` / `handle()` |
+| `CommandBuffer.buildTlas` | 接口与实现（占位 `vkCmdBuildAccelerationStructuresKHR` + 屏障）；`buildBlas` 同批补同样屏障 |
+| `Device.createTlas(int capacity)` | 接口声明 + `VulkanDevice` 实现；`rayQueryEnabled()` false 即抛错 |
+| `RayTracingScene`（core） | 光追场景装配：遍历 `RenderObject` → `Mesh.hasTriangles()` 筛 → `mesh.blas(device)`（BLAS 缓存在 Mesh 上，共享网格只建一次）→ 按身份表复用 `TlasInstance`（每帧只刷世界矩阵）→ 容量不够（`max(16, 2^ceil)`）重建 TLAS → `tlas.build(cmd, …)`；`customIndex` 首次分配后稳定，`objectAt(int)` 供 B3 反查 |
+| `RenderingSystem` | 设备支持时构造 `RayTracingScene`（否则 null）、只读访问器 `rayTracingScene()`、`close()` 释放 |
+
+**B2b 未做 / 风险**：①实例缓冲单份不双缓冲，多帧飞行会让 GPU 读到半截数据（调用方须在上一帧 fence 之后 build，B3 接 Pass 时按此约束，或后补双缓冲）；②BLAS 无重建策略（网格重新上传必须先 `Mesh.disposeBlas()`，目前没有自动失效钩子）；③`RayTracingScene.build` **尚无调用方**——B3 以 RenderGraph Pass 形式接入（AS 作为图资源进依赖图）。
 
 ---
 
