@@ -1,6 +1,6 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.6（2026-11-25 补 §3.8 光追求交直显 = P4-06 B3）；v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
+> 版本：v0.7（2026-11-25 补 §3.8 主光方向射线三态）；v0.6（2026-11-25 补 §3.8 光追求交直显 = P4-06 B3）；v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
 > 日期：2026-11-10（v0.3：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
@@ -159,7 +159,9 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | `RayTraceDebugAppState` + `JavelinEditor` | F9 开关、`DebugText` 第 14 行（实例数 / TLAS 容量）；设备无 ray query 或场景未建时写「未就绪」且不进图 |
 | 内置资产 | `editor/debug/raytrace.compute`、`editor/debug/raytraceview.frag`（各带 `.meta`，需重导出 SPIR-V） |
 
-**后置**：工具菜单项、主光方向求交（与 shadow map 逐像素对照）、半分辨率上采样。
+**后置**：工具菜单项、逐像素 CSM 双通道对照（需把级联求值抽共享函数）、半分辨率上采样。
+
+> v0.7 追加：F9 改三态循环（关 → 相机主射线 → 主光方向 → 关）；主光方向态以 G-Buffer 世界位置为起点、沿「指向光源」方向求交，遮挡轮廓直接与现有 CSM 阴影对照；缺 G-Buffer（FORWARD 档）或无主光时该态不进图、状态行写提示。
 
 ---
 

@@ -1360,6 +1360,15 @@ public final class RenderingSystem implements AutoCloseable {
         return shadowSunActive;
     }
 
+    /**
+     * 主光世界方向（**光的行进方向**，与 `lighting.directional` 打包同源；P4-06 B3 光追对照用）。
+     * 无主光返回 null；调用方要「指向光源」的方向时取负。
+     */
+    public org.joml.Vector3f sunDirectionOrNull() {
+        RenderLight sun = resolveSun();
+        return sun == null ? null : new org.joml.Vector3f(sun.worldDir());
+    }
+
     /** 每视口阴影资源（四期 CSM；私有——对外走下面基本访问器） */
     private ViewShadow shadowView(String cameraName) {
         ViewShadow vs = viewShadows.get(cameraName);

@@ -28,7 +28,10 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     private static final Logger log = LoggerFactory.getLogger(RayTraceDebugAppState.class);
 
     public static final int MODE_OFF = 0;
-    public static final int MODE_ON = 1;
+    /** 相机主射线（几何/自交对照） */
+    public static final int MODE_CAMERA = 1;
+    /** 主光方向射线（与 CSM 阴影轮廓对照） */
+    public static final int MODE_LIGHT = 2;
 
     /** 提示行：RenderStats 0~9、G-Buffer 10、DDGI 11、阴影图 12、光照 gizmo 13，本视图 14 */
     private static final int HINT_ROW = 14;
@@ -42,7 +45,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     }
 
     public static void requestMode(int mode) {
-        desiredMode = (mode == MODE_ON) ? MODE_ON : MODE_OFF;
+        desiredMode = (mode < MODE_OFF || mode > MODE_LIGHT) ? MODE_OFF : mode;
     }
 
     public static boolean isReady() {
@@ -72,7 +75,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
             return;
         }
         if (Input.wasPressed(KeyCode.F9)) {
-            requestMode(desiredMode == MODE_ON ? MODE_OFF : MODE_ON);
+            requestMode(nextMode(desiredMode));
         }
         RenderingSystem rs = engine.renderingSystem();
         ready = engine.device().rayQueryEnabled() && rs != null && rs.rayTracingScene() != null;
@@ -103,12 +106,13 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
             return;
         }
         pass.setEnabled(true);
+        pass.setMode(desired == MODE_LIGHT ? RayTraceViewPass.MODE_LIGHT : RayTraceViewPass.MODE_CAMERA);
         if (!inPipeline) {
             pipeline.addPass(pass);
             inPipeline = true;
         }
         appliedMode = desired;
-        log.info("光追求交视图: on");
+        log.info("光追求交视图: {}", desired == MODE_LIGHT ? "lightRay" : "cameraRay");
     }
 
     private boolean ensurePass() {
@@ -148,6 +152,10 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
         showHint(EditorLang.text("tools.rayTrace.status",
                 scene.instanceCount(),
                 tlas == null ? 0 : tlas.capacity()));
+    }
+
+    private static int nextMode(int mode) {
+        return mode >= MODE_LIGHT ? MODE_OFF : mode + 1;
     }
 
     private static void showHint(String text) {

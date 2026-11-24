@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.42（2026-11-25）
+> v0.42 变更（2026-11-25）：**光追 B3 补主光方向射线**——`raytrace.compute` 加 mode 分支（mode 2 = 采 G-Buffer 世界位置作起点、沿「指向光源」方向求交、命中写距离），新增 binding2 世界位置采样与 112B push（含 `lightDir`）；`RenderingSystem.sunDirectionOrNull()` 暴露主光行进方向；`RayTraceViewPass` 三态、`RayTraceDebugAppState` F9 三态循环（关 → 相机 → 主光）。遮挡轮廓可直接与 CSM 阴影对照；**逐像素 CSM 双通道对照与「替换/混合」拍板仍后置**（需先抽共享级联求值）。`Engine_RayTracing_Plan.md` v0.6、`Engine_DebugTools_Plan.md` v0.7。**未编译**（`raytrace.compute` 需重导）。
 > 版本：v0.41（2026-11-25）
 > v0.41 变更（2026-11-25）：**光追 B3 落码（求交直显）**——RHI 补加速结构描述符通路（`DescriptorType.ACCELERATION_STRUCTURE` + `DescriptorUpdate.accelerationStructure` 走 `VkWriteDescriptorSetAccelerationStructureKHR` pNext + 描述符池 AS 档）；`RayTracingScene.tlasDescriptorSet()` 给出 set0 binding0；新增 `raytrace.compute`（半分辨率相机主射线、`rayQueryInitializeEXT` + `while(rayQueryProceedEXT)`、命中距离归一化写 r32f）与 `raytraceview.frag`（近蓝远橙直显）；编辑器 `RayTraceViewPass`（compute 回调内先 `scene.build` 重建 TLAS）+ `RayTraceDebugAppState`（F9、状态行 14）。**首批用相机主射线**（便于与光栅画面/深度对照），主光方向求交与「替换 CSM 还是混合」的决策后置。`Engine_RayTracing_Plan.md` v0.5、`Engine_DebugTools_Plan.md` v0.6。**未编译**（两个新着色器需重导出 SPIR-V）。
 > 版本：v0.40（2026-11-25）

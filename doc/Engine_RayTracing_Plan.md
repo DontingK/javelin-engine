@@ -1,6 +1,7 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v0.5（2026-11-25，B3 落码：加速结构描述符 + 半分辨率相机主射线求交直显 F9）
+> 版本：v0.6（2026-11-25，B3 补主光方向射线：G-Buffer 世界位置起点 + F9 三态）
+> v0.5（2026-11-25，B3 落码：加速结构描述符 + 半分辨率相机主射线求交直显 F9）
 > v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
 > v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
 > v0.2（2026-11-25，B0 + B1 均已落码；B2 起待拍板）
@@ -110,6 +111,19 @@
 
 ---
 
+## 3.5 B3 补：主光方向射线（2026-11-25）
+
+| 落点 | 改动 |
+|------|------|
+| `raytrace.compute` | 加 `mode` 分支：mode 2 = 半分辨率像素 → UV → 采 G-Buffer 世界位置（`w < 0.5` 视为背景写 −1）→ 沿「指向光源」方向以 `worldPos + dir*0.02` 为起点求交，命中写 `t/tMax`。新增 binding2 `sampler2D uWorldPos`；push 扩到 112B（加 `vec4 lightDir`） |
+| `RenderingSystem.sunDirectionOrNull()` | 暴露主光**行进方向**（与 `lighting.directional` 同源；无主光返回 null），调用方取负得「指向光源」 |
+| `RayTraceViewPass` | 三态 mode（1 相机 / 2 主光）；mode 2 需 G-Buffer 世界位置与主光，缺任一则不进图（AppState 侧提示）；compute 集固定挂 binding2，mode 1 用距离图自身占位避免空绑定 |
+| `RayTraceDebugAppState` | F9 三态循环 OFF → 相机主射线 → 主光方向 → OFF，状态行报实例数/TLAS 容量 |
+
+**与 CSM 的对照口径**：mode 2 的遮挡轮廓应与现有 CSM 阴影轮廓重合；数值逐像素比对（在 compute 里同算 CSM 可见性、R/G 双通道叠显）**未做**——需要把 `javelinCascadeShadow` 的级联求值抽成共享函数再复用，留待「替换/混合」决策前的一批。
+
+---
+
 ## 4. 风险与后置
 
 - **R1 780M 不支持**：若日志三项全 false，光追主线就地改为「先补 RHI-14 + L5 后处理」或换硬件，**不硬啃软件回退**（软件 RT 在这个引擎里没有意义）。
@@ -124,4 +138,4 @@
 3. 现有渲染画面、`error.log` 与 B0 之前**无差异**（探测不改任何状态）。
 4. B1 后：启动日志改四态 `光追能力: supported(rayQuery=…) enabled(rayQuery=…) accelExt=… bdaExt=…`；RTX 机器上 `enabled(rayQuery)=true`，780M 上允许 false 且引擎照常跑。
 5. B2a 后：控制台出现 `BLAS 构建` 一行（网格、图元数、AS 字节数）；构建失败时抛 `IllegalStateException`/`VulkanException` 并带 Vulkan 结果码，不允许静默。
-6. B3 后：按 F9 画面切为求交直显——命中近蓝远橙、天空/miss 深蓝；第 14 行报实例数与 TLAS 容量；物体轮廓与光栅画面贴合（无整体偏移、无条纹自交、无穿透漏检）。设备无 ray query（780M）时写「未就绪」且画面不变。
+6. B3 后：按 F9 在「相机主射线 → 主光方向 → 关」三态循环；相机态轮廓与光栅画面贴合（无偏移/自交/漏检），主光态遮挡轮廓与现有 CSM 阴影轮廓重合；设备无 ray query（780M）时写「未就绪」且画面不变。

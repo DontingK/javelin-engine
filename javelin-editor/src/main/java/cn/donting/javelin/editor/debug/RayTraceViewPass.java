@@ -81,11 +81,15 @@ public class RayTraceViewPass implements RenderPass {
     private static final String FRAG_SHADER_PATH = "editor/debug/raytraceview.frag";
     private static final String COMPUTE_SHADER_PATH = "editor/debug/raytrace.compute";
 
-    /** compute push：mat4 invViewProj + vec4 camPos + vec4 params（96B） */
-    private static final int COMPUTE_PUSH_BYTES = 16 * Float.BYTES + 2 * 4 * Float.BYTES;
+    /** compute push：mat4 invViewProj + vec4 camPos + vec4 params + vec4 lightDir（112B） */
+    private static final int COMPUTE_PUSH_BYTES = 16 * Float.BYTES + 3 * 4 * Float.BYTES;
     /** 视图 push：ivec2 targetSize（8B） */
     private static final int VIEW_PUSH_BYTES = Integer.BYTES * 2;
     private static final int WORKGROUP = 8;
+
+    /** 射线来源模式（与着色器常量一致） */
+    public static final int MODE_CAMERA = 1;
+    public static final int MODE_LIGHT = 2;
 
     private static final float[] TRIANGLE_VERTICES = {
             -1.0f, -1.0f,
@@ -106,6 +110,7 @@ public class RayTraceViewPass implements RenderPass {
     private DescriptorSetLayout computeSetLayout;
     private DescriptorSet computeSet;
     private Texture computeSetTexture;
+    private Texture computeSetWorldPos;
     private Tlas boundTlas;
     private DescriptorSetLayout viewSetLayout;
     private DescriptorSet viewSet;
@@ -119,6 +124,8 @@ public class RayTraceViewPass implements RenderPass {
     private final ByteBuffer viewPush = ByteBuffer.allocateDirect(VIEW_PUSH_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
     private volatile boolean enabled;
+    /** 当前射线来源：1 = 相机主射线 / 2 = 主光方向（G-Buffer 世界位置起点） */
+    private volatile int mode = MODE_CAMERA;
 
     public RayTraceViewPass(Device device, AssetManager assetManager,
                             RenderingSystem renderingSystem, String targetView) {
@@ -135,6 +142,8 @@ public class RayTraceViewPass implements RenderPass {
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.ACCELERATION_STRUCTURE, 1,
                         ShaderStage.COMPUTE),
                 new DescriptorSetLayoutDesc.Binding(1, DescriptorType.STORAGE_IMAGE, 1,
+                        ShaderStage.COMPUTE),
+                new DescriptorSetLayoutDesc.Binding(2, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.COMPUTE)));
         this.viewSetDesc = new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
@@ -143,6 +152,11 @@ public class RayTraceViewPass implements RenderPass {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    /** 射线来源：1 = 相机主射线 / 2 = 主光方向 */
+    public void setMode(int mode) {
+        this.mode = (mode == MODE_LIGHT) ? MODE_LIGHT : MODE_CAMERA;
     }
 
     @Override
@@ -169,6 +183,18 @@ public class RayTraceViewPass implements RenderPass {
         if (scene == null || camera == null) {
             return;  // 无光追能力 / 相机未就绪：AppState 侧写提示行
         }
+        boolean lightMode = mode == MODE_LIGHT;
+        Vector3f light = lightMode ? renderingSystem.sunDirectionOrNull() : null;
+        if (lightMode && light == null) {
+            return;  // 无主光：AppState 侧写提示行
+        }
+        final Vector3f rayDir = light == null ? null : new Vector3f(light).negate().normalize();
+        final Texture worldPosTexture = lightMode
+                ? renderingSystem.gbufferWorldPosFor(view.name()) : null;
+        final Sampler worldPosTextureSampler = lightMode ? renderingSystem.gbufferSampler() : null;
+        if (lightMode && (worldPosTexture == null || worldPosTextureSampler == null)) {
+            return;  // FORWARD 档没有 G-Buffer：模式 2 不可用
+        }
         int width = Math.max(1, (int) view.viewport().width() / 2);
         int height = Math.max(1, (int) view.viewport().height() / 2);
         ensureDistanceTexture(width, height);
@@ -179,19 +205,29 @@ public class RayTraceViewPass implements RenderPass {
         Matrix4f invViewProj = new Matrix4f(camera.viewProj()).invert();
         Vector3f position = new Vector3f(camera.position());
         float maxDistance = Math.max(1.0f, camera.farZ());
+        float bias = lightMode ? 0.02f : 0f;
         List<cn.donting.javelin.core.render.RenderObject> renderers = renderingSystem.renderers();
 
         graph.addComputePass(view.name() + "_RayTrace", pass -> {
             pass.setPipeline(ensureComputePipeline());
             pass.addTextureStorageWrite(distance);
+            if (worldPosTexture != null) {
+                pass.addTextureRead(worldPosTexture);
+            }
             pass.setRenderCallback(cmd -> {
                 scene.build(cmd, renderers);
                 cmd.bindPipeline(computePipeline);
-                cmd.bindDescriptorSet(0, computeSetFor(scene, distance), 0, null);
+                cmd.bindDescriptorSet(0,
+                        computeSetFor(scene, distance, worldPosTexture, worldPosTextureSampler), 0, null);
                 computePush.clear();
                 putMatrix(computePush, invViewProj);
                 computePush.putFloat(position.x).putFloat(position.y).putFloat(position.z).putFloat(1.0f);
-                computePush.putFloat(maxDistance).putFloat(0f).putFloat(0f).putFloat(0f);
+                computePush.putFloat(maxDistance).putFloat((float) mode).putFloat(bias).putFloat(0f);
+                if (rayDir != null) {
+                    computePush.putFloat(rayDir.x).putFloat(rayDir.y).putFloat(rayDir.z).putFloat(0f);
+                } else {
+                    computePush.putFloat(0f).putFloat(0f).putFloat(0f).putFloat(0f);
+                }
                 computePush.flip();
                 cmd.pushConstants(0, computePush);
                 cmd.dispatch((width + WORKGROUP - 1) / WORKGROUP,
@@ -260,9 +296,18 @@ public class RayTraceViewPass implements RenderPass {
         return computePipeline;
     }
 
-    private DescriptorSet computeSetFor(RayTracingScene scene, Texture distance) {
+    /**
+     * compute 集（binding0 加速结构 / binding1 距离图 / binding2 世界位置）。
+     *
+     * <p>模式 1 的世界位置绑定依旧要合法（着色器只声明不采样），故传占位：无 G-Buffer 时
+     * 用距离图自身充数——它同时具备 STORAGE + SAMPLED，格式差异不会触发校验错误。</p>
+     */
+    private DescriptorSet computeSetFor(RayTracingScene scene, Texture distance,
+                                        Texture worldPos, Sampler worldPosSampler) {
         Tlas tlas = scene.tlas();
-        if (computeSet != null && computeSetTexture == distance && boundTlas == tlas) {
+        Texture boundWorldPos = worldPos != null ? worldPos : distance;
+        if (computeSet != null && computeSetTexture == distance
+                && computeSetWorldPos == boundWorldPos && boundTlas == tlas) {
             return computeSet;
         }
         if (computeSetLayout == null) {
@@ -274,11 +319,22 @@ public class RayTraceViewPass implements RenderPass {
             }
             computeSet = device.createDescriptorSet(computeSetLayout);
         }
+        Sampler sampler = worldPosSampler != null
+                ? worldPosSampler : nearestSampler();
         computeSet.update(DescriptorUpdate.accelerationStructure(0, tlas),
-                DescriptorUpdate.storageTexture(1, distance));
+                DescriptorUpdate.storageTexture(1, distance),
+                DescriptorUpdate.sampledTexture(2, boundWorldPos, sampler));
         computeSetTexture = distance;
+        computeSetWorldPos = boundWorldPos;
         boundTlas = tlas;
         return computeSet;
+    }
+
+    private Sampler nearestSampler() {
+        if (nearestSampler == null) {
+            nearestSampler = device.createSampler(SamplerDesc.nearest());
+        }
+        return nearestSampler;
     }
 
     private DescriptorSet viewSetFor(Texture distance) {

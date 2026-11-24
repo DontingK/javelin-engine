@@ -1,24 +1,29 @@
 #version 450
 // 光追求交可视化 compute（P4-06 B3，Engine_RayTracing_Plan §2 B3）。
 //
-// 半分辨率每个像素发一条相机主射线，ray query 对 TLAS 求最近命中，把「命中距离 / TLAS
-// 归一化」写进 r32f 存储图（miss = -1）。先只做几何命中验证——与深度图/阴影图对照，
-// 偏移、漏光、自交这类问题在直显画面里一眼可见，之后才谈替换 CSM。
-//
-// 射线原点取相机位置、tMin = 0.05（避免与近平面自交），方向由 invViewProj 反投影
-// far 平面点求得（与引擎 zZeroToOne 投影一致）。
+// 半分辨率每像素发一条射线，ray query 对 TLAS 求最近命中，把「命中距离 / tMax」写进
+// r32f 存储图（miss = -1）。两种射线来源：
+//   mode 1 = 相机主射线（验证几何/自交/漏检，与光栅轮廓对照）；
+//   mode 2 = 主光方向射线：以 G-Buffer 世界位置为起点、沿「指向光源」方向求交，
+//            命中 = 该像素在光路上被遮挡（与 CSM 阴影轮廓对照）。
 #extension GL_EXT_ray_query : require
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform accelerationStructureEXT uTlas;
 layout(binding = 1, r32f) uniform image2D uHitDistance;
+// 世界位置（G-Buffer，RGBA32F；w < 0.5 = 背景/无几何）
+layout(binding = 2) uniform sampler2D uWorldPos;
 
 layout(push_constant) uniform PushBlock {
-    mat4 invViewProj;   // 相机 viewProj 的逆（far 平面 z = 1）
-    vec4 camPos;        // xyz = 相机世界位置
-    vec4 params;        // x = 最远求交距离（归一化分母）
+    mat4 invViewProj;   // 相机 viewProj 的逆（far 平面 z = 1；mode 1 用）
+    vec4 camPos;        // xyz = 相机世界位置（mode 1 起点）
+    vec4 params;        // x = 最远求交距离 / y = mode（1 相机 / 2 主光） / z = 起点偏移
+    vec4 lightDir;      // xyz = 指向光源的方向（mode 2；已归一化）
 } pc;
+
+const int MODE_CAMERA = 1;
+const int MODE_LIGHT = 2;
 
 void main() {
     ivec2 size = imageSize(uHitDistance);
@@ -27,15 +32,31 @@ void main() {
         return;
     }
 
-    // 半分辨率像素中心 → NDC；与全分辨率共用同一视锥，故放大不改变方向
-    vec2 ndc = (vec2(px) + 0.5) / vec2(size) * 2.0 - 1.0;
-    vec4 farPoint = pc.invViewProj * vec4(ndc, 1.0, 1.0);
-    vec3 dir = normalize(farPoint.xyz / farPoint.w - pc.camPos.xyz);
-
+    int mode = int(pc.params.y);
     float tMax = pc.params.x;
+    vec3 origin;
+    vec3 dir;
+
+    if (mode == MODE_LIGHT) {
+        // 半分辨率像素中心 → 全分辨率 UV → 采世界位置（NEAREST，避免跨物体插值）
+        vec2 uv = (vec2(px) + 0.5) / vec2(size);
+        vec4 worldPos = texture(uWorldPos, uv);
+        if (worldPos.w < 0.5) {
+            imageStore(uHitDistance, px, vec4(-1.0));   // 背景：无几何可求交
+            return;
+        }
+        dir = normalize(pc.lightDir.xyz);
+        origin = worldPos.xyz + dir * pc.params.z;      // 沿光线方向抬一点，避免自交
+    } else {
+        vec2 ndc = (vec2(px) + 0.5) / vec2(size) * 2.0 - 1.0;
+        vec4 farPoint = pc.invViewProj * vec4(ndc, 1.0, 1.0);
+        origin = pc.camPos.xyz;
+        dir = normalize(farPoint.xyz / farPoint.w - origin);
+    }
+
     rayQueryEXT query;
     rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
-            pc.camPos.xyz, 0.05, dir, tMax);
+            origin, 0.0, dir, tMax);
     while (rayQueryProceedEXT(query)) {
     }
 
