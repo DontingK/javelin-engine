@@ -1,6 +1,6 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.3
+> 版本：v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
 > 日期：2026-11-10（v0.3：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
@@ -101,11 +101,9 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 
 - 只看**目标视口（编辑器相机）** G-Buffer——多视口分屏各看各的属过度设计，需要时再加；
 - 不做像素取值放大镜/直方图（那是 RenderDoc 的领域；本视图只答「中间产物肉眼对不对」）；
-- shadowMap 可视化（另一张高价值中间产物）**不在本步**——深度比较采样器采样与普通采样不同（需专 shader 分支），独立小批次后置，档内留位。
+- shadowMap 可视化（另一张高价值中间产物）**不在本步**——2026-11-24 已另行落码，见 §3.6（实际未走深度比较采样，改直读深度值）。
 
-### 3.4 自验口径
-
-- HYBRID 档：F4 循环四态——albedo 与画面基色一致 / 法线朝向直觉对（+Y 上表面偏绿）/ 世界位置平滑渐变无断裂 / 关闭恢复；
+### 3.4 自验口径- HYBRID 档：F4 循环四态——albedo 与画面基色一致 / 法线朝向直觉对（+Y 上表面偏绿）/ 世界位置平滑渐变无断裂 / 关闭恢复；
 - #35 复盘对照：模拟「G-Buffer 正常但光照输出黑」时，F4 albedo 视图正常 → 断点定位在 LightingPass，不再需要推演；
 - FORWARD 档：F4 无画面 + 提示行；F3 统计不受影响。
 
@@ -124,6 +122,19 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 >
 > 归属沿革：v0.2 时点本步骤原拟落 core（`registerDefaultAppStates` 同族）；2026-11-12 用户拍板**归编辑器**——切换入口随之改为**顶部菜单**（F4 降为快捷键），Pass/AppState/内置 shader 全迁 javelin-editor，core 零改动（`JavelinEngine.registerDefaultAppStates` 未加此状态）。
 
+### 3.6 阴影图可视化落码（2026-11-24，DBG-03，dbg-3 同批）
+
+§3.3 留位的那件已落码，**但没走「深度比较采样」路**：比较采样器只给 0/1 可见性，会把深度分布压平，看不出纹素吸附与漏光——直显改用**普通采样器 + `texelFetch` 直读深度值**，比较分支留给着色链路自己用。
+
+| 落点 | 改动 |
+|------|------|
+| `ShadowMapViewPass`（新增，javelin-editor `editor.debug`） | 与 `GBufferViewPass` 同款覆盖制全屏三角；`targetView` 过滤 + `shadowMapOrNull(targetView)` 为空则本帧不进图；push `{int mode, int grid}`（8B）；set0 单采样器（`SamplerDesc.nearest()`，非比较）；atlas 换代即重建描述符集；`addTextureRead(atlas)` 与 Shadow 段建边（COLOR/深度写 → SHADER_READ_ONLY 屏障） |
+| `shadowview.frag`（新增，`builtin-asset-editor/debug/`） | mode 1 = 原始深度灰度（远 1.0 白、遮挡体暗块）；mode 2 = 按 2×2 象限给级联分色（`col=x*grid/w`、`row=y*grid/h`，与 `ShadowPass` 的 `col=c%grid / row=c/grid` 同序）+ 遮挡体按深度压暗；`grid>1` 时在 x/y 中点画 1px 暗灰分隔线；伴生 `.meta`；顶点复用 `gbufferview.vert` |
+| `ShadowMapDebugAppState`（新增） | 静态意图 + F6 边沿循环；就绪判据 = `shadowMapOrNull(targetView) != null`（刷新静态标记供菜单判灰）；`DebugText` 行 **12**（级联数 / 版面 / atlas 边长 / 主光投影开关）；未就绪写提示行且不进图 |
+| `ShadowMapViewMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 「工具 \| 阴影图视图」三项（关闭 / 原始深度 / 级联分色）；`attach(new ShadowMapDebugAppState())` 紧随探针视图；zh/en 补 `tools.shadowView*` 与 `shadowView.assetMissing/assetInvalid/loadFailed` |
+
+**自验口径**（未编译，交用户）：原始深度下能看出级联包围盒在贴图里的实际覆盖（越高层级联越糊、纹素越大）；级联分色下四象限色块边界与场景级联切分位置对得上；开/关主光投影时状态行与画面同步变化；`error.log` 零新 VVL（重点仍是深度图的 `SHADER_READ_ONLY` 声明）。
+
 ---
 
 ## 4. 排期与批次划分
@@ -132,7 +143,8 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 |------|------|------|---------|
 | **dbg-1** ✅ 已验收（2026-11-12 用户实测） | 步骤一：`engineDebug` 设置 + fail-fast + messenger 回调路由（2.1~2.4 全部） | 无（先行） | 小（RHI `VulkanInstance` 主体 + `JavelinSetting` 两字段 + `JavelinEngine` 一行接线；改动集中、无渲染路径风险） |
 | **dbg-2** ✅ 已验收（2026-11-12 用户实测；归属编辑器） | 步骤二：G-Buffer 可视化（3.1~3.4 全部；实装落点 §3.5） | dbg-1 无硬依赖，可并行；建议在后（dbg-1 验收后顺手） | 中（新 AppState + 覆盖 Pass + 内置 shader 资产三件 + meta + 单测/手验清单） |
-| 后置挂账 | shadowMap 可视化（3.3）；VERBOSE 严重度；编辑器首选项 UI（2.4）；SPIR-V 静态自检（无 SDK 环境的引擎侧校验，立项另议） | dbg-1/2 | — |
+| **dbg-3 / DBG-03** ⏳ 已落码待验收（2026-11-24） | 步骤三：阴影图可视化（§3.6）——原始深度 + 级联分色 | 无（与 dbg-2 同骨架） | 小（一个覆盖 Pass + 一个 AppState + 三项菜单 + 一支 frag） |
+| 后置挂账 | VERBOSE 严重度（2.2）；编辑器首选项 UI（2.4）；SPIR-V 静态自检（无 SDK 环境的引擎侧校验，立项另议） | dbg-1/2 | — |
 
 两批各自独立验收（dbg-1 = 2.3 清单、dbg-2 = 3.4 清单），验收口径单点落 `Engine_Features.md`；批次索引进 `Engine_Roadmap_Progress.md`（支撑类散件节）。
 

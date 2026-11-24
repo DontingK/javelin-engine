@@ -27,8 +27,10 @@ import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.menu.top.GridMenuCommand;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
+import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
 import cn.donting.javelin.editor.menu.top.DdgiProbeVizMenuCommand;
 import cn.donting.javelin.editor.menu.top.PostProcessingMenuCommand;
+import cn.donting.javelin.editor.menu.top.ShadowMapViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.BloomMenuCommand;
 import cn.donting.javelin.editor.menu.top.GBufferViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.PackMenuCommand;
@@ -101,6 +103,13 @@ public final class EditorMenuSetup {
                 DdgiProbeVizAppState.MODE_IRRADIANCE));
         context.registerCommand(new DdgiProbeVizMenuCommand("tools.ddgiProbeView.depth",
                 DdgiProbeVizAppState.MODE_DEPTH));
+        // 阴影图视图（DBG-03，2026-11-24）：工具菜单三项单选（关闭/原始深度/级联分色）
+        context.registerCommand(new ShadowMapViewMenuCommand("tools.shadowView.off",
+                ShadowMapDebugAppState.MODE_OFF));
+        context.registerCommand(new ShadowMapViewMenuCommand("tools.shadowView.depth",
+                ShadowMapDebugAppState.MODE_DEPTH));
+        context.registerCommand(new ShadowMapViewMenuCommand("tools.shadowView.cascade",
+                ShadowMapDebugAppState.MODE_CASCADE));
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new PreferencesMenuCommand());
@@ -182,7 +191,11 @@ public final class EditorMenuSetup {
                         .item("tools.ddgiProbeView.off")
                         .item("tools.ddgiProbeView.grid")
                         .item("tools.ddgiProbeView.irradiance")
-                        .item("tools.ddgiProbeView.depth"));
+                        .item("tools.ddgiProbeView.depth"))
+                .submenu(EditorLang.key("tools.shadowView"), shadow -> shadow
+                        .item("tools.shadowView.off")
+                        .item("tools.shadowView.depth")
+                        .item("tools.shadowView.cascade"));
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）

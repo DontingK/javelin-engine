@@ -18,6 +18,7 @@ import cn.donting.javelin.editor.appstate.gizmo.TransformGizmoAppState;
 import cn.donting.javelin.editor.debug.DebugLineAppState;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
+import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.picking.PickSystem;
 import cn.donting.javelin.core.settings.JavelinSetting;
@@ -149,6 +150,9 @@ public class JavelinEditor extends JavelinEngine {
             // DDGI 探针可视化（dbg-3，Engine_DDGI_ProbeViz_Design）：工具菜单/F5 切换三视图——
             // 探针网格线框（经 DebugLineAppState 统一提交）、atlas 直显覆盖 Pass、数值行
             stateManager.attach(new DdgiProbeVizAppState());
+            // 阴影图可视化（DBG-03，Engine_Shadow_Quality_Design §4.7）：工具菜单/F6 切原始深度与级联分色，
+            // L4 阴影补强前的调参眼
+            stateManager.attach(new ShadowMapDebugAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());
