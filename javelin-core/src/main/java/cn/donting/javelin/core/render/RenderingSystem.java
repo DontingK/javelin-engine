@@ -140,14 +140,19 @@ public final class RenderingSystem implements AutoCloseable {
     private static final int SLOT_SIZE = TIME_OFFSET + 256;
 
     // ── 光照帧级通道（三期批次②，Engine_Lighting_Design §3.3/§3.4）──
-    /** LightingParamsBlock 帧槽步长（std140 实需 656B，256 对齐进取 768；动态偏移单位，四期 CSM §4.6） */
+    /** LightingParamsBlock 帧槽步长（std140 实需 672B，256 对齐进取 768；动态偏移单位，四期 CSM §4.6） */
     static final int LIGHTING_STRIDE = 768;
     /**
-     * LightingParamsBlock 实需尺寸（四期 CSM §4.6）：方向光 256 + counts/grid/zParams/viewport/ambient
+     * LightingParamsBlock 实需尺寸（四期 CSM §4.6 + REND-21-C2）：方向光 256 + counts/grid/zParams/viewport/ambient
      * 各 16（80）+ sunViewProj[4] 256 + cascadeSplits 16 + shadowParams 16 + shadowParams2 16
-     * + cascadeInvZ 16 = 656。
+     * + cascadeInvZ 16 + contactParams 16 = 672。
      */
-    static final int LIGHTING_BLOCK_BYTES = 656;
+    static final int LIGHTING_BLOCK_BYTES = 672;
+
+    /** 接触阴影最大步进距离（世界单位，约 35cm；REND-21-C2 §4 P4） */
+    static final float CONTACT_SHADOW_MAX_DISTANCE = 0.35f;
+    /** 接触阴影步数（每像素 texture 采样次数；REND-21-C2 §4 P4） */
+    static final float CONTACT_SHADOW_STEPS = 10.0f;
     /**
      * 环境项（rgb + 强度）：v0.x 起由 `Environment.ambientMode` 推送（四期 P4-04 步骤一
      * 的常量档）；`OFF`/无环境组件 = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
@@ -1639,6 +1644,13 @@ public final class RenderingSystem implements AutoCloseable {
         for (int c = 0; c < 4; c++) {
             lightingPack.putFloat(vs.invZ[c]);
         }
+        // contactParams（@656，REND-21-C2）：x=开关(0/1) / y=最大步进距离 tMax / z=强度 /
+        // w=步数。仅 LightingPass（HYBRID）消费——Forward 路不声明该助手函数
+        float contact = shadow.getContactShadows();
+        lightingPack.putFloat(contact > 0.0f ? 1.0f : 0.0f)
+                .putFloat(CONTACT_SHADOW_MAX_DISTANCE)
+                .putFloat(contact)
+                .putFloat(CONTACT_SHADOW_STEPS);
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }

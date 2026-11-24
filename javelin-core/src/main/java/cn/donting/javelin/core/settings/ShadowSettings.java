@@ -91,6 +91,17 @@ public class ShadowSettings implements Serializable {
     @SettingHint("projectSettings.shadowSoftnessHint")
     private float softness = 1.0f;
 
+    /**
+     * 接触阴影强度（REND-21-C2，Engine_Shadow_Contact_Design §4 P5）：屏幕空间短距遮挡，
+     * 补 CSM 分辨率不够时物体与地面/墙面贴合处的暗缝。0 = 关（逐像素回退 C1 状态），
+     * 缺省 0.5；仅 HYBRID 档生效（消费 G-Buffer 世界位置）。
+     */
+    @InsField(label = "projectSettings.shadowContact")
+    @InsFloatRange(min = 0f, max = 1f, step = 0.05f)
+    @InsSlider
+    @SettingHint("projectSettings.shadowContactHint")
+    private float contactShadows = 0.5f;
+
     public ShadowQuality getQuality() {
         return quality;
     }
@@ -178,6 +189,15 @@ public class ShadowSettings implements Serializable {
         this.softness = Math.max(softness, 0.0f);
     }
 
+    /** 接触阴影强度（0 = 关；REND-21-C2） */
+    public float getContactShadows() {
+        return contactShadows;
+    }
+
+    public void setContactShadows(float contactShadows) {
+        this.contactShadows = Math.min(Math.max(contactShadows, 0.0f), 1.0f);
+    }
+
     @Override
     public void write(OutputCapsule output) {
         output.write("quality", quality);
@@ -190,6 +210,7 @@ public class ShadowSettings implements Serializable {
         output.write("shadowDistance", shadowDistance);
         output.write("cascadeLambda", cascadeLambda);
         output.write("softness", softness);
+        output.write("contactShadows", contactShadows);
     }
 
     @Override
@@ -206,5 +227,6 @@ public class ShadowSettings implements Serializable {
         shadowDistance = input.readFloat("shadowDistance", 80.0f);
         cascadeLambda = input.readFloat("cascadeLambda", 0.5f);
         softness = input.readFloat("softness", 1.0f);
+        contactShadows = input.readFloat("contactShadows", 0.5f);
     }
 }

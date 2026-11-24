@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.35（2026-11-25）
+> v0.35 变更（2026-11-25）：**L4 第三笔 REND-21-C2 接触阴影落码**（补齐 C 的另一半）——勘察推翻旧前置：不需要给相机深度附件加 `SAMPLED`（SSAO 早已用 `cam.viewProj` 反投影世界位置取证），故本批**零 RHI 改动、零新描述符槽**：`ShadowSettings` 新增 `contactShadows`（0~1 强度，缺省 0.5，0 = 关），经 `LightingParamsBlock` 尾部新增 `vec4 contactParams`（@656，块实需 656→672，`LIGHTING_STRIDE` 768 不变）；注入段新增 `javelinContactShadow`（世界位置沿主光方向 10 步、tMax 0.35，投影后采 G-Buffer 世界位置比较相机空间 z）+ `javelinLightingEx(..., contactShadow)` 重载（只乘主光直射项），**只在全屏光照 Pass 调用**——Forward 路走三参版本、系数恒 1，故本项天然 HYBRID 限定。`Engine_Shadow_Contact_Design.md` v0.2。**未编译**（`lighting.frag` 需重导）。
 > 版本：v0.34（2026-11-25）
 > v0.34 变更（2026-11-25）：**REND-13 光照 gizmo 落码**（路线 §4.1 贯穿项「L4 开工前先备可视化」，接在 DBG-03 之后）——编辑器侧新增 `LightGizmoAppState`（全场景灯、不走选中门控）：方向光沿节点 +Z 画行进方向箭头、点光画 range 三轴大圆、聚光画外角四母线 + 末端圆，选中灯白线叠画，`DebugText` 第 13 行报灯数；入口 = 菜单「工具 \| 光照 gizmo」两项 + F7 边沿循环；线框仍由 `DebugLineAppState` 每帧 clear 后统一代提交（本状态保持唯一 clear 执行者）。纯编辑器 DebugDrawLine 路径，**不动着色器与 RHI**。说明档 `Engine_DebugTools_Plan.md` v0.5 §3.7。**未编译**。
 > 版本：v0.33（2026-11-25）
@@ -176,7 +178,7 @@
 | | 探针可视化 | DBG-07 / `Engine_DDGI_ProbeViz_Design.md` | 探针位置 / 辐照度 / 可见性可读 | ✅ 2026-11-24 落码（网格线框 + atlas 直显 + 数值行；未编译待验收）|
 | **L4** 阴影补强 | cutout/alpha-test 阴影 | REND-21-A | 镂空与植被投影有孔洞 | ✅ 2026-11-24 落码（`Engine_Shadow_Cutout_Design.md` v0.2）：材质 `_AlphaCutoff` 语义 + 阴影专 set0 采样 `_MainTex` + push 144B；主渲染同口径 discard；未编译待验收 |
 | | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | 必须拆两套集合（可见性 vs caster）；距离门限用 `shadowDistance` |
-| | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | **C1 PCSS 2026-11-25 落码待验收**（`softness` + binding11 原始深度 + 变半径 PCF，`Engine_Shadow_PCSS_Design.md` v0.2）；C2 接触阴影挂 Backlog（需相机深度加 `SAMPLED`）；接触漏光的根治面 |
+| | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | **C1 PCSS 2026-11-25 落码待验收**（`softness` + binding11 原始深度 + 变半径 PCF）；**C2 接触阴影 2026-11-25 已落码**（世界位置屏幕空间 10 步短距步进 + `contactParams` @656，仅 HYBRID、零 RHI 改动；`Engine_Shadow_Contact_Design.md` v0.2）；接触漏光的根治面 |
 | | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |
 | **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | 与 BRDF 无关，故排在光追前 |
 | **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链 |

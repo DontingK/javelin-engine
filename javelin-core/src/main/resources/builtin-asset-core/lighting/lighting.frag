@@ -21,5 +21,8 @@ void main() {
     // 视空间换算（与材质 vs 同式：view 变换位置、mat3(view) 变换法线）
     vec3 viewPos = (cam.view * vec4(worldPos, 1.0)).xyz;
     vec3 viewNormal = mat3(cam.view) * worldNormal;
-    outColor = vec4(albedo * javelinLighting(normalize(viewNormal), viewPos, worldPos), 1.0);
+    // 接触阴影（REND-21-C2）：朝主光方向做短距屏幕空间步进（无主光时系数恒 1，
+    // 由 uniform 开关门控，关档早退零成本）
+    float contact = javelinContactShadow(worldPos, -normalize(lighting.directional[0].xyz));
+    outColor = vec4(albedo * javelinLightingEx(normalize(viewNormal), viewPos, worldPos, contact), 1.0);
 }

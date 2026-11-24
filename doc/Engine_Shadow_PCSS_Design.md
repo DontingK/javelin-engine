@@ -109,4 +109,4 @@
 3. 调到 1.0：悬空物体影子边缘明显比贴地物体软，近级联比远级联软；
 4. `error.log` 零新增 VVL；1080p 全屏看帧时间增量（判据 C ≤ 1.5ms，超了就说，我下调 tap 数）。
 
-**未做项（挂账）**：C2 接触阴影（需 `depthFor` 加 `SAMPLED` usage + set1 binding12 + LightingPass 图声明 + 屏幕空间步进）——已登记 `Engine_Backlog.md` REND-21 分支。
+**未做项（挂账）**：C2 接触阴影已于 2026-11-25 单独落码（`Engine_Shadow_Contact_Design.md` v0.2）——**勘察确认原「需 `depthFor` 加 `SAMPLED` + binding12」的前置不成立**，改走 G-Buffer 世界位置反投影，零 RHI 改动、零新槽位，仅 HYBRID 档。

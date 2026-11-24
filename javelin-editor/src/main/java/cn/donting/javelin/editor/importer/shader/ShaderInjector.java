@@ -222,6 +222,7 @@ public final class ShaderInjector {
                 vec4 shadowParams;
                 vec4 shadowParams2;
                 vec4 cascadeInvZ;
+                vec4 contactParams;   // x = 开关(0/1)，y = tMax，z = 强度，w = 步数（REND-21-C2）
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
@@ -352,7 +353,17 @@ public final class ShaderInjector {
                 return s / 144.0;
             }
 
+            // 前向声明：重载在下方定义（GLSL 需先声明后调用）
+            vec3 javelinLightingEx(vec3 viewNormal, vec3 viewPos, vec3 worldPos, float contactShadow);
+
             vec3 javelinLighting(vec3 viewNormal, vec3 viewPos, vec3 worldPos) {
+                return javelinLightingEx(viewNormal, viewPos, worldPos, 1.0);
+            }
+
+            // 带接触阴影系数的重载（REND-21-C2）：只乘主光直射项，环境/点聚光不受影响。
+            // Forward 路调三参版本（系数恒 1.0）；只有全屏光照 Pass 会传真实值
+            vec3 javelinLightingEx(vec3 viewNormal, vec3 viewPos, vec3 worldPos,
+                                   float contactShadow) {
                 // 环境项（四期 P4-05 B3）：DDGI 档且网格内 → 探针辐照度接管；否则常量项回落
                 vec3 result = lighting.ambient.rgb * lighting.ambient.a;
                 if (ddgi.ddgiParams.x > 0.5 && javelinDDGIInside(worldPos)) {
@@ -394,7 +405,8 @@ public final class ShaderInjector {
                         }
                     }
                     result += lighting.directional[2 * i + 1].rgb
-                            * lighting.directional[2 * i + 1].a * ndl * shadow;
+                            * lighting.directional[2 * i + 1].a * ndl * shadow
+                            * (i == 0 ? contactShadow : 1.0);
                 }
                 if (lighting.gridDim.x <= 0) {
                     return result;
@@ -465,6 +477,51 @@ public final class ShaderInjector {
             layout(set = 1, binding = 7) uniform sampler2D gbufferWorldPos;""";
 
     /**
+     * 接触阴影助手（REND-21-C2，Engine_Shadow_Contact_Design §3）：世界位置沿主光方向短距
+     * 步进，投影到屏幕后采 G-Buffer 世界位置比较「谁更靠近相机」——命中率即遮挡比。
+     *
+     * <p>只注入全屏光照 Pass（Forward 路同帧读 G-Buffer 语义不可靠），故本项天然 HYBRID 限定。
+     * 不读深度附件（不需要 {@code SAMPLED}），与 SSAO 同一取证方式。</p>
+     *
+     * <p>返回太阳直射项系数：1 = 无遮挡；{@code contactParams.z}（强度）越大压得越狠，0 = 关。</p>
+     */
+    private static final String CONTACT_SHADOW = """
+            // 接触阴影（REND-21-C2）：短距屏幕空间遮挡，乘在主光直射项上
+            float javelinContactShadow(vec3 worldPos, vec3 towardLight) {
+                if (lighting.contactParams.x < 0.5) {
+                    return 1.0;
+                }
+                int steps = max(int(lighting.contactParams.w), 1);
+                float tMax = lighting.contactParams.y;
+                float strength = lighting.contactParams.z;
+                vec3 dir = normalize(towardLight);
+                float hits = 0.0;
+                for (int i = 1; i <= steps; i++) {
+                    vec3 p = worldPos + dir * (tMax * float(i) / float(steps));
+                    vec4 clip = cam.viewProj * vec4(p, 1.0);
+                    if (clip.w <= 0.0) {
+                        continue;
+                    }
+                    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+                    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) {
+                        continue;                      // 步进点出屏
+                    }
+                    vec4 q = texture(gbufferWorldPos, uv);
+                    if (q.w < 0.5) {
+                        continue;                      // 落在背景上
+                    }
+                    // 视空间前向 = −Z：值更大 = 更靠近相机 = 挡在步进点前面
+                    float sceneZ = -(cam.view * vec4(q.xyz, 1.0)).z;
+                    float stepZ = -(cam.view * vec4(p, 1.0)).z;
+                    if (sceneZ > stepZ + 0.02) {
+                        hits += 1.0;
+                    }
+                }
+                float occ = hits / float(steps);
+                return 1.0 - min(occ * strength * 2.0, 1.0);
+            }""";
+
+    /**
      * 全屏光照 Pass 注入标记：{@code SpvShaderImporter} 见到即注入相机块 +
      * 光照段函数 + G-Buffer 三采样（其余 .vert/.frag 保持零注入现状）。
      */
@@ -486,6 +543,7 @@ public final class ShaderInjector {
         injected.append(LIGHTING_BLOCKS).append('\n');
         // G-Buffer 三采样声明必须先于 RECEIVE_SHADOW_GBUFFER 函数体（其读 gbufferAlbedo）
         injected.append(GBUFFER_BLOCKS).append('\n');
+        injected.append(CONTACT_SHADOW).append('\n');
         injected.append(RECEIVE_SHADOW_GBUFFER).append('\n');
         injected.append("// ── injection end ──\n");
         injected.append(body, versionEnd, body.length());
