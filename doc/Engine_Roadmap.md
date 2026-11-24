@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.37（2026-11-25）
+> v0.37 变更（2026-11-25）：**主线转光追（L6 / P4-06），L5 后处理四项暂缓**——用户拍板：曝光测光、色彩分级 LUT、DOF、体积雾与环境雾**都是后期的**（前三者分别卡 RHI-14 mip 链 / BRDF 口径 / 深度，体积雾要 raymarch+降噪）。本批落 **光追 B0 能力探针**：`VulkanPhysicalDevice` 枚举设备扩展（懒算一次）、`Device` 新增 `hasDeviceExtension(String)` / `supportsRayQuery()`（扩展在列 **且** `VkPhysicalDeviceRayQueryFeaturesKHR.rayQuery` 为 true，部分驱动上报扩展却关位）、`JavelinEngine` 启动期打一行 `光追能力探针`。**纯探测，不启用扩展、不建 AS、不改 BufferUsage、不动着色器**（现有渲染零影响）。`Engine_RayTracing_Plan.md` v0.1（B0~B3 批次划分：B1 扩展启用 / B2 BLAS+TLAS / B3 rayQuery 求交可视化）。**未编译**。
 > 版本：v0.36（2026-11-25）
 > v0.36 变更（2026-11-25）：**L4 第四笔 REND-21-B 逐级联剔除落码**——CSM 四级联此前各自全量重画同一份 caster 列表，本批给每级联加一次 AABB 粗筛：网格本地盒 → 世界盒（`Aabb.transform`）→ 光裁剪盒（正交、z∈[0,1]），判 x/y 区间重叠且未整体越过远平面；**近平面侧不裁**（光与级联之间的遮挡体仍会把影子投进来，裁了漏光）；无包围盒网格恒画。**不引入 JOML `FrustumIntersection`**（其平面提取按 z∈[-1,1] 约定，与引擎 zZeroToOne 不符），零新依赖、零分配（矩阵/盒缓冲复用）。首帧打一行 `末级联存活 k/total` 便于粗看收益。`Engine_Shadow_CascadeCull_Design.md` v0.1。**未编译**；主视图剔除仍后置（REND-01），届时应把规则抽成公共 culler。
 > 版本：v0.35（2026-11-25）
@@ -182,8 +184,8 @@
 | | 逐级联剔除 | REND-21-B + REND-01 | 视锥外 caster 不被误剔、级联外不白画 | **REND-21-B 部分 2026-11-25 落码待验收**（AABB → 光裁剪盒粗筛，近平面不裁，`Engine_Shadow_CascadeCull_Design.md`）；主视图剔除与静态/动态分层仍归 REND-01 |
 | | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | **C1 PCSS 2026-11-25 落码待验收**（`softness` + binding11 原始深度 + 变半径 PCF）；**C2 接触阴影 2026-11-25 已落码**（世界位置屏幕空间 10 步短距步进 + `contactParams` @656，仅 HYBRID、零 RHI 改动；`Engine_Shadow_Contact_Design.md` v0.2）；接触漏光的根治面 |
 | | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |
-| **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | 与 BRDF 无关，故排在光追前 |
-| **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链 |
+| **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | **2026-11-25 用户拍板暂缓**（「都是后期的」）：曝光测光卡 RHI-14 mip 链、色彩分级卡 REND-03 口径、DOF 要深度、体积雾要 raymarch+降噪；环境雾方案件 `Engine_Environment_Fog_Design.md` 留档不开工 |
+| **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链。**B0 能力探针 2026-11-25 已落码待验收**（`Device.supportsRayQuery()` 双判 + 启动日志，`Engine_RayTracing_Plan.md` v0.1）；B1 启用 / B2 BLAS+TLAS / B3 求交可视化待拍板 |
 | **L7** 着色模型 | BRDF/GGX + IBL | REND-03 / REND-16 / P4-04 步骤二（SH9 重启） | 金属球有环境反射、粗糙度扫过连续 | 依赖 AST-01 mip 生成链 / AST-09 / AST-12；**用户拍板排在光追后** |
 | **L8** 反射消费 | SSR / 反射探针 / RT 反射 | REND-17 | 镜面反射出画面 | 依赖 L7 的镜面项；**因无镜面消费点而随 L7 后移** |
 

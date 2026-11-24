@@ -179,6 +179,12 @@ public class JavelinEngine {
         log.info("RHI initialized: {}x{}, vsync={}, maxFps={}",
                 window.width(), window.height(),
                 setting.getWindowSettings().isVsync(), setting.getWindowSettings().getMaxFps());
+        // 光追首范围（P4-06）能力探针：启动期显性报一行，缺能力就当场看见，
+        // 不等到 AS 构建批次才发现驱动不认（红线 15 口径：错误显性化）
+        log.info("光追能力探针: rayQuery={} accelerationStructure={} bufferDeviceAddress={}",
+                device.supportsRayQuery(),
+                device.hasDeviceExtension("VK_KHR_acceleration_structure"),
+                device.hasDeviceExtension("VK_KHR_buffer_device_address"));
 
         subsystemManager.initAll(this);
 

@@ -337,6 +337,27 @@ final class VulkanDevice implements Device {
         return physicalDevice.properties().limits().maxPushConstantsSize();
     }
 
+    @Override
+    public boolean hasDeviceExtension(String extensionName) {
+        return extensionName != null && physicalDevice.hasExtension(extensionName);
+    }
+
+    @Override
+    public boolean supportsRayQuery() {
+        if (!hasDeviceExtension(KHRRayQuery.VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+            return false;
+        }
+        // 扩展在列只是必要条件：feature 位还得是 true（部分驱动上报扩展但把 rayQuery 关掉）
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkPhysicalDeviceRayQueryFeaturesKHR rayQuery =
+                    VkPhysicalDeviceRayQueryFeaturesKHR.calloc(stack).sType$Default();
+            VkPhysicalDeviceFeatures2 features2 = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default();
+            features2.pNext(rayQuery);
+            vkGetPhysicalDeviceFeatures2(physicalDevice.device(), features2);
+            return rayQuery.rayQuery();
+        }
+    }
+
     /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */
     private static Set<SampleCount> decodeSampleCounts(int vkBits) {
         EnumSet<SampleCount> out = EnumSet.of(SampleCount.COUNT_1);

@@ -8,8 +8,10 @@ import org.lwjgl.vulkan.*;
 
 import java.nio.IntBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.lwjgl.vulkan.VK10.*;
@@ -29,6 +31,8 @@ final class VulkanPhysicalDevice {
     private final int presentFamily;
     /** 格式能力表缓存（RHI-15）：驱动查询只做一次，之后按格式查表 */
     private final Map<Format, FormatSupport> formatCache = new ConcurrentHashMap<>();
+    /** 驱动的设备扩展清单（懒算一次；光追能力探针与后续特性启用共用） */
+    private Set<String> extensions;
 
     private VulkanPhysicalDevice(VkPhysicalDevice device,
                                  VkPhysicalDeviceProperties properties,
@@ -49,6 +53,39 @@ final class VulkanPhysicalDevice {
     int graphicsFamily() { return graphicsFamily; }
     int presentFamily() { return presentFamily; }
     List<QueueFamilyInfo> queueFamilies() { return queueFamilies; }
+
+    /**
+     * 驱动上报的设备扩展名清单（{@code vkEnumerateDeviceExtensionProperties}，懒算一次）。
+     *
+     * <p>光追首范围（P4-06）的前置探针：{@code VK_KHR_ray_query} /
+     * {@code VK_KHR_acceleration_structure} / {@code VK_KHR_buffer_device_address}
+     * 是否在列，直接决定后续批次能不能开工——查到没有就显性记录，不静默降级。</p>
+     */
+    Set<String> extensions() {
+        if (extensions != null) {
+            return extensions;
+        }
+        Set<String> found = new HashSet<>();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer count = stack.ints(0);
+            int result = vkEnumerateDeviceExtensionProperties(device, (String) null, count, null);
+            if (result != VK_SUCCESS || count.get(0) <= 0) {
+                extensions = found;
+                return found;
+            }
+            VkExtensionProperties.Buffer props = VkExtensionProperties.calloc(count.get(0), stack);
+            vkEnumerateDeviceExtensionProperties(device, (String) null, count, props);
+            for (int i = 0; i < props.capacity(); i++) {
+                found.add(props.get(i).extensionNameString());
+            }
+        }
+        extensions = found;
+        return found;
+    }
+
+    boolean hasExtension(String name) {
+        return extensions().contains(name);
+    }
 
     String deviceName() {
         return properties.deviceNameString();

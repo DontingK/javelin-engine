@@ -90,6 +90,18 @@ public interface Device extends GPUResource {
      */
     int maxPushConstantsSize();
 
+    // --- 光追能力探针（P4-06 首范围前置；只报「驱动是否提供」，不代表已启用） ---
+    /** 驱动上报的设备扩展名清单是否包含该扩展（如 {@code VK_KHR_ray_query}） */
+    boolean hasDeviceExtension(String extensionName);
+
+    /**
+     * 光追查询能力：{@code VK_KHR_ray_query} 扩展在列 **且** feature 位
+     * {@code VkPhysicalDeviceRayQueryFeaturesKHR.rayQuery} 为 true。
+     *
+     * <p>只做探测不启用——启用要等 AS 构建批次一并加进 {@code VkDeviceCreateInfo}。</p>
+     */
+    boolean supportsRayQuery();
+
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();
 
