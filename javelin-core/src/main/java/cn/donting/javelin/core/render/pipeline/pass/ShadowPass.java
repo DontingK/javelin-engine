@@ -2,6 +2,7 @@ package cn.donting.javelin.core.render.pipeline.pass;
 
 import cn.donting.javelin.core.assets.AssetManager;
 import cn.donting.javelin.core.assets.shadow.SpvShader;
+import cn.donting.javelin.core.physics.collision.Aabb;
 import cn.donting.javelin.core.render.RenderObject;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
@@ -38,6 +39,8 @@ import cn.donting.javelin.rhi.types.SampleCount;
 import cn.donting.javelin.rhi.types.ShaderStage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -103,6 +106,12 @@ public class ShadowPass implements RenderPass {
     private final float[] lightViewProjTmp = new float[16];
     private final float[] worldTmp = new float[16];
     private boolean shadowLogged;
+    /** 逐级联剔除（REND-21-B）复用缓冲：光裁剪矩阵 + 世界盒 + 剪辑盒（引擎线程串行录制，非共享） */
+    private final Matrix4f cascadeMat = new Matrix4f();
+    private final Aabb worldBox = new Aabb();
+    private final Aabb clipBox = new Aabb();
+    /** 首帧剔除统计只打一次（级联 × 存活数，便于观察收益） */
+    private boolean cullLogged;
     /** 当前 PSO 批次建库时用的 depth bias 两项（设置变化即整批重建；NaN = 尚未建库） */
     private float builtBiasConstant = Float.NaN;
     private float builtBiasSlope = Float.NaN;
@@ -172,8 +181,25 @@ public class ShadowPass implements RenderPass {
                     cmd.setViewport(new RHIViewport(qx, qy, quadSize, quadSize, 0.0f, 1.0f));
                     cmd.setScissor(new RHIScissor(qx, qy, quadSize, quadSize));
                     float[] lightViewProj = rs.shadowCascadeMatrix(view.name(), c).get(lightViewProjTmp);
+                    // 逐级联剔除（REND-21-B）：caster 的世界盒放进本级联的光裁剪空间，
+                    // 完全落在 x/y 之外或整体越过远平面（min.z > 1）则跳过——
+                    // 正交投影下横向/纵深都在盒外就投不进本级联。近平面不裁（光与级联之间的
+                    // 遮挡体仍会把影子投进来）；盒为 null（无 POSITION 且 CPU 副本已释放）恒画
+                    cascadeMat.set(lightViewProj);
+                    int kept = 0;
+                    int total = 0;
                     for (RenderObject ro : casters) {
+                        total++;
+                        if (!visibleInCascade(ro, cascadeMat)) {
+                            continue;
+                        }
+                        kept++;
                         drawCaster(cmd, ro, lightViewProj, rs);
+                    }
+                    if (!cullLogged && c == cascadeCount - 1) {
+                        cullLogged = true;
+                        log.info("逐级联剔除: 视口[{}] 级联{} 末级存活 {}/{}（REND-21-B）",
+                                view.name(), c, kept, total);
                     }
                 }
             });
@@ -194,6 +220,27 @@ public class ShadowPass implements RenderPass {
             shadowSetLayout.dispose();
             shadowSetLayout = null;
         }
+    }
+
+    /**
+     * 单 caster 是否落进某级联（REND-21-B）：网格本地盒 → 世界盒 → 光裁剪盒（正交、z ∈ [0,1]），
+     * 判 x/y 区间重叠且未整体越过远平面。
+     *
+     * <p>近平面侧**不裁**：光与级联之间的遮挡体虽然 z &lt; 0，影子仍会投进本级联，裁了会漏光。
+     * 无包围盒（无 POSITION 且 CPU 副本已释放）一律按可见处理，宁可多画不丢影。</p>
+     */
+    private boolean visibleInCascade(RenderObject ro, Matrix4fc lightViewProj) {
+        Aabb local = ro.mesh().getBounds();
+        if (local == null) {
+            return true;
+        }
+        local.transform(ro.world(), worldBox).transform(lightViewProj, clipBox);
+        float margin = 0.02f;
+        return clipBox.getMax().x >= -1.0f - margin
+                && clipBox.getMin().x <= 1.0f + margin
+                && clipBox.getMax().y >= -1.0f - margin
+                && clipBox.getMin().y <= 1.0f + margin
+                && clipBox.getMin().z <= 1.0f + margin;
     }
 
     private void drawCaster(CommandBuffer cmd, RenderObject ro, float[] lightViewProj,
