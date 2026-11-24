@@ -9,6 +9,7 @@ import org.lwjgl.vulkan.*;
 import java.nio.LongBuffer;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.VK12.*;
 
 /**
  * Vulkan 内存分配工具。
@@ -69,11 +70,28 @@ final class VulkanMemory {
      * 分配设备内存。
      */
     static long allocate(VkDevice device, long size, int memoryTypeIndex) {
+        return allocate(device, size, memoryTypeIndex, false);
+    }
+
+    /**
+     * 分配设备内存（可要求设备地址）。
+     *
+     * <p>{@code deviceAddress} = true 时挂 {@code VkMemoryAllocateFlagsInfo} 并置
+     * {@code VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT}——光追用的顶点/索引/AS 存储缓冲必须走这条，
+     * 否则 {@code vkGetBufferDeviceAddress} 取值非法（P4-06 B2）。</p>
+     */
+    static long allocate(VkDevice device, long size, int memoryTypeIndex, boolean deviceAddress) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             VkMemoryAllocateInfo allocInfo = VkMemoryAllocateInfo.calloc(stack);
             allocInfo.sType$Default();
             allocInfo.allocationSize(size);
             allocInfo.memoryTypeIndex(memoryTypeIndex);
+            if (deviceAddress) {
+                VkMemoryAllocateFlagsInfo flagsInfo = VkMemoryAllocateFlagsInfo.calloc(stack);
+                flagsInfo.sType$Default();
+                flagsInfo.flags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
+                allocInfo.pNext(flagsInfo);
+            }
 
             LongBuffer memBuf = stack.mallocLong(1);
             int result = vkAllocateMemory(device, allocInfo, null, memBuf);

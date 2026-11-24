@@ -5,8 +5,12 @@ import cn.donting.javelin.core.assets.AbsAsset;
 import cn.donting.javelin.core.physics.collision.Aabb;
 import cn.donting.javelin.core.serialize.InputCapsule;
 import cn.donting.javelin.core.serialize.OutputCapsule;
+import cn.donting.javelin.rhi.AccelerationStructure;
 import cn.donting.javelin.rhi.Buffer;
+import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.VertexLayout;
+import cn.donting.javelin.rhi.desc.BlasDesc;
+import cn.donting.javelin.rhi.types.Format;
 import cn.donting.javelin.rhi.types.IndexType;
 import cn.donting.javelin.rhi.types.PrimitiveTopology;
 
@@ -75,6 +79,9 @@ public class Mesh extends AbsAsset {
     /** 本地包围盒（POSITION set 即失效清除+有效数据即算；运行态不落盘——read 路径不可派生（红线 10），
      *  导入产物首次 getBounds 惰性算，MeshUpload 释放 CPU 副本前钉死，碰撞档 §5） */
     private Aabb bounds;
+    /** BLAS 缓存（P4-06 B2；运行态不落盘，首次 {@link #blas(Device)} 惰性构建，
+     *  重新上传/释放后作废） */
+    private AccelerationStructure blas;
 
     // ═══ 序列化（字段直通，read 只回写引用——红线 10） ═══
 
@@ -341,6 +348,51 @@ public class Mesh extends AbsAsset {
             }
         }
         return bounds;
+    }
+
+    // ═══ 光追（P4-06 B2） ═══
+
+    /**
+     * 本网格的 BLAS（惰性构建、整网格一条几何；P4-06 B2）。
+     *
+     * <p>子网格不拆分成多条 BLAS（B3 求交可视化只需整体命中）；网格重新上传后必须先
+     * {@link #disposeBlas()}。设备无光追能力时由 {@code createBlas} 显性抛错（红线 15），
+     * 调用方应先用 {@code device.rayQueryEnabled()} 门控。</p>
+     */
+    public AccelerationStructure blas(Device device) {
+        checkUploaded();
+        if (blas != null) {
+            return blas;
+        }
+        if (indices == null || indexCount < 3) {
+            throw new IllegalStateException("网格无索引或索引数不足 3，不能建 BLAS");
+        }
+        if (indexCount % 3 != 0) {
+            throw new IllegalStateException("索引数不是 3 的整数倍（非三角形列表？）: " + indexCount);
+        }
+        VertexLayout.Attribute position = null;
+        for (VertexLayout.Attribute attribute : layout.attributes()) {
+            if (attribute.location() == 0) {
+                position = attribute;
+                break;
+            }
+        }
+        if (position == null || position.format() != Format.R32G32B32_SFLOAT) {
+            throw new IllegalStateException(
+                    "BLAS 需要 location0 的 POSITION 为 R32G32B32_SFLOAT，实际: "
+                            + (position == null ? "缺失" : position.format()));
+        }
+        blas = device.createBlas(new BlasDesc(vertexBuffer, indexBuffer, layout.stride(),
+                position.offset(), vertexCount(), indexCount, indexType));
+        return blas;
+    }
+
+    /** 释放 BLAS（网格重新上传或销毁前调用；重复调用安全） */
+    public void disposeBlas() {
+        if (blas != null) {
+            blas.dispose();
+            blas = null;
+        }
     }
 
     // ═══ 包内共享（MeshUpload/MeshDraw 消费；勿跨包使用） ═══

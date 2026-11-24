@@ -14,6 +14,7 @@ import cn.donting.javelin.rhi.types.AccessFlags;
 import cn.donting.javelin.rhi.types.IndexType;
 import cn.donting.javelin.rhi.types.PipelineStage;
 import cn.donting.javelin.rhi.types.TextureLayout;
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
@@ -26,6 +27,7 @@ import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.VK12.*;
 import static org.lwjgl.vulkan.VK13.*;
 import static org.lwjgl.vulkan.VK14.*;
+import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
 
 /**
  * CommandBuffer 实现（dynamic rendering，Vulkan 1.3 核心）。
@@ -53,6 +55,31 @@ final class VulkanCommandBuffer implements CommandBuffer {
     }
 
     @Override
+    @Override
+    public long handle() {
+        return vkCommandBuffer.address();
+    }
+
+    @Override
+    public void buildBlas(AccelerationStructure accelerationStructure,
+                          cn.donting.javelin.rhi.desc.BlasDesc desc, long scratchAddress) {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkAccelerationStructureGeometryKHR.Buffer geometry = VkBlasGeometry.geometry(stack, desc);
+            VkAccelerationStructureBuildGeometryInfoKHR buildInfo =
+                    VkBlasGeometry.buildInfo(stack, desc, geometry);
+            buildInfo.dstAccelerationStructure(accelerationStructure.handle());
+            buildInfo.scratchData(VkDeviceOrHostAddressKHR.calloc(stack).deviceAddress(scratchAddress));
+            VkAccelerationStructureBuildRangeInfoKHR.Buffer range = VkBlasGeometry.range(stack, desc);
+
+            PointerBuffer ppRanges = stack.mallocPointer(1);
+            ppRanges.put(0, range.address());
+            VkAccelerationStructureBuildGeometryInfoKHR.Buffer infos =
+                    VkAccelerationStructureBuildGeometryInfoKHR.calloc(1, stack);
+            infos.put(0, buildInfo);
+            vkCmdBuildAccelerationStructuresKHR(vkCommandBuffer, infos, ppRanges);
+        }
+    }
+
     public void begin() {
         if (recording) {
             throw new IllegalStateException("Command buffer is already recording");

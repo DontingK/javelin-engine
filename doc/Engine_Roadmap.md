@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.39（2026-11-25）
+> v0.39 变更（2026-11-25）：**光追 B2a 落码（AS 设备地址分配 + BLAS 构建 + Mesh 缓存）**——补掉 B1 记的缺口：`VulkanMemory` 带 `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT` 的分配重载、`Buffer.deviceAddress()`、`CommandBuffer.handle()` 逃生口与 `buildBlas`、`VulkanPhysicalDevice` 取 `minAccelerationStructureScratchOffsetAlignment`；新增 `AccelerationStructure` / `BlasDesc` / `VulkanAccelerationStructure`（查询尺寸 → device-local 存储 → 建 AS → 对齐 scratch → 一次提交 + fence → 取设备地址；失败回收、显式 dispose 不进 Cleaner）、`Device.createBlas`；core 侧 `Mesh.blas(device)` 惰性单条 BLAS 缓存 + `MeshUpload` 顶点/索引补 `SHADER_DEVICE_ADDRESS`。**B2b（TLAS、GPU 侧 AS 屏障、RenderingSystem 挂接）待做**。`Engine_RayTracing_Plan.md` v0.3。**未编译**。
 > 版本：v0.38（2026-11-25）
 > v0.38 变更（2026-11-25）：**光追 B1 能力启用落码**——用户明确「实际测试显卡是 RTX，不管这块 780M」，据此把 B1 直接做掉而非等探针结果。`VulkanDevice` 建设备前用 `vkGetPhysicalDeviceFeatures2` 探 AS / rayQuery / BDA 三组特性，按「扩展在列 **且** 位为 true」拼装启用列表（顺序 `deferred_host_operations` → `acceleration_structure` → `ray_query` / `buffer_device_address`，AS 缺失则整组降级）；再用另一套结构串特性 `pNext` 链（探测那套用完即弃）。`Device` 新增 `rayQueryEnabled()`（「这台设备真的能用」；与只报驱动能力的 `supportsRayQuery()` 分工）。`BufferUsage` 加 `SHADER_DEVICE_ADDRESS` / AS 存储 / AS 构建输入三档并映射 VK 标志。启动日志改报四态。**能力可选不阻断启动**，B2 建 AS 前查 `rayQueryEnabled()`、false 即显性抛错。`Engine_RayTracing_Plan.md` v0.2。**未编译**；B2 还须补 `VulkanMemory` 的 `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT` 路径。
 > 版本：v0.37（2026-11-25）
@@ -187,7 +189,7 @@
 | | PCSS + 接触阴影 | REND-21-C | 半影随距离变化、细缝接触有暗 | **C1 PCSS 2026-11-25 落码待验收**（`softness` + binding11 原始深度 + 变半径 PCF）；**C2 接触阴影 2026-11-25 已落码**（世界位置屏幕空间 10 步短距步进 + `contactParams` @656，仅 HYBRID、零 RHI 改动；`Engine_Shadow_Contact_Design.md` v0.2）；接触漏光的根治面 |
 | | 多灯阴影 | REND-21-D | 点光 / 聚光有影 | 吃 L2-1 分层能力 |
 | **L5** 后处理 | 曝光测光 / 色彩分级 / 雾 / DOF | REND-18 + REND-19 + REND-12 | 有自动曝光、有环境雾、有色彩分级 LUT | **2026-11-25 用户拍板暂缓**（「都是后期的」）：曝光测光卡 RHI-14 mip 链、色彩分级卡 REND-03 口径、DOF 要深度、体积雾要 raymarch+降噪；环境雾方案件 `Engine_Environment_Fog_Design.md` 留档不开工 |
-| **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链。**B0 探针 + B1 能力启用 2026-11-25 均已落码待验收**（扩展+特性双判、`Device.rayQueryEnabled()`、`BufferUsage` 三档 AS 位，`Engine_RayTracing_Plan.md` v0.2）；B2 BLAS+TLAS / B3 求交可视化待开工 |
+| **L6** 光追 | rayQuery 首范围 | P4-06 | 静态几何求交一致；**范围限阴影与 GI 求交，不做镜面反射消费** | 需 AS / BDA / `GL_EXT_ray_query` 编译链。**B0 探针 + B1 能力启用 + B2a BLAS/设备地址 2026-11-25 均已落码待验收**（扩展+特性双判、`Device.rayQueryEnabled()`、`BufferUsage` 三档 AS 位、`Device.createBlas` + `Mesh.blas()` 缓存，`Engine_RayTracing_Plan.md` v0.3）；B2b TLAS / B3 求交可视化待开工 |
 | **L7** 着色模型 | BRDF/GGX + IBL | REND-03 / REND-16 / P4-04 步骤二（SH9 重启） | 金属球有环境反射、粗糙度扫过连续 | 依赖 AST-01 mip 生成链 / AST-09 / AST-12；**用户拍板排在光追后** |
 | **L8** 反射消费 | SSR / 反射探针 / RT 反射 | REND-17 | 镜面反射出画面 | 依赖 L7 的镜面项；**因无镜面消费点而随 L7 后移** |
 

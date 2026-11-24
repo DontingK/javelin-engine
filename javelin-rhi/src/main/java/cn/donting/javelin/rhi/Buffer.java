@@ -30,4 +30,12 @@ public interface Buffer extends GPUResource {
 
     /** Vulkan 句柄 VkBuffer */
     long handle();
+
+    /**
+     * 缓冲设备地址（{@code vkGetBufferDeviceAddress}；P4-06 B2）。
+     *
+     * <p>只有创建时声明了 {@link cn.donting.javelin.rhi.types.BufferUsage#SHADER_DEVICE_ADDRESS}
+     * 的缓冲才有非零地址（显存也按 DEVICE_ADDRESS 标志分配）；其余返回 0。</p>
+     */
+    long deviceAddress();
 }

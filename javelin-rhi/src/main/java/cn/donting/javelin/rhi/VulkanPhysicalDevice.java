@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.KHRSurface.*;
+import static org.lwjgl.vulkan.VK11.*;
 
 /**
  * 物理设备选择。
@@ -85,6 +86,28 @@ final class VulkanPhysicalDevice {
 
     boolean hasExtension(String name) {
         return extensions().contains(name);
+    }
+
+    private int scratchAlignment;
+
+    /**
+     * BLAS scratch 缓冲地址对齐要求（{@code minAccelerationStructureScratchOffsetAlignment}，
+     * P4-06 B2）。首次查询后缓存；能力未启用时返回 1（调用方本来就不该走到这里）。
+     */
+    int accelerationStructureScratchAlignment() {
+        if (scratchAlignment > 0) {
+            return scratchAlignment;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkPhysicalDeviceAccelerationStructurePropertiesKHR asProps =
+                    VkPhysicalDeviceAccelerationStructurePropertiesKHR.calloc(stack).sType$Default();
+            VkPhysicalDeviceProperties2 props2 =
+                    VkPhysicalDeviceProperties2.calloc(stack).sType$Default();
+            props2.pNext(asProps);
+            vkGetPhysicalDeviceProperties2(device, props2);
+            scratchAlignment = Math.max(asProps.minAccelerationStructureScratchOffsetAlignment(), 1);
+        }
+        return scratchAlignment;
     }
 
     String deviceName() {

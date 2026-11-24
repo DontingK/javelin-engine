@@ -25,6 +25,8 @@ final class VulkanBuffer implements Buffer {
     private final long bufferHandle;
     private final long memoryHandle;
     private final long size;
+    /** 设备地址（仅声明了 SHADER_DEVICE_ADDRESS 的缓冲非零；P4-06 B2） */
+    private final long deviceAddress;
     /** Cleaner 注册句柄（dispose 触发延迟销毁；见 CleanerRegistry.Registration） */
     private CleanerRegistry.Registration registration;
     private volatile boolean disposed;
@@ -55,19 +57,26 @@ final class VulkanBuffer implements Buffer {
             VkMemoryRequirements memReqs = VkMemoryRequirements.malloc(stack);
             vkGetBufferMemoryRequirements(vkDevice, bufferHandle, memReqs);
 
-            // 分配内存
+            // 分配内存（声明 SHADER_DEVICE_ADDRESS 的缓冲必须带 DEVICE_ADDRESS 分配标志，
+            // 否则后面的 vkGetBufferDeviceAddress 会被校验层判非法——P4-06 B2）
+            boolean needsAddress = desc.usage().contains(BufferUsage.SHADER_DEVICE_ADDRESS);
             int memType = VulkanMemory.findMemoryType(
                     device.physicalDevice().device(),
                     memReqs.memoryTypeBits(),
                     desc.memory());
 
-            this.memoryHandle = VulkanMemory.allocate(vkDevice, memReqs.size(), memType);
+            this.memoryHandle = VulkanMemory.allocate(vkDevice, memReqs.size(), memType, needsAddress);
 
             // 绑定
             result = vkBindBufferMemory(vkDevice, bufferHandle, memoryHandle, 0);
             if (result != VK_SUCCESS) {
                 throw new VulkanException(result, "Failed to bind buffer memory");
             }
+
+            this.deviceAddress = needsAddress
+                    ? vkGetBufferDeviceAddress(vkDevice,
+                            VkBufferDeviceAddressInfo.calloc(stack).sType$Default().buffer(bufferHandle))
+                    : 0L;
         }
 
         // 注册 Cleaner（带配套显存：兜底销毁时 buffer 与 memory 一并释放）
@@ -149,6 +158,11 @@ final class VulkanBuffer implements Buffer {
     @Override
     public long handle() {
         return bufferHandle;
+    }
+
+    @Override
+    public long deviceAddress() {
+        return deviceAddress;
     }
 
     long memoryHandle() {

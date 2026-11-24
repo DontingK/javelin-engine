@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static org.lwjgl.vulkan.VK10.*;
+import static org.lwjgl.vulkan.VK11.*;
 
 /**
  * 逻辑设备实现。
@@ -435,6 +436,11 @@ final class VulkanDevice implements Device {
     @Override
     public boolean rayQueryEnabled() {
         return rayQueryEnabled;
+    }
+
+    @Override
+    public AccelerationStructure createBlas(cn.donting.javelin.rhi.desc.BlasDesc desc) {
+        return new VulkanAccelerationStructure(this, desc);
     }
 
     /** VkSampleCountFlags 位掩码 → 不可变 SampleCount 集（COUNT_1 规范恒支持） */

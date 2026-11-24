@@ -110,6 +110,14 @@ public interface Device extends GPUResource {
      */
     boolean rayQueryEnabled();
 
+    /**
+     * 构建底层加速结构（BLAS，P4-06 B2）。
+     *
+     * <p>设备无光追能力时显性抛错（{@code IllegalStateException}），不做软件回退；调用方
+     * 负责在网格缓冲变化时 dispose 后重建。</p>
+     */
+    AccelerationStructure createBlas(cn.donting.javelin.rhi.desc.BlasDesc desc);
+
     /** 渲染统计：11 类存活资源计数 + 上一帧 draw 统计快照（公开只读 getter） */
     RenderStats renderStats();
 

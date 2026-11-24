@@ -90,7 +90,10 @@ public final class MeshUpload {
         vertexData.flip();
         mesh.vertexBuffer = device.createBuffer(
                 // STORAGE：体素化 compute 直接把顶点缓冲当 SSBO 读（P4-17，2026-11-19）
-                new BufferDesc(vertexData.remaining(), Set.of(BufferUsage.VERTEX, BufferUsage.STORAGE),
+                // SHADER_DEVICE_ADDRESS：BLAS 构建要取顶点设备地址（P4-06 B2，2026-11-25）
+                new BufferDesc(vertexData.remaining(),
+                        Set.of(BufferUsage.VERTEX, BufferUsage.STORAGE,
+                                BufferUsage.SHADER_DEVICE_ADDRESS),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(vertexData));
 
@@ -115,7 +118,10 @@ public final class MeshUpload {
         indexData.flip();
         mesh.indexBuffer = device.createBuffer(
                 // STORAGE：体素化 compute 直接把索引缓冲当 SSBO 读（P4-17，2026-11-19）
-                new BufferDesc(paddedIndexBytes, Set.of(BufferUsage.INDEX, BufferUsage.STORAGE),
+                // SHADER_DEVICE_ADDRESS：BLAS 构建要取索引设备地址（P4-06 B2，2026-11-25）
+                new BufferDesc(paddedIndexBytes,
+                        Set.of(BufferUsage.INDEX, BufferUsage.STORAGE,
+                                BufferUsage.SHADER_DEVICE_ADDRESS),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(indexData));
 

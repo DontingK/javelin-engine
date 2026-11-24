@@ -21,6 +21,20 @@ public interface CommandBuffer extends GPUResource {
     void end();
 
     /**
+     * 原生 {@code VkCommandBuffer} 句柄（扩展命令逃生口：光追 AS 构建等本接口尚未覆盖的
+     * 族，P4-06 B2）。通用绘制/屏障仍走本接口方法，不要绕开依赖图。
+     */
+    long handle();
+
+    /**
+     * 记录一次 BLAS 构建（P4-06 B2）：只发 {@code vkCmdBuildAccelerationStructuresKHR}，
+     * scratch 缓冲由调用方建好并按 {@code minAccelerationStructureScratchOffsetAlignment} 对齐。
+     * 通用绘制不要用本方法，走依赖图。
+     */
+    void buildBlas(AccelerationStructure accelerationStructure,
+                   cn.donting.javelin.rhi.desc.BlasDesc desc, long scratchAddress);
+
+    /**
      * 开始渲染通道（dynamic rendering，Vulkan 1.3 核心）。
      * 由 RenderGraph 执行器根据 Pass 的附件声明自动调用（24.3），上层业务禁止直接调用。
      *
