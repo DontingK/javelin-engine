@@ -28,7 +28,9 @@ import cn.donting.javelin.editor.menu.top.GridMenuCommand;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
 import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
+import cn.donting.javelin.editor.debug.LightGizmoAppState;
 import cn.donting.javelin.editor.menu.top.DdgiProbeVizMenuCommand;
+import cn.donting.javelin.editor.menu.top.LightGizmoMenuCommand;
 import cn.donting.javelin.editor.menu.top.PostProcessingMenuCommand;
 import cn.donting.javelin.editor.menu.top.ShadowMapViewMenuCommand;
 import cn.donting.javelin.editor.menu.top.BloomMenuCommand;
@@ -110,6 +112,11 @@ public final class EditorMenuSetup {
                 ShadowMapDebugAppState.MODE_DEPTH));
         context.registerCommand(new ShadowMapViewMenuCommand("tools.shadowView.cascade",
                 ShadowMapDebugAppState.MODE_CASCADE));
+        // 光照 gizmo（REND-13，2026-11-25）：工具菜单两项单选（关闭/显示），F7 边沿循环
+        context.registerCommand(new LightGizmoMenuCommand("tools.lightGizmo.off",
+                LightGizmoAppState.MODE_OFF));
+        context.registerCommand(new LightGizmoMenuCommand("tools.lightGizmo.on",
+                LightGizmoAppState.MODE_ON));
         context.registerCommand(new CompileMenuCommand());
         context.registerCommand(new PackMenuCommand());
         context.registerCommand(new PreferencesMenuCommand());
@@ -195,7 +202,10 @@ public final class EditorMenuSetup {
                 .submenu(EditorLang.key("tools.shadowView"), shadow -> shadow
                         .item("tools.shadowView.off")
                         .item("tools.shadowView.depth")
-                        .item("tools.shadowView.cascade"));
+                        .item("tools.shadowView.cascade"))
+                .submenu(EditorLang.key("tools.lightGizmo"), gizmo -> gizmo
+                        .item("tools.lightGizmo.off")
+                        .item("tools.lightGizmo.on"));
 
         // 构建域（2026-10-11）：编译先禁用（入口拍板，引擎侧 compile 已备）、
         // 打包弹 CEF 对话框（独立前端页 pack.html，纯 UI 先行不接桥）

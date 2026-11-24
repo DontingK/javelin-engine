@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.34（2026-11-25）
+> v0.34 变更（2026-11-25）：**REND-13 光照 gizmo 落码**（路线 §4.1 贯穿项「L4 开工前先备可视化」，接在 DBG-03 之后）——编辑器侧新增 `LightGizmoAppState`（全场景灯、不走选中门控）：方向光沿节点 +Z 画行进方向箭头、点光画 range 三轴大圆、聚光画外角四母线 + 末端圆，选中灯白线叠画，`DebugText` 第 13 行报灯数；入口 = 菜单「工具 \| 光照 gizmo」两项 + F7 边沿循环；线框仍由 `DebugLineAppState` 每帧 clear 后统一代提交（本状态保持唯一 clear 执行者）。纯编辑器 DebugDrawLine 路径，**不动着色器与 RHI**。说明档 `Engine_DebugTools_Plan.md` v0.5 §3.7。**未编译**。
 > 版本：v0.33（2026-11-25）
 > v0.33 变更（2026-11-25）：**L4 第二笔 REND-21-C 的 C1（PCSS）落码**——按方案 §5 五点默认（C 与 B 对调已获认可）：`ShadowSettings` 新增 `softness`（缺省 1.0，0 = 关），经 `shadowParams2.w` 进 UBO（`LIGHTING_STRIDE` 768 不变）；set1 新增 **binding11 `shadowMapRaw`**（同一张 atlas、NEAREST 非比较采样器——阻挡搜索要真实深度，比较采样器只给 0/1）；注入段新增 `javelinPcssBlockerDepth`（黄金角螺旋 16/24 tap）+ `javelinCascadeShadow` 内把 PCF 核半径换成由遮挡距离推出的半影（钳制 `[pcfRadius, ×4]`），关档逐像素回退旧路径。C2 接触阴影挂 `Engine_Backlog.md`（需深度附件加 `SAMPLED`）。方案件 `Engine_Shadow_PCSS_Design.md` v0.2。**未编译**（注入段改动 = 全部 `.shader` 与内置 `lighting.frag` 强制重导）。
 > 版本：v0.32（2026-11-24）
@@ -181,7 +183,7 @@
 | **L7** 着色模型 | BRDF/GGX + IBL | REND-03 / REND-16 / P4-04 步骤二（SH9 重启） | 金属球有环境反射、粗糙度扫过连续 | 依赖 AST-01 mip 生成链 / AST-09 / AST-12；**用户拍板排在光追后** |
 | **L8** 反射消费 | SSR / 反射探针 / RT 反射 | REND-17 | 镜面反射出画面 | 依赖 L7 的镜面项；**因无镜面消费点而随 L7 后移** |
 
-> **贯穿项**（不单列批次）：`REND-04/05/06` cluster GPU 化 / 脏标记 / Morton 在性能告警时插入；~~`DBG-03` shadowMap 可视化~~（**2026-11-24 已落码，见 `Engine_DebugTools_Plan.md` §3.6**）与 `REND-13` 光照 gizmo 建议**在 L4 开工前**先做一版（否则阴影调参只能凭感觉——DBG-03 已备，光照 gizmo 仍待）；`REND-08` 世界位置改深度重建随 REND-01 落地后算带宽账。
+> **贯穿项**（不单列批次）：`REND-04/05/06` cluster GPU 化 / 脏标记 / Morton 在性能告警时插入；~~`DBG-03` shadowMap 可视化~~（**2026-11-24 已落码**）与 ~~`REND-13` 光照 gizmo~~（**2026-11-25 已落码**）均已在 L4 开工前就位（见 `Engine_DebugTools_Plan.md` §3.6/§3.7）；`REND-08` 世界位置改深度重建随 REND-01 落地后算带宽账。
 
 ---
 

@@ -1,6 +1,6 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
+> 版本：v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
 > 日期：2026-11-10（v0.3：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
@@ -134,6 +134,18 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | `ShadowMapViewMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 「工具 \| 阴影图视图」三项（关闭 / 原始深度 / 级联分色）；`attach(new ShadowMapDebugAppState())` 紧随探针视图；zh/en 补 `tools.shadowView*` 与 `shadowView.assetMissing/assetInvalid/loadFailed` |
 
 **自验口径**（未编译，交用户）：原始深度下能看出级联包围盒在贴图里的实际覆盖（越高层级联越糊、纹素越大）；级联分色下四象限色块边界与场景级联切分位置对得上；开/关主光投影时状态行与画面同步变化；`error.log` 零新 VVL（重点仍是深度图的 `SHADER_READ_ONLY` 声明）。
+
+---
+
+### 3.7 光照 gizmo（REND-13，2026-11-25 落码）
+
+| 落点 | 改动 |
+|------|------|
+| `LightGizmoAppState`（新增，`editor.debug`） | **不走选中门控**：每帧遍历 `GameScene.getLights()` 全量画——方向光 = 行进方向箭头（+Z 同 `SceneRenderBridge.worldDir`）、点光 = range 三轴大圆（半径钳 20）、聚光 = 外角四母线 + 末端圆（长度钳 10）；灯自身颜色向白拉 40% 保证暗场景可见；选中灯白线叠画一份；`DebugText` 行 **13** 报灯数；F7 边沿切换，菜单「工具 \| 光照 gizmo」关闭/显示 |
+| `DebugLineAppState` | clear 之后在 `DdgiProbeVizAppState.emitGridLines` 之后追加 `LightGizmoAppState.emitLightLines(engine)`（本状态仍是唯一 clear 执行者） |
+| `LightGizmoMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 工具菜单新增子菜单两项；`attach(new LightGizmoAppState())` 紧随阴影图视图；zh/en 补 `tools.lightGizmo*` 四项 |
+
+**自验口径**：开 gizmo 后场景灯位/朝向一眼可见；转动方向光节点箭头跟着转、方向与投影方向一致；点光圆随 range 缩张；选中灯变白；F7 与菜单勾选同步；线数不触发 batch 溢出（默认 1 主光 + 数盏点光远低于 8192 线预算）。
 
 ---
 

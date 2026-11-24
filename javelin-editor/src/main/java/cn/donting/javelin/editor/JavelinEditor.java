@@ -19,6 +19,7 @@ import cn.donting.javelin.editor.debug.DebugLineAppState;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
 import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
 import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
+import cn.donting.javelin.editor.debug.LightGizmoAppState;
 import cn.donting.javelin.core.render.ClearFlags;
 import cn.donting.javelin.core.render.picking.PickSystem;
 import cn.donting.javelin.core.settings.JavelinSetting;
@@ -153,6 +154,8 @@ public class JavelinEditor extends JavelinEngine {
             // 阴影图可视化（DBG-03，Engine_Shadow_Quality_Design §4.7）：工具菜单/F6 切原始深度与级联分色，
             // L4 阴影补强前的调参眼
             stateManager.attach(new ShadowMapDebugAppState());
+            // 光照 gizmo（REND-13）：全场景灯线框（经 DebugLineAppState 统一提交）、工具菜单/F7 切换
+            stateManager.attach(new LightGizmoAppState());
         }
         // 场景变更检测（快照 diff：写入方零通知义务，增删/挪动/改名自动发现推送）
         stateManager.attach(new SceneWatchAppState());
