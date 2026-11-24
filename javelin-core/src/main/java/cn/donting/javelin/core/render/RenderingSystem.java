@@ -2112,6 +2112,38 @@ public final class RenderingSystem implements AutoCloseable {
         return vl.set;
     }
 
+    /** CSM 对照参数块字节数：sunViewProj[4] 256 + shadowParams 16 + shadowParams2 16 + cascadeInvZ 16 */
+    public static final int CSM_COMPARE_BYTES = 304;
+
+    /**
+     * CSM 对照参数快照（P4-06 B3 双通道对照用）：把本视口级联矩阵与阴影参数按
+     * {@code sunViewProj[4]（未用槽 identity）→ shadowParams → shadowParams2 → cascadeInvZ}
+     * 直通写出（与注入段 {@code lighting} UBO 同名同序，故对照 Pass 与实渲染同源）。
+     *
+     * <p>调用方负责 {@code out} 容量 ≥ {@link #CSM_COMPARE_BYTES}；本方法不 flip。</p>
+     */
+    public void packCsmCompareParams(String cameraName, ByteBuffer out) {
+        checkOpen();
+        ViewShadow vs = shadowView(cameraName);
+        for (int c = 0; c < 4; c++) {
+            for (float v : vs.matrices[c].get(matTmp)) {
+                out.putFloat(v);
+            }
+        }
+        ShadowSettings shadow = shadowSettings;
+        out.putFloat(shadow.getQuality().code())
+                .putFloat(shadow.getPcfRadius())
+                .putFloat(shadow.getStrength())
+                .putFloat(shadow.getRefDepthOffset());
+        out.putFloat(vs.grid)
+                .putFloat(vs.atlasSize)
+                .putFloat(SHADOW_CASCADE_BLEND)
+                .putFloat(shadow.getSoftness());
+        for (int c = 0; c < 4; c++) {
+            out.putFloat(vs.invZ[c]);
+        }
+    }
+
     /** 本视口 set1 storage 三缓冲（Forward Pass 图声明 addBufferRead：显式依赖 + 句柄进 structureHash） */
     public List<Buffer> viewStorages(String cameraName) {
         ViewLighting vl = viewLights.get(cameraName);

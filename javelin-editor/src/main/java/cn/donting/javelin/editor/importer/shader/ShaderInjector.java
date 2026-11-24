@@ -209,7 +209,39 @@ public final class ShaderInjector {
             }
             """;
 
-    private static final String LIGHTING_BLOCKS = """
+    /**
+     * CSM 级联求值核心（P4-06 B3 对照前置）：级联矩阵投影 → 盒外判定 → atlas 象限 uv →
+     * 参考深度（含半纹素外扩 + 用户偏移）。**注入段与对照 Pass 共用这一份**（改动只在此处）。
+     *
+     * <p>返回 {@code vec4(uv.x, uv.y, refZ, valid)}；{@code valid = 0} 表示落在级联盒外
+     * （调用方按受光处理）。PCF/PCSS 软化不进核心——它只影响半影过渡，不影响遮挡真值。</p>
+     */
+    public static final String CSM_CORE_GLSL = """
+            vec4 javelinCsmCore(int cascade, vec3 worldPos, mat4 sunViewProj, float invZ,
+                    vec4 shadowParams, vec4 shadowParams2) {
+                vec3 proj = (sunViewProj * vec4(worldPos, 1.0)).xyz;
+                if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0
+                        || proj.z < 0.0 || proj.z > 1.0) {
+                    return vec4(0.0);
+                }
+                float grid = shadowParams2.x;
+                float atlasSize = shadowParams2.y;
+                float quad = 1.0 / grid;
+                int col = cascade - (cascade / int(grid)) * int(grid);
+                int row = cascade / int(grid);
+                vec2 quadOrigin = vec2(float(col), float(row)) * quad;
+                vec2 uv = quadOrigin + (proj.xy * 0.5 + 0.5) * quad;
+                // 接触漏光修复（2026-11-20）：遮挡轮廓只能落在纹素边界，按当前级联归一化深度
+                // 补半个纹素；与用户偏移（世界单位 × invZ）叠加，后者用于细调。
+                float cascadeTexels = atlasSize / grid;
+                float refZ = proj.z + shadowParams.w * invZ + 0.5 / cascadeTexels;
+                return vec4(uv, refZ, 1.0);
+            }""";
+
+    /** 对照 Pass 注入标记：只内联 {@link #CSM_CORE_GLSL}（不注入相机块/光照函数） */
+    public static final String CSM_CORE_MARKER = "//@javelinCsmCore";
+
+    private static final String LIGHTING_BLOCKS = CSM_CORE_GLSL + "\n" + """
             layout(std140, set = 1, binding = 0) uniform LightingParamsBlock {
                 vec4 directional[16];
                 ivec4 lightCounts;
@@ -269,32 +301,22 @@ public final class ShaderInjector {
                 return count == 0 ? -1.0 : sum / float(count);
             }
 
-            // 单级联阴影因子（四期 CSM §4.5/§4.6）：该级联矩阵投影 → atlas 象限定位 →
-            // 品质档 PCF（核夹在象限内）。shadowParams.w = 参考深度偏移（世界单位），
-            // cascadeInvZ[c] = 1/光空间 z 范围（逐级联折算成裁剪 z 增量）。盒外=受光。
-            // 2026-11-20：refZ 另加固定半纹素外扩（接触漏光修复，见函数内注释）。
+            // 单级联阴影因子（四期 CSM §4.5/§4.6）：级联选择/参考深度走共享核心
+            // {@code javelinCsmCore}（与 B3 对照 Pass 同源），本函数只负责 PCF / PCSS 软化。
             float javelinCascadeShadow(int cascade, vec3 worldPos) {
-                vec3 proj = (lighting.sunViewProj[cascade] * vec4(worldPos, 1.0)).xyz;
-                if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0
-                        || proj.z < 0.0 || proj.z > 1.0) {
+                vec4 csm = javelinCsmCore(cascade, worldPos, lighting.sunViewProj[cascade],
+                        lighting.cascadeInvZ[cascade], lighting.shadowParams, lighting.shadowParams2);
+                if (csm.w < 0.5) {
                     return 1.0;
                 }
+                vec2 uv = csm.xy;
+                float refZ = csm.z;
                 float grid = lighting.shadowParams2.x;
                 float atlasSize = lighting.shadowParams2.y;
                 float quad = 1.0 / grid;
                 int col = cascade - (cascade / int(grid)) * int(grid);
                 int row = cascade / int(grid);
                 vec2 quadOrigin = vec2(float(col), float(row)) * quad;
-                vec2 uv = quadOrigin + (proj.xy * 0.5 + 0.5) * quad;
-                // 接触漏光修复（2026-11-20）：shadow map 的遮挡轮廓只能落在纹素边界上，轮廓外
-                // 半个纹素采到的必然是「无遮挡」→ 物体与受影面接触处必然留一圈亮线
-                // （cube 半埋进平面时最明显）。按当前级联的归一化深度补半个纹素——1 纹素世界
-                // 尺寸 = texelWorld/zRange ≈ 1/(atlasSize/grid)，故 0.5 纹素 = 0.5/cascadeTexels，
-                // 使阴影边界至少外扩半纹素、盖掉这条缝。与 refDepthOffset（世界单位，先乘 invZ）
-                // 叠加：前者是固定的纹素对齐补偿，后者是用户细调。
-                float cascadeTexels = atlasSize / grid;
-                float refZ = proj.z + lighting.shadowParams.w * lighting.cascadeInvZ[cascade]
-                        + 0.5 / cascadeTexels;
                 int pcfMode = int(lighting.shadowParams.x);
                 float pcfRadius = lighting.shadowParams.y;
                 if (pcfMode <= 0 || pcfRadius <= 0.0) {

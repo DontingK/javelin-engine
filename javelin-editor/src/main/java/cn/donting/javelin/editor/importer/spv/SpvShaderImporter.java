@@ -128,6 +128,9 @@ public class SpvShaderImporter implements AssetImporter {
         if (source.contains(ShaderInjector.LIGHTING_STAGE_MARKER)) {
             source = ShaderInjector.injectLightingStage(
                     source.replace(ShaderInjector.LIGHTING_STAGE_MARKER, ""), sourceName);
+        } else if (source.contains(ShaderInjector.CSM_CORE_MARKER)) {
+            // 对照 Pass 注入（P4-06 B3）：只内联级联求值核心，UBO/采样器由 Pass 自声明
+            source = source.replace(ShaderInjector.CSM_CORE_MARKER, ShaderInjector.CSM_CORE_GLSL);
         }
         String assetName = sourceName.contains(".")
                 ? sourceName.substring(0, sourceName.lastIndexOf('.'))

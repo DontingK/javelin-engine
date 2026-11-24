@@ -1,6 +1,6 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v0.6（2026-11-25，B3 补主光方向射线：G-Buffer 世界位置起点 + F9 三态）
+> 版本：v0.7（2026-11-25，B3 前置：级联求值抽为共享核心 `javelinCsmCore` + 对照参数快照）
 > v0.5（2026-11-25，B3 落码：加速结构描述符 + 半分辨率相机主射线求交直显 F9）
 > v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
 > v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
@@ -121,6 +121,19 @@
 | `RayTraceDebugAppState` | F9 三态循环 OFF → 相机主射线 → 主光方向 → OFF，状态行报实例数/TLAS 容量 |
 
 **与 CSM 的对照口径**：mode 2 的遮挡轮廓应与现有 CSM 阴影轮廓重合；数值逐像素比对（在 compute 里同算 CSM 可见性、R/G 双通道叠显）**未做**——需要把 `javelinCascadeShadow` 的级联求值抽成共享函数再复用，留待「替换/混合」决策前的一批。
+
+## 3.6 B3 前置：共享级联求值抽离（2026-11-25）
+
+对照要想成立，必须让「光栅路的 CSM」与「对照路的 CSM」是同一份代码，否则两份实现漂移会给出假结论。本批只做抽离与管道，不出图。
+
+| 落点 | 改动 |
+|------|------|
+| `ShaderInjector.CSM_CORE_GLSL` | 新增公开常量：`javelinCsmCore(cascade, worldPos, sunViewProj, invZ, shadowParams, shadowParams2) → vec4(uv, refZ, valid)`，承载级联矩阵投影、盒外判定、atlas 象限 uv、参考深度（半纹素外扩 + 用户偏移）。**PCF/PCSS 不进核心**（只影响半影过渡，不影响遮挡真值） |
+| `LIGHTING_BLOCKS` | 改为 `CSM_CORE_GLSL + 原块`；`javelinCascadeShadow` 删掉自算前段，改调核心，取 `uv/refZ/grid/atlasSize/quadOrigin` 后原样走 PCF/PCSS——**逐像素结果与改前一致**（仅代码位置变化） |
+| `SpvShaderImporter` | 新增 `//@javelinCsmCore` 标记分支：只内联该核心（UBO/采样器由对照 Pass 自声明），与 `//@javelinLighting` 互斥 |
+| `RenderingSystem.packCsmCompareParams(cameraName, out)` | 新增只读快照：`sunViewProj[4] → shadowParams → shadowParams2 → cascadeInvZ`，304B，与 `lighting` UBO 同名同序；配套 `CSM_COMPARE_BYTES` 常量 |
+
+**待做（下一批）**：`csmcompare.frag`（RT 遮挡 + CSM 可见性 → 红绿上色）、`RayTraceViewPass` 第四态与 set0 捆绑（RT 距离图 / G-Buffer 世界位置 / shadow atlas 比较采样 / CSM 参数 UBO）、`RayTraceDebugAppState` F9 四态。级联选择需相机视空间 z 与 `cascadeSplits`——快照里暂无，届时从 `RenderCamera` 侧补 view 矩阵或把 splits 并入块。
 
 ---
 
