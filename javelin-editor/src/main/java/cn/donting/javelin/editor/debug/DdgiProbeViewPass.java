@@ -74,8 +74,11 @@ public class DdgiProbeViewPass implements RenderPass {
     private static final String VERT_SHADER_PATH = "editor/debug/gbufferview.vert";
     private static final String FRAG_SHADER_PATH = "editor/debug/ddgiView.frag";
 
-    /** push 常量：int mode + float scale（8B） */
-    private static final int PUSH_SIZE = Integer.BYTES + Float.BYTES;
+    /** push 常量：int mode + float scale + vec2 viewport（16B；视口尺寸供片元铺满 atlas） */
+    private static final int PUSH_SIZE = Integer.BYTES + Float.BYTES + 2 * Float.BYTES;
+
+    /** 深度直显窗口（米）：0 黑 → 5m 白，超出饱和（按 1/MAX_RAY_DISTANCE 太暗，见 scaleFor） */
+    private static final float DEPTH_DISPLAY_RANGE = 5f;
 
     /** 全屏大三角形 NDC 顶点（vec2、stride 8B） */
     private static final float[] TRIANGLE_VERTICES = {
@@ -96,6 +99,8 @@ public class DdgiProbeViewPass implements RenderPass {
     private DescriptorSet samplerSet;
     /** 描述符集缓存的 atlas 身份（换图即重建） */
     private Texture setAtlas;
+    /** 描述符集缓存的辐照度 atlas 身份（swept 标志来源；换代即重建） */
+    private Texture setSweepAtlas;
     private Sampler nearestSampler;
     /** 覆盖制 PSO 缓存：key = 颜色附件格式 */
     private final Map<Format, GraphicsPipeline> pipelines = new HashMap<>();
@@ -122,6 +127,8 @@ public class DdgiProbeViewPass implements RenderPass {
         this.vertexBuffer = createVertexBuffer();
         this.samplerSetDesc = new DescriptorSetLayoutDesc(List.of(
                 new DescriptorSetLayoutDesc.Binding(0, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                new DescriptorSetLayoutDesc.Binding(1, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -158,20 +165,29 @@ public class DdgiProbeViewPass implements RenderPass {
         }
         Texture atlas = current == DdgiProbeVizAppState.MODE_DEPTH
                 ? atlases.depth() : atlases.irradiance();
+        // swept 标志来源恒为辐照度图（其 alpha 通道由更新段写入即置 1）
+        Texture sweepAtlas = atlases.irradiance();
         Texture target = ctx.colorTarget();
         Format colorFormat = target.desc().format();
 
         graph.addGraphicsPass(view.name() + "_DdgiProbeView", pass -> {
             pass.addColorOutput(target, RHILoadOp.LOAD, null);
             pass.addTextureRead(atlas);   // 建 compute→本 Pass 边 + SHADER_READ_ONLY 屏障
+            if (sweepAtlas != atlas) {
+                pass.addTextureRead(sweepAtlas);
+            }
             pass.setViewport(view.viewport());
             pass.setScissor(view.scissor());
             pass.setRenderCallback(cmd -> {
                 cmd.bindPipeline(pipelineFor(colorFormat));
-                cmd.bindDescriptorSet(0, samplerSetFor(atlas), 0, null);
+                cmd.bindDescriptorSet(0, samplerSetFor(atlas, sweepAtlas), 0, null);
                 pushBuffer.clear();
                 pushBuffer.putInt(current);
                 pushBuffer.putFloat(scaleFor(current));
+                // 视口尺寸（偏移 8/12，与 frag 的 vec2 8 字节对齐一致）——atlas 只有 150px，
+                // 片元按它归一化才能铺满视口，否则整张图缩在左上角一小块
+                pushBuffer.putFloat(view.viewport().width());
+                pushBuffer.putFloat(view.viewport().height());
                 pushBuffer.flip();
                 cmd.pushConstants(0, pushBuffer);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
@@ -180,15 +196,23 @@ public class DdgiProbeViewPass implements RenderPass {
         });
     }
 
-    /** 归一化系数：辐照度恒 1（片元内部除 π）；深度 1/MAX_RAY_DISTANCE */
+    /**
+     * 归一化系数：辐照度恒 1（片元内部除 π）；深度按 5m 显示窗口归一并 clamp 到 [0,1]。
+     *
+     * <p>深度早期按 {@code 1/MAX_RAY_DISTANCE}(=1/60) 归一，实测命中距离仅 0.6~2.8m →
+     * 出图落在 0.01~0.05、内区一片纯黑，看不出「贴地暗 / 空旷亮」的结构（2026-11-25 实机）。</p>
+     */
     private static float scaleFor(int mode) {
         return mode == DdgiProbeVizAppState.MODE_DEPTH
-                ? 1f / DdgiProbePass.MAX_RAY_DISTANCE : 1f;
+                ? 1f / DEPTH_DISPLAY_RANGE : 1f;
     }
 
-    /** 本 Pass 专属 set0：单张 atlas 采样器（换代即重建，旧集释放） */
-    private DescriptorSet samplerSetFor(Texture atlas) {
-        if (samplerSet != null && atlas == setAtlas) {
+    /**
+     * 本 Pass 专属 set0：binding0 = 当前展示的 atlas，binding1 = 辐照度 atlas（片元据其 alpha
+     * 判「这格扫过没」，深度图没有 alpha 通道且合法值可能就是 0）。任一张换代即重建，旧集释放。
+     */
+    private DescriptorSet samplerSetFor(Texture atlas, Texture sweepAtlas) {
+        if (samplerSet != null && atlas == setAtlas && sweepAtlas == setSweepAtlas) {
             return samplerSet;
         }
         if (samplerSetLayout == null) {
@@ -201,8 +225,10 @@ public class DdgiProbeViewPass implements RenderPass {
             nearestSampler = device.createSampler(SamplerDesc.nearest());
         }
         samplerSet = device.createDescriptorSet(samplerSetLayout);
-        samplerSet.update(DescriptorUpdate.sampledTexture(0, atlas, nearestSampler));
+        samplerSet.update(DescriptorUpdate.sampledTexture(0, atlas, nearestSampler),
+                DescriptorUpdate.sampledTexture(1, sweepAtlas, nearestSampler));
         setAtlas = atlas;
+        setSweepAtlas = sweepAtlas;
         return samplerSet;
     }
 
