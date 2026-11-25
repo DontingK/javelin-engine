@@ -143,7 +143,7 @@
 | REND-14 | 前向管线独立类的落地面（`ForwardRenderPipeline` 屏外无人消费：demo/测试现仍直用 `RenderingSystem` 不经管线类；编辑器固定混合、仅打包运行时按 `javelinSettings.renderPipeline` 选用） | 管线 §6.3 | 后置项 | 2026-11-13 拆分产物；需要时再补 demo/测试接线 |
 | REND-11 | ~~MSAA 后置族：stacking/预览/分屏区域清屏的 MSAA 路径、运行期切档（PSO/附件失效协议）、FXAA 档、末 pass storeOp DONT_CARE~~ **作废（2026-11-13）**：MSAA 业务面已整体删除（AA 改 TAA，P4-10）；**仅存「末 pass storeOp DONT_CARE 带宽优化」** | 管线 §9 | 后置项 | AA 部分由 P4-10 接管；MSAA 路径族不再做 |
 | REND-12 | UI Pass 组 + 环境雾（`Environment` 加雾字段；天空盒已转正） | 管线 §9 / 场景 §8 | 后置项 | — |
-| REND-13 | 光照 gizmo/调试显示（编辑器侧 DebugLine 光球线框 + 灯图标） | 光照 §10 / 调试线 | ✅ 已落码待验收（2026-11-25，`Engine_DebugTools_Plan.md` §3.7） | — |
+| REND-13 | 光照 gizmo/调试显示（编辑器侧 DebugLine 光球线框 + 灯图标） | 光照 §10 / 调试线 | ✅ **已验收**（2026-11-25 用户实机「光照 gizmo 没有问题」；`Engine_DebugTools_Plan.md` v0.10 §3.7） | — |
 | REND-16 | **IBL 图像式环境光照**：天空盒/HDRI → 漫反射 SH9 + **镜面预滤波 mip 链 + BRDF LUT**（现环境项仅常量 `ambient`；P4-04 步骤二 SH9 只覆盖漫反射半球，镜面半未立） | 光照 §10 / 天空盒 §8 / 材质档 | 后置项 | **画质对标族序 2**｜依赖 AST-01 mip 生成链（AST-09 天空盒 mip 同源）、AST-12 equirect→cubemap；消费方 = REND-03 的镜面项 + REND-17 反射 |
 | REND-17 | **反射能力**（现**无 SSR、无反射探针**，金属/水面全假）：SSR（屏内步进 + 粗糙度多级 + 半分辨率 + 降噪）→ 反射探针（cubemap 捕获 + 盒投影）→ RT 反射 | 光照 §10 / 管线 §4.2 / 材质档 | 后置项 | **画质对标族序 3**｜RT 反射归 P4-06 首批；探针并入 cluster 索引见 REND-07；SSR 可先做（无 RT 依赖） |
 | REND-18 | **后处理栈扩容**：曝光/测光（EV 自动曝光）、景深 DOF、运动模糊、体积雾/体积光、色彩分级（LUT）、镜头效果（色差/暗角/畸变/光晕）；现链仅 Tonemap + Bloom + Sharpen(RCAS) + TAA | 后处理档 §4 / §9 | 后置项 | **画质对标族序 4**｜HDRP「电影感」一半来自这一栈；体积雾与 REND-12 环境雾同源（REND-12 先落字段） |

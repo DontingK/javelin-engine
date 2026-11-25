@@ -1,5 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
+> 版本：v0.43（2026-11-25）
+> v0.43 变更（2026-11-25）：**L4 阴影补强 + 调试可视化逐项实机验收**——`REND-21-A` cutout、`REND-21-C1` PCSS、`REND-21-B` 逐级联剔除、`DBG-03` 阴影图视图、`REND-13` 光照 gizmo 已通过；`REND-21-C2` 接触阴影降级为实验项（默认强度 0）；余 `F5` DDGI 探针视图与光追 B3 待验（B3 受「TLAS 实例 0」+两组 VVL 阻塞，需先修）。功能键（F4~F9）时好时坏登记 `Engine_Backlog.md` BUG-14，转「菜单命令层统一分发」一批解决，当前靠菜单项切换。
 > 版本：v0.42（2026-11-25）
 > v0.42 变更（2026-11-25）：**光追 B3 补主光方向射线**——`raytrace.compute` 加 mode 分支（mode 2 = 采 G-Buffer 世界位置作起点、沿「指向光源」方向求交、命中写距离），新增 binding2 世界位置采样与 112B push（含 `lightDir`）；`RenderingSystem.sunDirectionOrNull()` 暴露主光行进方向；`RayTraceViewPass` 三态、`RayTraceDebugAppState` F9 三态循环（关 → 相机 → 主光）。遮挡轮廓可直接与 CSM 阴影对照；**逐像素 CSM 双通道对照与「替换/混合」拍板仍后置**（需先抽共享级联求值）。`Engine_RayTracing_Plan.md` v0.6、`Engine_DebugTools_Plan.md` v0.7。**未编译**（`raytrace.compute` 需重导）。
 > 版本：v0.41（2026-11-25）
@@ -199,7 +201,7 @@
 | **L7** 着色模型 | BRDF/GGX + IBL | REND-03 / REND-16 / P4-04 步骤二（SH9 重启） | 金属球有环境反射、粗糙度扫过连续 | 依赖 AST-01 mip 生成链 / AST-09 / AST-12；**用户拍板排在光追后** |
 | **L8** 反射消费 | SSR / 反射探针 / RT 反射 | REND-17 | 镜面反射出画面 | 依赖 L7 的镜面项；**因无镜面消费点而随 L7 后移** |
 
-> **贯穿项**（不单列批次）：`REND-04/05/06` cluster GPU 化 / 脏标记 / Morton 在性能告警时插入；~~`DBG-03` shadowMap 可视化~~（**2026-11-24 已落码**）与 ~~`REND-13` 光照 gizmo~~（**2026-11-25 已落码**）均已在 L4 开工前就位（见 `Engine_DebugTools_Plan.md` §3.6/§3.7）；`REND-08` 世界位置改深度重建随 REND-01 落地后算带宽账。
+> **贯穿项**（不单列批次）：`REND-04/05/06` cluster GPU 化 / 脏标记 / Morton 在性能告警时插入；~~`DBG-03` shadowMap 可视化~~（**2026-11-24 已落码**）与 ~~`REND-13` 光照 gizmo~~（**2026-11-25 落码并验收**）均已在 L4 开工前就位（见 `Engine_DebugTools_Plan.md` §3.6/§3.7）；`REND-08` 世界位置改深度重建随 REND-01 落地后算带宽账。
 
 ---
 
