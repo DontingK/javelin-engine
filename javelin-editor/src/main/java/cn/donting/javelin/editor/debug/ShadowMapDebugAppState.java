@@ -74,6 +74,7 @@ public class ShadowMapDebugAppState extends AbsEditorAppState {
             return;
         }
         if (Input.wasPressed(KeyCode.F6)) {
+            log.info("F6");
             requestMode(nextMode(desiredMode));
         }
         RenderingSystem rs = engine.renderingSystem();

@@ -10,8 +10,15 @@
 layout(set = 0, binding = 0) uniform sampler2D shadowAtlas;
 
 layout(push_constant) uniform PushBlock {
-    int mode;   // 1 = 原始深度 / 2 = 级联分色
-    int grid;   // atlas 每轴象限数（1 = 单张 / 2 = 2×2）
+    int mode;       // 1 = 原始深度 / 2 = 级联分色
+    int grid;       // atlas 每轴象限数（1 = 单张 / 2 = 2×2）
+    // 视口矩形（像素，与 gl_FragCoord 同空间）：atlas 尺寸与视口无关，须按视口归一化。
+    // 用四个标量而非 vec4——vec4 在 push constant 里要求 16 字节对齐，会与 int×2 之间
+    // 插入 8 字节填充，与 Java 侧紧凑写入错位（表现为读到的视口全 0 → uv 越界 → 全黑）
+    float vpX;
+    float vpY;
+    float vpW;
+    float vpH;
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -26,16 +33,18 @@ vec3 cascadeTint(int c) {
 
 void main() {
     ivec2 sizePx = textureSize(shadowAtlas, 0);
-    // 与 GBufferView 同款取 UV：帧缓冲与图同尺寸、按 gl_FragCoord 绝对坐标 1:1 取回本像素
-    vec2 uv = gl_FragCoord.xy / vec2(sizePx);
-    ivec2 px = ivec2(uv * vec2(sizePx));
+    // 视口局部坐标归一化 → 铺满**整张** atlas。原版按 gl_FragCoord/atlas 边长 1:1 取，
+    // 视口小于 atlas 时只会显示左上角一块（原始深度全白、分色全是级联 0 的橙）
+    vec2 uv = (gl_FragCoord.xy - vec2(pc.vpX, pc.vpY))
+            / max(vec2(pc.vpW, pc.vpH), vec2(1.0));
+    ivec2 px = clamp(ivec2(uv * vec2(sizePx)), ivec2(0), sizePx - ivec2(1));
     float depth = texelFetch(shadowAtlas, px, 0).r;
 
-    // 象限分隔线（1px 暗灰）：看清 2×2 版面与各象限边界
+    // 象限分隔线（1px 暗灰）：看清版面与各象限边界（按 grid 通用，非方 atlas 也对）
     bool seam = false;
     if (pc.grid > 1) {
-        int halfSize = sizePx.x / 2;
-        seam = (px.x == halfSize || px.y == halfSize);
+        ivec2 quad = sizePx / pc.grid;
+        seam = (px.x % quad.x == 0) || (px.y % quad.y == 0);
     }
 
     vec3 base;

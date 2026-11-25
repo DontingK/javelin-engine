@@ -70,8 +70,8 @@ public class ShadowMapViewPass implements RenderPass {
     private static final String VERT_SHADER_PATH = "editor/debug/gbufferview.vert";
     private static final String FRAG_SHADER_PATH = "editor/debug/shadowview.frag";
 
-    /** push 常量：int mode + int grid（8B） */
-    private static final int PUSH_SIZE = Integer.BYTES * 2;
+    /** push 常量：int mode + int grid + vec4 viewport(x,y,w,h)（24B；视口尺寸与 atlas 尺寸不同，须按视口归一化） */
+    private static final int PUSH_SIZE = Integer.BYTES * 2 + Float.BYTES * 4;
 
     private static final float[] TRIANGLE_VERTICES = {
             -1.0f, -1.0f,
@@ -157,6 +157,10 @@ public class ShadowMapViewPass implements RenderPass {
                 pushBuffer.clear();
                 pushBuffer.putInt(current);
                 pushBuffer.putInt(Math.max(1, grid));
+                pushBuffer.putFloat(view.viewport().x());
+                pushBuffer.putFloat(view.viewport().y());
+                pushBuffer.putFloat(view.viewport().width());
+                pushBuffer.putFloat(view.viewport().height());
                 pushBuffer.flip();
                 cmd.pushConstants(0, pushBuffer);
                 cmd.bindVertexBuffer(vertexBuffer, 0);
