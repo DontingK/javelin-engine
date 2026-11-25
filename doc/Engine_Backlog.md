@@ -271,6 +271,7 @@
 | BUG-07 | Gizmo 拖拽中按 Alt 相机环绕与拖拽并动（已知边缘） | 原 功能清单 §7 | 已知问题 | 后调 |
 | BUG-09 | 退出期 `vkDestroyDevice` 报 46 个对象未销毁（VVL 05137；首 10 个为 VkDeviceMemory），`CleanerRegistry.flush()` 已跑仍剩 → 逐笔账未查 | 坑 #37 | 已知问题 | 已确认子项 = RHI-12 交换链 view；查账手法 = 抬高 `duplicate_message_limit` 看全列表 + 按 handle 反查创建点 |
 | BUG-13 | ~~**体素 AO 重建门控只看 renderer 数量**~~ **作废（2026-11-20）**：随 P4-17 整体退役，代码已删，问题不复存在。历史内容保留：`VoxelizationPass.ensureReady` 仅 `rendererCount != lastRendererCount` 触发重建 → 移动/同数量替换都不刷新（幽灵暗角），且每帧全重建成本不可接受（4.2M 条 DDA + `prepare()` 逐 mesh 描述符集） | ~~`VoxelizationPass.java:157-167`~~ | 作废 | 修法 A/B/C（静态集签名 / 增量 tile + AO 分片 / 降档全重建）作为 **P4-05 首版投射线**的设计输入保留——DDGI 若走体素 DDA，必须一开始就按「静态集 + 签名门控」做 |
+| BUG-14 | 调试功能键（F6 / F4 / F5 / F7 / F9 同族）**时好时坏**：①引擎 `Input` 只在 Vulkan 画布持焦点时收键，焦点在检查器/树即失灵；②F6 更会**被焦点遍历吃掉**——按下去焦点在项目 / 层级面板间循环选中而不切视图 | `Editor_DebugTools_Plan.md` §3.6 / `MainFrame` | 已知问题 | 2026-11-25 试修两轮**均无效已回退**（rootPane `WHEN_IN_FOCUSED_WINDOW` 全局绑定 + 窗口级从四类 `*_TRAVERSAL_KEYS` 摘 `VK_F6`）→ 拦键方不在 `JFrame` 遍历键集合上；**修方向改为菜单命令层统一分发快捷键**（`MenuRegistry` accelerator 现只做显示、无全局触发），一批解决；当前靠菜单项切换，不影响验收 |
 
 > 另有一批存量问题（描述符池 / FrameArena / backbuffer 哈希等）登记在 §4 RHI 遗留，性质同属 bug 类（RHI-03 / RHI-05 / RHI-06），不在此重复登记。
 

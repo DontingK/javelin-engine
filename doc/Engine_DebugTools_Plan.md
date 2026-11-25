@@ -1,6 +1,6 @@
 # 引擎调试工具计划（Engine Debug Tools Plan）
 
-> 版本：v0.8（2026-11-25 §3.6 阴影图直显验收通过 + 随验修「只铺左上角 / vec4 对齐致全黑」两处）；v0.7（2026-11-25 补 §3.8 主光方向射线三态）；v0.6（2026-11-25 补 §3.8 光追求交直显 = P4-06 B3）；v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
+> 版本：v0.9（2026-11-25 §3.6 补「功能键时好时坏」已知限制——两轮修法无效已回退，转菜单命令层统一分发，登记 BUG-14）；v0.8（2026-11-25 §3.6 阴影图直显验收通过 + 随验修「只铺左上角 / vec4 对齐致全黑」两处）；v0.7（2026-11-25 补 §3.8 主光方向射线三态）；v0.6（2026-11-25 补 §3.8 光追求交直显 = P4-06 B3）；v0.5（2026-11-25 补 §3.7 光照 gizmo 落码 = Backlog REND-13）；v0.4（2026-11-24 补 §3.6 shadowMap 可视化落码 = Backlog DBG-03）；v0.3（2026-11-12 补 dbg-2 实装落点 + 排期表）
 > 日期：2026-11-10（v0.3：2026-11-12）
 > 说明：排障基建专档——两件工具的方案与排期：① Vulkan 校验层消息回调（把校验层报错接进引擎日志，越权/错序类坑当场现形）；② G-Buffer 可视化调试视图（工具菜单/F4 把 G-Buffer 三张贴屏，肉眼比对中间产物）。立项起因 = 批次④-B 验收随验坑 **Pitfalls #35**（set0 阶段可见性 VERTEX-only，LightingPass fs 读 `cam.view` 越权**读零不报错**、全黑排查半日——两件工具任一在位都能把它变成分钟级问题）。
 > 原则：**只做排障面、不进正式渲染路径**；两件相互独立、可分批落地。
@@ -140,6 +140,12 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 **随验修两处（同轮，均在直显链路上）**：
 1. **只铺到 atlas 左上角**——`shadowview.frag` 原按 `gl_FragCoord / atlas 边长` 取像素（照抄 G-Buffer 视图做法，但 G-Buffer 与视口同尺寸、atlas 固定 2048 远大于视口）→ 实际只显示左上块：原始深度全白（该块是级联 0 空白区）、分色全橙（像素全落 `cascade 0`）。修 = push 增视口矩形、按 `(gl_FragCoord.xy - vp.xy) / vp.zw` 归一化**铺满整张 atlas**；象限分隔线改按 `px % (sizePx/grid) == 0` 通用（不再限定 2×2 方形）。
 2. **vec4 对齐致全黑**——push 里用 `vec4 viewport` 时 SPIR-V 按 16 字节对齐给它 offset 16（mode/grid 之后插 8B padding），而 Java 侧紧凑写 24B（视口落 offset 8）→ 读到 0、`uv` 越界 clamp 到边界像素 → 全黑。修 = 拆四个标量 `vpX/vpY/vpW/vpH`（SPIR-V 偏移 8/12/16/20，总 24B，已用 `spirv-dis` 核过），`ShadowMapViewPass.PUSH_SIZE` 8→24。
+
+**已知限制：功能键（F6 等）时好时坏（2026-11-25，未修，登记 `Engine_Backlog.md` BUG-14）**——现象 = 有时无反应；按过之后焦点会在项目 / 层级面板之间循环选中（而不是切阴影图）。已试两轮修法均**无效**、按用户指示**代码已回退**（`MainFrame` 与 `ShadowMapDebugAppState` 回到 HEAD，无残留）：
+1. **根面板全局绑定** `WHEN_IN_FOCUSED_WINDOW` + `ShadowMapDebugAppState.requestCycle()`（绕开「引擎 Input 只在 Vulkan 画布持焦点时收键」的缺口）；
+2. 再叠加**窗口级摘掉 F6 焦点遍历键**（四类 `*_TRAVERSAL_KEYS` 里 `removeIf(getKeyCode()==VK_F6)`），试图解决「F6 被 `KeyboardFocusManager` 当 focus next 吃掉」。
+
+实测仍照旧 → 说明拦键方不在 `JFrame` 的焦点遍历键集合上（可能是 LAF / 焦点管理器默认集合或画布侧键链路另有拦截）。**后续口径：不再逐键兜底**，改由菜单命令层统一分发快捷键（`MenuRegistry` 的 accelerator 现在只做显示、无全局触发），届时 F4/F5/F6/F7/F9 一批一并解决。菜单入口（点「工具 | 阴影图视图」）本身可用，验收不受影响。
 
 ---
 
