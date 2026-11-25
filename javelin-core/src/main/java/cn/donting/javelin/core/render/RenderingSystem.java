@@ -150,10 +150,10 @@ public final class RenderingSystem implements AutoCloseable {
      */
     static final int LIGHTING_BLOCK_BYTES = 672;
 
-    /** 接触阴影最大步进距离（世界单位，约 35cm；REND-21-C2 §4 P4） */
-    static final float CONTACT_SHADOW_MAX_DISTANCE = 0.35f;
-    /** 接触阴影步数（每像素 texture 采样次数；REND-21-C2 §4 P4） */
-    static final float CONTACT_SHADOW_STEPS = 10.0f;
+    /** 接触阴影最大步进距离（世界单位，约 20cm；REND-21-C2 §4 P4，v0.4 由 0.35 收到 0.2——凸曲面曲率误命中随距离线性增长） */
+    static final float CONTACT_SHADOW_MAX_DISTANCE = 0.2f;
+    /** 接触阴影步数（每像素 texture 采样次数；REND-21-C2 §4 P4，v0.4 由 10 收到 8，配合 0.2 保持单步 2.5cm） */
+    static final float CONTACT_SHADOW_STEPS = 8.0f;
     /**
      * 环境项（rgb + 强度）：v0.x 起由 `Environment.ambientMode` 推送（四期 P4-04 步骤一
      * 的常量档）；`OFF`/无环境组件 = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01

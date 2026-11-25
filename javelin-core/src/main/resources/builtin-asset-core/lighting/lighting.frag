@@ -22,7 +22,8 @@ void main() {
     vec3 viewPos = (cam.view * vec4(worldPos, 1.0)).xyz;
     vec3 viewNormal = mat3(cam.view) * worldNormal;
     // 接触阴影（REND-21-C2）：朝主光方向做短距屏幕空间步进（无主光时系数恒 1，
-    // 由 uniform 开关门控，关档早退零成本）
-    float contact = javelinContactShadow(worldPos, -normalize(lighting.directional[0].xyz));
+    // 由 uniform 开关门控，关档早退零成本）；世界法线用于掠射/背光门控（v0.3）
+    float contact = javelinContactShadow(worldPos, viewPos, worldNormal,
+            -normalize(lighting.directional[0].xyz));
     outColor = vec4(albedo * javelinLightingEx(normalize(viewNormal), viewPos, worldPos, contact), 1.0);
 }

@@ -107,7 +107,7 @@ public class ProjectLoadingFrame extends JFrame {
                 // 实现类、无运行期切档，编辑器显式指定（不读项目 javelinSettings 的档位字段，
                 // 该字段只供打包运行时启动期选实现类）
                 setting.getGraphSettings().setRenderPipeline(PipelineProfile.HYBRID);
-                setting.getWindowSettings().setMaxFps(144);
+                setting.getWindowSettings().setMaxFps(0);
                 // 拍板（2026-10-17，Vulkan_Pitfalls #21 跨机器复发后）：编辑器恒关 vsync 走
                 // IMMEDIATE + maxFps 限帧兜底——无 MAILBOX 的驱动会静默回退 FIFO，
                 // 触发 DWM 踩线/错过双稳（细线/小字闪烁）

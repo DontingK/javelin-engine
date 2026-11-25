@@ -74,10 +74,16 @@ final class VulkanPhysicalDevice {
                 extensions = found;
                 return found;
             }
-            VkExtensionProperties.Buffer props = VkExtensionProperties.calloc(count.get(0), stack);
-            vkEnumerateDeviceExtensionProperties(device, (String) null, count, props);
-            for (int i = 0; i < props.capacity(); i++) {
-                found.add(props.get(i).extensionNameString());
+            // 堆外分配（不进 MemoryStack）：单条 260B，RTX 这类驱动动辄 500+ 条 ≈ 130KB，
+            // 默认 MemoryStack 只有 64KB，且调用方（VulkanDevice 构造）本身就压着大栈帧
+            VkExtensionProperties.Buffer props = VkExtensionProperties.calloc(count.get(0));
+            try {
+                vkEnumerateDeviceExtensionProperties(device, (String) null, count, props);
+                for (int i = 0; i < props.capacity(); i++) {
+                    found.add(props.get(i).extensionNameString());
+                }
+            } finally {
+                props.free();
             }
         }
         extensions = found;

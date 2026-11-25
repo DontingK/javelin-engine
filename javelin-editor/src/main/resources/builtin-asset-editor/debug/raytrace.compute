@@ -1,4 +1,6 @@
-#version 450
+#version 460
+// 注：GL_EXT_ray_query 的类型（rayQueryEXT 等）只在 GLSL 460 profile 下可用，
+// 450 会报 'rayQueryEXT' : undeclared identifier（glslc / glslang 同此行为）。
 // 光追求交可视化 compute（P4-06 B3，Engine_RayTracing_Plan §2 B3）。
 //
 // 半分辨率每像素发一条射线，ray query 对 TLAS 求最近命中，把「命中距离 / tMax」写进
@@ -61,7 +63,8 @@ void main() {
     }
 
     float normalized = -1.0;
-    if (rayQueryGetIntersectionTypeEXT(query, true) == gl_HitTEXT) {
+    // 求交类型：CommittedIntersectionNoneEXT = 未命中；命中三角形/AABB 都算命中
+    if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
         normalized = rayQueryGetIntersectionTEXT(query, true) / tMax;
     }
     imageStore(uHitDistance, px, vec4(normalized));

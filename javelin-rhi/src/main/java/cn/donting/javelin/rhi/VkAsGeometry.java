@@ -7,6 +7,7 @@ import org.lwjgl.vulkan.*;
 
 import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.KHRAccelerationStructure.*;
+import static org.lwjgl.vulkan.VK14.*;
 
 /**
  * 加速结构几何声明装配（P4-06 B2）：尺寸查询、构建、范围三件共用一处声明，避免漂移。
@@ -111,7 +112,7 @@ final class VkAsGeometry {
         return switch (type) {
             case UINT16 -> VK_INDEX_TYPE_UINT16;
             case UINT32 -> VK_INDEX_TYPE_UINT32;
-            case UINT8 -> VK_INDEX_TYPE_UINT8_KHR;
+            case UINT8 -> VK_INDEX_TYPE_UINT8;
         };
     }
 

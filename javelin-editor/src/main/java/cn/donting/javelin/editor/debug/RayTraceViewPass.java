@@ -14,7 +14,7 @@ import cn.donting.javelin.rhi.Buffer;
 import cn.donting.javelin.rhi.ComputePipeline;
 import cn.donting.javelin.rhi.DescriptorSet;
 import cn.donting.javelin.rhi.DescriptorSetLayout;
-import cn.donting.javelin.rhi.DescriptorSetLayoutDesc;
+import cn.donting.javelin.rhi.desc.DescriptorSetLayoutDesc;
 import cn.donting.javelin.rhi.DescriptorUpdate;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.GraphicsPipeline;

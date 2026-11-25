@@ -34,8 +34,8 @@ void main() {
     // 象限分隔线（1px 暗灰）：看清 2×2 版面与各象限边界
     bool seam = false;
     if (pc.grid > 1) {
-        int half = sizePx.x / 2;
-        seam = (px.x == half || px.y == half);
+        int halfSize = sizePx.x / 2;
+        seam = (px.x == halfSize || px.y == halfSize);
     }
 
     vec3 base;

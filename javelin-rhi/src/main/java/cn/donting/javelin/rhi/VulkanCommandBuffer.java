@@ -55,7 +55,6 @@ final class VulkanCommandBuffer implements CommandBuffer {
     }
 
     @Override
-    @Override
     public long handle() {
         return vkCommandBuffer.address();
     }

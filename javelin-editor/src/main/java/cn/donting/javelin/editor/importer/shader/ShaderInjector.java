@@ -301,6 +301,23 @@ public final class ShaderInjector {
                 return count == 0 ? -1.0 : sum / float(count);
             }
 
+            // PCSS 段二：软化核——黄金角螺旋 taps 个比较采样，半径由阻挡距离推出的半影决定。
+            // 固定偏移的 MJP 核（4 tap / 9 tap）在放大半径上会把每个 tap 变成一条可见亮度带，
+            // 半影越大层级越多越明显，故 PCSS 档专用连续核；softness = 0 不进本函数。
+            float javelinPcssSoftShadow(vec2 uv, float refZ, vec2 qmin, vec2 qmax,
+                    float radiusTexels, float texelSize, int taps) {
+                float sum = 0.0;
+                for (int i = 0; i < 24; i++) {
+                    if (i >= taps) {
+                        break;
+                    }
+                    float ang = float(i) * 2.39996323;
+                    float r = sqrt((float(i) + 0.5) / float(taps)) * radiusTexels * texelSize;
+                    sum += javelinShadowTapC(uv + vec2(cos(ang), sin(ang)) * r, refZ, qmin, qmax);
+                }
+                return sum / float(taps);
+            }
+
             // 单级联阴影因子（四期 CSM §4.5/§4.6）：级联选择/参考深度走共享核心
             // {@code javelinCsmCore}（与 B3 对照 Pass 同源），本函数只负责 PCF / PCSS 软化。
             float javelinCascadeShadow(int cascade, vec3 worldPos) {
@@ -330,9 +347,9 @@ public final class ShaderInjector {
                 vec2 uvT = uv * atlasSize + 0.5;
                 vec2 st = fract(uvT);
                 vec2 base = (floor(uvT) - 0.5) * texelSize;
-                // PCSS 段二（REND-21-C1）：软化系数 > 0 时先做阻挡搜索，把 PCF 核半径换成由
-                // 遮挡距离推出的半影；无阻挡直接判受光，关档（w = 0）时核半径 = pcfRadius
-                // ——退回改前的固定核 PCF，逐像素一致（判据 D）。
+                // PCSS 档（REND-21-C1）：软化系数 > 0 时先做阻挡搜索，把核半径换成由遮挡距离
+                // 推出的半影，再用连续螺旋核采样；无阻挡直接判受光。关档（w = 0）整段不进，
+                // 仍走下方原 MJP 4/9 tap 分支，逐像素一致（判据 D）。
                 // 半影尺度是相对量：遮挡深度差（归一化光空间 z）× softness × atlas 边长系数，
                 // 近级联 z 范围小 → 同样世界距离的遮挡差给出更大半影，符合近处更软的直觉。
                 float kernelRadius = pcfRadius;
@@ -344,6 +361,8 @@ public final class ShaderInjector {
                     }
                     float penumbra = (refZ - blockerZ) * lighting.shadowParams2.w * atlasSize * 0.05;
                     kernelRadius = clamp(penumbra, pcfRadius, pcfRadius * 4.0);
+                    return javelinPcssSoftShadow(uv, refZ, qmin, qmax, kernelRadius, texelSize,
+                            pcfMode == 1 ? 16 : 24);
                 }
                 if (pcfMode == 1) {
                     vec2 uvw0 = 3.0 - 2.0 * st;
@@ -505,21 +524,37 @@ public final class ShaderInjector {
      * <p>只注入全屏光照 Pass（Forward 路同帧读 G-Buffer 语义不可靠），故本项天然 HYBRID 限定。
      * 不读深度附件（不需要 {@code SAMPLED}），与 SSAO 同一取证方式。</p>
      *
+     * <p>三道门控压误命中（v0.3/v0.4）：掠射/背光面直接不参与（屏幕空间步进在逆光时几乎全命中），
+     * 起点沿法线抬半格避开自遮挡，命中深度差限制在 {@code [容差, tMax]}（滤掉远处墙面与凸曲率绕出）。</p>
+     *
      * <p>返回太阳直射项系数：1 = 无遮挡；{@code contactParams.z}（强度）越大压得越狠，0 = 关。</p>
      */
     private static final String CONTACT_SHADOW = """
             // 接触阴影（REND-21-C2）：短距屏幕空间遮挡，乘在主光直射项上
-            float javelinContactShadow(vec3 worldPos, vec3 towardLight) {
+            float javelinContactShadow(vec3 worldPos, vec3 viewPos, vec3 worldNormal, vec3 towardLight) {
                 if (lighting.contactParams.x < 0.5) {
+                    return 1.0;
+                }
+                // 近景门控（v0.5）：接触阴影只补近处贴合的暗缝；中远景大面积平地上，
+                // 屏幕步进的采样式条带会被屏幕压缩放大（移动相机还随采样网格变化）
+                if (-viewPos.z > 4.0) {
+                    return 1.0;
+                }
+                vec3 n = normalize(worldNormal);
+                vec3 dir = normalize(towardLight);
+                // 掠射/背光门控：夹角过大时主光项本身已弱，且凸曲面沿光向步进后投影回
+                // 屏幕会落到自身更靠前的表面（系统性自命中 → 整幅压暗），故直接不参与
+                if (dot(n, dir) < 0.35) {
                     return 1.0;
                 }
                 int steps = max(int(lighting.contactParams.w), 1);
                 float tMax = lighting.contactParams.y;
                 float strength = lighting.contactParams.z;
-                vec3 dir = normalize(towardLight);
+                // 起点沿法线抬半格，避开「第一步就采回自己所在表面」的自遮挡
+                float normalBias = tMax / float(steps) * 0.5;
                 float hits = 0.0;
                 for (int i = 1; i <= steps; i++) {
-                    vec3 p = worldPos + dir * (tMax * float(i) / float(steps));
+                    vec3 p = worldPos + n * normalBias + dir * (tMax * float(i) / float(steps));
                     vec4 clip = cam.viewProj * vec4(p, 1.0);
                     if (clip.w <= 0.0) {
                         continue;
@@ -535,12 +570,17 @@ public final class ShaderInjector {
                     // 视空间前向 = −Z：值更大 = 更靠近相机 = 挡在步进点前面
                     float sceneZ = -(cam.view * vec4(q.xyz, 1.0)).z;
                     float stepZ = -(cam.view * vec4(p, 1.0)).z;
-                    if (sceneZ > stepZ + 0.02) {
+                    float dz = sceneZ - stepZ;
+                    // 命中带：比步进点更近相机（dz > 容差），且深度差不超过步进距离
+                    // （dz < tMax）——上限按步进距离取，凸曲面上「绕出处自身更前的表面」被剔掉
+                    if (dz > 0.03 && dz < tMax) {
                         hits += 1.0;
                     }
                 }
                 float occ = hits / float(steps);
-                return 1.0 - min(occ * strength * 2.0, 1.0);
+                // v0.4：去掉 2× 放大——occ 是「十步里几步被挡」，0.5 命中就该压一半，
+                // 原来乘 2 会让 0.1 强度也压 20%，观感像整幅调暗
+                return 1.0 - min(occ * strength, 1.0);
             }""";
 
     /**
