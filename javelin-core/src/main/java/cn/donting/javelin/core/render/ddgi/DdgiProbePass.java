@@ -133,6 +133,8 @@ public class DdgiProbePass implements RenderPass {
     private String atlasesCamera;
     /** 描述符里绑定的体素场（体素化重建后要重指） */
     private DdgiVoxelField boundField;
+    /** traceSet binding6 当前绑定的 CSM atlas（非 null 时含占位图）：换图即重绑 */
+    private Texture boundShadowMap;
 
     /** 本帧切片游标（探针线性索引） */
     private int sliceCursor;
@@ -142,6 +144,8 @@ public class DdgiProbePass implements RenderPass {
     private boolean frameWrapsFirstSweep;
     private boolean debugLogged;
     private boolean assetsWarned;
+    /** 网格原点变更是否已记日志（一场会话一条，避免每帧刷） */
+    private boolean gridMoveLogged;
     /** 本帧派发参数（两段共用） */
     private int frameSliceStart;
     private int frameSliceCount;
@@ -200,8 +204,11 @@ public class DdgiProbePass implements RenderPass {
         // atlas 换代时 renderingSystem 内部会重建本视口描述符集（旧 set 两帧退役）
         renderingSystem.syncDdgi(ctx.view().name(), atlases, grid, settings);
         DdgiVoxelField currentField = voxelizer.field();
-        if (currentField != boundField) {
-            // 体素图换代（场景改过）→ 追踪段描述符里的 voxels/params 要重指
+        // 体素图换代（场景改过）→ voxels/params 重指；CSM atlas 换代 → binding6 重指。
+        // 后者原先没有判据：shadow 图换绑只刷了 set1 的 binding4/11，traceSet 的 binding6
+        // 仍指已销毁旧图（实测 vkCmdDispatch 08114，view 被清成 VkNullHandle）。
+        Texture shadowNow = primaryShadowMap();
+        if (currentField != boundField || shadowNow != boundShadowMap) {
             boundField = currentField;
             rebindSets();
         }
@@ -343,14 +350,24 @@ public class DdgiProbePass implements RenderPass {
             Vector3f min = field.origin();
             Vector3f size = field.voxelSize();
             int res = field.resolution();
-            newGrid = DdgiProbeGrid.fittedToField(position.x, position.y, position.z, settings,
-                    min.x, min.y, min.z,
-                    min.x + size.x * res, min.y + size.y * res, min.z + size.z * res);
+            float maxX = min.x + size.x * res;
+            float maxY = min.y + size.y * res;
+            float maxZ = min.z + size.z * res;
+            // 网格锚定在场内、绝不跟相机（2026-11-26 改口径，见 DdgiProbeGrid#anchoredToField）：
+            // 旧口径按相机位置整格吸附，相机一动 atlas 里每个 tile 的读数就整体错位一格，
+            // 同时游标被归零 → 每帧只重算开头 probesPerFrame 个探针、尾部永不刷新，
+            // 实测就是「旋转/平移相机时盒内暗面一档一档地闪」。DDGI 是场景光照缓存，
+            // 覆盖面本就按场 AABB 收缩，在余量里滑动只有抖动没有收益。
+            newGrid = DdgiProbeGrid.anchoredToField(settings, min.x, min.y, min.z, maxX, maxY, maxZ);
         }
         String cameraName = camera == null ? "default" : camera.name();
 
+        // 身份校验（2026-11-26）：atlas 被系统侧剔除（removeCamera / 换代）后本字段仍指向
+        // 旧对象，只看 grid 计数会让 layoutSame 误判 true，后续 syncDdgi 把已销毁的图写进
+        // set1（实测 02996 + 驱动对已释放 VkImage 做 barrier → ACCESS_VIOLATION 崩溃）
         boolean layoutSame = grid != null && atlases != null
                 && cameraName.equals(atlasesCamera)
+                && atlases == renderingSystem.ddgiAtlasesOf(cameraName)
                 && grid.countX() == newGrid.countX()
                 && grid.countY() == newGrid.countY()
                 && grid.countZ() == newGrid.countZ();
@@ -358,12 +375,14 @@ public class DdgiProbePass implements RenderPass {
             boolean moved = !sameGrid(grid, newGrid);
             grid = newGrid;   // 原点/间距可能变了，UBO 与探针位置要用新的
             if (moved) {
-                // 网格整格跳动：旧探针值只错位一格（探针本是低频数据），游标归零重扫、按设置
-                // hysteresis 混几圈收敛（2026-11-23 拍板，止血 a）——不清 firstSweepDone：清了
-                // 等于整圈 hysteresis=0 硬覆盖，跳格瞬间新旧值硬切，就是「移动时周期性闪变」；
-                // hysteresis=0 只留给 atlas 换代/真首圈（新图全零，混历史等于从黑往上爬）
-                sliceCursor = 0;
-                // debugLogged 不复位：调试打印一场会话只出一次，否则每走两米刷一行
+                // 网格原点变了（锚定后只剩「体素场 AABB 变化」会走到，例如拖动墙/增删投射物）：
+                // **不归零游标**。归零等于每帧只重算开头 probesPerFrame 个探针、尾部探针永不刷新，
+                // 错位的旧值与部分新值混进三线性插值 → 画面持续抖动（2026-11-26 实测就是它）。
+                // 让游标自然推进：一圈内全部探针用新位置重算，hysteresis 按设置慢慢收敛。
+                if (!gridMoveLogged) {
+                    gridMoveLogged = true;
+                    log.info("DDGI 网格原点变更（体素场 AABB 变了）：{}（继续按游标推进重扫，不归零）", grid);
+                }
             }
             return true;
         }
@@ -429,6 +448,7 @@ public class DdgiProbePass implements RenderPass {
         // binding6 = 主视口 CSM atlas（探针与主画面同一张图、同一套矩阵——阴影边界一致；
         // 非抛出口：无阴影资源 = null，走占位图 + 级联数 0 恒受光）
         Texture shadowMap = primaryShadowMap();
+        Texture shadowBound = shadowMap != null ? shadowMap : placeholderShadowTexture();
         traceSet.update(
                 DescriptorUpdate.sampledTexture(0, field.voxels(), samplerNearest),
                 DescriptorUpdate.uniformBuffer(1, field.params(), 0, DdgiVoxelField.PARAM_BYTES),
@@ -436,9 +456,9 @@ public class DdgiProbePass implements RenderPass {
                 DescriptorUpdate.storageTexture(3, distanceTemp),
                 DescriptorUpdate.uniformBuffer(4, gridUbo, 0, GRID_UBO_BYTES),
                 DescriptorUpdate.uniformBuffer(5, lightUbo, 0, LIGHT_UBO_BYTES),
-                DescriptorUpdate.sampledTexture(6,
-                        shadowMap != null ? shadowMap : placeholderShadowTexture(), shadowSampler),
+                DescriptorUpdate.sampledTexture(6, shadowBound, shadowSampler),
                 DescriptorUpdate.uniformBuffer(7, shadowUbo, 0, SHADOW_UBO_BYTES));
+        boundShadowMap = shadowBound;
         updateSet = device.createDescriptorSet(updateLayout);
         updateSet.update(
                 DescriptorUpdate.sampledTexture(0, radianceTemp, samplerNearest),

@@ -231,4 +231,44 @@ public class DdgiProbeGridTest {
         float gridCenterY = centered.originY() + centered.extentY() * 0.5f;
         assertEquals(5f, gridCenterY, big.getSpacing());             // 中心对齐场中心
     }
+
+    /**
+     * 锚定铺法（2026-11-26 起的宿主口径）：原点 = 场 min + 余量的一半，**与相机完全无关**。
+     * 这是「旋转相机时盒内暗面闪」的治本断言——网格一旦跟相机，atlas 里每个 tile 的读数就整体
+     * 错位一格，旧值与新值混进三线性插值就会闪。
+     */
+    @Test
+    public void anchoredGridStaysInsideFieldAndIgnoresCamera() {
+        DdgiSettings s = defaults();
+        float minX = -5.269f, minY = -0.436f, minZ = -2.769f;
+        float maxX = 5.269f, maxY = 5.319f, maxZ = 5.129f;
+        DdgiProbeGrid g = DdgiProbeGrid.anchoredToField(s, minX, minY, minZ, maxX, maxY, maxZ);
+
+        assertEquals(6, g.countX());
+        assertEquals(3, g.countY());
+        assertEquals(4, g.countZ());
+        assertEquals(72, g.probeCount());
+        // 余量 0.538 / 1.755 / 1.898 → 原点 = min + 一半
+        assertEquals(minX + 0.269f, g.originX(), 1e-3f);
+        assertEquals(minY + 0.8775f, g.originY(), 1e-3f);
+        assertEquals(minZ + 0.949f, g.originZ(), 1e-3f);
+        assertTrue(g.originX() >= minX - 1e-4f && g.originX() + g.extentX() <= maxX + 1e-4f);
+        assertTrue(g.originY() >= minY - 1e-4f && g.originY() + g.extentY() <= maxY + 1e-4f);
+        assertTrue(g.originZ() >= minZ - 1e-4f && g.originZ() + g.extentZ() <= maxZ + 1e-4f);
+
+        float[] pos = new float[3];
+        for (int i = 0; i < g.probeCount(); i++) {
+            g.probePosition(i, pos);
+            assertTrue(pos[0] >= minX - 1e-4f && pos[0] <= maxX + 1e-4f, "X 越界 @ " + i);
+            assertTrue(pos[1] >= minY - 1e-4f && pos[1] <= maxY + 1e-4f, "Y 越界 @ " + i);
+            assertTrue(pos[2] >= minZ - 1e-4f && pos[2] <= maxZ + 1e-4f, "Z 越界 @ " + i);
+        }
+
+        // 确定性：同一场反复调用逐位相同（不含任何相机输入，结构上就不可能游动）
+        DdgiProbeGrid again = DdgiProbeGrid.anchoredToField(s, minX, minY, minZ, maxX, maxY, maxZ);
+        assertEquals(g.originX(), again.originX());
+        assertEquals(g.originY(), again.originY());
+        assertEquals(g.originZ(), again.originZ());
+        assertTrue(g.toString().equals(again.toString()));
+    }
 }

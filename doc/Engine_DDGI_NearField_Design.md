@@ -1,5 +1,7 @@
 # DDGI 近景窗口（相机跟随体素场）设计（Engine_DDGI_NearField_Design）
 
+> v0.3（2026-11-26）｜**⏸ 本档冻结、不排期**：用户拍板 DDGI 定位 = **有界场景 GI**（关卡内/室内），无界（自由飞行、大世界）GI 交给光追；`DdgiProbePass` 已补「相机离开体素场即冻结网格」口径（`Engine_DDGI_Design.md` §13.9）。滚动窗口那一整套（`copyImage` + slab 增量体素化 + atlas 位移重投影）**待光追 trace 走 AS 求交后整档作废**——届时体素层不复存在，本档的立论前提（体素分辨率随场景变大塌陷）随之消失。恢复条件见 §8 更新。
+>
 > v0.2（2026-11-23）｜**补 §10 动态物体（角色）**：记录性结论，不动代码。现状 = 角色会被并入"静态集"，世界矩阵进签名 → 移动时签名每帧变、两帧稳定门控恒 false → 体素图**冻结在角色最后一次静止那一刻**（幽灵体素 + 新位置不遮挡），角色停下才整场重建。已确认的正面事实：`ddgi_trace.compute` 的命中点遮挡采主视口 CSM，角色对直射的遮挡**已经是动态的**。缺的只有「基色反弹 / 占据位 / 探针降权」三项，口径定为「动态物体只接收 GI，发射与遮挡交给 rayQuery（P4-06）」。见 §10。
 >
 > v0.1（2026-11-23）｜**后置方案件 · 低优先级**：本档只出方案，不落码、不排入 `Engine_Roadmap.md` §4 施工序。触发条件见 §8。
@@ -16,7 +18,7 @@
 
 | 层 | 是否跟随相机 | 实现位置 | 现有数值 |
 |---|---|---|---|
-| 探针网格（辐照度/深度 atlas 的几何） | ✅ 跟，但按 `spacing` 整格吸附，且只在体素场 AABB 内滑 | `DdgiProbeGrid.fittedToField`（`DdgiProbeGrid.java:140`）、`fitOrigin`（`:168`） | 默认 16×4×16@2m → 30×6×30 m；上限 64×32×64 → 126×62×126 m |
+| 探针网格（辐照度/深度 atlas 的几何） | ❌ 不跟（2026-11-26 改：`anchoredToField` 锚定场内、只居中于余量；旧 `fittedToField` 整格跟随已退役） | `DdgiProbeGrid.anchoredToField`、`DdgiProbePass.ensureAtlases` | 默认 16×4×16@2m → 30×6×30 m（按场 AABB 收缩，实测 6×3×4）；上限 64×32×64 → 126×62×126 m |
 | 体素场（追踪段的求交输入） | ❌ 不跟，固定覆盖**全部**静态集 AABB | `DdgiVoxelField.create`（`DdgiVoxelField.java:89`）、`DdgiVoxelizer.prepare`（`:286`） | 单张 N³ RGBA8，N = 128（默认）/ 256（上限）；`voxelSize = 场边长 / N` |
 | 追踪射线长度 | ❌ 常量 | `DdgiProbePass.MAX_RAY_DISTANCE`（`:86`） | 60 m，写进 grid UBO `reservedGrid.y` 与 push constant |
 | 探针历史（hysteresis） | ❌ 一跳格就清 | `DdgiProbePass.ensureAtlases`（`:351`）、`dispatchUpdate`（`:592`） | 原点一变 → `sliceCursor=0`、`firstSweepDone=false`、`blend=0` |

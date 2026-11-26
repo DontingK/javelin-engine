@@ -137,6 +137,39 @@ public final class DdgiProbeGrid {
      * → 直接居中于场（此时网格永远不动，也就不需要吸附）；{@code slack ≥ spacing} 时按整格
      * 跟随相机（步数夹在 {@code [0, floor(slack/spacing)]}）。</p>
      */
+    /**
+     * 锚定在体素场內的网格（<b>缺省口径，2026-11-26 改</b>）：三向数量同 {@link #fittedToField}
+     * 按场 AABB 收缩，但原点**只居中于场的滑移余量、绝不跟相机**。
+     *
+     * <p><b>为什么不再跟相机</b>：探针 atlas 是「世界位置 → tile」的定值缓存，原点一滑动，
+     * atlas 里每个 tile 的读数就整体错位一格；旧实现每跨半格把 {@code sliceCursor} 归零，
+     * 于是每帧只重算开头 {@code probesPerFrame} 个探针、尾部探针永不刷新，错位旧值与部分新值
+     * 混在三线性插值里——实测现象就是「旋转/平移相机时盒内暗面一档一档地闪」。GGI 本质是
+     * 场景光照缓存，覆盖率本来就按场收缩，在余量里挪动没有收益，只有抖动。</p>
+     *
+     * <p>体素场 AABB 变化（拖墙/加删物体）仍会让网格点数/原点变，那是场景真变了，重建 atlas
+     * 属预期。</p>
+     */
+    public static DdgiProbeGrid anchoredToField(DdgiSettings settings,
+                                               float minX, float minY, float minZ,
+                                               float maxX, float maxY, float maxZ) {
+        if (settings == null) {
+            throw new IllegalArgumentException("DdgiSettings must not be null");
+        }
+        float spacing = settings.getSpacing();
+        int countX = fitCount(maxX - minX, spacing, settings.getProbesX());
+        int countY = fitCount(maxY - minY, spacing, settings.getProbesY());
+        int countZ = fitCount(maxZ - minZ, spacing, settings.getProbesZ());
+        float extentX = (countX - 1) * spacing;
+        float extentY = (countY - 1) * spacing;
+        float extentZ = (countZ - 1) * spacing;
+        return new DdgiProbeGrid(
+                minX + ((maxX - minX) - extentX) * 0.5f,
+                minY + ((maxY - minY) - extentY) * 0.5f,
+                minZ + ((maxZ - minZ) - extentZ) * 0.5f,
+                spacing, countX, countY, countZ);
+    }
+
     public static DdgiProbeGrid fittedToField(float camX, float camY, float camZ,
                                              DdgiSettings settings,
                                              float minX, float minY, float minZ,

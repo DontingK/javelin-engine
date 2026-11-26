@@ -1,5 +1,9 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> v0.8（2026-11-26）｜**可见性矩采样改双线性（落码待实机验收）**：圆柱在方向光背侧出现等间距竖向条带——根因 = `javelinProbeVisibility` 取最近 texel（辐照度侧才是双线性），曲面法线周向连续变化扫过 16 档深度 texel 成可见性阶跃，背光面恰在 0/1 临界带。修法 = 矩 `E(d)/E(d²)` 四角双线性后再算 Chebyshev。注入器改动 ⇒ 强制重导全部 `.shader` + 内置 `lighting.frag`。见 §13.10。
+>
+> v0.7（2026-11-26）｜**定位收口：DDGI = 有界场景 GI + 场外冻结网格（落码待实机验收）**：相机走到探针盒外时网格仍跳一格、整屏间接光换版——机制 = `fitOrigin` 步数被 clamp 到边界（跳一次即停）+ 跳格只走 hysteresis 洗错位（无位移重投影）+ 盒外采样全退化成边界常量（影响面放大到整屏）。**拍板**：DDGI 只交付有界场景 GI（关卡/室内），**相机在体素场外时冻结网格**（沿用上一帧 grid，不跳格/不重扫/不换代，进出各一条日志）；无界 GI（自由飞行、大世界）交给光追——体素场是「整世界静态一张」，网格跟出去也没体素可打，正解是 trace 走 AS 求交。见 §13.9。
+>
 > v0.6（2026-11-23）｜**移动闪烁止血 + 阴影区反弹修复（落码待实机验收）**：用户实跑反馈两症状——①移动物体时闪烁；②阴影/背光墙的颜色反弹看不到。**①根因**：体素场 AABB = 集合包围盒，物体一停（两帧稳定门控放行）就重建 → 场盒随物体变 → 探针网格 `fittedToField` 跟着变（探针数/原点）→ atlas 换代或整圈 hysteresis=0 硬覆盖，每挪一下闪一下（相机跟随走时每 2m 再叠一发）。**修法两件（止血 a+b，跳过 atlas 双缓冲——留给近景档的位移重投影一并做）**：a=跳格重扫保持设置 hysteresis（不清 firstSweepDone，错位一格的旧值混几圈收敛，hysteresis=0 只留给 atlas 换代/真首圈）；b=场盒只增不减（`grownMin/grownMax` 历次并集，`requestRebuild`/`releaseField` 重置）。**②根因 = §13.7 档位门控的推理错误**：消费面 DDGI 档是「整项替换」不是叠加（`result = javelinDDGI` 直接顶掉常量环境项），不存在「弹两次」；门控成 0 时阴影/背光面命中辐射 = 0 → 阴影区环境项被替换成 ≈0（比不开 DDGI 还黑）。**修法**：`ambientInHit` 恒 1——ambient 进命中辐射参与一次反弹（被命中面 albedo 着色），阴影里的墙也能弹出自己的颜色。反弹淡的其余构成（单弹无反馈、点光不进 GI、体素基色只取 `_Color` 不采贴图）为已知边界不入本批。见 §13.8。
 >
 > v0.5（2026-11-22）｜**直射项终态：体素 sunVisible → CSM 阴影图（落码待实机验收）**：trace 段命中点直射项的遮挡改采主视口 CSM 阴影图（binding6 深度比较采样 + binding7 352B 阴影参数 UBO，`packDdgiShadowParams` 每帧打包）——与主画面同一张图同一套矩阵，阴影边界对齐、两套影子系统不一致的渗光销账；同批把 §13.6 遗留第 2 条一并收口（DDGI 档下命中辐射不再含常量 ambient，档位开关经 Light UBO `lightingFlags.x` 下发）。无阴影回落（`shadowMapOrNull` 非抛出口 + 占位图 + 级联数 0 恒受光）。见 §13.7。
@@ -334,3 +338,53 @@ mode 的实际取值 = `ambientMode == DDGI && DdgiSettings.enabled` → 1，否
 **改动面**：`DdgiProbePass`（moved 分支 + `writeLightUbo` + 删 `AmbientMode` import）/ `DdgiVoxelizer`（`grownMin/grownMax` + `prepare`/`releaseField`/`requestRebuild` + 类注释）。IDEA inspections 零 error。
 
 **验收清单（待实机）**：①编辑器拖拽物体（含微停顿）不再闪烁——`体素化重建完成` 日志可照刷，但 `DDGI 探针数据面就绪` 不应跟着刷（场盒稳定 = 不换代）；②相机走动每 ~2m 跳格处过渡平滑（hysteresis 混合、无硬切）；③阴影/背光墙能看出反弹色（墙 `_Color` 设彩色验证），室内不再比不开 DDGI 暗；④诊断行「平均入射辐射」阴影区探针不再 ≈0；⑤环境光强度 / `ddgiIntensity` 调反弹量即时生效。
+
+### 13.9 定位收口：DDGI = 有界场景 GI + 场外冻结网格（2026-11-26）
+
+用户实跑发现「相机走到探针盒外，网格还会跳一格，屏幕上光照/阴影跟着变一点」。追到机制后拍板定位：**DDGI 只交付「有界场景 GI」（关卡内/室内），无界（自由飞行、大世界）GI 交给光追**，本批做场外冻结。
+
+**症状机制（三层，均为既有设计代价，非新 bug）**：
+
+1. **场外原点被 clamp**：`DdgiProbeGrid.fitOrigin` 把步数夹在 `[0, floor(slack/spacing)]`（`DdgiProbeGrid.java:176-177`）。相机往外走时 `desired` 一直变大，但网格滑到边界就停 → 只在经过某格边界时跳一次，之后不动。
+2. **跳一格 = 边界探针值换血**：`moved` 只归零 `sliceCursor` 按 hysteresis 收敛（§13.8 止血 a），没有位移重投影（跳格时 tile 序号不变、探针世界位置平移一格 → 值错位）。
+3. **影响面被放大到整屏**：消费面 `javelinDDGI` 对归一化坐标 clamp，盒外所有采样点都退化成边界那圈探针 → 边界值一换，整个可见区域的间接光同时换一版。这才是「只跳一格却看着一大片都变了」的原因。
+
+**修法（`DdgiProbePass.ensureAtlases`，纯宿主侧）**：先算相机是否落在体素场 AABB 内（`cameraInField`）。**在内**照旧 `fittedToField` 跟随（整格跳 + hysteresis 收敛）；**在外**直接把 `newGrid = grid`（沿用上一帧网格）→ `sameGrid` 成立 → 不跳格、不重扫、不换代。进出各打一条日志：`DDGI 网格冻结：相机已离开体素场…` / `DDGI 网格恢复跟随：相机回到体素场内`（每个状态转换一条，不刷屏）。
+
+> **后续（2026-11-26，§13.11）**：本节的「场内跟随 / 场外冻结」整体退场——网格改为**锚定场内、绝不跟相机**，`cameraInField` 判定与两条冻结日志一并删除（`anchoredToField` 下不存在跳格，也就不需要冻结）。本节保留为决策历史。
+
+**行为契约（是设计口径，不是残缺）**：相机越界后画面退化为「边界常量间接光」（不抖、不变），数据侧保持最后一份有效 GI；回到场内自动恢复跟随。**要真正的无界 GI，不是把网格跟出去，而是换求交后端**——体素场是「整世界静态一张」，探针飞出去没有体素可打，只有 ray query 的 AS 求交不受此限（见 `Engine_RayTracing_Plan.md`）。
+
+**边界**：体素化未就绪（`field == null`）时仍走 `cameraCentered`，此时无界判定不可用（此时也还没有 GI 数据可抖）。
+
+**关联**：§13.8 止血 a/b（跳格过渡与场盒只增不减）、`Engine_DDGI_NearField_Design.md`（自本批起冻结、不排期，待光追 AS 求交走通后整档作废）。
+
+### 13.10 可见性矩采样改双线性（2026-11-26，治"圆柱背光面竖条带"）
+
+用户报：圆柱在方向光的背面，阴影区内出现**明显的等间距竖向条带/梯度**。根因 = 消费段 `javelinProbeVisibility` 对深度矩取的是**最近 texel**（`ivec2(octaEncode(dir) * depthInner)`），而辐照度侧是手写双线性。圆柱侧面的法线沿周向连续旋转 → 八面体 uv 连续扫过 16 档深度 texel（`DEPTH_INNER=16`，每档 ≈22.5°）→ 可见性成为**阶跃**；背光面恰好是「探针到像素的距离 > 该方向命中距离」的临界带，相邻 texel 直接 0/1 翻转，于是 16 条等间距硬边，叠加辐照度侧较平滑的 8 档插值，看起来就是"竖条 + 梯度"。
+
+**修法**：`javelinProbeVisibility` 的矩采样与 `javelinProbeIrradiance` 同口径——`st = octaEncode(dir) * depthInner - 0.5`、四角 `texelFetch` 后双线性混合 `E(d)` / `E(d²)`，再算 Chebyshev。阶跃变连续梯度，条带消失；成本 = 每探针多 3 次 `texelFetch`（每像素 8 探针，共 24 次额外深度采样），`m1 <= 0`（未扫/朝天）仍直接回 1.0。
+
+**注入器改动 ⇒ 强制重导全部 `.shader` 与内置 `lighting.frag` 产物**（否则跑的还是旧最近邻版本）。
+
+**边界**：①双线性矩是近似（均值方差都线性插值后再算 Chebyshev 上界），只影响可见性的平滑度、不改降权语义；②八面体映射在 `n.z<0` 处的翻转缝仍可能留**一条**竖线（clamp 而非 wrap），若复验后只剩单条等角位置硬线，那是 seam，需按 uv 邻域 wrap 采样单独处理（未在本批做）；③真实方向分辨率不足（16 档）导致的辐照度方向性粗糙仍在，属"探针低频"的已知边界。
+
+### 13.11 网格锚定 + 探针逃逸（2026-11-26，治"旋转相机盒内暗面闪"与"物体贴探针出光斑"）
+
+用户实测两条现象，均在**光追三档全 0**（纯 DDGI）下复现：①盒内（前开口、斜射入光）那面暗墙，旋转/平移编辑器相机时**周期性闪变**；②把一面墙拖到**刚好压在探针上**时，墙附近冒出**亮斑**。
+
+**现象①根因 = 网格跟相机整格吸附 + 跳格时游标归零**：`fitOrigin` 用 `cam − extent/2` 取 `round(spacing)`，相机每跨半格（≈1 m）就把整个 `origin` 平移一格；探针 atlas 是「世界位置 → tile」的定值缓存，origin 一动，**每个 tile 的读数整体错位一格**。而 `moved` 分支又把 `sliceCursor = 0`，于是每帧只重算开头 `probesPerFrame`（默认 64）个探针，网格 72 探针时尾部 8 个**永不刷新**；错位的旧值、部分新值、加上 hysteresis 0.85 的慢收敛混在三线性插值里 → 暗面间接光一档一档地跳。
+
+**修法 ①（`DdgiProbeGrid.anchoredToField` + `DdgiProbePass.ensureAtlases`）**：网格原点改为**只居中于场的滑移余量**（`min + slack/2`），与相机彻底解耦；`moved` 分支**不再归零游标**（原点变只可能来自体素场 AABB 变化，让游标自然推进、一圈内全量重算）。DDGI 是场景光照缓存，覆盖范围本就按场 AABB 收缩，在余量里滑动没有任何收益。`fittedToField` 保留（单测仍覆盖旧口径），不再是宿主口径。
+
+**现象②根因 = 探针落在实心体素内**：`ddgi_trace.compute` 的探针起点原样取网格节点，没有 probe relocation。墙/地板穿过节点时，`traceVoxel` 起始格就是实心体素，第一格即命中（`t ≈ 0`），命中法线由步进方向随手取，`radiance = albedo × (ambient + 主光×ndl×shadow)` 常为满亮；这个"墙内面的读数"被写成该 tile 的辐照度，消费面按世界位置三线性插值，就当成**空气中的间接光** → 墙附近亮斑（本质是漏光，量级比正常间接光高一档）。
+
+**修法 ②（`ddgi_trace.compute` 的 `relocateProbe`）**：探针起点若是实心体素，沿 6 个轴向逐步外推（最多 `PROBE_ESCAPE_STEPS=6` 体素；128 分辨率、10.8 m 场下单体素 ≈0.084 m，上限约 0.5 m ≪ spacing 2 m），取第一个空气体素中心为实际起点；6 步内全实心（厚墙内部）则 `trapped`，该探针按「未命中环境色」处理，不产爆亮。幅度远小于 spacing，对消费面三线性假设的影响可忽略（与经典 DDGI probe relocation 同口径）。
+
+**改动面**：`DdgiProbeGrid`（新增 `anchoredToField`）、`DdgiProbePass`（改口径 + 删 `cameraOutsideField` + `moved` 不归零 + `gridMoveLogged` 一次性日志）、`ddgi_trace.compute`（`relocateProbe` / `solidCell` / `PROBE_ESCAPE_STEPS`）。`DdgiProbeGridTest` 11 例仍全绿。
+
+**注入/资产面**：`ddgi_trace.compute` 是内置资产的**项目副本**（`test/test-project/.javelin/assets/core/voxel/ddgi_trace.compute`），改源文件后必须同步副本（本批已用源覆盖副本、`.meta` guid 不动），否则跑的是旧 SPIRV。
+
+**验收口径**：①光追三档全 0、环境光 DDGI，旋转/平移相机绕场景一圈，盒内暗面亮度**无周期跳变**（`DDGI 网格原点变更` 日志不应在相机移动时出现）；②拖动墙到任意探针位置停留，墙附近**无亮斑**、暗面不漏光；③墙停下 ≥2 帧后 GI 按 hysteresis 平滑过渡到新体素图（`体素化重建完成` 可刷，`DDGI 探针数据面就绪` 只在探针数变时出现）。
+
+**边界**：①锚定后相机跑出体素场，画面退化为边界常量间接光（与 §13.9 结论一致，不抖不变）；②拖大件改变场 AABB → 探针数变 → atlas 换代从零重扫 1~2 帧（黑窗仍在，双缓冲未做）；③逃逸只处理「起点在实心体素」，不处理「探针贴墙 1 体素内」的漏光（那属于 normal bias / 法线偏置，`DdgiSettings.normalBias` 已定义但尚未接进 compute push）。

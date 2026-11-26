@@ -74,6 +74,49 @@ bool insideGrid(ivec3 c, int res) {
     return c.x >= 0 && c.y >= 0 && c.z >= 0 && c.x < res && c.y < res && c.z < res;
 }
 
+// 探针逃逸（probe relocation，2026-11-26）：网格节点落在实心体素上时（墙/地板正好穿过探针），
+// 射线起点就在实心体素里，DDA 第一格即命中（t≈0）、命中法线由步进方向随便拍一个，辐照度就被
+// 写成「墙内面的满亮读数」；消费面按世界位置三线性插值，把这个墙内读数当成空气中的间接光 →
+// 墙附近冒出一块亮斑（实测：物体拖到探针上就出现）。
+// 做法：沿 6 个轴向逐步外推，第一个空气体素中心即新起点（幅度 ≤ PROBE_ESCAPE_STEPS 体素，
+// 128 分辨率下约半米，远小于 spacing 2m）。全实心（厚墙内部）返回原位 + trapped，调用方按
+// 「未命中环境色」处理，不产爆亮。
+#define PROBE_ESCAPE_STEPS 6
+
+bool solidCell(ivec3 c, int res) {
+    if (!insideGrid(c, res)) {
+        return false;   // 场外视作空气（射线本来就会立刻出界回落环境色）
+    }
+    return texelFetch(voxels, c, 0).a > 0.5;
+}
+
+vec3 relocateProbe(vec3 p, out bool trapped) {
+    trapped = false;
+    int res = int(field.originResolution.w);
+    if (res <= 0) {
+        return p;
+    }
+    vec3 org = field.originResolution.xyz;
+    vec3 vs = field.voxelSize.xyz;
+    ivec3 c = ivec3(floor((p - org) / vs));
+    if (!insideGrid(c, res) || !solidCell(c, res)) {
+        return p;
+    }
+    for (int step = 1; step <= PROBE_ESCAPE_STEPS; step++) {
+        for (int a = 0; a < 3; a++) {
+            for (int s = -1; s <= 1; s += 2) {
+                ivec3 n = c;
+                n[a] += s * step;
+                if (insideGrid(n, res) && !solidCell(n, res)) {
+                    return org + (vec3(n) + 0.5) * vs;
+                }
+            }
+        }
+    }
+    trapped = true;
+    return p;
+}
+
 // Amanatides & Woo 体素 DDA：返回命中距离（<0 = 未命中），出参为命中体素基色与面法线估算
 float traceVoxel(vec3 ro, vec3 rd, out vec3 hitAlbedo, out vec3 hitNormal) {
     hitAlbedo = vec3(0.0);
@@ -176,13 +219,18 @@ void main() {
     vec3 probePos = grid.originSpacing.xyz
             + vec3(float(px), float(py), float(pz)) * grid.originSpacing.w;
 
+    // 探针逃逸（2026-11-26）：节点陷在实心体素里时先外推到最近的空气体素中心；
+    // 逃逸失败（厚墙内部）= 该探针按「未命中环境色」处理，不产爆亮光斑
+    bool trapped;
+    probePos = relocateProbe(probePos, trapped);
+
     // 八面体方向（内区 8×8）
     vec2 uv = (vec2(gl_LocalInvocationID.xy) + 0.5) / vec2(float(grid.tileParams.z));
     vec3 dir = octDecode(uv);
 
-    vec3 albedo;
-    vec3 normal;
-    float dist = traceVoxel(probePos, dir, albedo, normal);
+    vec3 albedo = vec3(0.0);
+    vec3 normal = vec3(0.0);
+    float dist = trapped ? -1.0 : traceVoxel(probePos, dir, albedo, normal);
     vec3 radiance;
     if (dist < 0.0) {
         // 未命中：环境色兜底（不接天空盒）
