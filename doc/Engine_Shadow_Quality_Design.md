@@ -1,6 +1,6 @@
 # 引擎阴影质量分级设计（Engine Shadow Quality Design）
 
-> 版本：v0.9（**2026-11-25 REND-21-C1 PCSS 落码**：`pcfRadius` 变核半径下限 + set1 binding11 原始深度 + 注入段 `javelinPcssBlockerDepth`，落码件 `Engine_Shadow_PCSS_Design.md` v0.2）；v0.8（**2026-11-24 随 REND-21-A 同步 §4.7 push/set 形态**：push 128→144B + ShadowPass 首获 set0（alpha 裁剪））
+> 版本：v0.10（**2026-11-26 补 §9.8 缝级漏光调参路径**：首选 `refDepthOffset` 0.02→0.03~0.05，代价 = acne 暗斑 + 影子外扩；次选 `pcfRadius` / `shadowDistance`；`softness=0` 与 `contactShadows` 作排除项，`biasConstant` 方向相反别当堵缝手段。现场口径记录，零代码改动）；v0.9（**2026-11-25 REND-21-C1 PCSS 落码**：`pcfRadius` 变核半径下限 + set1 binding11 原始深度 + 注入段 `javelinPcssBlockerDepth`，落码件 `Engine_Shadow_PCSS_Design.md` v0.2）；v0.8（**2026-11-24 随 REND-21-A 同步 §4.7 push/set 形态**：push 128→144B + ShadowPass 首获 set0（alpha 裁剪））
 > 日期：2026-11-21
 > v0.7 变更（2026-11-21）：**§9.6 接触漏光修复验收关账**——用户重导 `.shader` 与内置 `lighting.frag`、项目设置「阴影」组恢复默认后实机「没问题了」；接触环亮缝收窄到设计预期（1~2 纹素），无 acne 暗斑、无阴影包裹感。**BUG-11 从 `Engine_Backlog.md` 移出**，验收状态归 `Engine_Features.md` §2.4 行。残留不变：接触处半影仍 1~2 纹素（PCSS/SSCT 归步骤三可选收尾；环境光侧漏光随体素 AO 退役已消失）。
 > v0.6 变更（2026-11-20）：**接触漏光（contact gap）修复**——物体半埋进平面时，两者接触处出现一圈亮线（cube 底部与地面交界最明显），根因是「shadow map 遮挡轮廓只能落在纹素边界 + PCF 核 + 掠射面 slope bias」三者同向叠加，与本档原「bias 抗 acne ↔ 漏影」预算争夺是同一件事。修法 = ①注入段 `refZ` 增加**固定半纹素外扩**（`0.5 / (atlasSize/grid)`，归一化深度口径，见 §3.4-4/§9.6）；②`ShadowSettings` 五项缺省重标：`pcfRadius` 1.0→**0.6**、`refDepthOffset` 0→**0.02**、`biasSlope` 1.5→**0.6**、`cascadeCount` 2→**4**、`shadowDistance` 100→**80**（近级联纹素 ~3.3cm→~1.3cm，atlas 仍 2×2 全用、显存不变）。**注入器改动 = 强制重导 `.shader` 与内置 `lighting.frag`**。**旧工程设置档已序列化旧值 → 需在项目设置「阴影」组点「恢复默认」或手动改为新缺省**，否则本批只在新建工程生效。残留见 §9.7。
@@ -514,6 +514,30 @@ x/y 纹素尺度同值；步骤二 atlas 后按象限改传显式缩放参数）
 - **正常偏移（normal-offset shadow）**：采样侧沿 `worldNormal` 偏 `k·texel`，用来把 acne 预算从 `biasSlope` 挪走（注意：它会略微**加重**接触漏光，必须与「扩外」项成对调）；
 - **`castShadow` 拆位**：拆成「投射阴影」与「参与环境遮蔽（`ambientOccluder`）」两位——地面这类大接收面可以「不投影但参与遮蔽」，从根上去掉自遮挡预算（P4-17 退役后此位的第二用途消失，现无消费方，**暂缓**；若未来 DDGI 需要「不投影但进体素」的物体再启用）；
 - **固定图案**：PCF 核按帧旋转（Vogel/旋转盘）消除静止画面的规律性纹理；
+
+### 9.8 缝级漏光的调参路径（2026-11-26，现场口径）
+
+用户实跑反馈「物体与地面交界的地缝有一点点漏光，某个阴影参数调大能压住，但调大会引出其他问题」。§9.6 已把接触环从「一整圈亮线」收窄到「1~2 纹素」，剩下的这点缝是**纹素边界 + PCF 核 + 掠射面 slope bias 三者之和的下限**，只能靠参数配平，不可能调成 0（0 距离正确遮挡归 PCSS/SSCT，§9.7）。
+
+**首选 `refDepthOffset`（参考深度偏移，世界单位）**
+
+- 方向：正值 = 阴影边界外扩 → 缝被补上；缺省 `0.02`，步进 `0.01`、上限 `1`；每帧进 `shadowParams` UBO，改完即时生效。
+- 推荐逐档试 **0.03 → 0.04**，一般 0.05 以内够用。
+- **调大的代价（就是"其他问题"）**：①受影面冒自阴影 **acne 暗斑/条纹**，掠射的大平面（地面）最先现形——这是它的硬上限信号；②阴影轮廓整体外扩，影子"变胖"、贴地物体的接地线被抹掉（看着像悬浮）。
+- 与 `biasSlope`（缺省 `0.6`）是反向的一对：`biasSlope` 把 caster 深度往远推 = 减 acne、增漏光。两个一起猛调会互相打架，一次只动一个。
+
+**次选（当 `refDepthOffset` 到 0.05 就开始出 acne 时改用这侧配平）**
+
+1. `pcfRadius` `0.6 → 0.4~0.5`：半影核收窄，漏光区的几何宽度随之变小（与"堵"互补，一个堵一个缩）。
+2. `shadowDistance` `80 → 60`（级联保持 4）：近级联纹素从 ≈1.3cm 再细一档，缝本身变窄；代价 = 远处阴影提前截断。
+3. `cascadeCount` 保持 4（2 级联时近级联纹素 ≈3.3cm，缝会明显变宽——这是 2026-11-20 五项重标的直接原因之一）。
+
+**排除项（先试再改）**
+
+- `softness`（PCSS）设 **0** 退回固定核 PCF 对比一次：接触处半影本就小，但 blocker search 在缝隙里可能找不到 blocker、直接给 0——若归零后缝明显变亮，说明问题在 PCSS 判断而非偏移量。
+- `contactShadows`（REND-21-C2 接触阴影）**不用来救缝**：默认 0 就是因其单帧全分辨率步进在平地/凸面有条带伪影（`Engine_Shadow_Contact_Design.md` §7.3），属实验项。
+
+**方向性提醒**：`biasConstant` 调大是反效果（遮挡体"变薄"→ 缝更亮），别拿它当堵缝手段；它的职责是抗 acne。
 
 ---
 

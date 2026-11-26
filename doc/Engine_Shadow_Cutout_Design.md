@@ -97,11 +97,11 @@
 | `builtin-asset-core/shadow/shadow.vert` | push 块补 `cutoff` / `hasAlbedoTex`；新增 `layout(location=3) in vec2 aUV` + `out vec2 vUV` |
 | `builtin-asset-core/shadow/shadow.frag` | 空体 → `cutoff > 0 && hasAlbedoTex > 0.5` 时采样 `albedoTex`，`alpha < cutoff` → `discard`；其余路径零采样 |
 | `javelin-editor` `ShaderInjector` | 新增常量 `ALPHA_CLIP`（`javelinAlphaClip(vec4 albedo, float cutoff)`，含 `discard` → 仅注入 fs） |
-| `builtin-asset-core/shader/Lit.shader` | `Properties` 增 `_AlphaCutoff ("Alpha Cutoff", Range(0,1)) = 0`；Forward fs 与 GBuffer fs 在取回 `tex` 后各加一行 `javelinAlphaClip(tex, material._AlphaCutoff)` |
-| test-project 副本 | `core/shader/Lit.shader`、`core/shadow/shadow.vert`、`core/shadow/shadow.frag` 三件已与源字节一致（`.javelin` 不入 git 索引） |
+| `builtin-asset-core/shader/Standard.shader`（落码当时的 `Lit.shader`，2026-11-26 改名） | `Properties` 增 `_AlphaCutoff ("Alpha Cutoff", Range(0,1)) = 0`；Forward fs 与 GBuffer fs 在取回 `tex` 后各加一行 `javelinAlphaClip(tex, material._AlphaCutoff)` |
+| test-project 副本 | `core/shader/Standard.shader`（源改名后需在工程里先删旧 `Lit.shader` 再导入）、`core/shadow/shadow.vert`、`core/shadow/shadow.frag` 三件已与源字节一致（`.javelin` 不入 git 索引） |
 
 **自验口径（待用户执行）**
-1. 重启编辑器触发内置资产 reimport（`Lit.shader` 与 `shadow.vert/.frag` 必须重导，否则旧 SPIR-V 与新 push 布局不符 → 阴影错乱/校验报错）；
+1. 重启编辑器触发内置资产 reimport（`Standard.shader` 与 `shadow.vert/.frag` 必须重导，否则旧 SPIR-V 与新 push 布局不符 → 阴影错乱/校验报错）；
 2. 建一个镂空贴图材质（`.mat` 上把 `_AlphaCutoff` 调 0.5）→ 主画面与影子同时出现镂空，且孔洞位置一致；
 3. 未声明 `_AlphaCutoff` 的材质画面对比改前无差异；
 4. `error.log` 无新增 VVL（重点看「push constant range 超出」「descriptor set not bound」两类）。

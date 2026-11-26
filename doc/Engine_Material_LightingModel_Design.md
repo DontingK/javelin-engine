@@ -42,7 +42,7 @@ Shader "MyShader"
 private LightingModel lightingModel = LightingModel.LAMBERT;
 ```
 
-- 新枚举 `render/material/LightingModel`：`LAMBERT("ins.enum.lightingmodel.lambert")` / `UNLIT("ins.enum.lightingmodel.unlit")`（`InsEnumLabel` 双语，供 `.shader` 诊断台只读展示）；
+- 新枚举 `render/material/LightingModel`：`LAMBERT("ins.enum.lightingmodel.lambert")` / `UNLIT("ins.enum.lightingmodel.unlit")`（`InsEnumLabel` 双语，供 `.shader` 诊断台只读展示）；**2026-11-26 追加第三值 `PBR("ins.enum.lightingmodel.pbr")`**（REND-03，见 §8.6）；
 - `write` 增 `output.write("lightingModel", lightingModel)`、`read` 增 `input.readEnum("lightingModel", LightingModel.class, LightingModel.LAMBERT)`（缺键 = LAMBERT，旧产物/旧文本直接加载）；
 - Builder 增 `lightingModel(...)` 入口 + `build()` 装配（红线 3：不允许不确定的 API，落码前用 IDEA MCP 复核 `InputCapsule.readEnum` 现签名）；
 - 字段**不加 `@InsField`**：模型来自 shader、不可在材质面板改（材质侧只读展示）。
@@ -101,9 +101,9 @@ Shadow → OpaqueForward → Skybox → Unlit(同一实例) → Transparent
 
 ## 7. 内置资产与编辑器
 
-- `default.shader` 标 `LightingModel Unlit`：错误紫材质**无灯也可见**（错误显性化归位）；`Lit.shader` 缺省即 `LAMBERT`，不动。
-- 材质面板**不加字段**；`.shader` 诊断台展示只读行「光照模型 = Lambert/Unlit」（i18n 三键）；
-- 新建材质模板（`CreateMaterialMenuCommand` 用 `Lit`）不变。
+- `default.shader` 标 `LightingModel Unlit`：错误紫材质**无灯也可见**（错误显性化归位）；`Standard.shader`（原 `Lit.shader`，2026-11-26 改名，见 `Engine_Lighting_Design.md` §7 改名拍板）**REND-03 起显式写 `LightingModel PBR`**（原「缺省即 LAMBERT」的描述随 PBR 落码作废）。
+- 材质面板**不加字段**；`.shader` 诊断台展示只读行「光照模型 = Lambert/Unlit/PBR」（i18n 三键）；
+- 新建材质模板（`CreateMaterialMenuCommand.STANDARD_SHADER_PATH`）不变。
 
 ## 8. 已知边界（本批不做，登记待办）
 
@@ -114,6 +114,16 @@ Shadow → OpaqueForward → Skybox → Unlit(同一实例) → Transparent
 3. **阴影**：unlit 仍参与**投射**（`castShadow` 位；ShadowPass 走引擎自有 depth-only 管线，与材质无关），但**不接收**阴影（不注入光照段）。
 4. **材质级开关 / 着色器变体**：不在本批（shader 级已够用）。
 5. **扩值规则（单一封闭轴）**：`LightingModel` 是这张表唯一的光照轴——后置模型（`PBR` / `Toon`）以新值追加，**不是**与「受光/不受光」正交的第二根轴（否则会出现「PBR + Unlit」这类无效组合，得再引入合法组合表与默认裁决）。追加值的两处改动点固定：① `ShaderParser.parseLightingModel` 的 case 表；② `ShaderInjector.lightingStageBlocks` 的 switch 块集（无 default，漏值即编译失败）。仍受光者共用 `opaque` 桶 + G-Buffer + LightingPass，**Pass 结构不改**；若新模型需要更多 G-Buffer 通道（PBR 的 roughness/metalness），那是独立的布局批次（`GBufferPass.COLOR_FORMATS` + `Engine_Uniform_Keys.md` 单点），不属扩值。
+
+## 8.6 PBR 值追加实录（2026-11-26，REND-03）
+
+上一节的扩值规则被完整兑现，没有例外改动：枚举末尾追加 `PBR`（不动 `LAMBERT`/`UNLIT` 的 ordinal，旧产物 `readEnum` 零迁移）、`parseLightingModel` 加 `case "pbr"`（大小写不敏感，非法值仍抛 `shader.parse.lightingModelUnknown`）、`lightingStageBlocks` 加 `case PBR -> DDGI + LIGHTING_BLOCKS + PBR_LIGHTING_BLOCKS + RECEIVE_SHADOW_PUSH`（PBR 与 LAMBERT 共用相机/push/光照 UBO/CSM 核心/set1 声明，只多一段公式块；`ungrouped` 的桶、Pass 结构、收集期 WARN 口径一律不变）。
+
+G-Buffer 按「独立布局批次」处理：`GBufferPass.COLOR_FORMATS` 由三附件加到四（第四张 `R8G8B8A8_UNORM`，r=roughness / g=metallic），**清屏值 `CLEAR_MATERIAL=(1,0,0,1)` 就是 LAMBERT 的等价值**（全粗糙、非金属）——因此不写 location 3 的存量 `.shader` 行为不变，加附件不构成对旧材质的强制改造；`RenderingSystem` 加 set1 binding14 与 `gbufferMaterialFor`，`LightingPass` 必须 `addTextureRead` 该图（否则 GBuffer 写与 Lighting 读之间缺布局转换）。
+
+`PBR_LIGHTING_BLOCKS` 的签名约定值得记一笔：`javelinLightingPbr(viewNormal, viewPos, worldPos, contactShadow, albedo, vec2 roughMetal)` 把 rough/metal **当参数传入**而不是内部读 `material._Roughness`——因为 `material` UBO 由 `appendMaterialDeclaration` 在注入末尾生成，块内前向引用会直接编译失败。全屏 `lighting.frag` 走 `injectLightingStage` 独立入口，没有 `material` 可用，改由 `javelinRoughMetal()` 从 binding14 采样。亮度口径：`F0=mix(0.04, albedo, metal)`、`diffuse=albedo*(1-metal)`、漫反射不除 π（沿用既有亮度以免全场景重调）、环境项只乘漫反射份额、环境镜面 IBL 归 REND-16。
+
+验证：`:javelin-editor:compileJava` BUILD SUCCESSFUL；Forward / GBuffer / 全屏三条路径按注入块手工拼装后均过 `glslc --target-env=vulkan1.3`。残留：`ins.enum.lightingmodel.pbr` 的 i18n label 未核实、全部 `.shader` 需重导。
 
 ## 9. 验收清单（2026-11-16 用户实机验收通过，原话「非光照材质 看起来也没问题」）
 
@@ -167,4 +177,4 @@ Shadow → OpaqueForward → Skybox → Unlit(同一实例) → Transparent
 
 - `.shader` 诊断台「光照模型」只读行（§7 提到）——本批未动检查器，登记后置；
 - `.shader` 样例资产（一件 Unlit 示例）——验收时可用新建材质改 shader 头替代；
-- `Lit.shader` 不显式写 `LightingModel`（缺省即 `Lambert`，零改动）。
+- ~~`Lit.shader` 不显式写 `LightingModel`（缺省即 `Lambert`，零改动）~~ **已作废（REND-03，2026-11-26）**：`Standard.shader`（原 Lit.shader）顶层显式 `LightingModel PBR`，缺省 LAMBERT 的口径只剩「不写即 Lambert」这一兜底语义。

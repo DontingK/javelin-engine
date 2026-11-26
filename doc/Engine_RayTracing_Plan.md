@@ -1,6 +1,10 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v0.7（2026-11-25，B3 前置：级联求值抽为共享核心 `javelinCsmCore` + 对照参数快照）
+> 版本：v1.3（2026-11-26，B9 镜面反射落码：半分辨率 1 spp 反射射线 + 粗糙度 lobe 抖动 + 命中点屏幕反查，PBR 按 Fresnel 计入环境镜面）
+> v1.0（2026-11-26，B6 质量修补落码：混合档百分比 + 阴影强度统一 + 法线偏移起点）
+> v0.9（2026-11-26，B5 主链消费落码：半分辨率 RT 阴影可见性图 + 材质 shader 采样替换）
+> v0.8（2026-11-26，B4 CSM 对照落码：`csmcompare.frag` + 第四态 + 四绑定 set0）
+> v0.7（2026-11-25，B3 前置：级联求值抽为共享核心 `javelinCsmCore` + 对照参数快照）
 > v0.5（2026-11-25，B3 落码：加速结构描述符 + 半分辨率相机主射线求交直显 F9）
 > v0.4（2026-11-25，B2b 落码：TLAS + 构建后屏障 + 光追场景装配；B3 待做）
 > v0.3（2026-11-25，B2a 已落码：AS 设备地址分配 + BLAS 构建 + Mesh 缓存；B2b = TLAS 待做）
@@ -32,6 +36,13 @@
 | **B1** | 能力启用：`VkDeviceCreateInfo` 按「驱动真的上报」拼装扩展列表（`VK_KHR_deferred_host_operations` → `VK_KHR_acceleration_structure` → `VK_KHR_ray_query` / `VK_KHR_buffer_device_address`）+ 对应特性链；`BufferUsage` 加 `SHADER_DEVICE_ADDRESS` / AS 存储 / AS 构建输入三档；**能力可选不阻断启动**，但 `Device.rayQueryEnabled()` 报「这一台设备真的能用」，B2 建 AS 前查它、false 就显性抛错 | 设备能创建 AS | ✅ 2026-11-25 落码（未编译） |
 | **B2** | AS 构建：每 `Mesh` 一条 BLAS（静态、`MeshUpload` 后一次性建）、每帧一条 TLAS（instances = `RenderObject` 世界矩阵 + 实例自定义索引）；AS 缓冲走 device-local，构建用一次性 command buffer + fence | `rayQuery` 可求交 | ✅ B2a + B2b 2026-11-25 落码（未编译） |
 | **B3** | 最小消费：半分辨率 compute Pass 里对每个像素投一条主光方向射线，输出 `命中距离 / miss` 可视化（先验证数值与 shadow map 一致），再决定是「替换 CSM」还是「与 CSM 混合」 | 可验收的求交画面 | ✅ 2026-11-25 落码（未编译）；首批用**相机主射线**，主光方向求交后置 |
+| **B4** | CSM 对照：RT 遮挡与 CSM 可见性逐像素比对，红绿差异图（`csmcompare.frag` + 第四态 + 四绑定 set0） | 「替换 / 混合」拍板的判据 | ✅ 2026-11-26 落码（着色器过 glslc，未实跑） |
+| **B5** | 主链消费：半分辨率 RT 阴影可见性图（独立 compute）+ 主渲染 shader 采样替换 CSM（`rtParams.x` 开关） | RT 阴影进主画面 | ✅ 2026-11-26 落码（Java 编译过、compute 过 glslc；**须重导全部 `.shader`**） |
+| **B6** | 质量修补：`rtParams.x` 变混合百分比（0/100/中间）、RT 档统一乘 `shadowParams.z` 强度、compute 起点改「法线偏移 + 光方向偏移」（set0 加法线） | 可 A/B 的 RT 阴影 | ✅ 2026-11-26 落码（Java 编译过、compute + 注入后光照块均过 glslc） |
+| **B7** | 漫反射 GI：半分辨率 4 spp 余弦半球求交（Hammersley + 帧相位），命中点投影回屏幕取 G-Buffer 反照率/法线，输出 RGBA16F 辐照度图，环境项按 `rtgiParams.x` 混合 | 有方向的间接光 | ✅ 2026-11-26 落码（Java 编译过、`rtgi.compute` + 注入块均过 glslc；**须重导 `.shader` 与新资产**） |
+| **B7.5** | 前置 PBR（REND-03）：G-Buffer material 通道（r=roughness/g=metallic）+ GGX/Fresnel/Smith 光照，详见 §3.11 | 反射所需的粗糙度/金属度数据面 | ✅ 2026-11-26 落码（`compileJava` 过、三条 shader 路径 glslc 过；**须重导 `.shader`**） |
+| **B8** | 时域累积 + 空间降噪：复用 TaaPass 的 prevViewProj 与 history 图做 GI 重投影，ATrous 收尾（未落） | 噪点可控的 GI | 待做 |
+| **B9** | 镜面反射：半分辨率逐像素 1 条反射射线（相机→表面→法线镜像），粗糙度决定 lobe 抖动角，命中点投影回屏幕取反照率着色，输出 RGBA16F 反射图；PBR 段按粗糙度修正的 Fresnel 份额计入环境镜面 | 完整 RT 的第三类消费 | ✅ 2026-11-26 落码（`compileJava` 过、`rtreflect.compute` 与三条注入路径均过 glslc；**须重导 + 导入新资产**） |
 
 **刻意的顺序**：B3 先做**可视化**而不是直接接阴影——光追一旦接进主光，跑出来的画面异常（偏移、漏光、自交）很难归因；先出「命中距离直显」图，能和 shadow map 的深度图逐像素对照，错误一眼可见。
 
@@ -137,12 +148,128 @@
 
 ---
 
+## 3.7 B4 落码点（2026-11-26）
+
+| 落点 | 改动 |
+|------|------|
+| `csmcompare.frag`（新资产 + `.meta`） | 片元着色器带 `//@javelinCsmCore` 标记（只内联级联核心，不注光照块）；set0 四绑定 = 距离图 / 世界位置 / 阴影 atlas（`sampler2DShadow`）/ CSM 参数 UBO（std140，304B）；配色：两端一致阴影=绿、一致受光=白、**CSM 漏影=红**、CSM 过度=青绿、级联外/背景=灰 |
+| `RayTraceViewPass` | 新增 `MODE_COMPARE = 3`：compute 复用主光方向求交（`computeMode = MODE_LIGHT`），展示段换对照 PSO；新增 `compareSetDesc`（4 绑定）、`compareSetFor`（绑定变化即换新集 + `retireResource`）、`compareShadowSampler`（LINEAR + LESS + CLAMP，与 `RenderingSystem.shadowSampler` 同参）、`csmCompareUbo`（304B，每帧 `packCsmCompareParams` 直写）；`pipelineFor` 抽出 `buildPipeline` 供两套 PSO 共用 |
+| `RayTraceDebugAppState` | F9 四态 `OFF → 相机 → 主光 → 对照`；`requestMode` 上限放宽到 `MODE_COMPARE` |
+| 级联选择 | **不另传 splits**：逐级跑 `javelinCsmCore` 取第一个 `valid`（与实渲染同源判定，重叠区取近级联），省掉快照扩 4B 的改动 |
+
+**未做**：对照模式下阴影关/无 G-Buffer 时 Pass 不进图（AppState 只报就绪行，不给假结论）；四色对照的画面验收待实跑（判据 = 红/青绿应集中在半影与几何边缘，不应成片）。着色器（注入后）已过 `glslc --target-env=vulkan1.3`。
+
+---
+
+## 3.8 B5 落码点（2026-11-26）
+
+**关键设计选择：RT 求交不进材质 shader。** 材质 shader 保持 `#version 450`（不加 `GL_EXT_ray_query`），求交集中在独立 compute 里产半分辨率可见性图，主渲染只多一次纹理采样和一次开关判断。理由三条：①避免全量 shader 升 460 + 扩展带来的编译链风险；②半分辨率 + 后续降噪有余量；③与 B3/B4 的射线构造口径一份代码。
+
+| 落点 | 改动 |
+|------|------|
+| `core/shadow/rtshadow.compute`（新资产 + `.meta`） | 460 + `GL_EXT_ray_query`：G-Buffer 世界位置为起点、沿指向光源方向求交，输出 `r8` 可见性（1 受光 / 0 遮挡；背景写 1）。push 32B（vec4 光方向 + vec4 params：tMax / 起点偏移） |
+| `RTShadowPass`（core，新类） | 半分辨率 compute Pass：回调内 `scene.build` 重建 TLAS → 绑 set0（AS / 可见性图 storage / 世界位置 sampled）→ dispatch。`rtShadowMode=0` 或设备无 ray query 时整段不进图；TLAS 空时跳过并只 warn 一次 |
+| `RenderingSystem` | `rtShadowFor(cameraName)`（半分辨率 `R8_UNORM`：STORAGE｜SAMPLED，resize 换绑）；`rtShadowSampler`（LINEAR + CLAMP）；`setRtShadowMode/rtShadowMode`（默认 0，由组合根开）；`LIGHTING_BLOCK_BYTES` 672→**688**（`rtParams` @672：x 模式 / y tMax / z,w 全 backbuffer 尺寸）；set1 布局加 **binding12** 并写入描述符 |
+| `JavelinEngine.createRenderPipeline` | 仅「混合管线 + ray query 设备」时 `setRtShadowMode(1)` 并 `addPass(rtShadowPass, "GBuffer")`（Forward 档没有 G-Buffer，误开会让着色端采未渲染图 → 全黑阴影，故默认 0） |
+| `LightingPass / OpaqueForwardPass / TransparentForwardPass` | `addTextureRead(rtShadowFor)`（仅 mode≠0）——建 RTShadow→消费 Pass 的图依赖 |
+| `ShaderInjector.LIGHTING_BLOCKS` | UBO 加 `vec4 rtParams`；set1 加 `binding12 sampler2D rtShadowMap`；`javelinLightingEx` 主光阴影段：`rtParams.x > 0.5` 走「`gl_FragCoord.xy / rtParams.zw` 采可见性图」，else 保持原 CSM/PCSS 整段 |
+
+**必须重导**：`LIGHTING_BLOCKS` 改了 UBO 结构与 set1 声明 ⇒ 全部 `.shader` 与内置 `lighting.frag` 都要重导，否则结构错位（光照全乱）。
+
+**已知残留（待验收后再定）**：①单采样无降噪，边缘锯齿/噪点，后续接 TAA/时空复用；②`RayTraceViewPass` 与 `RTShadowPass` 都每帧 build TLAS（调试视图开着时重复一次，功能无碍）。
+
+---
+
+## 3.9 B6 落码点（2026-11-26）
+
+**一项到位收掉 B5 的三条残留：混合档、强度口径、起点偏移。**
+
+| 落点 | 改动 |
+|------|------|
+| `rtshadow.compute` | `rtParams` 语义改为 **y = 法线偏移 / z = 光方向偏移**；新增 `binding3 sampler2D uNormal`；起点 = `worldPos + normalize(n) * y + dir * z`。只沿光方向推，薄面/掠射仍自交；只沿法线推，法线背光时把起点推进几何。两者叠加最稳 |
+| `RTShadowPass` | set0 加 binding3（世界法线，`gbufferSampler`）；`boundNormal` 参与换集判定；`NORMAL_BIAS = 0.05` / `DIRECTION_BIAS = 0.01`（世界单位） |
+| `RenderingSystem.setRtShadowMode(int percent)` | 语义变**百分比**：0 关 / 100 全替换 / 1~99 与 CSM 混合；`rtParams.x = percent / 100`。新增 `RT_SHADOW_DEFAULT_PERCENT = 100`，`JavelinEngine` 用它开档 |
+| `ShaderInjector` 主光段 | 重排为「两路可选 + 统一乘强度」：`rtMix < 0.999` 才算 CSM（全替换档省掉级联选择与 PCF），`rtMix > 0.001` 才采 RT 图，`shadowFactor` 按 0 / 中间 / 1 三态取 `csmShadow` / `mix` / `rtShadow`，最后统一 `shadow = mix(1.0, shadowFactor, shadowParams.z)`。顺带修掉 `rtParams.x=1.0 > 0.5` 恒真带来的强度被绕过问题 |
+
+**验证**：`:javelin-editor:compileJava` 通过；`rtshadow.compute` 过 `glslc --target-env=vulkan1.3`；把 `LIGHTING_BLOCKS`（CSM 核心 + lightList/cluster/atlas/rtShadowMap + `javelinLightingEx`）按真实注入顺序拼成最小 frag，同样过 `glslc`——主光段新分支的语法与类型都在编译期验过。
+
+**实跑开关**：`RayTraceDebugAppState` 加 **F10**，循环 `0 → 25 → 50 → 75 → 100 %` 并打一行日志。不用改代码重编就能在同一场景里 A/B：100 看 RT 全替换的瑕疵，0 回到 CSM 基线，25/50 看混合是否吃掉偏差。
+
+**为什么混合档值得做**：B4 的对照图如果显示 RT 与 CSM 在远距离/薄物体的偏差明显，直接全替换会把「CSM 其实对的地方」也换掉。`percent` 让 A/B 变成一次参数改动，而不是再改一遍 shader。降噪仍后置——单采样硬遮挡不会有射线噪声，真正的瑕疵是半分辨率上采样的像素化，需要深度感知双边上采样（G-Buffer 世界位置在 set1 binding7 现成可用），等实拍噪点分布出来再定 tap 数与权重。
+
+---
+
+## 3.10 B7 落码点（2026-11-26）
+
+**光追的第二类消费：1-bounce 漫反射 GI。** 与 B5 的阴影不是两条技术线，而是同一套 AS + ray query 的两种用法：阴影是「1 条射线问可见性」，GI 是「N 条半球射线问间接光」。区别在于 **GI 有采样方差**，单帧必然噪，所以 B7 只保证「方向和量级对」，降噪留给 B8。
+
+| 落点 | 改动 |
+|------|------|
+| `core/gi/rtgi.compute`（新资产 + `.meta`） | 460 + ray_query：半分辨率逐像素，在世界位置上做 4 spp **余弦加权半球采样**（Hammersley 2D + 帧序号相位错开，跨帧样本不重复）；命中后把命中点投影回屏幕（`push 的未抖动 viewProj`），取该像素 G-Buffer 反照率与法线；屏外/背面回退「反照率 0.5、法线 = -rayDir」。miss 按天光计，命中按「环境 + 主光 ndl」计（**不含二次可见性**，见残留） |
+| `RTGIPass`（core，新类） | set0 五项：0 AS / 1 GI 图（storage）/ 2 世界位置 / 3 法线 / 4 反照率；push **128B**（mat4 viewProj + params(spp,tMax,frame,bias) + sunRad + ambientRad + lightDir）；TLAS 空时跳过并只 warn 一次；`rtgiMode=0` 或相机未收集时整段不进图 |
+| `RenderingSystem` | `rtgiFor(cameraName)`（半分辨率 `R16G16B16A16_SFLOAT`：STORAGE｜SAMPLED，resize 换绑）；`rtgiSampler`（LINEAR + CLAMP）；`setRtgiMode/rtgiMode`（百分比，默认 0）；新增 `cameraViewProjFor`（本帧未抖动 viewProj，取自 TaaHistory）、`sunRadiance()`、`ambientRadiance()`；`LIGHTING_BLOCK_BYTES` 688→**704**（`rtgiParams` @688：x 混合 / y tMax / z,w 全 backbuffer 尺寸）；set1 加 **binding13** 并写入描述符 |
+| `JavelinEngine` | 与 RTShadowPass **同锚点**（`after="GBuffer"`）注册，互不依赖；`RTGI_DEFAULT_PERCENT = 100` |
+| `LightingPass / OpaqueForwardPass / TransparentForwardPass` | `addTextureRead(rtgiFor)`（仅 mode≠0）——建 RTGI→消费 Pass 依赖 |
+| `ShaderInjector.LIGHTING_BLOCKS` | UBO 加 `vec4 rtgiParams`；set1 加 `binding13 sampler2D rtgiMap`；`javelinLightingEx` 环境项改三段：`ambientBase`（常量）→ DDGI 接管 → `rtgiParams.x > 0` 时按 `gl_FragCoord / rtgiParams.zw` 采 GI 图并 `mix(ambientBase, gi, x)` |
+
+**为什么采样用 `gl_FragCoord` 而不是投影世界位置**：GI 图与 G-Buffer 逐像素对齐（同一个半分辨率网格），直接按屏幕坐标 1:1 采样即正确，且多视口天然成立；投影世界位置反而要在 shader 里多带一次 viewProj，还会被 TAA 抖动污染。
+
+**实跑开关**：F11 循环 `0 / 25 / 50 / 75 / 100 %`。100 看纯 RTGI 的形状与噪点，0 回 DDGI/常量基线，中间看混合。
+
+**验证**：`:javelin-editor:compileJava` 通过；`rtgi.compute` 过 `glslc -fshader-stage=compute --target-env=vulkan1.3`；`LIGHTING_BLOCKS` 按真实注入顺序拼最小 frag 过 `glslc`（新 ambient 分支语法与类型编译期验过）。
+
+**已知残留**：①**无二次阴影**——命中点用 ndl 近似判断受光，暗角落会漏光，若要收需要第二条射线（成本翻倍，等 B8 后看占比）；②屏外命中的反照率退 0.5，间接光偏灰；③4 spp 单帧噪点明显，B8 时域累积前不建议拿它当验收画面；④半分辨率 + LINEAR 放大，几何边缘有 1~2 像素软化；⑤RTGI 与 DDGI 同开时是 `mix` 关系——100% RTGI 会把 DDGI 环境项整个顶掉，室内若想两者共存，用中间档。
+
+---
+
+## 3.11 前置：PBR 光照模型（REND-03，2026-11-26）
+
+**为什么在反射之前先做**：镜面反射必须按 roughness 分射线的 lobe（光滑面 1 条窄锥、粗糙面多 samp 宽锥），而 Lambert 模型里根本没有粗糙度概念，G-Buffer 也没有地方存。所以「RT 反射」的真正阻塞项不是 AS 或 compute，而是**材质参数进不了着色**。B7 之后插这一批，等于把 `roughness/metallic` 从 Properties 一直铺到 G-Buffer 与光照函数，B9 反射落码时只差一个消费端。
+
+改动面（五处固定点 + 两处新数据面）：
+
+1. `LightingModel` 末尾追加 `PBR("ins.enum.lightingmodel.pbr")`（不动既有 ordinal）；`ShaderParser.parseLightingModel` 加 `case "pbr"`；`ShaderInjector.lightingStageBlocks` 加 `case PBR`（该 switch 无 default，漏值即编译失败，是刻意保护）。
+2. `PBR_LIGHTING_BLOCKS` 注入：`javelinD_GGX` / `javelinG_Smith`（Smith 联合）/ `javelinF_Schlick` / `javelinPbrDirect`（单灯响应，`kd=(1-F)*(1-metal)` 做能量守恒拆分）/ `javelinLightingPbr`（主光 + 簇灯 + 环境项，阴影段与 Lambert 同口径复制）。签名 `(viewNormal, viewPos, worldPos, contactShadow, albedo, vec2 roughMetal)`——rough/metal **作参数传入**，因为 `material` UBO 由注入末尾生成，块内引用会「声明在后」编译失败。
+3. G-Buffer 第四附件 `R8G8B8A8_UNORM`（r=roughness / g=metallic），清屏 `CLEAR_MATERIAL=(1,0,0,1)` **恰好是 Lambert 等价值**——存量 `.shader` 不写 location 3 就保持全粗糙非金属，因此加通道不强制改造旧材质。
+4. `RenderingSystem`：`gbufferMaterialFor` / set1 binding14 / `LightingPass.addTextureRead`（缺这条声明则 GBuffer 写与 Lighting 读之间没有布局转换，采到脏值）。
+5. `Standard.shader`（原 `Lit.shader`，2026-11-26 改名）顶层 `LightingModel PBR`，Forward fs 调 `javelinLightingPbr(..., vec2(material._Roughness, material._Metallic))`，GBuffer fs 写 location 3；`lighting.frag` 改调 `javelinLightingPbr(..., javelinRoughMetal())`（全屏路径从 binding14 读）。
+
+亮度口径：`F0 = mix(0.04, albedo, metal)`、`diffuse = albedo*(1-metal)`、漫反射**不除 π**（沿用既有亮度，避免全场景变暗重调光）；环境项只乘漫反射份额，**环境镜面（IBL）明确留给 REND-16**。
+
+校验：`:javelin-editor:compileJava` BUILD SUCCESSFUL；三条 shader 路径（Forward / GBuffer / 全屏 `lighting.frag`）按注入块手工拼装后均过 `glslc --target-env=vulkan1.3`。遗留：`ins.enum.lightingmodel.pbr` 的 i18n label 未核实、全部 `.shader` 需重导。
+
+---
+
+## 3.12 B9 落码点（2026-11-26）
+
+**光追的第三类消费：镜面反射。** 三类消费的分界由此齐了——遮挡（1 射线问 0/1，无状态）、漫反射 GI（N 射线半球，有方差）、镜面反射（**1 射线，方向唯一确定**）。反射方向 = `reflect(worldPos - camPos, N)`，不依赖任何随机数：粗糙度只决定 lobe 宽度，光滑面（rough ≤ 0.1）抖动角近乎为零 = 精确镜面。
+
+**资产与 Pass**：`core/rt/rtreflect.compute`（460 + `GL_EXT_ray_query`）半分辨率逐像素 1 spp，`perturbAround(R, N, rough, jitter)` 把方向绕切线偏 `rough²·π/2·lobe`，抖动相位由 `radicalInverse(px + frame)` 驱动（跨帧不重复，B8 累积时样本均匀）。命中点投影回屏幕取 `gbufferAlbedo`、`gbufferNormal`，用「环境 + 主光 ndl」近似其辐射亮度；打空 = 通向天空，直接输出环境辐照度（无环境源时即黑，与「无天光」口径一致）。`RTReflectPass`（core，set0 六绑定：AS / 反射图 storage / 世界位置 / 法线 / **材质** / 反照率），**push 144B**——比 B5/B7 多的 16B 是相机世界位置，这是我为「反射必须知道眼睛在哪」付的唯一额外成本；Vulkan 保证下限 128B，桌面 GPU 普遍 256B。
+
+**数据面**：`RenderingSystem` 加 `rtreflectFor`（半分辨率 RGBA16F STORAGE|SAMPLED）/ `rtreflectSampler` / `setRtReflectMode` / `cameraPositionFor`（按视口名查注册相机）/ `RT_REFLECT_MAX_DISTANCE=100`（远大于 GI 的 20——镜子里能看到走廊尽头）/ `RT_REFLECT_DEFAULT_PERCENT=100`；`LIGHTING_BLOCK_BYTES` 704→**720**（`reflectParams`@704，步长 768 余量 48B）；set1 加 **binding15**；resize 与 close 两处 dispose；`LightingPass` / `OpaqueForwardPass` / `TransparentForwardPass` 各加 `addTextureRead(rtreflectFor)`。
+
+**着色端消费**（`PBR_LIGHTING_BLOCKS`，Lambert 不受影响）：
+```glsl
+if (lighting.reflectParams.x > 0.001) {
+    float NoV = max(dot(normalize(viewNormal), V), 1e-4);
+    vec3 fEnv = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - NoV, 5.0);
+    vec2 reflUV = gl_FragCoord.xy / max(lighting.reflectParams.zw, vec2(1.0));
+    vec3 refl = texture(rtReflectMap, reflUV).rgb;
+    result += refl * fEnv * (1.0 - 0.5 * rough * rough) * lighting.reflectParams.x;
+}
+```
+`fEnv` 的 `max(1-rough, f0)` 让粗糙面 Fresnel 向 1 收敛（能量摊进宽 lobe），再乘 `(1 - 0.5·rough²)` 压强度——单射线近似下这是唯一能避免「粗糙面出现镜面锐利反射」的压制项。反射是**环境镜面**（间接光部分），与主光 GGX 高光（`javelinPbrDirect`）并存，两者物理上各自成立。
+
+**已知残留**：①命中点只用 ndl 着色、不含二次可见性，暗角落反射偏亮（与 B7 同源取舍）；②屏外命中反照率退 0.5、法线退 `-dir`；③粗糙面单帧有斑点（等 B8 时域）；④半分辨率放大，镜面边缘 1~2px 软化（真要锐利可给全分辨率 + 只对 smooth 材质双分辨率派发，未做）；⑤**SSR 未做**——屏幕内命中目前也是"打 RT 再回屏取色"，本质等价于 RT 版 SSR，但比屏幕空间步进贵、比它稳（能拿到背面与屏外几何的遮挡关系）。
+
+---
+
 ## 4. 风险与后置
 
 - **R1 780M 不支持**：若日志三项全 false，光追主线就地改为「先补 RHI-14 + L5 后处理」或换硬件，**不硬啃软件回退**（软件 RT 在这个引擎里没有意义）。
 - **R2 扩展在列但位为 false**：`supportsRayQuery` 已双判，避免 B1 建设备时才炸。
 - **R3 与既有 RHI 抽象的冲突**：AS 是 RHI 里全新的资源类型（既不是 Buffer 也不是 Texture），B1/B2 要新增 `AccelerationStructure` 抽象；抽象怎么切分（AS 是否独立 `GPUResource`、TLAS 更新是否走 `CommandBuffer`）留到 B1 拍板。
-- **后置**：镜面反射消费（L7 之后）、光线追踪阴影的降噪（ray query 每像素 1 采样会有噪点，需要 TAA/时空复用，那时与 REND-21-C2 的抖动步进同源）。
+- **后置**：~~镜面反射消费（L7 之后）~~ **已于 B9 落码（2026-11-26）**；剩余后置项 = B8 时域降噪（GI 与粗糙面反射的斑点）、SSR 与 RT 的混合（屏幕内省射线、屏幕外走 RT，当前全走 RT）、IBL 环境镜面（REND-16，届时 RT 反射与 cubemap 按 roughness 混合）、光线追踪阴影的降噪（与 REND-21-C2 的抖动步进同源）。
 
 ## 5. 自验口径（未编译，交用户）
 
