@@ -72,6 +72,15 @@ public final class SceneRenderBridge {
     private final Map<Light, RenderLight> lights = new IdentityHashMap<>();
     /** 最近一次推送的天空盒资产（身份门控：变化才推，含 null↔非 null 翻转） */
     private CubemapImage lastSkybox;
+    /**
+     * 最近一次推送的光追三档（-1 = 尚未推过）。
+     *
+     * <p>必须做值门控：{@code RenderingSystem.setRtXxxMode} 会顺手作废「上一帧 Pass 派发确认」
+     * （fill=0），每帧无脑调会让光追永远确认不上、档位等于恒 0。</p>
+     */
+    private int lastRtShadow = -1;
+    private int lastRtgi = -1;
+    private int lastRtReflect = -1;
     private final Set<String> usedNames = new HashSet<>();
 
     /**
@@ -113,6 +122,29 @@ public final class SceneRenderBridge {
             rs.setAmbient(null, 0.0f);
         }
         rs.setAmbientMode(ambientMode);
+
+        // 光追三档（P4-06）：归场景 Environment 所有，检查器里就地改、值变才下传。
+        // 无环境组件 / 未激活 = 全关（与三期基线一致）。注意 setter 会作废上一帧的派发确认，
+        // 所以这里必须门控，不能每帧无脑调。
+        Environment rtEnv = environment != null && environment.isActiveAndEnabled() ? environment : null;
+        int rtShadow = rtEnv == null ? 0 : rtEnv.getRtShadowPercent();
+        if (rtShadow != lastRtShadow) {
+            lastRtShadow = rtShadow;
+            rs.setRtShadowMode(rtShadow);
+            LOGGER.info("光追阴影档推送: {}%（0 = 纯 CSM，100 = 全替换）", rtShadow);
+        }
+        int rtgi = rtEnv == null ? 0 : rtEnv.getRtgiPercent();
+        if (rtgi != lastRtgi) {
+            lastRtgi = rtgi;
+            rs.setRtgiMode(rtgi);
+            LOGGER.info("光追 GI 档推送: {}%（0 = 常量/DDGI 环境项，100 = 全替换）", rtgi);
+        }
+        int rtReflect = rtEnv == null ? 0 : rtEnv.getRtReflectionPercent();
+        if (rtReflect != lastRtReflect) {
+            lastRtReflect = rtReflect;
+            rs.setRtReflectMode(rtReflect);
+            LOGGER.info("光追反射档推送: {}%（0 = 无环境镜面，100 = 全量）", rtReflect);
+        }
 
         List<Camera> sceneCameras = scene.getCameras();
         List<Renderable> sceneRenderables = scene.getRenderables();
@@ -372,6 +404,10 @@ public final class SceneRenderBridge {
         lights.clear();
         usedNames.clear();
         lastSkybox = null;
+        // 光追档复位为「未推送」，让下一个场景的首帧重新下传（否则沿用上个场景的档位）
+        lastRtShadow = -1;
+        lastRtgi = -1;
+        lastRtReflect = -1;
         rs.setSkybox((CubemapImage) null);
     }
 

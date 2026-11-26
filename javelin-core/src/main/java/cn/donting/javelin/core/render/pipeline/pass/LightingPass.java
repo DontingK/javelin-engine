@@ -142,11 +142,23 @@ public class LightingPass implements RenderPass {
             } else {
                 pass.addColorOutput(target, RHILoadOp.CLEAR, clear);
             }
-            // 读声明：G-Buffer 三张（建 GBuffer→Lighting 边）+ shadowMap（建 Shadow→Lighting 边）
+            // 读声明：G-Buffer 三张 + material（建 GBuffer→Lighting 边）+ shadowMap（建 Shadow→Lighting 边）
             pass.addTextureRead(albedo);
             pass.addTextureRead(normal);
             pass.addTextureRead(worldPos);
+            // G-Buffer material（REND-03 PBR：binding14 的 roughness/metallic）——必须声明读，
+            // 否则与 GBuffer 的写之间没有屏障/布局转换，采到脏值
+            pass.addTextureRead(rs.gbufferMaterialFor(view.name()));
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // 光追阴影图（P4-06 B5）：RTShadowPass 写 → Lighting 读，建跨 Pass 依赖。
+            // 恒声明、不按 mode 门控：图是惰性创建的（createTexture 无 UploadData，布局停
+            // UNDEFINED），mode=0 时若这里不声明就再没人转换，而 set1 描述符已按
+            // SHADER_READ_ONLY 写好 → 着色器分支静态判访问即撞 09600（Pitfalls #37 同型）
+            pass.addTextureRead(rs.rtShadowFor(view.name()));
+            // 光追 GI 辐照度图（P4-06 B7）：RTGIPass 写 → Lighting 读（环境项消费）；同上恒声明
+            pass.addTextureRead(rs.rtgiFor(view.name()));
+            // 光追镜面反射图（P4-06 B9）：RTReflectPass 写 → Lighting 读（环境镜面消费）；同上恒声明
+            pass.addTextureRead(rs.rtreflectFor(view.name()));
             // DDGI 两张 atlas 的采样读（四期 P4-05 B3）：同一 javelinLighting 的环境项，
             // 与更新段 compute 的 STORAGE 写配成读写对（布局转换 + 屏障由图插入）
             DdgiAtlases ddgiAtlases = rs.ddgiAtlasesOf(view.name());

@@ -1,9 +1,9 @@
 #version 450
 //@javelinLighting
 // 全屏光照片元着色器（批次④-B，LightingPass）：读 G-Buffer 三张重建视空间法线/位置，
-// 调引擎注入的 javelinLighting——与材质 Forward fs 是同一函数、同一 set1 cluster 数据
+// 调引擎注入的 javelinLighting — 与材质 Forward fs 是同一函数、同一 set1 cluster 数据
 // （「两路光照一致」由单源保证）。标记行由 SpvShaderImporter 消费：在 #version 后注入
-// set0 相机块 + set1 光照段函数 + G-Buffer 三采样（binding5/6/7）。
+// set0 相机块 + set1 光照段函数 + G-Buffer 四采样（binding5/6/7/14）+ PBR 公式块（REND-03）。
 layout(location = 0) out vec4 outColor;
 
 void main() {
@@ -25,5 +25,9 @@ void main() {
     // 由 uniform 开关门控，关档早退零成本）；世界法线用于掠射/背光门控（v0.3）
     float contact = javelinContactShadow(worldPos, viewPos, worldNormal,
             -normalize(lighting.directional[0].xyz));
-    outColor = vec4(albedo * javelinLightingEx(normalize(viewNormal), viewPos, worldPos, contact), 1.0);
+    // PBR（REND-03）：albedo 进 BRDF（F0 与漫反射份额都依赖它），roughness/metallic
+    // 从 G-Buffer material 附件（binding14）取；未写该附件的 Lambert 材质保持清屏值
+    // (1,0,0,1) = 全粗糙非金属，物理上退化为漫反射
+    outColor = vec4(javelinLightingPbr(normalize(viewNormal), viewPos, worldPos, contact,
+            albedo, javelinRoughMetal()), 1.0);
 }

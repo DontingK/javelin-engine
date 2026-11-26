@@ -1,0 +1,140 @@
+// 光追镜面反射（P4-06 B9）：半分辨率逐像素沿反射方向打 1 条射线，命中后把命中点投影
+// 回屏幕取 G-Buffer 反照率，用「环境 + 主光 ndl」近似它的辐射亮度，写 RGBA16F 反射图，
+// 由 PBR 注入段按 Fresnel 份额乘进环境镜面项。
+//
+// 与 B7 漫反射 GI 的分工：GI 是「半球 N 条、要方向平均、必须降噪」，反射是「单条、方向
+// 由相机与法线唯一确定、粗糙度只决定 lobe 宽度」。所以这里不做半球采样，只按 roughness
+// 在反射方向上做角度抖动——有些粗糙度的表面单帧会有斑点，属于 B8 时域累积的范畴。
+//
+// 命中点依旧「反查屏幕」：ray query 没有 hit shader/SBT，拿不到命中面材质；投影回本帧
+// 屏幕取反照率是零额外显存的做法。屏外命中退天光（环境辐照度），所以完全屏外的反射
+// 只剩环境色，不会有「镜子里凭空出现几何」的错误。
+
+#version 460
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform accelerationStructureEXT uTlas;
+layout(binding = 1, rgba16f) uniform image2D uReflect;
+layout(binding = 2) uniform sampler2D uWorldPos;   // RGBA32F：xyz = 世界位置，w = 有效标志
+layout(binding = 3) uniform sampler2D uNormal;     // RGBA16F：世界空间法线
+layout(binding = 4) uniform sampler2D uMaterial;   // RGBA8：r = roughness，g = metallic
+layout(binding = 5) uniform sampler2D uAlbedo;     // RGBA8：rgb = 反照率，a = 有效标志
+
+layout(push_constant) uniform PushBlock {
+    mat4 viewProj;     // 本帧未抖动 viewProj（命中点投影回屏幕用）
+    vec4 params;       // x = tMax / y = 帧序号（抖动相位） / z = 粗糙度 lobe 上限 / w = 起点偏移
+    vec4 camPos;       // xyz = 相机世界位置（反射方向 = reflect(worldPos - camPos, N)）
+    vec4 sunRad;       // rgb = 主光辐照度，w = 主光开关
+    vec4 ambientRad;   // rgb = 环境辐照度
+    vec4 lightDir;     // xyz = 指向光源的单位方向
+} pc;
+
+const float PI = 3.14159265359;
+// 屏外命中的反照率（中性灰：不给假材质色，但也不把反射压死）
+const float FALLBACK_ALBEDO = 0.5;
+
+float radicalInverse(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10;
+}
+
+// 反射方向的粗糙度抖动：把方向绕切线偏一个小角度。偏角 = roughness² 乘以 lobe 比例，
+// 让光滑面（rough ≤ 0.1）几乎不偏、粗糙面把 1 条射线摊成宽 lobe 的一次采样。
+vec3 perturbAround(vec3 dir, vec3 n, float rough, vec2 u) {
+    float angle = rough * rough * PI * 0.5 * clamp(pc.params.z, 0.0, 1.0);
+    if (angle <= 1e-5) {
+        return dir;
+    }
+    vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 t = normalize(cross(up, n));
+    vec3 b = cross(n, t);
+    float phi = 2.0 * PI * u.y;
+    float r = sqrt(u.x) * angle;
+    vec3 d = normalize(dir + (t * cos(phi) + b * sin(phi)) * r);
+    // 抖动后仍要落在外法线半球内（否则会打到表面背面）
+    return dot(d, n) > 0.0 ? d : dir;
+}
+
+// 命中点 → 屏幕 uv；w = 是否在屏内
+vec4 projectToScreen(vec3 p) {
+    vec4 clip = pc.viewProj * vec4(p, 1.0);
+    if (clip.w <= 1e-5) {
+        return vec4(0.0);
+    }
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    return vec4(uv, 0.0, 1.0);
+}
+
+void main() {
+    ivec2 size = imageSize(uReflect);
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= size.x || px.y >= size.y) {
+        return;
+    }
+
+    vec2 uv = (vec2(px) + 0.5) / vec2(size);
+    vec4 wp = texture(uWorldPos, uv);
+    if (wp.w < 0.5) {
+        imageStore(uReflect, px, vec4(0.0));   // 背景不反射（天空由 skybox 自己出）
+        return;
+    }
+
+    vec3 n = normalize(texture(uNormal, uv).xyz);
+    vec2 rm = texture(uMaterial, uv).rg;
+    float rough = clamp(rm.x, 0.04, 1.0);
+
+    // 入射方向：从相机指向表面；反射方向绕法线镜像
+    vec3 I = normalize(wp.xyz - pc.camPos.xyz);
+    vec3 R = reflect(I, n);
+    if (dot(R, n) < 0.0) {
+        R = n;   // 数值退化兜底（法线朝背后时）
+    }
+    // 帧序号驱动抖动相位，跨帧不重复（B8 时域累积时样本分布均匀）
+    vec2 jitter = vec2(radicalInverse(uint(px.y) * 32771u + uint(pc.params.y) * 7u),
+                       radicalInverse(uint(px.x) * 32749u + uint(pc.params.y) * 13u));
+    vec3 dir = perturbAround(R, n, rough, jitter);
+
+    vec3 origin = wp.xyz + n * pc.params.w;
+    rayQueryEXT q;
+    rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, pc.params.x);
+    while (rayQueryProceedEXT(q)) {
+    }
+
+    if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+        // 打空 = 通向天空：反射环境辐照度（无环境源时是黑，与「无天光」口径一致）
+        imageStore(uReflect, px, vec4(pc.ambientRad.rgb, 0.5));
+        return;
+    }
+
+    vec3 hit = origin + dir * rayQueryGetIntersectionTEXT(q, true);
+    vec4 s = projectToScreen(hit);
+    vec3 albedo = vec3(FALLBACK_ALBEDO);
+    vec3 nHit = -dir;   // 屏外命中：法线取背向来向（保守，避免把反射算得过亮）
+    if (s.w > 0.5) {
+        vec4 a = texture(uAlbedo, s.xy);
+        if (a.a > 0.5) {
+            albedo = a.rgb;
+        }
+        vec3 nh = texture(uNormal, s.xy).xyz;
+        if (dot(nh, nh) > 1e-6) {
+            nHit = normalize(nh);
+        }
+    }
+
+    // 命中点辐射亮度近似：环境 + 主光（按命中面 ndl；与 B7 同口径不含二次可见性）
+    vec3 L = normalize(pc.lightDir.xyz);
+    vec3 rad = pc.ambientRad.rgb;
+    if (pc.sunRad.w > 0.5) {
+        rad += pc.sunRad.rgb * max(dot(nHit, L), 0.0);
+    }
+    imageStore(uReflect, px, vec4(albedo * rad, 1.0));
+}

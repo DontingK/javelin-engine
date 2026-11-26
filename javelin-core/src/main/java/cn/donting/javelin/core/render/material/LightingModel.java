@@ -17,7 +17,13 @@ public enum LightingModel implements InsEnumLabel {
     /**
      * 非光照：直接输出 albedo（自发光/遮罩/调试几何/错误兜底材质）
      */
-    UNLIT("ins.enum.lightingmodel.unlit");
+    UNLIT("ins.enum.lightingmodel.unlit"),
+    /**
+     * 物理基线（REND-03）：GGX 微表面 + Fresnel + 能量守恒（金属度工作流）。
+     * 需要 G-Buffer material 通道（roughness/metallic）或材质属性 `_Roughness`/`_Metallic`；
+     * 与环境项仍是常量/DDGI/RTGI，IBL 归 REND-16。
+     */
+    PBR("ins.enum.lightingmodel.pbr");
 
     private final String label;
 

@@ -18,6 +18,9 @@ import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
 import cn.donting.javelin.core.render.ddgi.DdgiProbePass;
 import cn.donting.javelin.core.render.ddgi.DdgiVoxelizer;
+import cn.donting.javelin.core.render.rt.RTGIPass;
+import cn.donting.javelin.core.render.rt.RTReflectPass;
+import cn.donting.javelin.core.render.rt.RTShadowPass;
 import cn.donting.javelin.core.render.material.DefaultMaterial;
 import cn.donting.javelin.core.render.pipeline.DefaultHybridRenderPipeline;
 import cn.donting.javelin.core.render.pipeline.ForwardRenderPipeline;
@@ -25,6 +28,7 @@ import cn.donting.javelin.core.render.pipeline.PipelineContext;
 import cn.donting.javelin.core.render.pipeline.PipelineProfile;
 import cn.donting.javelin.core.render.pipeline.PostProcessSetup;
 import cn.donting.javelin.core.render.pipeline.RenderPipeline;
+import cn.donting.javelin.core.render.pipeline.pass.GBufferPass;
 import cn.donting.javelin.core.scene.GameScene;
 import cn.donting.javelin.core.scene.LayerAndTagManger;
 import cn.donting.javelin.core.scene.Scene;
@@ -103,6 +107,11 @@ public class JavelinEngine {
     private DdgiVoxelizer ddgiVoxelizer;
     /** DDGI 探针追踪 + 更新 Pass（批 B2） */
     private DdgiProbePass ddgiProbePass;
+    /** 光追阴影可见性图 Pass（P4-06 B5；仅 ray query 设备进图） */
+    private RTShadowPass rtShadowPass;
+    private RTGIPass rtgiPass;
+    /** 光追镜面反射 Pass（P4-06 B9；仅 ray query + 混合管线进图） */
+    private RTReflectPass rtReflectPass;
     /** FORWARD 档忽略 SSAO 的 warn 一次性标记（applyRenderSettings 高频调用，不刷日志） */
     private boolean ssaoForwardWarned;
     /** FORWARD 档忽略 TAA 的 warn 一次性标记（同上口径） */
@@ -564,7 +573,8 @@ public class JavelinEngine {
         }
         // 启动期按设置选实现类（2026-11-13 拍板：管线不再承载运行期切档——编辑器固定混合，
         // 前向管线只留给打包运行时与 demo/测试）
-        RenderPipeline pipeline = setting.getGraphSettings().getRenderPipeline() == PipelineProfile.FORWARD
+        PipelineProfile profile = setting.getGraphSettings().getRenderPipeline();
+        RenderPipeline pipeline = profile == PipelineProfile.FORWARD
                 ? new ForwardRenderPipeline(device(), assetManager)
                 : new DefaultHybridRenderPipeline(device(), assetManager);
         // 后处理节点装配（组合根持有；管线只承载链与展开——2026-11-14 解耦）
@@ -579,6 +589,24 @@ public class JavelinEngine {
         // 探针追踪 + 更新（B2）：体素图之后、场景 Pass 之前——探针数据独立于视口渲染
         ddgiProbePass = new DdgiProbePass(device(), renderingSystem, assetManager, ddgiVoxelizer);
         pipeline.addPass(ddgiProbePass, ddgiVoxelizer.name());
+        // 光追阴影（B5）：GBuffer 之后、Lighting 之前——读世界位置/法线产半分辨率可见性图，
+        // 材质 shader 只采样不参与求交。仅混合管线（有 G-Buffer）+ ray query 设备启用；
+        // Forward 档没有 G-Buffer，若误开会让着色端采到未渲染的图（画面全黑阴影）。
+        //
+        // 档位不在这里置默认：光追是**场景显式开关**，归 Environment 组件的三项（rtShadow /
+        // rtgi / rtReflection），由 SceneRenderBridge 值变下传。组合根只负责挂 Pass。
+        if (profile != PipelineProfile.FORWARD && device().rayQueryEnabled()) {
+            rtShadowPass = new RTShadowPass(device(), renderingSystem, assetManager);
+            pipeline.addPass(rtShadowPass, GBufferPass.SHADER_PASS_NAME);
+            // 光追漫反射 GI（B7）：同一锚点（GBuffer 之后、Lighting 之前），与 RTShadow 互不依赖。
+            // 命中点反查屏幕 G-Buffer，所以同样要求混合管线
+            rtgiPass = new RTGIPass(device(), renderingSystem, assetManager);
+            pipeline.addPass(rtgiPass, GBufferPass.SHADER_PASS_NAME);
+            // 光追镜面反射（B9）：同一锚点。唯一需要相机世界位置的 RT Pass（反射方向依赖眼睛位置），
+            // 也唯一读 G-Buffer 材质通道（roughness 决定 lobe 宽度）
+            rtReflectPass = new RTReflectPass(device(), renderingSystem, assetManager);
+            pipeline.addPass(rtReflectPass, GBufferPass.SHADER_PASS_NAME);
+        }
         return pipeline;
     }
 

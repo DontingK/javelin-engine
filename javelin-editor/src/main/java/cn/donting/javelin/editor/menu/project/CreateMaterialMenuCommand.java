@@ -20,7 +20,7 @@ import javax.swing.JOptionPane;
 
 /**
  * 创建材质资产（project.create.material，Unity Create → Material 对齐）：选中目录
- * 落 {@code material.mat}（重名去重 material 1.mat …），内容 = 内置 Lit.shader
+ * 落 {@code material.mat}（重名去重 material 1.mat …），内容 = 内置 Standard.shader
  * 的初始 {@link Material} 文本序列化（新建材质默认受光着色器，批次③ 2026-11-01
  * 拍板对齐 Unity 主受光着色器位；default.shader 维持 DefaultMaterial 兜底专用；
  * 「.mat 就是 Material 的序列化」2026-10-19 拍板；new Material(shader) 运行期实例
@@ -50,8 +50,13 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
     private final String id;
     private final String shortcut;
     private final String icon;
-    /** 初始材质模板 = 内置受光着色器（批次③拍板；default.shader 为兜底专用不外用） */
-    private static final String LIT_SHADER_PATH = "core/shader/Lit.shader";
+    /**
+     * 初始材质模板 = 内置默认受光着色器（批次③拍板；default.shader 为兜底专用不外用）。
+     * 2026-11-26 由 {@code Lit.shader} 改名为 {@code Standard.shader}：`Lit` 与
+     * {@code LightingModel.LAMBERT} 的中文 label「受光」撞词，而它实际是 PBR 材质；
+     * `Standard` 走 Unity/UE 的「默认受光材质」位置，光照模型仍由 LightingModel 单独表达。
+     */
+    private static final String STANDARD_SHADER_PATH = "core/shader/Standard.shader";
     public CreateMaterialMenuCommand(String id, String shortcut) {
         this(id, shortcut, null);
     }
@@ -91,9 +96,10 @@ public class CreateMaterialMenuCommand extends ProjectMenuCommand {
             return;
         }
 
-        Shader shader = editor.getAssetManager().loadAsset(LIT_SHADER_PATH, Shader.class);
+        Shader shader = editor.getAssetManager().loadAsset(STANDARD_SHADER_PATH, Shader.class);
         if (shader == null) {
-            LOGGER.error("受光着色器加载失败 path={}（Library 缺产物或索引未建），跳过创建", LIT_SHADER_PATH);
+            LOGGER.error("默认受光着色器加载失败 path={}（Library 缺产物或索引未建），跳过创建",
+                    STANDARD_SHADER_PATH);
             return;
         }
 

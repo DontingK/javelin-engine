@@ -1,0 +1,135 @@
+// 光追漫反射 GI（P4-06 B7）：半分辨率逐像素在世界位置上半球余弦采样 N 条射线，
+// 命中后反查屏幕 G-Buffer 取反照率/法线，估算 1-bounce 间接辐照度。
+//
+// 为什么命中点要"反查屏幕"而不是直接读材质：ray query 只回 instanceCustomIndex /
+// geometryIndex / barycentrics，没有 hit shader 与 SBT，图上不存在"命中点材质"这一信息源。
+// 屏幕反查是零额外内存的做法：命中点投影回本帧屏幕，取该像素的 G-Buffer 反照率与法线；
+// 屏外或背面（正常现象，入射方向覆盖了看不见的面）回退常量，代价是间接光偏灰。
+//
+// 没有二次阴影：命中点是否被主光照亮只用它的法线 ndl 近似（不再发第二条射线），
+// 因此会有一点漏光——这是 1 spp/px 量级下可接受的取舍，等 B8 时域降噪能吃到更好的估计。
+
+#version 460
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform accelerationStructureEXT uTlas;
+layout(binding = 1, rgba16f) uniform image2D uGi;
+layout(binding = 2) uniform sampler2D uWorldPos;   // RGBA32F：xyz=世界位置，w=有效标志
+layout(binding = 3) uniform sampler2D uNormal;     // RGBA16F：世界空间法线
+layout(binding = 4) uniform sampler2D uAlbedo;     // RGBA8：rgb=反照率，a=有效标志
+
+layout(push_constant) uniform PushBlock {
+    mat4 viewProj;    // 本帧未抖动 viewProj（命中点投影回屏幕用）
+    vec4 params;      // x = spp / y = tMax / z = 帧序号（采样相位） / w = 起点偏移
+    vec4 sunRad;      // rgb = 主光辐照度（颜色 × 强度），w = 主光开关
+    vec4 ambientRad;  // rgb = 环境辐照度（天空/常量环境）
+    vec4 lightDir;    // xyz = 指向光源的方向（已归一化），w 预留
+} pc;
+
+const float PI = 3.14159265359;
+
+// 屏幕反查失败时的缺省反照率（中性灰：不带材质色，但不至于把间接光压死）
+const float FALLBACK_ALBEDO = 0.5;
+
+float radicalInverse(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10;
+}
+
+vec2 hammersley(int i, int n) {
+    return vec2(float(i) / float(max(n, 1)), radicalInverse(uint(i)));
+}
+
+// 余弦加权半球采样（PDF = cos/π）：出射辐照度估计 = 1/N Σ L(hit)，权重已在采样里吃掉了
+vec3 cosineHemisphere(vec2 u, vec3 n) {
+    float r = sqrt(u.x);
+    float phi = 2.0 * PI * u.y;
+    vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 t = normalize(cross(up, n));
+    vec3 b = cross(n, t);
+    return normalize(t * (r * cos(phi)) + b * (r * sin(phi))
+            + n * sqrt(max(0.0, 1.0 - u.x)));
+}
+
+// 命中点 → 屏幕 uv；返回 w = 是否在屏内（w 为 0 时调用方走回退值）
+vec4 projectToScreen(vec3 p) {
+    vec4 clip = pc.viewProj * vec4(p, 1.0);
+    if (clip.w <= 1e-5) {
+        return vec4(0.0);
+    }
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    return vec4(uv, 0.0, 1.0);
+}
+
+void main() {
+    ivec2 size = imageSize(uGi);
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= size.x || px.y >= size.y) {
+        return;
+    }
+
+    vec2 uv = (vec2(px) + 0.5) / vec2(size);
+    vec4 wp = texture(uWorldPos, uv);
+    if (wp.w < 0.5) {
+        imageStore(uGi, px, vec4(0.0));   // 背景：间接光按黑（天空本体会被 skybox 覆盖）
+        return;
+    }
+
+    vec3 n = normalize(texture(uNormal, uv).xyz);
+    vec3 origin = wp.xyz + n * pc.params.w;
+    int spp = max(int(pc.params.x), 1);
+    float tmax = pc.params.y;
+    // 每帧旋转 Hammersley 的索引起点：跨帧累积（B8）时样本分布不重复
+    int frameShift = int(pc.params.z) * 7;
+    // 指向光源的单位方向（命中点 ndl 用同一份）
+    vec3 L = normalize(pc.lightDir.xyz);
+
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < spp; i++) {
+        vec2 u = hammersley((i + frameShift) % spp, spp);
+        vec3 dir = cosineHemisphere(u, n);
+
+        rayQueryEXT q;
+        rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+                origin, 0.0, dir, tmax);
+        while (rayQueryProceedEXT(q)) {
+        }
+
+        if (rayQueryGetIntersectionTypeEXT(q, true)
+                != gl_RayQueryCommittedIntersectionNoneEXT) {
+            vec3 hit = origin + dir * rayQueryGetIntersectionTEXT(q, true);
+            vec4 s = projectToScreen(hit);
+            vec3 albedo = vec3(FALLBACK_ALBEDO);
+            vec3 nHit = -dir;   // 屏外命中的法线近似：背向来向（保守，避免过亮）
+            if (s.w > 0.5) {
+                vec4 a = texture(uAlbedo, s.xy);
+                if (a.a > 0.5) {
+                    albedo = a.rgb;
+                }
+                vec3 nh = texture(uNormal, s.xy).xyz;
+                if (dot(nh, nh) > 1e-6) {
+                    nHit = normalize(nh);
+                }
+            }
+            // 命中点辐照度 = 环境 + 主光（按命中面 ndl；不含二次可见性，见文件头）
+            vec3 irr = pc.ambientRad.rgb;
+            if (pc.sunRad.w > 0.5) {
+                irr += pc.sunRad.rgb * max(dot(nHit, L), 0.0);
+            }
+            acc += albedo * irr;
+        } else {
+            acc += pc.ambientRad.rgb;   // 打空 = 通向天空，贡献天光
+        }
+    }
+
+    imageStore(uGi, px, vec4(acc / float(spp), 1.0));
+}

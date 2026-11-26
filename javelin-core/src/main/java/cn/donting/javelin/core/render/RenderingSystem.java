@@ -144,16 +144,30 @@ public final class RenderingSystem implements AutoCloseable {
     /** LightingParamsBlock 帧槽步长（std140 实需 672B，256 对齐进取 768；动态偏移单位，四期 CSM §4.6） */
     static final int LIGHTING_STRIDE = 768;
     /**
-     * LightingParamsBlock 实需尺寸（四期 CSM §4.6 + REND-21-C2）：方向光 256 + counts/grid/zParams/viewport/ambient
+     * LightingParamsBlock 实需尺寸（四期 CSM §4.6 + REND-21-C2 + 光追 B5/B7/B9）：方向光 256 + counts/grid/zParams/viewport/ambient
      * 各 16（80）+ sunViewProj[4] 256 + cascadeSplits 16 + shadowParams 16 + shadowParams2 16
-     * + cascadeInvZ 16 + contactParams 16 = 672。
+     * + cascadeInvZ 16 + contactParams 16 + rtParams 16 + rtgiParams 16 + reflectParams 16 = 720（步长仍 768，余量 48B）。
      */
-    static final int LIGHTING_BLOCK_BYTES = 672;
+    static final int LIGHTING_BLOCK_BYTES = 720;
+
+    /** 光追 GI 最大射线距离（世界单位；间接光按 1/d² 衰减，超出即视为通向天空） */
+    public static final float RTGI_MAX_DISTANCE = 20.0f;
+    /** 光追 GI 默认档（百分比）：100 = 全替换环境项；下调即与常量/DDGI 环境项混合 */
+    public static final int RTGI_DEFAULT_PERCENT = 100;
+
+    /** 光追反射最大射线距离（世界单位；远大于 GI——镜子里能看到整条走廊的尽头） */
+    public static final float RT_REFLECT_MAX_DISTANCE = 100.0f;
+    /** 光追反射默认档（百分比）：100 = 全量环境镜面；0 = 关（PBR 只剩直接光高光） */
+    public static final int RT_REFLECT_DEFAULT_PERCENT = 100;
 
     /** 接触阴影最大步进距离（世界单位，约 20cm；REND-21-C2 §4 P4，v0.4 由 0.35 收到 0.2——凸曲面曲率误命中随距离线性增长） */
     static final float CONTACT_SHADOW_MAX_DISTANCE = 0.2f;
     /** 接触阴影步数（每像素 texture 采样次数；REND-21-C2 §4 P4，v0.4 由 10 收到 8，配合 0.2 保持单步 2.5cm） */
     static final float CONTACT_SHADOW_STEPS = 8.0f;
+    /** 光追阴影最大求交距离（世界单位；覆盖视口远景，与 CSM shadowDistance 解耦） */
+    public static final float RT_SHADOW_MAX_DISTANCE = 150.0f;
+    /** 光追阴影默认档（百分比）：100 = 全替换 CSM；下调到 1~99 即与 CSM 混合做 A/B */
+    public static final int RT_SHADOW_DEFAULT_PERCENT = 100;
     /**
      * 环境项（rgb + 强度）：v0.x 起由 `Environment.ambientMode` 推送（四期 P4-04 步骤一
      * 的常量档）；`OFF`/无环境组件 = 纯黑（Unity 口径——无环境源即纯黑，2026-11-01
@@ -178,7 +192,7 @@ public final class RenderingSystem implements AutoCloseable {
 
     /**
      * 材质 alpha 裁剪阈值属性名（REND-21-A，Engine_Shadow_Cutout_Design §5）：与内置
-     * {@code Lit.shader} 的 {@code _AlphaCutoff ("Alpha Cutoff", Range(0,1))} 同名同义，
+     * {@code Standard.shader} 的 {@code _AlphaCutoff ("Alpha Cutoff", Range(0,1))} 同名同义，
      * 缺省 0 = 不裁剪。阴影 Pass 与主渲染注入的 {@code javelinAlphaClip} 共用此阈值。
      */
     public static final String ALPHA_CUTOFF_PROPERTY = "_AlphaCutoff";
@@ -232,6 +246,38 @@ public final class RenderingSystem implements AutoCloseable {
      * 双线性（tile 内区 clamp，不跨 tile 渗漏），故 NEAREST + CLAMP 足够。
      */
     private final Sampler ddgiSampler;
+    /**
+     * 光追阴影图采样器（P4-06 B5，set1 binding12）：半分辨率可见性图 → 全分辨率放大用
+     * LINEAR + CLAMP（nearest 放大在材质边缘出块状）；非比较采样器，故与 shadowSampler 分开。
+     */
+    private final Sampler rtShadowSampler;
+    /**
+     * 光追 GI 辐照度图采样器（P4-06 B7，set1 binding13）：半分辨率 RGBA16F → 全分辨率放大用
+     * LINEAR + CLAMP（GI 是低频量，双线性放大即天然的空间平滑）。
+     */
+    private final Sampler rtgiSampler;
+    /**
+     * 光追镜面反射图采样器（P4-06 B9，set1 binding15）：半分辨率 RGBA16F → 全分辨率放大用
+     * LINEAR + CLAMP（反射本身是高频量，双线性在这里只是分辨率补偿，锐度靠图的半分辨率上限）。
+     */
+    private final Sampler rtreflectSampler;
+    /** 光追阴影模式（百分比）：0 = 关（走 CSM），100 = 全替换，1~99 = 与 CSM 混合。无 ray query 恒 0 */
+    private volatile int rtShadowMode;
+    /** 光追 GI 混合系数（百分比）：0 = 关（走常量/DDGI 环境项），100 = 全替换，1~99 = 混合。无 ray query 恒 0 */
+    private volatile int rtgiMode;
+    /** 光追反射混合系数（百分比）：0 = 关（无环境镜面），100 = 全量，1~99 = 按份额。无 ray query 恒 0 */
+    private volatile int rtReflectMode;
+    /**
+     * 着色端实际采用的混合系数（**上一帧 Pass 派发确认的结果**；0 = 本帧图里没有数据，回落旧路）。
+     *
+     * <p>与上面的档位分离：档位是用户意图，Fill 是「这张图本帧真的被 compute 写过」。TLAS 无实例
+     * / 无主光 / 管线缺失时 Pass 直接不派发，图保持初始化值（读出来全 0），若仍按档位采样，
+     * 阴影因子与环境项会被 0 整个乘掉——实测表现为**全场景纯黑且与环境光模式无关**
+     * （rtgi 100% 会把环境项整体替换成空图，选 DIRECT/DDGI/OFF 都一样黑）。</p>
+     */
+    private volatile int rtShadowFill;
+    private volatile int rtgiFill;
+    private volatile int rtReflectFill;
     /** DDGI 参数 UBO 尺寸（std140：网格 origin+spacing / counts+tilesPerRow / tile 参数 / 运行态） */
     static final int DDGI_PARAM_BYTES = 96;
     /** atlas 未就绪时 set1 binding8/10 的占位图（1×1；仅保证描述符完整，着色端按 mode 门控不采样） */
@@ -342,6 +388,14 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> gbufferAlbedoTextures = new HashMap<>();
     private final Map<String, Texture> gbufferNormalTextures = new HashMap<>();
     private final Map<String, Texture> gbufferWorldPosTextures = new HashMap<>();
+    // 每视口 G-Buffer 材质附件（REND-03 PBR：roughness/metallic；HYBRID 档第 4 张 MRT）
+    private final Map<String, Texture> gbufferMaterialTextures = new HashMap<>();
+    // 每视口光追半分辨率阴影可见性图（P4-06 B5；R8 半分辨率，mode=0 时只占位不被采样）
+    private final Map<String, Texture> rtShadowTextures = new HashMap<>();
+    // 每视口光追漫反射 GI 辐照度图（P4-06 B7；RGBA16F 半分辨率，mode=0 时只占位不被采样）
+    private final Map<String, Texture> rtgiTextures = new HashMap<>();
+    // 每视口光追镜面反射图（P4-06 B9；RGBA16F 半分辨率，mode=0 时只占位不被采样）
+    private final Map<String, Texture> rtreflectTextures = new HashMap<>();
     // 每视口 HDR 场景颜色（后处理链非空时，Engine_PostProcess_Design §3.3；惰性创建）
     private final Map<String, Texture> lightingRtTextures = new HashMap<>();
     // 每视口后处理中间 RT（链内非首尾节点输出，§3.4；key = cameraName#节点序）
@@ -444,6 +498,27 @@ public final class RenderingSystem implements AutoCloseable {
                 Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
                 SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f));
+        // 光追阴影图（P4-06 B5）：非比较、LINEAR 放大
+        this.rtShadowSampler = device.createSampler(new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f));
+        // 光追阴影默认关：由组合根在「混合管线 + 设备支持」时置 1（Forward 档没有 G-Buffer，
+        // 图不会产，若误开 1 会采到未渲染的半分辨率图 → 画面全黑阴影）
+        this.rtShadowMode = 0;
+        // 光追 GI 图（P4-06 B7）：同样非比较、LINEAR 放大（GI 低频，双线性即空间平滑）
+        this.rtgiSampler = device.createSampler(new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f));
+        // 光追 GI 默认关：由组合根在「混合管线 + 设备支持」时置档（同 rtShadowMode 的理由）
+        this.rtgiMode = 0;
+        // 光追反射图采样器（P4-06 B9，set1 binding15）：与 rtgiSampler 同档（LINEAR + CLAMP）
+        this.rtreflectSampler = device.createSampler(new SamplerDesc(
+                Filter.LINEAR, Filter.LINEAR, SamplerMipmapMode.LINEAR,
+                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
+                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1000.0f));
+        this.rtReflectMode = 0;
         // G-Buffer 采样器（HYBRID 档）：LightingPass 全屏逐像素读 G-Buffer——
         // 无缩放无 mip，NEAREST + CLAMP 最省且与写入像素一一对应
         this.gbufferSampler = device.createSampler(new SamplerDesc(
@@ -775,6 +850,170 @@ public final class RenderingSystem implements AutoCloseable {
     /** G-Buffer 采样器（LightingPass 全屏读，NEAREST/CLAMP） */
     public Sampler gbufferSampler() {
         return gbufferSampler;
+    }
+
+    /**
+     * 每视口 G-Buffer 材质附件（R8G8B8A8_UNORM：r=roughness、g=metallic、ba 预留）。
+     * 未声明 PBR 的 shader 不写该附件，保持清屏值 (1,0,0,1) = 全粗糙非金属的 Lambert 等价。
+     */
+    public Texture gbufferMaterialFor(String cameraName) {
+        return gbufferMaterialTextures.computeIfAbsent(cameraName, n -> createGbufferTexture(
+                Format.R8G8B8A8_UNORM));
+    }
+
+    /**
+     * 每视口光追阴影可见性图（P4-06 B5，半分辨率 R8_UNORM：1 = 可见 / 0 = 遮挡）。
+     *
+     * <p>尺寸随交换链（半分辨率），与 gbuffer/depth 同模式惰性创建、resize 换绑。
+     * {@code rtShadowMode = 0} 时着色端不采样，但仍占位（set1 绑定完整性要求）。</p>
+     */
+    public Texture rtShadowFor(String cameraName) {
+        return rtShadowTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                TextureDesc.texture2D(Format.R8_UNORM,
+                        Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                        Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
+    }
+
+    /** 光追阴影采样器（set1 binding12 消费） */
+    public Sampler rtShadowSampler() {
+        return rtShadowSampler;
+    }
+
+    /**
+     * 每视口光追漫反射 GI 辐照度图（P4-06 B7，半分辨率 RGBA16F：rgb = 1-bounce 间接辐照度）。
+     *
+     * <p>尺寸与 {@link #rtShadowFor} 同模式（半分辨率、随交换链惰性创建、resize 换绑）。
+     * {@code rtgiMode = 0} 时着色端不采样，但图仍占位（set1 绑定完整性要求）。</p>
+     */
+    public Texture rtgiFor(String cameraName) {
+        return rtgiTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                TextureDesc.texture2D(Format.R16G16B16A16_SFLOAT,
+                        Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                        Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
+    }
+
+    /** 光追 GI 采样器（set1 binding13 消费；LINEAR + CLAMP，半分辨率上采样） */
+    public Sampler rtgiSampler() {
+        return rtgiSampler;
+    }
+
+    /** 光追 GI 混合系数（百分比）：0 = 关（纯常量/DDGI 环境项），100 = 全替换，中间与旧值混合 */
+    public void setRtgiMode(int percent) {
+        this.rtgiMode = (percent <= 0 || !device.rayQueryEnabled())
+                ? 0 : Math.min(100, percent);
+        this.rtgiFill = 0;
+    }
+
+    public int rtgiMode() {
+        return rtgiMode;
+    }
+
+    /**
+     * 每视口光追镜面反射图（P4-06 B9，半分辨率 RGBA16F：rgb = 反射辐射度，a = 命中置信）。
+     *
+     * <p>尺寸与 {@link #rtgiFor} 同模式（半分辨率、随交换链惰性创建、resize 换绑）。
+     * {@code rtReflectMode = 0} 时着色端不采样，但图仍占位（set1 绑定完整性要求）。</p>
+     */
+    public Texture rtreflectFor(String cameraName) {
+        return rtreflectTextures.computeIfAbsent(cameraName, n -> device.createTexture(
+                TextureDesc.texture2D(Format.R16G16B16A16_SFLOAT,
+                        Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                        Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
+    }
+
+    /** 光追反射采样器（set1 binding15 消费；LINEAR + CLAMP） */
+    public Sampler rtreflectSampler() {
+        return rtreflectSampler;
+    }
+
+    /** 光追反射混合系数（百分比）：0 = 关（无环境镜面），100 = 全量。无 ray query 恒 0 */
+    public void setRtReflectMode(int percent) {
+        this.rtReflectMode = (percent <= 0 || !device.rayQueryEnabled())
+                ? 0 : Math.min(100, percent);
+        this.rtReflectFill = 0;
+    }
+
+    public int rtReflectMode() {
+        return rtReflectMode;
+    }
+
+    /**
+     * 本视口相机世界位置（P4-06 B9：反射方向 = reflect(worldPos - camPos, N)）。
+     * 未注册同名相机返回 null；调用方拿到的是拷贝。
+     */
+    public org.joml.Vector3f cameraPositionFor(String cameraName) {
+        for (RenderCamera cam : cameras) {
+            if (cam.name().equals(cameraName)) {
+                return new org.joml.Vector3f(cam.position());
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 本视口本帧**未抖动** viewProj（P4-06 B7：RTGI 把命中点投影回屏幕取材质反照率）。
+     * 相机本帧未收集（首帧/无该视口）返回 null；调用方拿到的是拷贝，可长期持有。
+     */
+    public org.joml.Matrix4f cameraViewProjFor(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? null : new org.joml.Matrix4f(history.curRawViewProj);
+    }
+
+    /** 主光辐照度（颜色 × 强度；P4-06 B7 命中点直射项）。无主光返回零向量 */
+    public org.joml.Vector3f sunRadiance() {
+        RenderLight sun = resolveSun();
+        if (sun == null) {
+            return new org.joml.Vector3f();
+        }
+        float[] ci = sun.colorIntensity();
+        return new org.joml.Vector3f(ci[0] * ci[3], ci[1] * ci[3], ci[2] * ci[3]);
+    }
+
+    /** 环境辐照度（环境色 × 强度；P4-06 B7 命中点天光项） */
+    public org.joml.Vector3f ambientRadiance() {
+        return new org.joml.Vector3f(ambientColor.r * ambientIntensity,
+                ambientColor.g * ambientIntensity, ambientColor.b * ambientIntensity);
+    }
+    /** 光追阴影混合系数（百分比）：0 = 关（纯 CSM），100 = 全替换，1~99 = 与 CSM 按比例混合 */
+    public void setRtShadowMode(int percent) {
+        this.rtShadowMode = (percent <= 0 || !device.rayQueryEnabled())
+                ? 0 : Math.min(100, percent);
+        // 改档即作废上一帧的生效值：等波形 Pass 下次派发确认（免得新档在空图上直接生效）
+        this.rtShadowFill = 0;
+    }
+
+    public int rtShadowMode() {
+        return rtShadowMode;
+    }
+
+    /** 光追阴影 Pass 本帧确认派发（着色端下一帧按该系数混合） */
+    public void markRtShadowApplied(int percent) {
+        this.rtShadowFill = Math.max(0, Math.min(100, percent));
+    }
+
+    /** 光追阴影 Pass 本帧未派发（无主光 / TLAS 空 / 管线缺失）：着色端回落 CSM */
+    public void markRtShadowSkipped() {
+        this.rtShadowFill = 0;
+    }
+
+    /** 光追 GI Pass 本帧确认派发 */
+    public void markRtgiApplied(int percent) {
+        this.rtgiFill = Math.max(0, Math.min(100, percent));
+    }
+
+    /** 光追 GI Pass 本帧未派发：环境项回落常量 / DDGI */
+    public void markRtgiSkipped() {
+        this.rtgiFill = 0;
+    }
+
+    /** 光追反射 Pass 本帧确认派发 */
+    public void markRtReflectApplied(int percent) {
+        this.rtReflectFill = Math.max(0, Math.min(100, percent));
+    }
+
+    /** 光追反射 Pass 本帧未派发：不叠环境镜面 */
+    public void markRtReflectSkipped() {
+        this.rtReflectFill = 0;
     }
 
     private Texture createGbufferTexture(Format format) {
@@ -1670,6 +1909,27 @@ public final class RenderingSystem implements AutoCloseable {
                 .putFloat(CONTACT_SHADOW_MAX_DISTANCE)
                 .putFloat(contact)
                 .putFloat(CONTACT_SHADOW_STEPS);
+        // rtParams（@672，P4-06 B5）：x = 混合系数（0 关 / 1 全替换，中间值两路混合）/ y = 最大求交距离 /
+        // z,w = 全 backbuffer 尺寸（着色端把 gl_FragCoord 归一到与半分辨率图一致的全屏 uv）
+        // x 用 rtShadowFill（上一帧派发确认），不是用户档位：TLAS 空时图里是初始值，按档位采样会全黑
+        lightingPack.putFloat(rtShadowFill / 100.0f)
+                .putFloat(RT_SHADOW_MAX_DISTANCE)
+                .putFloat((float) Math.max(1, depthWidth))
+                .putFloat((float) Math.max(1, depthHeight));
+        // rtgiParams（@688，P4-06 B7）：x = GI 混合系数（0 关 / 1 全替换环境项）/ y = tMax（GI 有效半径）/
+        // z,w = 全 backbuffer 尺寸（着色端按 gl_FragCoord 1:1 采样半分辨率 GI 图，同 rtParams 的口径）
+        // x 用 rtgiFill（上一帧派发确认）：Pass 未派发时图是初始值，按档位替换环境项会全黑
+        lightingPack.putFloat(rtgiFill / 100.0f)
+                .putFloat(RTGI_MAX_DISTANCE)
+                .putFloat((float) Math.max(1, depthWidth))
+                .putFloat((float) Math.max(1, depthHeight));
+        // reflectParams（@704，P4-06 B9）：x = 反射强度系数（0 关 / 1 全量）/ y = tMax /
+        // z,w = 全 backbuffer 尺寸（同 rtParams 口径，按 gl_FragCoord 1:1 采半分辨率图）
+        // x 用 rtReflectFill（上一帧派发确认）：Pass 未派发时图是初始值，按档位叠镜面会黑白块
+        lightingPack.putFloat(rtReflectFill / 100.0f)
+                .putFloat(RT_REFLECT_MAX_DISTANCE)
+                .putFloat((float) Math.max(1, depthWidth))
+                .putFloat((float) Math.max(1, depthHeight));
         lightingPack.flip();
         lightingBuffer.update(offset, lightingPack);
     }
@@ -1929,6 +2189,18 @@ public final class RenderingSystem implements AutoCloseable {
                 // binding11 = shadowMap 原始深度（REND-21-C1 PCSS 阻挡搜索：与 binding4 同一张
                 // atlas，不同采样器——无 compare 才能读到真实深度）
                 new DescriptorSetLayoutDesc.Binding(11, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding12 = 光追阴影可见性图（P4-06 B5；半分辨率 R8，rtParams.x=0 时不采样）
+                new DescriptorSetLayoutDesc.Binding(12, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding13 = 光追 GI 辐照度图（P4-06 B7；半分辨率 RGBA16F，rtgiParams.x=0 时不采样）
+                new DescriptorSetLayoutDesc.Binding(13, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding14 = G-Buffer 材质附件（REND-03 PBR；r=roughness、g=metallic）
+                new DescriptorSetLayoutDesc.Binding(14, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
+                        ShaderStage.FRAGMENT),
+                // binding15 = 光追镜面反射图（P4-06 B9；半分辨率 RGBA16F，reflectParams.x=0 时不采样）
+                new DescriptorSetLayoutDesc.Binding(15, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT)));
     }
 
@@ -2005,14 +2277,27 @@ public final class RenderingSystem implements AutoCloseable {
                 DescriptorUpdate.sampledTexture(8, irr, ddgiSampler),
                 DescriptorUpdate.uniformBuffer(9, vl.ddgiParams, 0, DDGI_PARAM_BYTES),
                 DescriptorUpdate.sampledTexture(10, dep, ddgiSampler),
-                DescriptorUpdate.sampledTexture(11, shadowMap, shadowRawSampler)});
+                DescriptorUpdate.sampledTexture(11, shadowMap, shadowRawSampler),
+                DescriptorUpdate.sampledTexture(12, rtShadowFor(vl.cameraName), rtShadowSampler),
+                DescriptorUpdate.sampledTexture(13, rtgiFor(vl.cameraName), rtgiSampler),
+                DescriptorUpdate.sampledTexture(14, gbufferMaterialFor(vl.cameraName),
+                        gbufferSampler),
+                // binding15 = 光追反射图（P4-06 B9；reflectParams.x=0 时不采样）
+                DescriptorUpdate.sampledTexture(15, rtreflectFor(vl.cameraName),
+                        rtreflectSampler)});
     }
 
     /** DDGI 占位图（1×1）：atlas 未就绪/DDGI 关闭时 binding8/10 的描述符占位（着色端不采样） */
     private Texture ddgiPlaceholderTexture() {
         if (ddgiPlaceholder == null) {
+            // 必须带 1 像素上传（Pitfalls #37 同型）：这张图从不进 RenderGraph 声明，传 null
+            // 建出来布局就永远停在 UNDEFINED；而 set1 binding8/10 的描述符恒按 SHADER_READ_ONLY
+            // 写入，着色器里 DDGI 分支静态判访问即撞 VUID-vkCmdDraw-None-09600（实测首帧报）
+            ByteBuffer zero = ByteBuffer.allocateDirect(8).order(ByteOrder.LITTLE_ENDIAN);
             ddgiPlaceholder = device.createTexture(TextureDesc.texture2D(
-                    HDR_SCENE_COLOR_FORMAT, 1, 1, Set.of(TextureUsage.SAMPLED)), null);
+                    HDR_SCENE_COLOR_FORMAT, 1, 1,
+                    Set.of(TextureUsage.SAMPLED, TextureUsage.TRANSFER_DST)),
+                    UploadData.of(zero));
         }
         return ddgiPlaceholder;
     }
@@ -2038,6 +2323,12 @@ public final class RenderingSystem implements AutoCloseable {
         checkOpen();
         ViewLighting vl = viewLights.get(cameraName);
         if (vl == null || atlases == null || grid == null || settings == null) {
+            return;
+        }
+        // 野引用防御（2026-11-26）：调用方缓存的 atlas 已被 removeCamera/换代剔出系统表时，
+        // 对象里的图可能已销毁——写进 set1 就是 02996 + 后续 barrier 打已释放 VkImage。
+        // 这里只放行系统表里那一份，其余等调用方下次 resolve。
+        if (ddgiAtlasesOf(cameraName) != atlases) {
             return;
         }
         boolean rebound = vl.ddgiIrradiance != atlases.irradiance()
@@ -2329,6 +2620,10 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(gbufferAlbedoTextures);
             disposeAll(gbufferNormalTextures);
             disposeAll(gbufferWorldPosTextures);
+            disposeAll(gbufferMaterialTextures);
+            disposeAll(rtShadowTextures);
+            disposeAll(rtgiTextures);
+            disposeAll(rtreflectTextures);
             disposeAll(lightingRtTextures);
             disposeAll(postRtTextures);
             disposeAll(bloomRtTextures);
@@ -2494,6 +2789,10 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(gbufferAlbedoTextures);
         disposeAll(gbufferNormalTextures);
         disposeAll(gbufferWorldPosTextures);
+        disposeAll(gbufferMaterialTextures);
+        disposeAll(rtShadowTextures);
+        disposeAll(rtgiTextures);
+        disposeAll(rtreflectTextures);
         disposeAll(lightingRtTextures);
         disposeAll(postRtTextures);
         disposeAll(bloomRtTextures);

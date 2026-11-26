@@ -43,16 +43,23 @@ public class GBufferPass extends AbstractForwardPass {
     /** 本 Pass 消费的 shader Pass 名（RenderList 同名桶 / PSO 查找键） */
     public static final String SHADER_PASS_NAME = "GBuffer";
 
-    /** G-Buffer 三色附件格式（顺序 = MRT location 0/1/2，PSO 声明与图附件同序） */
+    /** G-Buffer 四色附件格式（顺序 = MRT location 0/1/2/3，PSO 声明与图附件同序） */
     private static final List<Format> COLOR_FORMATS = List.of(
             Format.R8G8B8A8_UNORM,
             Format.R16G16B16A16_SFLOAT,
-            Format.R32G32B32A32_SFLOAT);
+            Format.R32G32B32A32_SFLOAT,
+            Format.R8G8B8A8_UNORM);
 
-    /** 清屏值：albedo 黑 / 法线 +Z / 世界位置 w=0（背景标志，LightingPass 据此跳过） */
+    /** 清屏值：albedo 黑 / 法线 +Z / 世界位置 w=0（背景标志）/ 材质 = 全粗糙非金属 */
     private static final RHIClearColor CLEAR_ALBEDO = new RHIClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     private static final RHIClearColor CLEAR_NORMAL = new RHIClearColor(0.0f, 0.0f, 1.0f, 0.0f);
     private static final RHIClearColor CLEAR_WORLD_POS = new RHIClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    /**
+     * material 清屏 = (roughness 1, metallic 0, 0, 1)：**这正是 Lambert 材质的等价值**——
+     * 未声明 PBR / 不写 location 3 的旧 shader 让该附件保持清屏值，PBR 光照自然退化为纯漫反射，
+     * 因此加通道不需要强制改造存量 shader。
+     */
+    private static final RHIClearColor CLEAR_MATERIAL = new RHIClearColor(1.0f, 0.0f, 0.0f, 1.0f);
 
     private boolean drawLogged;
     private boolean missingPassWarned;
@@ -75,12 +82,13 @@ public class GBufferPass extends AbstractForwardPass {
         Texture albedo = rs.gbufferAlbedoFor(view.name());
         Texture normal = rs.gbufferNormalFor(view.name());
         Texture worldPos = rs.gbufferWorldPosFor(view.name());
-        // PSO 颜色格式按 Pass 名登记（三张 MRT）——图构建期先于回调执行
+        Texture material = rs.gbufferMaterialFor(view.name());
+        // PSO 颜色格式按 Pass 名登记（四张 MRT）——图构建期先于回调执行
         rs.registerPassColorFormats(SHADER_PASS_NAME, COLOR_FORMATS);
         List<RenderObject> objects = opaqueGbufferObjects(view);
         warnMissingPassIfNeeded(view);
         graph.addGraphicsPass(view.name() + "_GBuffer", pass -> {
-            declareAttachments(pass, view, albedo, normal, worldPos, depth);
+            declareAttachments(pass, view, albedo, normal, worldPos, material, depth);
             pass.setViewport(view.viewport());
             pass.setScissor(view.scissor());
             // set1 storage 读声明（本视口 cluster 套件）：依赖显式纳入 + 句柄进 structureHash
@@ -109,18 +117,20 @@ public class GBufferPass extends AbstractForwardPass {
         });
     }
 
-    /** G-Buffer 三色附件 + 深度附件声明（清屏语义照 OpaqueForward 的分支口径） */
+    /** G-Buffer 四色附件 + 深度附件声明（清屏语义照 OpaqueForward 的分支口径） */
     private void declareAttachments(PassDef pass, RenderView view, Texture albedo, Texture normal,
-                                    Texture worldPos, Texture depth) {
+                                    Texture worldPos, Texture material, Texture depth) {
         // G-Buffer 附件为交换链尺寸（与 depth 同档）——区域判定基准即附件自身尺寸
         if (isRegionClear(view, albedo)) {
             pass.addColorOutput(albedo, RHILoadOp.CLEAR, CLEAR_ALBEDO, view.scissor());
             pass.addColorOutput(normal, RHILoadOp.CLEAR, CLEAR_NORMAL, view.scissor());
             pass.addColorOutput(worldPos, RHILoadOp.CLEAR, CLEAR_WORLD_POS, view.scissor());
+            pass.addColorOutput(material, RHILoadOp.CLEAR, CLEAR_MATERIAL, view.scissor());
         } else {
             pass.addColorOutput(albedo, RHILoadOp.CLEAR, CLEAR_ALBEDO);
             pass.addColorOutput(normal, RHILoadOp.CLEAR, CLEAR_NORMAL);
             pass.addColorOutput(worldPos, RHILoadOp.CLEAR, CLEAR_WORLD_POS);
+            pass.addColorOutput(material, RHILoadOp.CLEAR, CLEAR_MATERIAL);
         }
         // 深度：DONT_CLEAR 复用上一位深度（残影类特效），其余分支清屏
         if (view.clearFlags() == ClearFlags.DONT_CLEAR) {

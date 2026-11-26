@@ -42,7 +42,8 @@ final class VulkanTlas implements Tlas {
     private final long deviceAddress;
     private final ByteBuffer staging;
     private volatile boolean disposed;
-    private boolean buildLogged;
+    /** 上次打印的实例数（-1 = 还没打过）；只在实例数变化时打日志，避免首帧「实例 0」被当成恒定值 */
+    private int loggedCount = -1;
 
     VulkanTlas(VulkanDevice device, int capacity) {
         if (!device.rayQueryEnabled()) {
@@ -149,8 +150,8 @@ final class VulkanTlas implements Tlas {
 
         cmd.buildTlas(this, count, instanceBuffer.deviceAddress(), scratchAddress);
 
-        if (!buildLogged) {
-            buildLogged = true;
+        if (count != loggedCount) {
+            loggedCount = count;
             LOGGER.info("TLAS 构建: 实例 {} 容量 {} AS {} B 设备地址 0x{}", count, capacity,
                     storage.desc().size(), Long.toHexString(deviceAddress));
         }

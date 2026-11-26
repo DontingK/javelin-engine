@@ -136,6 +136,7 @@ public final class ShaderParser {
         return switch (value.toLowerCase(java.util.Locale.ROOT)) {
             case "lambert" -> LightingModel.LAMBERT;
             case "unlit" -> LightingModel.UNLIT;
+            case "pbr" -> LightingModel.PBR;
             default -> throw error("shader.parse.lightingModelUnknown", value);
         };
     }

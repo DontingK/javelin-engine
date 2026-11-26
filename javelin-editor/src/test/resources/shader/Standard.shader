@@ -1,12 +1,9 @@
-Shader "Lit"
+Shader "Standard"
 {
     Properties
     {
         _Color ("Main Color", Color) = (1, 1, 1, 1)
         _MainTex ("Albedo", 2D) = "white" {}
-        // alpha 裁剪阈值（REND-21-A）：0 = 不裁剪（默认）；> 0 时 albedo.a 低于阈值丢弃，
-        // 主渲染与阴影 Pass 同阈值（Engine_Shadow_Cutout_Design）
-        _AlphaCutoff ("Alpha Cutoff", Range(0, 1)) = 0
     }
 
     Pass Forward
@@ -46,7 +43,6 @@ Shader "Lit"
             layout(location = 0) out vec4 fragColor;
             void main() {
                 vec4 tex = texture(_MainTex, vUV);
-                javelinAlphaClip(tex, material._AlphaCutoff);
                 // Lambert + 环境项 + 点/聚光衰减 + 主光硬影（引擎注入函数，
                 // 参数=视空间法线/位置 + 世界位置）
                 vec3 lit = javelinLighting(normalize(vNormal), vViewPos, vWorldPos);
@@ -92,9 +88,7 @@ Shader "Lit"
             layout(location = 2) out vec4 outWorldPos;
             void main() {
                 vec4 tex = texture(_MainTex, vUV);
-                javelinAlphaClip(tex, material._AlphaCutoff);
-                // albedo.a = per-object 接收阴影标志（四期 §3.6，HYBRID 档承载）：几何写
-                // pc.receiveShadow（1/0），全屏 LightingPass 经 javelinReceiveShadow 取回
+                // albedo.a = per-object 接收阴影标志（四期 §3.6，HYBRID 档承载）
                 outAlbedo = vec4(material._Color.rgb * tex.rgb, pc.receiveShadow);
                 outNormal = vec4(normalize(vWorldNormal), 0.0);
                 // w = 有效标志（几何 1.0 / 清屏 0.0）：LightingPass 据此跳过背景像素

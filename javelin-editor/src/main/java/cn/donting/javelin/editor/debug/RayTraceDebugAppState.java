@@ -22,6 +22,11 @@ import org.slf4j.LoggerFactory;
  * <p>入口 = F9 开关（菜单项后置）；开启后把 {@link RayTraceViewPass} 追加进渲染管线，
  * 数值行（第 14 行）报「实例数 / 距离图尺寸 / 求交是否就绪」。设备未启用 ray query 或
  * 场景未建时写「未就绪」，本视图不进图。</p>
+ *
+ * <p>F10 = 光追阴影混合档循环（0 / 25 / 50 / 75 / 100 %）：0 走纯 CSM、100 全替换，
+ * 中间值与 CSM 按比例混合（P4-06 B6）。F11 = 光追漫反射 GI 混合档（0 = 常量/DDGI 环境项，
+ * 100 = 全替换），B7。F12 = 镜面反射强度档（0 = 无环境镜面，100 = 全量），B9——反射是 PBR
+ * 特有的消费端，Lambert/Unlit 材质不受该档影响。</p>
  */
 public class RayTraceDebugAppState extends AbsEditorAppState {
 
@@ -32,6 +37,8 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     public static final int MODE_CAMERA = 1;
     /** 主光方向射线（与 CSM 阴影轮廓对照） */
     public static final int MODE_LIGHT = 2;
+    /** CSM 对照（P4-06 B4）：RT 遮挡 vs CSM 遮挡 → 红绿差异图 */
+    public static final int MODE_COMPARE = 3;
 
     /** 提示行：RenderStats 0~9、G-Buffer 10、DDGI 11、阴影图 12、光照 gizmo 13，本视图 14 */
     private static final int HINT_ROW = 14;
@@ -45,7 +52,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     }
 
     public static void requestMode(int mode) {
-        desiredMode = (mode < MODE_OFF || mode > MODE_LIGHT) ? MODE_OFF : mode;
+        desiredMode = (mode < MODE_OFF || mode > MODE_COMPARE) ? MODE_OFF : mode;
     }
 
     public static boolean isReady() {
@@ -78,6 +85,43 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
             requestMode(nextMode(desiredMode));
         }
         RenderingSystem rs = engine.renderingSystem();
+        // F10：光追阴影混合档循环 0 → 25 → 50 → 75 → 100（%）。0 = 纯 CSM，100 = 全替换，
+        // 中间值即两路混合——用来在不改代码的前提下做 A/B
+        if (Input.wasPressed(KeyCode.F10) && rs != null) {
+            int next = switch (rs.rtShadowMode()) {
+                case 0 -> 25;
+                case 25 -> 50;
+                case 50 -> 75;
+                case 75 -> 100;
+                default -> 0;
+            };
+            rs.setRtShadowMode(next);
+            log.info("光追阴影混合档: {}%（0 = 纯 CSM，100 = 全替换）", next);
+        }
+        // F11：光追 GI 混合档循环（同上口径）。0 = 环境项走常量/DDGI，100 = 全替换
+        if (Input.wasPressed(KeyCode.F11) && rs != null) {
+            int next = switch (rs.rtgiMode()) {
+                case 0 -> 25;
+                case 25 -> 50;
+                case 50 -> 75;
+                case 75 -> 100;
+                default -> 0;
+            };
+            rs.setRtgiMode(next);
+            log.info("光追 GI 混合档: {}%（0 = 常量/DDGI 环境项，100 = 全替换）", next);
+        }
+        // F12：光追反射强度循环（0 = 无环境镜面，100 = 全量；PBR 直接光高光不受影响）
+        if (Input.wasPressed(KeyCode.F12) && rs != null) {
+            int next = switch (rs.rtReflectMode()) {
+                case 0 -> 25;
+                case 25 -> 50;
+                case 50 -> 75;
+                case 75 -> 100;
+                default -> 0;
+            };
+            rs.setRtReflectMode(next);
+            log.info("光追反射档: {}%（0 = 无环境镜面，100 = 全量）", next);
+        }
         ready = engine.device().rayQueryEnabled() && rs != null && rs.rayTracingScene() != null;
         reconcile(pipeline);
         refreshStatusRow(rs);
@@ -106,13 +150,21 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
             return;
         }
         pass.setEnabled(true);
-        pass.setMode(desired == MODE_LIGHT ? RayTraceViewPass.MODE_LIGHT : RayTraceViewPass.MODE_CAMERA);
+        pass.setMode(switch (desired) {
+            case MODE_LIGHT -> RayTraceViewPass.MODE_LIGHT;
+            case MODE_COMPARE -> RayTraceViewPass.MODE_COMPARE;
+            default -> RayTraceViewPass.MODE_CAMERA;
+        });
         if (!inPipeline) {
             pipeline.addPass(pass);
             inPipeline = true;
         }
         appliedMode = desired;
-        log.info("光追求交视图: {}", desired == MODE_LIGHT ? "lightRay" : "cameraRay");
+        log.info("光追求交视图: {}", switch (desired) {
+            case MODE_LIGHT -> "lightRay";
+            case MODE_COMPARE -> "csmCompare";
+            default -> "cameraRay";
+        });
     }
 
     private boolean ensurePass() {
@@ -155,7 +207,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     }
 
     private static int nextMode(int mode) {
-        return mode >= MODE_LIGHT ? MODE_OFF : mode + 1;
+        return mode >= MODE_COMPARE ? MODE_OFF : mode + 1;
     }
 
     private static void showHint(String text) {

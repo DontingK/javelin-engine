@@ -155,6 +155,9 @@ public final class ShaderInjector {
 
             // 可见性（深度矩 Chebyshev 上界）：探针到像素的距离 < 该方向命中距离 → 可见（1.0）；
             // 远大于 → 方差上界趋 0（墙后探针降权，抑制光渗）
+            // 2026-11-26：矩采样与辐照度同口径做**双线性**——此前取最近 texel，曲面上方向连续
+            // 变化会把 16 档方位切成可见性的阶跃（圆柱在方向光背侧表现为等间距竖条带；背光面
+            // 命中距离小，相邻 texel 就是 0/1 硬切，所以条带最扎眼）。
             float javelinProbeVisibility(int probe, vec3 dir, float dist) {
                 int cols = ddgi.counts.w;
                 int ty = probe / cols;
@@ -162,9 +165,16 @@ public final class ShaderInjector {
                 int depthTile = int(ddgi.tileParams.z);
                 int depthInner = int(ddgi.tileParams.w);
                 ivec2 origin = ivec2(tx * depthTile + 1, ty * depthTile + 1);
-                ivec2 ij = clamp(ivec2(javelinOctaEncode(dir) * float(depthInner)),
-                        ivec2(0), ivec2(depthInner - 1));
-                vec2 moments = texelFetch(ddgiDepth, origin + ij, 0).rg;   // E(d) / E(d²)
+                vec2 st = javelinOctaEncode(dir) * float(depthInner) - 0.5;
+                vec2 f = floor(st);
+                vec2 t = clamp(st - f, 0.0, 1.0);
+                ivec2 i0 = clamp(ivec2(f), ivec2(0), ivec2(depthInner - 1));
+                ivec2 i1 = clamp(ivec2(f) + 1, ivec2(0), ivec2(depthInner - 1));
+                vec2 m00 = texelFetch(ddgiDepth, origin + ivec2(i0.x, i0.y), 0).rg;
+                vec2 m10 = texelFetch(ddgiDepth, origin + ivec2(i1.x, i0.y), 0).rg;
+                vec2 m01 = texelFetch(ddgiDepth, origin + ivec2(i0.x, i1.y), 0).rg;
+                vec2 m11 = texelFetch(ddgiDepth, origin + ivec2(i1.x, i1.y), 0).rg;
+                vec2 moments = mix(mix(m00, m10, t.x), mix(m01, m11, t.x), t.y);
                 float m1 = moments.x;
                 if (m1 <= 0.0) {
                     return 1.0;   // 该方向一条都没命中（朝天）→ 不降权
@@ -255,6 +265,9 @@ public final class ShaderInjector {
                 vec4 shadowParams2;
                 vec4 cascadeInvZ;
                 vec4 contactParams;   // x = 开关(0/1)，y = tMax，z = 强度，w = 步数（REND-21-C2）
+                vec4 rtParams;        // x = 混合系数(0 纯 CSM / 1 全替换 / 中间混合)，y = tMax，z,w = 全 backbuffer 尺寸（P4-06 B5）
+                vec4 rtgiParams;      // x = GI 混合系数(0 关 / 1 全替换环境项)，y = tMax，z,w = 全 backbuffer 尺寸（P4-06 B7）
+                vec4 reflectParams;   // x = 反射强度(0 关 / 1 全量)，y = tMax，z,w = 全 backbuffer 尺寸（P4-06 B9）
             } lighting;
             layout(std430, set = 1, binding = 1) readonly buffer lightList {
                 vec4 lights[];
@@ -269,6 +282,18 @@ public final class ShaderInjector {
             // 同一张 atlas 的原始深度（无 compare）：PCSS 阻挡搜索要真实深度值，比较采样器只给
             // 0/1 可见性（REND-21-C1）
             layout(set = 1, binding = 11) uniform sampler2D shadowMapRaw;
+
+            // 光追阴影可见性图（P4-06 B5，半分辨率 R8：1 = 受光 / 0 = 遮挡）。材质 shader 只
+            // 采样、不参与求交——求交在 RTShadowPass 的 compute 里；rtParams.x=0 时整段不进。
+            layout(set = 1, binding = 12) uniform sampler2D rtShadowMap;
+
+            // 光追 GI 辐照度图（P4-06 B7，半分辨率 RGBA16F：1-bounce 间接辐照度）。与 rtShadowMap
+            // 同口径：按 gl_FragCoord 归一全 backbuffer 1:1 采样；rtgiParams.x=0 时不采样。
+            layout(set = 1, binding = 13) uniform sampler2D rtgiMap;
+
+            // 光追镜面反射图（P4-06 B9，半分辨率 RGBA16F：rgb = 反射辐射度，a = 命中置信）。
+            // PBR 注入段按 Fresnel 份额乘进环境镜面项；reflectParams.x=0 时不采样。
+            layout(set = 1, binding = 15) uniform sampler2D rtReflectMap;
 
             // per-object 接收阴影标志（变体实现见 RECEIVE_SHADOW_PUSH / RECEIVE_SHADOW_GBUFFER）
             float javelinReceiveShadow();
@@ -406,11 +431,20 @@ public final class ShaderInjector {
             vec3 javelinLightingEx(vec3 viewNormal, vec3 viewPos, vec3 worldPos,
                                    float contactShadow) {
                 // 环境项（四期 P4-05 B3）：DDGI 档且网格内 → 探针辐照度接管；否则常量项回落
-                vec3 result = lighting.ambient.rgb * lighting.ambient.a;
+                vec3 ambientBase = lighting.ambient.rgb * lighting.ambient.a;
                 if (ddgi.ddgiParams.x > 0.5 && javelinDDGIInside(worldPos)) {
                     vec3 worldNormal = transpose(mat3(cam.view)) * viewNormal;
-                    result = javelinDDGI(worldPos, worldNormal);
+                    ambientBase = javelinDDGI(worldPos, worldNormal);
                 }
+                // 光追 GI（P4-06 B7）：rtgiParams.x = 混合系数。图是半分辨率、与 G-Buffer 逐像素对齐，
+                // 所以直接按 gl_FragCoord 归一到全 backbuffer 采（不投影世界位置，多视口也成立）；
+                // 关档（0）整段不进，DDGI/常量环境项原样保留
+                if (lighting.rtgiParams.x > 0.001) {
+                    vec2 giUV = gl_FragCoord.xy / max(lighting.rtgiParams.zw, vec2(1.0));
+                    vec3 gi = texture(rtgiMap, giUV).rgb;
+                    ambientBase = mix(ambientBase, gi, lighting.rtgiParams.x);
+                }
+                vec3 result = ambientBase;
                 for (int i = 0; i < lighting.lightCounts.x; i++) {
                     vec3 L = -normalize(lighting.directional[2 * i].xyz);
                     float ndl = max(dot(viewNormal, L), 0.0);
@@ -420,30 +454,47 @@ public final class ShaderInjector {
                     // 相邻级联混合带内 mix 两张（接缝软化）
                     if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5
                             && javelinReceiveShadow() > 0.5) {
-                        int cc = int(lighting.zParams.w);
-                        float dist = -viewPos.z;
-                        int idx = -1;
-                        for (int k = 0; k < cc; k++) {
-                            if (dist < lighting.cascadeSplits[k]) {
-                                idx = k;
-                                break;
-                            }
-                        }
-                        if (idx >= 0) {
-                            float pcfShadow = javelinCascadeShadow(idx, worldPos);
-                            float splitFar = lighting.cascadeSplits[idx];
-                            float blendPct = lighting.shadowParams2.z;
-                            if (idx + 1 < cc && blendPct > 0.0) {
-                                float blendStart = splitFar * (1.0 - blendPct);
-                                if (dist > blendStart) {
-                                    float t = (dist - blendStart) / max(splitFar - blendStart, 1e-6);
-                                    pcfShadow = mix(pcfShadow,
-                                            javelinCascadeShadow(idx + 1, worldPos), t);
+                        // 光追档（P4-06 B5）：rtParams.x 是混合系数（0 = 纯 CSM / 1 = 全替换 / 中间两路混）。
+                        // CSM 路只在非全替换时算，省掉全替换档的级联选择与 PCF；阴影强度统一在末尾乘，
+                        // 保证两路口径一致（RT 档也不再绕过 shadowParams.z）
+                        float rtMix = clamp(lighting.rtParams.x, 0.0, 1.0);
+                        float csmShadow = 1.0;
+                        if (rtMix < 0.999) {
+                            int cc = int(lighting.zParams.w);
+                            float dist = -viewPos.z;
+                            int idx = -1;
+                            for (int k = 0; k < cc; k++) {
+                                if (dist < lighting.cascadeSplits[k]) {
+                                    idx = k;
+                                    break;
                                 }
                             }
-                            // 阴影强度：1 = 原强度；0 = 视觉等同关影（遮挡处保留 1-strength）
-                            shadow = mix(1.0, pcfShadow, lighting.shadowParams.z);
+                            if (idx >= 0) {
+                                float pcfShadow = javelinCascadeShadow(idx, worldPos);
+                                float splitFar = lighting.cascadeSplits[idx];
+                                float blendPct = lighting.shadowParams2.z;
+                                if (idx + 1 < cc && blendPct > 0.0) {
+                                    float blendStart = splitFar * (1.0 - blendPct);
+                                    if (dist > blendStart) {
+                                        float t = (dist - blendStart) / max(splitFar - blendStart, 1e-6);
+                                        pcfShadow = mix(pcfShadow,
+                                                javelinCascadeShadow(idx + 1, worldPos), t);
+                                    }
+                                }
+                                csmShadow = pcfShadow;
+                            }
                         }
+                        // 光追路：可见性图覆盖全视口，不受级联盒与 shadowDistance 限制；
+                        // 图是半分辨率全屏纹理，uv 用 gl_FragCoord 归一到全 backbuffer
+                        float rtShadow = 1.0;
+                        if (rtMix > 0.001) {
+                            vec2 rtUV = gl_FragCoord.xy / max(lighting.rtParams.zw, vec2(1.0));
+                            rtShadow = texture(rtShadowMap, rtUV).r;
+                        }
+                        float shadowFactor = rtMix <= 0.001 ? csmShadow
+                                : (rtMix >= 0.999 ? rtShadow : mix(csmShadow, rtShadow, rtMix));
+                        // 阴影强度：1 = 原强度；0 = 视觉等同关影（遮挡处保留 1-strength）
+                        shadow = mix(1.0, shadowFactor, lighting.shadowParams.z);
                     }
                     result += lighting.directional[2 * i + 1].rgb
                             * lighting.directional[2 * i + 1].a * ndl * shadow
@@ -515,7 +566,196 @@ public final class ShaderInjector {
     private static final String GBUFFER_BLOCKS = """
             layout(set = 1, binding = 5) uniform sampler2D gbufferAlbedo;
             layout(set = 1, binding = 6) uniform sampler2D gbufferNormal;
-            layout(set = 1, binding = 7) uniform sampler2D gbufferWorldPos;""";
+            layout(set = 1, binding = 7) uniform sampler2D gbufferWorldPos;
+            layout(set = 1, binding = 14) uniform sampler2D gbufferMaterial;""";
+
+    /**
+     * roughness/metallic 取值——HYBRID 变体：读 G-Buffer material 附件（与 G-Buffer 逐像素对齐，
+     * 用 textureSize 归一而不是外部参数表，多视口无需额外口径）。
+     */
+    private static final String MATERIAL_RM_GBUFFER = """
+            vec2 javelinRoughMetal() {
+                return texture(gbufferMaterial,
+                        gl_FragCoord.xy / vec2(textureSize(gbufferMaterial, 0))).rg;
+            }""";
+
+    /**
+     * PBR 光照块（REND-03）：GGX 微表面 + Schlick 近似 Fresnel + 能量守恒（金属度工作流）。
+     *
+     * <p><b>为什么不复用 {@code javelinLightingEx}</b>：Lambert 的约定是「返回辐照度、albedo 在外层
+     * 乘一次」，而 PBR 必须进 BRDF（F0 依赖 albedo 与 metallic，漫反射要被镜面项扣能量），
+     * 所以是独立函数 {@code javelinLightingPbr(..., albedo)}。阴影段与簇灯段与 Lambert 同源
+     * （CSM/RT 混合、粗化距离窗、聚光锥角口径一致），只在 BRDF 处不同。</p>
+     *
+     * <p><b>亮度口径</b>：漫反射不除以 π——与既有 Lambert 的亮度习惯一致，否则 PBR 一落码全场景
+     * 会暗约 3 倍、所有场景都要重调光。需要物理归一的一天再统一加。</p>
+     */
+    private static final String PBR_LIGHTING_BLOCKS = """
+            float javelinD_GGX(float NoH, float rough) {
+                float a = rough * rough;
+                float a2 = a * a;
+                float d = NoH * NoH * (a2 - 1.0) + 1.0;
+                return a2 / max(3.14159265 * d * d, 1e-5);
+            }
+
+            float javelinG_Smith(float NoL, float NoV, float rough) {
+                float a = rough * rough;
+                float a2 = a * a;
+                float gv = NoL * sqrt(a2 + (1.0 - a2) * NoV * NoV);
+                float gl = NoV * sqrt(a2 + (1.0 - a2) * NoL * NoL);
+                return 0.5 / max(gv + gl, 1e-5);
+            }
+
+            vec3 javelinF_Schlick(vec3 f0, float VoH) {
+                return f0 + (vec3(1.0) - f0) * pow(max(1.0 - VoH, 0.0), 5.0);
+            }
+
+            // 单个光源的 GGX 响应（含 NoL）：kd = (1-F) × (1-metal) 即能量守恒地扣掉镜面份额
+            vec3 javelinPbrDirect(vec3 N, vec3 V, vec3 L, vec3 diffuse, vec3 f0,
+                    float rough, float metal) {
+                vec3 H = normalize(L + V);
+                float NoL = max(dot(N, L), 0.0);
+                float NoV = max(dot(N, V), 1e-4);
+                float NoH = max(dot(N, H), 0.0);
+                float VoH = max(dot(V, H), 0.0);
+                vec3 F = javelinF_Schlick(f0, VoH);
+                vec3 spec = F * (javelinD_GGX(NoH, rough) * javelinG_Smith(NoL, NoV, rough)
+                        / max(4.0 * NoL * NoV, 1e-4));
+                vec3 kd = (vec3(1.0) - F) * (1.0 - metal);
+                return (kd * diffuse + spec) * NoL;
+            }
+
+            vec3 javelinLightingPbr(vec3 viewNormal, vec3 viewPos, vec3 worldPos,
+                    float contactShadow, vec3 albedo, vec2 roughMetal) {
+                float rough = clamp(roughMetal.x, 0.04, 1.0);
+                float metal = clamp(roughMetal.y, 0.0, 1.0);
+                vec3 f0 = mix(vec3(0.04), albedo, metal);
+                vec3 diffuse = albedo * (1.0 - metal);
+                vec3 V = normalize(-viewPos);
+                // 环境项：常量 / DDGI / RTGI 三段（与 Lambert 同源）；这里只取漫反射份额，
+                // 环境镜面由 RT 反射图供给（P4-06 B9，见下方 fEnv 段），完整 IBL 归 REND-16
+                vec3 ambientBase = lighting.ambient.rgb * lighting.ambient.a;
+                if (ddgi.ddgiParams.x > 0.5 && javelinDDGIInside(worldPos)) {
+                    vec3 worldNormal = transpose(mat3(cam.view)) * viewNormal;
+                    ambientBase = javelinDDGI(worldPos, worldNormal);
+                }
+                if (lighting.rtgiParams.x > 0.001) {
+                    vec2 giUV = gl_FragCoord.xy / max(lighting.rtgiParams.zw, vec2(1.0));
+                    ambientBase = mix(ambientBase, texture(rtgiMap, giUV).rgb, lighting.rtgiParams.x);
+                }
+                vec3 result = ambientBase * diffuse;
+                // 环境镜面（P4-06 B9）：RT 反射图按 Fresnel 份额计入。粗糙度越高 Fresnel 越向 1
+                // 收敛（能量摊进宽 lobe）而镜面强度越衰减——单射线近似下这是唯一能让粗糙面
+                // 不出现"镜面锐利反射"的压制项。
+                if (lighting.reflectParams.x > 0.001) {
+                    float NoV = max(dot(normalize(viewNormal), V), 1e-4);
+                    vec3 fEnv = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - NoV, 5.0);
+                    vec2 reflUV = gl_FragCoord.xy / max(lighting.reflectParams.zw, vec2(1.0));
+                    vec3 refl = texture(rtReflectMap, reflUV).rgb;
+                    result += refl * fEnv * (1.0 - 0.5 * rough * rough) * lighting.reflectParams.x;
+                }
+                for (int i = 0; i < lighting.lightCounts.x; i++) {
+                    vec3 L = -normalize(lighting.directional[2 * i].xyz);
+                    float ndl = max(dot(viewNormal, L), 0.0);
+                    float shadow = 1.0;
+                    // 主光阴影（与 Lambert 段同口径：CSM 级联 + 混合带，或 RT 可见性图按系数混合）
+                    if (i == 0 && ndl > 0.0 && lighting.directional[0].w > 0.5
+                            && javelinReceiveShadow() > 0.5) {
+                        float rtMix = clamp(lighting.rtParams.x, 0.0, 1.0);
+                        float csmShadow = 1.0;
+                        if (rtMix < 0.999) {
+                            int cc = int(lighting.zParams.w);
+                            float dist = -viewPos.z;
+                            int idx = -1;
+                            for (int k = 0; k < cc; k++) {
+                                if (dist < lighting.cascadeSplits[k]) {
+                                    idx = k;
+                                    break;
+                                }
+                            }
+                            if (idx >= 0) {
+                                float pcfShadow = javelinCascadeShadow(idx, worldPos);
+                                float splitFar = lighting.cascadeSplits[idx];
+                                float blendPct = lighting.shadowParams2.z;
+                                if (idx + 1 < cc && blendPct > 0.0) {
+                                    float blendStart = splitFar * (1.0 - blendPct);
+                                    if (dist > blendStart) {
+                                        float t = (dist - blendStart) / max(splitFar - blendStart, 1e-6);
+                                        pcfShadow = mix(pcfShadow,
+                                                javelinCascadeShadow(idx + 1, worldPos), t);
+                                    }
+                                }
+                                csmShadow = pcfShadow;
+                            }
+                        }
+                        float rtShadow = 1.0;
+                        if (rtMix > 0.001) {
+                            vec2 rtUV = gl_FragCoord.xy / max(lighting.rtParams.zw, vec2(1.0));
+                            rtShadow = texture(rtShadowMap, rtUV).r;
+                        }
+                        float shadowFactor = rtMix <= 0.001 ? csmShadow
+                                : (rtMix >= 0.999 ? rtShadow : mix(csmShadow, rtShadow, rtMix));
+                        shadow = mix(1.0, shadowFactor, lighting.shadowParams.z);
+                    }
+                    result += lighting.directional[2 * i + 1].rgb * lighting.directional[2 * i + 1].a
+                            * javelinPbrDirect(viewNormal, V, L, diffuse, f0, rough, metal)
+                            * shadow * (i == 0 ? contactShadow : 1.0);
+                }
+                if (lighting.gridDim.x <= 0) {
+                    return result;
+                }
+                vec2 pixel = gl_FragCoord.xy - lighting.viewport.xy;
+                ivec2 tile = ivec2(pixel) / lighting.gridDim.w;
+                tile = clamp(tile, ivec2(0), lighting.gridDim.xy - 1);
+                float dist = -viewPos.z;
+                float nearZ = lighting.zParams.x;
+                float farZ = lighting.zParams.y;
+                int zSlice;
+                if (lighting.zParams.z > 0.5) {
+                    zSlice = int(clamp(float(lighting.gridDim.z) * (dist - nearZ) / max(farZ - nearZ, 1e-6), 0.0, float(lighting.gridDim.z - 1)));
+                } else {
+                    zSlice = int(clamp(float(lighting.gridDim.z) * log2(max(dist, nearZ) / nearZ) / log2(farZ / nearZ), 0.0, float(lighting.gridDim.z - 1)));
+                }
+                int cell = tile.y * lighting.gridDim.x + tile.x
+                        + zSlice * lighting.gridDim.x * lighting.gridDim.y;
+                uvec2 range = clusterGrid[cell];
+                int base = int(range.x);
+                int count = min(int(range.y), 64);
+                for (int k = 0; k < count; k++) {
+                    int idx = int(clusterIndices[base + k]);
+                    vec4 posType = lights[4 * idx];
+                    vec4 colorIntensity = lights[4 * idx + 2];
+                    vec3 toLight = posType.xyz - viewPos;
+                    float d = length(toLight);
+                    float rangeL = lights[4 * idx + 1].w;
+                    if (d >= rangeL) {
+                        continue;
+                    }
+                    float atten = colorIntensity.a / max(d * d, 1e-4);
+                    float dn = d / rangeL;
+                    float window = 1.0 - dn * dn;
+                    atten *= window * window;
+                    vec3 L = toLight / max(d, 1e-4);
+                    float ndl = max(dot(viewNormal, L), 0.0);
+                    if (ndl <= 0.0) {
+                        continue;
+                    }
+                    if (posType.w > 0.5) {
+                        vec3 spotDir = normalize(lights[4 * idx + 1].xyz);
+                        float cd = dot(-L, spotDir);
+                        float cosInner = lights[4 * idx + 3].x;
+                        float cosOuter = lights[4 * idx + 3].y;
+                        float cone = smoothstep(cosOuter, cosInner, cd);
+                        if (cone <= 0.0) {
+                            continue;
+                        }
+                        atten *= cone;
+                    }
+                    result += colorIntensity.rgb * atten
+                            * javelinPbrDirect(viewNormal, V, L, diffuse, f0, rough, metal);
+                }
+                return result;
+            }""";
 
     /**
      * 接触阴影助手（REND-21-C2，Engine_Shadow_Contact_Design §3）：世界位置沿主光方向短距
@@ -603,8 +843,12 @@ public final class ShaderInjector {
         // DDGI 采样链函数须先于 javelinLighting（后者在环境项里调用它）
         injected.append(DDGI_BLOCKS).append('\n');
         injected.append(LIGHTING_BLOCKS).append('\n');
-        // G-Buffer 三采样声明必须先于 RECEIVE_SHADOW_GBUFFER 函数体（其读 gbufferAlbedo）
+        // PBR 公式块（REND-03）：全屏光照 Pass 是主渲染，一律 PBR；roughness/metallic 从
+        // G-Buffer material 附件取（该附件必须已由 GBufferPass 渲染，见 GBUFFER_BLOCKS）
+        injected.append(PBR_LIGHTING_BLOCKS).append('\n');
+        // G-Buffer 采样声明必须先于 MATERIAL_RM_GBUFFER / RECEIVE_SHADOW_GBUFFER 函数体
         injected.append(GBUFFER_BLOCKS).append('\n');
+        injected.append(MATERIAL_RM_GBUFFER).append('\n');
         injected.append(CONTACT_SHADOW).append('\n');
         injected.append(RECEIVE_SHADOW_GBUFFER).append('\n');
         injected.append("// ── injection end ──\n");
@@ -672,6 +916,10 @@ public final class ShaderInjector {
     private static String lightingStageBlocks(LightingModel lightingModel) {
         return switch (lightingModel) {
             case LAMBERT -> DDGI_BLOCKS + "\n" + LIGHTING_BLOCKS + "\n" + RECEIVE_SHADOW_PUSH + "\n";
+            // PBR 与 Lambert 共用 UBO/CSM 核心/set1 声明（LIGHTING_BLOCKS），只多一段 GGX 公式块；
+            // roughness/metallic 由 shader 自己取（PBR shader 必须在 Properties 里声明两个标量）
+            case PBR -> DDGI_BLOCKS + "\n" + LIGHTING_BLOCKS + "\n" + PBR_LIGHTING_BLOCKS + "\n"
+                    + RECEIVE_SHADOW_PUSH + "\n";
             case UNLIT -> "";
         };
     }

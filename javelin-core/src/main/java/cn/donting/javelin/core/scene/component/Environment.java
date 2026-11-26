@@ -52,6 +52,27 @@ public class Environment extends Component {
     /** 常量环境光参数组（不受 @InsField 闸门：只作为 ambientMode 的条件子组内联出现） */
     private AmbientSetting ambientSetting = new AmbientSetting();
 
+    /**
+     * 光追三档（P4-06 B5/B7/B9）。百分比语义：0 = 关、100 = 全替换、中间值与旧路按比例混合。
+     *
+     * <p><b>为什么默认全关</b>：光追是显式开关，不做「设备支持就默认开」。默认开会在空 TLAS /
+     * 资产未重导等异常路径上把主光与环境项直接乘成 0（实测全黑且与环境光模式无关），排障时
+     * 也说不清「到底开没开」。检查器里就地改，值变才由 {@code SceneRenderBridge} 下传。</p>
+     *
+     * <p>只有「混合管线（有 G-Buffer）+ 设备启用 ray query」时才有意义；Forward 档下光追 Pass
+     * 不注册，这三档恒无效。</p>
+     */
+    @InsField(label = "ins.environment.rtShadow")
+    private int rtShadowPercent = 0;
+
+    /** 光追漫反射 GI 混合档（B7）：0 = 环境项走常量/DDGI，100 = 光照结果全由 1-bounce GI 供给 */
+    @InsField(label = "ins.environment.rtgi")
+    private int rtgiPercent = 0;
+
+    /** 光追镜面反射档（B9）：0 = 无环境镜面，100 = 全量（只对 PBR 材质生效） */
+    @InsField(label = "ins.environment.rtReflection")
+    private int rtReflectionPercent = 0;
+
     public CubemapImage getSkybox() {
         return skybox;
     }
@@ -79,6 +100,34 @@ public class Environment extends Component {
         this.ambientSetting = ambientSetting != null ? ambientSetting : new AmbientSetting();
     }
 
+    public int getRtShadowPercent() {
+        return rtShadowPercent;
+    }
+
+    public void setRtShadowPercent(int percent) {
+        this.rtShadowPercent = clampPercent(percent);
+    }
+
+    public int getRtgiPercent() {
+        return rtgiPercent;
+    }
+
+    public void setRtgiPercent(int percent) {
+        this.rtgiPercent = clampPercent(percent);
+    }
+
+    public int getRtReflectionPercent() {
+        return rtReflectionPercent;
+    }
+
+    public void setRtReflectionPercent(int percent) {
+        this.rtReflectionPercent = clampPercent(percent);
+    }
+
+    private static int clampPercent(int percent) {
+        return Math.max(0, Math.min(100, percent));
+    }
+
     /**
      * 序列化数据面：skybox 走框架 @guid 分流（cubemap 资产引用；enabled 在基类）。
      */
@@ -88,6 +137,9 @@ public class Environment extends Component {
         output.write("skybox", skybox);
         output.write("ambientMode", ambientMode);
         output.write("ambientSetting", ambientSetting);
+        output.write("rtShadowPercent", rtShadowPercent);
+        output.write("rtgiPercent", rtgiPercent);
+        output.write("rtReflectionPercent", rtReflectionPercent);
     }
 
     @Override
@@ -100,5 +152,9 @@ public class Environment extends Component {
         if (group != null) {
             ambientSetting = group;
         }
+        // 旧场景无光追键 = 全关（光追是显式开关，不做隐式默认开）
+        rtShadowPercent = clampPercent(input.readInt("rtShadowPercent", 0));
+        rtgiPercent = clampPercent(input.readInt("rtgiPercent", 0));
+        rtReflectionPercent = clampPercent(input.readInt("rtReflectionPercent", 0));
     }
 }

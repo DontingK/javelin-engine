@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -86,26 +87,27 @@ public class ShaderImporterTest {
     }
 
     /**
-     * Lit.shader 端到端（批次③ + 批次④阴影段 + 批次④-B G-Buffer 段）：注入
-     * javelinLighting 三参函数（viewNormal/viewPos/worldPos）+ clusterGrid/clusterIndices
-     * 声明 + binding4 shadowMap（sampler2DShadow）+ sunViewProj 扩块后全链编译通过；
-     * vs 四插值（视空间位置/法线/UV + 世界位置）；GBuffer 段三张 MRT 输出编译通过。
+     * Standard.shader 端到端（原 {@code Lit.shader}，2026-11-26 改名；批次③ + 批次④阴影段 +
+     * 批次④-B G-Buffer 段 + REND-03 PBR 段）：注入 javelinLighting 三参函数（viewNormal/viewPos/
+     * worldPos）+ clusterGrid/clusterIndices 声明 + binding4 shadowMap（sampler2DShadow）+
+     * sunViewProj 扩块后全链编译通过；vs 四插值（视空间位置/法线/UV + 世界位置）；
+     * GBuffer 段四张 MRT 输出（含 REND-03 的 material）编译通过。
      */
     @Test
-    public void litShaderEndToEnd() {
-        String source = readResource("shader/Lit.shader");
-        Shader shader = ShaderImporter.buildShader(source, "Lit.shader");
+    public void standardShaderEndToEnd() {
+        String source = readResource("shader/Standard.shader");
+        Shader shader = ShaderImporter.buildShader(source, "Standard.shader");
 
-        assertEquals("Lit", shader.getShaderName());
+        assertEquals("Standard", shader.getShaderName());
         assertEquals(2, shader.getProperties().size());
 
         ShaderPass forward = shader.pass("Forward");
         assertValidSpirv(forward.getVertexSpirv());
         assertValidSpirv(forward.getFragmentSpirv());
 
-        // 批次④-B：HYBRID 档不透明几何通道（三张 MRT 输出，与 Forward 同 shader 双 Pass）
+        // 批次④-B：HYBRID 档不透明几何通道（多张 MRT 输出，与 Forward 同 shader 双 Pass）
         ShaderPass gbuffer = shader.pass("GBuffer");
-        assertNotNull(gbuffer, "Lit.shader 缺 Pass GBuffer（HYBRID 档不透明几何通道）");
+        assertNotNull(gbuffer, "Standard.shader 缺 Pass GBuffer（HYBRID 档不透明几何通道）");
         assertValidSpirv(gbuffer.getVertexSpirv());
         assertValidSpirv(gbuffer.getFragmentSpirv());
     }
@@ -136,8 +138,54 @@ public class ShaderImporterTest {
                 "缺 4 tap 复现 3×3 核（软影低档）");
         assertTrue(injected.contains("return s / 144.0;"),
                 "缺 9 tap 复现 5×5 核（软影高档）");
-        assertTrue(injected.contains("shadow = mix(1.0, pcfShadow, lighting.shadowParams.z);"),
+        // P4-06 B6 起主光阴影是三态混合（CSM / RT 可见性图 / 按 rtParams.x 混），
+        // 强度档作用在最终 shadowFactor 上而非直接乘 pcfShadow
+        assertTrue(injected.contains("shadow = mix(1.0, shadowFactor, lighting.shadowParams.z);"),
                 "阴影强度未生效");
+    }
+
+    /**
+     * REND-03：PBR 值档位注入（2026-11-26）。守卫三件事——
+     * ① `PBR` 确实带出 GGX/Fresnel/Smith 公式块与 `javelinLightingPbr`；
+     * ② rough/metal 是**参数**（不能引 `material`，否则全屏 Pass 与「声明在后」两种情况都会炸）；
+     * ③ `LAMBERT` 不带 PBR 段（档位互不串，旧材质零变化）。
+     */
+    @Test
+    public void lightingStageInjectsPbrStageOnlyForPbrModel() {
+        String pbr = ShaderInjector.inject("#version 450\nvoid main() {}\n",
+                java.util.List.of(), LightingModel.PBR, "pbr.frag", "fs");
+        assertTrue(pbr.contains("float javelinD_GGX(float NoH, float rough)"), "缺 GGX 分布项");
+        assertTrue(pbr.contains("float javelinG_Smith(float NoL, float NoV, float rough)"), "缺 Smith 遮蔽项");
+        assertTrue(pbr.contains("vec3 javelinF_Schlick(vec3 f0, float VoH)"), "缺 Schlick 菲涅尔");
+        assertTrue(pbr.contains("vec3 javelinLightingPbr(vec3 viewNormal, vec3 viewPos, vec3 worldPos,"),
+                "缺 PBR 光照入口");
+        assertTrue(pbr.contains("vec3 kd = (vec3(1.0) - F) * (1.0 - metal);"), "缺能量守恒拆分");
+        assertTrue(pbr.contains("vec3 f0 = mix(vec3(0.04), albedo, metal);"), "缺金属度混合 F0");
+        // 材质 fs 走 push 变体：PBR 段与 Lambert 段共用同一套 CSM/RT 阴影三态
+        assertTrue(pbr.contains("shadow = mix(1.0, shadowFactor, lighting.shadowParams.z);"),
+                "PBR 段未复用阴影三态混合");
+
+        String lambert = ShaderInjector.inject("#version 450\nvoid main() {}\n",
+                java.util.List.of(), LightingModel.LAMBERT, "lambert.frag", "fs");
+        assertFalse(lambert.contains("javelinLightingPbr"), "LAMBERT 不应带 PBR 公式块");
+        assertFalse(lambert.contains("javelinD_GGX"), "LAMBERT 不应带 GGX");
+    }
+
+    /**
+     * P4-06 B9：反射是 PBR 的环境镜面来源。守卫四件事——UBO 新字段、binding15 声明、
+     * Fresnel 环境份额（fEnv）与开关门控；`reflectParams.x = 0` 时整段不进（不采样未装配的图）。
+     */
+    @Test
+    public void pbrStageConsumesRadianceReflection() {
+        String pbr = ShaderInjector.inject("#version 450\nvoid main() {}\n",
+                java.util.List.of(), LightingModel.PBR, "pbr.frag", "fs");
+        assertTrue(pbr.contains("vec4 reflectParams;"), "LightingParamsBlock 缺 reflectParams 通道");
+        assertTrue(pbr.contains("layout(set = 1, binding = 15) uniform sampler2D rtReflectMap;"),
+                "缺 binding15 反射图声明");
+        assertTrue(pbr.contains("if (lighting.reflectParams.x > 0.001) {"), "反射段缺开关门控");
+        assertTrue(pbr.contains("vec3 fEnv = f0 + (max(vec3(1.0 - rough), f0) - f0)"),
+                "缺粗糙度修正的 Fresnel 环境份额");
+        assertTrue(pbr.contains("result += refl * fEnv"), "反射未计入结果（环境镜面缺失）");
     }
 
     /**

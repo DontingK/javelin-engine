@@ -82,6 +82,14 @@ public class OpaqueForwardPass extends AbstractForwardPass {
             // 主光阴影图采样读（批次④）：set1 binding4 着色消费——依赖声明建 Shadow→Opaque
             // 边（图拓扑保证阴影先画）；恒声明保结构稳定（未采时零成本）
             pass.addTextureRead(rs.shadowMapFor(view.name()));
+            // 光追阴影图（P4-06 B5）：RTShadowPass 写 → 本 Pass 读，建依赖。
+            // 恒声明、不按 mode 门控：图惰性创建（无 UploadData，布局停 UNDEFINED），mode=0
+            // 时无人声明就永不转换，描述符已按 SHADER_READ_ONLY 写好 → 静态判访问撞 09600
+            pass.addTextureRead(rs.rtShadowFor(view.name()));
+            // 光追 GI 辐照度图（P4-06 B7）：RTGIPass 写 → 本 Pass 读（环境项消费）；同上恒声明
+            pass.addTextureRead(rs.rtgiFor(view.name()));
+            // 光追镜面反射图（P4-06 B9）：RTReflectPass 写 → 本 Pass 读（环境镜面消费）；同上恒声明
+            pass.addTextureRead(rs.rtreflectFor(view.name()));
             // DDGI 两张 atlas 的采样读（四期 P4-05 B3）：set1 binding8/10——与更新段 compute
             // 的 STORAGE 写配成读写对，图才会插 GENERAL↔SHADER_READ_ONLY 转换与跨段屏障
             DdgiAtlases ddgiAtlases = rs.ddgiAtlasesOf(view.name());

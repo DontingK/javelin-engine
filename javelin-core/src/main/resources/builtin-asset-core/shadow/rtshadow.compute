@@ -1,0 +1,55 @@
+#version 460
+// 光追阴影可见性图（P4-06 B5，Engine_RayTracing_Plan §2 B5）。
+//
+// 半分辨率逐像素：从 G-Buffer 世界位置沿「指向光源」方向对 TLAS 求交，输出
+// R8 可见性（1 = 受光 / 0 = 遮挡）。主渲染 shader 侧只采样这张图（无需 rayQuery，
+// 保持 450 版本不变），因此 RT 阴影进主链不改变材质着色器的编译目标。
+//
+// 与 raytrace.compute 的 mode 2 同一套射线构造与偏移口径；差别只在输出（可见性 vs 距离）。
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform accelerationStructureEXT uTlas;
+layout(binding = 1, r8) uniform image2D uVisibility;
+layout(binding = 2) uniform sampler2D uWorldPos;   // RGBA32F：xyz=世界位置，w=有效标志
+layout(binding = 3) uniform sampler2D uNormal;     // RGBA16F：世界空间法线（防自交偏移用）
+
+layout(push_constant) uniform PushBlock {
+    vec4 lightDir;   // xyz = 指向光源的方向（已归一化）
+    vec4 params;     // x = tMax（世界单位）/ y = 法线偏移 / z = 光方向偏移 / w 预留
+} pc;
+
+void main() {
+    ivec2 size = imageSize(uVisibility);
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= size.x || px.y >= size.y) {
+        return;
+    }
+
+    vec2 uv = (vec2(px) + 0.5) / vec2(size);
+    vec4 wp = texture(uWorldPos, uv);
+    if (wp.w < 0.5) {
+        imageStore(uVisibility, px, vec4(1.0));   // 背景无几何：按受光
+        return;
+    }
+
+    vec3 dir = normalize(pc.lightDir.xyz);
+    // 起点偏移（防自交）：沿世界法线推一段 + 沿光方向推一小段。只沿光方向推，薄面/掠射
+    // 表面仍会自交；只沿法线推，法线背向光源时会把起点推进几何里。两者叠加最稳。
+    vec3 n = normalize(texture(uNormal, uv).xyz);
+    vec3 origin = wp.xyz + n * pc.params.y + dir * pc.params.z;
+
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+            origin, 0.0, dir, pc.params.x);
+    while (rayQueryProceedEXT(query)) {
+    }
+
+    // Opaque 标志下未命中 = None；命中三角形/AABB 一律判遮挡
+    float visibility = 1.0;
+    if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+        visibility = 0.0;
+    }
+    imageStore(uVisibility, px, vec4(visibility));
+}
