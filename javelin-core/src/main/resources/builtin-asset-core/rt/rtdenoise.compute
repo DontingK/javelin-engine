@@ -1,0 +1,144 @@
+// 光追时域累积 + 空间降噪（P4-06 B8）：GI（B7）与反射（B9）共用的后处理链，治 4 spp 半球
+// 采样与粗糙面 lobe 抖动的单帧噪点。
+//
+// 链条形态（每视口，半分辨率 RGBA16F，五段 dispatch 全在各自的 RenderGraph compute Pass 里）：
+//   ① rtgi/rtreflect.compute 产 raw → ② 本着色器 MODE_TEMPORAL：重投影采上帧历史 +
+//     世界位置离散度权重 → 写新历史 → ③/④ 本着色器 MODE_ATROUS：5×5 保边核两迭代
+//     （历史 → scratch → 历史）→ ⑤ 主渲染消费的最终图由 RTDenoiser 收尾段写入。
+//
+// 为什么共享一支着色器：GI 与反射的降噪数学完全同构（颜色图 + 世界位置/法线保边 +
+// 重投影累积），只有输入图不同——按 push 的 mode 分派，省一支 SPIR-V 与一套管线。
+//
+// 时域累积的重投影口径：历史像素 = 本帧世界位置用「上帧抖动后 viewProj」投回屏幕找到
+// （与 TaaPass 相反方向：TAA 找「上帧这个像素的表面」，这里找「本帧表面在上帧的位置」）。
+// 历史 alpha 通道存累积年龄，年龄自适应 α = 1/(age+1)：静帧渐近收敛、失效帧直出当前帧。
+//
+// ATrous 保边权与 ssao_blur 同源但加法线权：世界位置距离 + 法线夹角双拒绝，避免把
+// 掠射面/墙面反射跨几何糊到一起。深度容差按邻域世界位置步进自适应（斜面上不误拒）。
+// temporal 段的 binding4（法线槽）由 Java 侧绑世界位置占位——本段不读它，描述符不空即可。
+
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0, rgba16f) uniform image2D uOut;        // 本段写出口
+layout(binding = 1) uniform sampler2D uIn;                // 本段读入口
+layout(binding = 2) uniform sampler2D uIn2;               // temporal = 上帧历史；atrous = 占位（读 uIn）
+layout(binding = 3) uniform sampler2D uWorldPos;          // G-Buffer 世界位置（RGBA32F，w=有效）
+layout(binding = 4) uniform sampler2D uNormal;            // G-Buffer 世界法线（RGBA16F）；temporal 段绑世界位置占位（不读）
+
+layout(push_constant) uniform PushBlock {
+    mat4 prevViewProj;   // 上帧抖动后 viewProj（本帧世界位置重投影找历史）
+    vec4 params;         // x = mode（0 temporal / 1 atrous）/ y = 历史 valid（0 直出）
+                         // z = atrous 步长（1 或 2，两迭代间隔开）/ w = 保留
+} pc;
+
+const int MODE_TEMPORAL = 0;
+const int MODE_ATROUS = 1;
+
+// 时域累积混色上限：静帧历史权重渐近 1，但不真到 1（保留 1/64 当前帧修正，
+// 光源/材质改动不至于滞后一整屏）
+const float MIN_FEEDBACK = 1.0 / 64.0;
+
+void temporalAccumulate(ivec2 px, ivec2 size) {
+    vec4 cur = texelFetch(uIn, px, 0);
+    vec4 wp = texelFetch(uWorldPos, px, 0);
+    if (wp.w < 0.5) {
+        // 背景：无表面即无间接光贡献，历史也无意义——直出当前值并归零年龄
+        imageStore(uOut, px, vec4(cur.rgb, 0.0));
+        return;
+    }
+    if (pc.params.y < 0.5) {
+        // 历史无效（断帧/resize/相机移动/纹理换代）：直出当前帧，年龄从 1 起累积
+        imageStore(uOut, px, vec4(cur.rgb, 1.0));
+        return;
+    }
+
+    // 重投影：本帧世界位置投回上帧屏幕（注意历史图是半分辨率，uv 不用再缩放——
+    // textureSize 取的就是历史图自身尺寸）
+    vec4 clip = pc.prevViewProj * vec4(wp.xyz, 1.0);
+    if (clip.w <= 1e-5) {
+        imageStore(uOut, px, vec4(cur.rgb, 1.0));
+        return;
+    }
+    vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        imageStore(uOut, px, vec4(cur.rgb, 1.0));   // 上帧在屏外：这个表面没有历史
+        return;
+    }
+
+    vec4 hist = texture(uIn2, uv);
+    float age = hist.a;
+    // 历史位置的世界位置离散度：重投影点采到的世界位置若与本像素差太远，
+    // 说明是遮挡边界/新入屏表面，历史不可信——直出当前帧（比色度钳制便宜且无闪烁）
+    vec3 histPos = texture(uWorldPos, uv).xyz;
+    bool disjoint = texture(uWorldPos, uv).w < 0.5
+            || distance(histPos, wp.xyz) > 0.15;
+    if (age <= 0.0 || disjoint) {
+        imageStore(uOut, px, vec4(cur.rgb, 1.0));
+        return;
+    }
+
+    // 年龄自适应 α：新表面收敛快（α 大），静帧渐近收敛（α 小）
+    float alpha = clamp(1.0 / (age + 1.0), MIN_FEEDBACK, 1.0);
+    vec3 blended = mix(hist.rgb, cur.rgb, alpha);
+    imageStore(uOut, px, vec4(blended, age + 1.0));
+}
+
+void atrousFilter(ivec2 px, ivec2 size) {
+    vec4 cur = texelFetch(uIn, px, 0);
+    vec4 wp = texelFetch(uWorldPos, px, 0);
+    if (wp.w < 0.5) {
+        imageStore(uOut, px, cur);   // 背景不滤
+        return;
+    }
+    vec3 n = texelFetch(uNormal, px, 0).xyz;
+    float nlen = dot(n, n);
+    n = nlen > 1e-6 ? normalize(n) : vec3(0.0, 0.0, 1.0);
+
+    int step = max(int(pc.params.z), 1);
+    // 深度容差自适应：中心邻一个步长内的世界位置跨度（斜面上自动放宽）
+    vec3 wpStep = texelFetch(uWorldPos, clamp(px + ivec2(step, 0), ivec2(0), size - 1), 0).xyz;
+    float posTol = max(0.05, distance(wpStep, wp.xyz) * 1.5);
+
+    vec3 sum = cur.rgb;
+    float wsum = 1.0;
+    // 5×5 十字形（对角 tap 对方差敏感度低、省 4 采样；两迭代合计 12×12 等效支撑面）
+    const ivec2 TAPS[12] = ivec2[12](
+            ivec2(-2, 0), ivec2(2, 0), ivec2(0, -2), ivec2(0, 2),
+            ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1),
+            ivec2(-1, -1), ivec2(1, -1), ivec2(-1, 1), ivec2(1, 1));
+    for (int i = 0; i < 12; i++) {
+        ivec2 q = px + TAPS[i] * step;
+        if (q.x < 0 || q.x >= size.x || q.y < 0 || q.y >= size.y) {
+            continue;
+        }
+        vec4 nwp = texelFetch(uWorldPos, q, 0);
+        if (nwp.w < 0.5) {
+            continue;
+        }
+        // 保边双权：世界位置距离（指数衰减）+ 法线夹角（掠射相邻面拒绝）
+        float wpw = exp(-distance(nwp.xyz, wp.xyz) / posTol);
+        vec3 nn = texelFetch(uNormal, q, 0).xyz;
+        float nw = dot(nn, nn) > 1e-6 ? pow(max(dot(normalize(nn), n), 0.0), 8.0) : 0.0;
+        float ws = 1.0;   // 十字近邻等权（ATrous 常规做法，σ 由 step 隐式控制）
+        float w = wpw * nw * ws;
+        sum += texelFetch(uIn, q, 0).rgb * w;
+        wsum += w;
+    }
+    // 年龄一并传递（ATrous 不改年龄；着色端不读它，但下一帧 temporal 要用）
+    imageStore(uOut, px, vec4(sum / wsum, cur.a));
+}
+
+void main() {
+    ivec2 size = imageSize(uOut);
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= size.x || px.y >= size.y) {
+        return;
+    }
+    if (int(pc.params.x) == MODE_TEMPORAL) {
+        temporalAccumulate(px, size);
+    } else {
+        atrousFilter(px, size);
+    }
+}

@@ -87,10 +87,7 @@ public class DebugLineAppState extends AbsEditorAppState {
             return; // 场景未就绪（onAttach 跳过装配），安全跳过
         }
         DebugDrawLine.clear();
-        // DDGI 探针网格线框（dbg-3）：本状态是每帧 clear 的唯一执行者，故由它统一代提交；
-        // 选中无关（与选中门控的 drawers 共用 batch，各自只看自己的开关）
-        DdgiProbeVizAppState.emitGridLines(engine);
-        // 光照 gizmo（REND-13）：同样由本状态代提交（全场景灯、不走选中门控）
+        // 光照 gizmo（REND-13）：由本状态代提交（全场景灯、不走选中门控）
         LightGizmoAppState.emitLightLines(engine);
         Node selected = EditorSelection.getSelectedNode();
         if (selected == null) {

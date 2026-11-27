@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
-
 /**
  * 光追漫反射 GI Pass（P4-06 B7）：半分辨率逐像素在世界位置上半球余弦采样 N 条射线，
  * 命中后反查屏幕 G-Buffer 取反照率/法线，估算 1-bounce 间接辐照度，写
@@ -48,17 +47,21 @@ public final class RTGIPass implements RenderPass {
 
     private static final String SHADER = "core/gi/rtgi.compute";
     private static final String PASS_NAME = "RTGI";
+    /** 降噪用途子键（历史/中转图族内区分 GI 与反射） */
+    private static final String DENOISE_USAGE = "gi";
     /** push：mat4 viewProj(64) + params + sunRad + ambientRad + lightDir（4×16）= 128B */
     private static final int PUSH_BYTES = 64 + 4 * 4 * Float.BYTES;
     private static final int WORKGROUP = 8;
     /** 起点沿世界法线抬升（世界单位）：防自交 */
     private static final float NORMAL_BIAS = 0.02f;
-    /** 每像素半球采样数（半分辨率 4 spp：噪点靠 B8 时域累积补，单帧只保证方向正确） */
+    /** 每像素半球采样数（半分辨率 4 spp：单帧只保证方向正确，噪点靠 B8 时域累积收敛） */
     private static final int SPP = 4;
 
     private final Device device;
     private final RenderingSystem renderingSystem;
     private final AssetManager assetManager;
+    /** 时域累积 + ATrous 共享降噪链（P4-06 B8；与 RTReflectPass 共用同一实例） */
+    private final RTDenoiser denoiser;
 
     private DescriptorSetLayoutDesc setDesc;
     private DescriptorSetLayout setLayout;
@@ -73,18 +76,24 @@ public final class RTGIPass implements RenderPass {
     private boolean emptyTlasWarned;
     /** 帧计数器（Hammersley 相位错开；本 Pass 每帧 addToGraph 一次，可用作帧序号） */
     private int frameCounter;
+    /** 最近一次出图的视口名（denoise 历史代选择的取键源；每视口 addToGraph 时刷新） */
+    private String currentViewName;
+    /** 历史代取键缓存（usage+代 → 视口名；ping-pong 读代跨帧稳定） */
+    private final java.util.Map<String, String> lastViewNames = new java.util.HashMap<>();
     private final Matrix4f viewProjCopy = new Matrix4f();
     private final float[] viewProjPack = new float[16];
     private final ByteBuffer push = ByteBuffer.allocateDirect(PUSH_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
 
-    public RTGIPass(Device device, RenderingSystem renderingSystem, AssetManager assetManager) {
+    public RTGIPass(Device device, RenderingSystem renderingSystem, AssetManager assetManager,
+                    RTDenoiser denoiser) {
         if (device == null || renderingSystem == null) {
             throw new IllegalArgumentException("device / renderingSystem must not be null");
         }
         this.device = device;
         this.renderingSystem = renderingSystem;
         this.assetManager = assetManager;
+        this.denoiser = denoiser;
     }
 
     @Override
@@ -98,7 +107,7 @@ public final class RTGIPass implements RenderPass {
         // 环境光模式都黑，实测踩过）。执行段真正派发后才回填档位。
         renderingSystem.markRtgiSkipped();
         if (renderingSystem.rtgiMode() == 0) {
-            return;   // 关档：环境项走常量/DDGI
+            return;   // 关档：环境项走常量
         }
         RayTracingScene scene = renderingSystem.rayTracingScene();
         if (scene == null) {
@@ -123,6 +132,7 @@ public final class RTGIPass implements RenderPass {
         int width = gi.desc().width();
         int height = gi.desc().height();
         int frame = frameCounter++;
+        currentViewName = viewName;
 
         Vector3f sun = renderingSystem.sunDirectionOrNull();
         Vector3f sunRadiance = renderingSystem.sunRadiance();
@@ -132,6 +142,18 @@ public final class RTGIPass implements RenderPass {
                 : new Vector3f(sun).negate().normalize();
         boolean sunOn = sun != null
                 && (sunRadiance.x + sunRadiance.y + sunRadiance.z) > 1e-6f;
+
+        // B8 降噪链（就绪时）：GI 图只作 raw；temporal 写另一代历史，
+        // ATrous 两迭代回写本帧 GI 图（着色端继续只认 rtgiFor）
+        boolean denoise = denoiser != null && denoiser.ready();
+        Matrix4f prevViewProj = null;
+        boolean historyValid = false;
+        if (denoise) {
+            prevViewProj = renderingSystem.rtPrevViewProjFor(viewName);
+            historyValid = prevViewProj != null
+                    && !renderingSystem.rtCameraMoved(viewName)
+                    && renderingSystem.rtPrevFrameFor(viewName) == ctx.frame().frameIndex() - 1;
+        }
 
         graph.addComputePass(viewName + ":" + PASS_NAME, pass -> {
             pass.setPipeline(pipeline);
@@ -171,6 +193,37 @@ public final class RTGIPass implements RenderPass {
                 renderingSystem.markRtgiApplied(renderingSystem.rtgiMode());
             });
         });
+        if (!denoise) {
+            return;   // 降噪链未就绪（着色器缺失）：GI 图即最终图，直出 raw
+        }
+        // temporal：raw + 上帧历史 → 新历史（写另一代；失效判据在 push 的 params.y）
+        Texture histRead = denoiseHistFor(0);
+        Texture histWrite = renderingSystem.rtDenoiseHistOtherFor(histRead);
+        if (histWrite == null) {
+            return;   // ping-pong 另一代缺失（不应发生——创建即两代）：退直出
+        }
+        denoiser.addTemporalPass(viewName + "#giT", graph,
+                viewName + ":" + PASS_NAME + ":Temporal",
+                gi, histRead, worldPos, prevViewProj, historyValid);
+        // ATrous 两迭代：新历史 → scratch（step 1）→ GI 图（step 2，着色端消费点）
+        Texture scratch = renderingSystem.rtDenoiseScratchFor(viewName, DENOISE_USAGE);
+        denoiser.addAtrousPass(viewName + "#giA1", graph,
+                viewName + ":" + PASS_NAME + ":Atrous1",
+                histWrite, scratch, worldPos, normal, 1);
+        denoiser.addAtrousPass(viewName + "#giA2", graph,
+                viewName + ":" + PASS_NAME + ":Atrous2",
+                scratch, gi, worldPos, normal, 2);
+    }
+
+    /** 本视口 GI 降噪历史（ping-pong 代；读哪一代与帧奇偶一致——写走另一代反查） */
+    private Texture denoiseHistFor(int index) {
+        return renderingSystem.rtDenoiseHistFor(
+                lastViewNameFor(DENOISE_USAGE, index), DENOISE_USAGE, index);
+    }
+
+    /** temporal 读代选择：本 Pass 每帧单一视口场景下记录最近视口名（多视口各自 addToGraph 互不干扰） */
+    private String lastViewNameFor(String usage, int index) {
+        return lastViewNames.computeIfAbsent(usage + index, n -> currentViewName);
     }
 
     private boolean ensurePipeline() {

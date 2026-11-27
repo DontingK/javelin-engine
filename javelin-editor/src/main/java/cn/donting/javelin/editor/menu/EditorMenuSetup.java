@@ -26,10 +26,8 @@ import cn.donting.javelin.editor.menu.top.CompileMenuCommand;
 import cn.donting.javelin.editor.menu.top.SaveSceneMenuCommand;
 import cn.donting.javelin.editor.menu.top.GridMenuCommand;
 import cn.donting.javelin.editor.debug.GBufferDebugAppState;
-import cn.donting.javelin.editor.debug.DdgiProbeVizAppState;
 import cn.donting.javelin.editor.debug.ShadowMapDebugAppState;
 import cn.donting.javelin.editor.debug.LightGizmoAppState;
-import cn.donting.javelin.editor.menu.top.DdgiProbeVizMenuCommand;
 import cn.donting.javelin.editor.menu.top.LightGizmoMenuCommand;
 import cn.donting.javelin.editor.menu.top.PostProcessingMenuCommand;
 import cn.donting.javelin.editor.menu.top.ShadowMapViewMenuCommand;
@@ -96,15 +94,6 @@ public final class EditorMenuSetup {
                 GBufferDebugAppState.MODE_NORMAL));
         context.registerCommand(new GBufferViewMenuCommand("tools.gbufferView.worldPos",
                 GBufferDebugAppState.MODE_WORLD_POS));
-        // DDGI 探针视图（dbg-3，2026-11-24）：工具菜单四项单选（关闭/探针网格/辐照度 atlas/深度 atlas）
-        context.registerCommand(new DdgiProbeVizMenuCommand("tools.ddgiProbeView.off",
-                DdgiProbeVizAppState.MODE_OFF));
-        context.registerCommand(new DdgiProbeVizMenuCommand("tools.ddgiProbeView.grid",
-                DdgiProbeVizAppState.MODE_GRID));
-        context.registerCommand(new DdgiProbeVizMenuCommand("tools.ddgiProbeView.irradiance",
-                DdgiProbeVizAppState.MODE_IRRADIANCE));
-        context.registerCommand(new DdgiProbeVizMenuCommand("tools.ddgiProbeView.depth",
-                DdgiProbeVizAppState.MODE_DEPTH));
         // 阴影图视图（DBG-03，2026-11-24）：工具菜单三项单选（关闭/原始深度/级联分色）
         context.registerCommand(new ShadowMapViewMenuCommand("tools.shadowView.off",
                 ShadowMapDebugAppState.MODE_OFF));
@@ -194,11 +183,6 @@ public final class EditorMenuSetup {
                         .item("tools.gbufferView.albedo")
                         .item("tools.gbufferView.normal")
                         .item("tools.gbufferView.worldPos"))
-                .submenu(EditorLang.key("tools.ddgiProbeView"), ddgi -> ddgi
-                        .item("tools.ddgiProbeView.off")
-                        .item("tools.ddgiProbeView.grid")
-                        .item("tools.ddgiProbeView.irradiance")
-                        .item("tools.ddgiProbeView.depth"))
                 .submenu(EditorLang.key("tools.shadowView"), shadow -> shadow
                         .item("tools.shadowView.off")
                         .item("tools.shadowView.depth")

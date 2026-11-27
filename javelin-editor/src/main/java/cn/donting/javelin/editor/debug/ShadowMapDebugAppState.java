@@ -32,8 +32,8 @@ public class ShadowMapDebugAppState extends AbsEditorAppState {
     public static final int MODE_DEPTH = 1;
     public static final int MODE_CASCADE = 2;
 
-    /** 提示行：RenderStats 0~9、G-Buffer 视图 10、DDGI 探针视图 11，本视图落 12 */
-    private static final int HINT_ROW = 12;
+    /** 提示行：RenderStats 0~9、G-Buffer 视图 10，本视图落 11 */
+    private static final int HINT_ROW = 11;
 
     private static volatile int desiredMode = MODE_OFF;
     /** 阴影资源就绪标记（引擎帧刷新，供菜单 enabled() 在 EDT 判灰） */

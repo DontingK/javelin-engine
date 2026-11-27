@@ -97,7 +97,7 @@ final class VulkanDescriptorSet implements DescriptorSet {
         // 归还池子走 CleanerRegistry 两帧延迟队列（VUID 00309：vkFreeDescriptorSets 要求所有
         // 引用该 set 的已提交命令缓冲执行完毕——立即 free 会撞上还在 in-flight 的帧；入队后由
         // onFrameEnd 在 submit 之后的帧末推进，窗口成立）。不 free 的话池只出不回，高频换代方
-        // （材质贴图 revision / DDGI 换绑）会把 maxSets 烧穿 → OUT_OF_POOL_MEMORY
+        // （如材质贴图 revision 换代）会把 maxSets 烧穿 → OUT_OF_POOL_MEMORY
         if (disposed) return;
         disposed = true;
         registration.dispose();

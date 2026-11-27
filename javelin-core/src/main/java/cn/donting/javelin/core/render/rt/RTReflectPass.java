@@ -50,6 +50,8 @@ public final class RTReflectPass implements RenderPass {
 
     private static final String SHADER = "core/rt/rtreflect.compute";
     private static final String PASS_NAME = "RTReflect";
+    /** 降噪用途子键（历史/中转图族内区分 GI 与反射） */
+    private static final String DENOISE_USAGE = "reflect";
     /** push：mat4 viewProj(64) + params/camPos/sunRad/ambientRad/lightDir（5×16）= 144B */
     private static final int PUSH_BYTES = 64 + 5 * 4 * Float.BYTES;
     private static final int WORKGROUP = 8;
@@ -61,6 +63,8 @@ public final class RTReflectPass implements RenderPass {
     private final Device device;
     private final RenderingSystem renderingSystem;
     private final AssetManager assetManager;
+    /** 时域累积 + ATrous 共享降噪链（P4-06 B8；与 RTGIPass 共用同一实例） */
+    private final RTDenoiser denoiser;
 
     private DescriptorSetLayoutDesc setDesc;
     private DescriptorSetLayout setLayout;
@@ -77,18 +81,24 @@ public final class RTReflectPass implements RenderPass {
     private boolean noCameraWarned;
     /** 帧计数器（抖动相位错开） */
     private int frameCounter;
+    /** 最近一次出图的视口名（denoise 历史代选择的取键源；每视口 addToGraph 时刷新） */
+    private String currentViewName;
+    /** 历史代取键缓存（usage+代 → 视口名；ping-pong 读代跨帧稳定） */
+    private final java.util.Map<String, String> lastViewNames = new java.util.HashMap<>();
     private final Matrix4f viewProjCopy = new Matrix4f();
     private final float[] viewProjPack = new float[16];
     private final ByteBuffer push = ByteBuffer.allocateDirect(PUSH_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
 
-    public RTReflectPass(Device device, RenderingSystem renderingSystem, AssetManager assetManager) {
+    public RTReflectPass(Device device, RenderingSystem renderingSystem, AssetManager assetManager,
+                         RTDenoiser denoiser) {
         if (device == null || renderingSystem == null) {
             throw new IllegalArgumentException("device / renderingSystem must not be null");
         }
         this.device = device;
         this.renderingSystem = renderingSystem;
         this.assetManager = assetManager;
+        this.denoiser = denoiser;
     }
 
     @Override
@@ -133,6 +143,7 @@ public final class RTReflectPass implements RenderPass {
         int width = reflect.desc().width();
         int height = reflect.desc().height();
         int frame = frameCounter++;
+        currentViewName = viewName;
 
         Vector3f sun = renderingSystem.sunDirectionOrNull();
         Vector3f sunRadiance = renderingSystem.sunRadiance();
@@ -141,6 +152,18 @@ public final class RTReflectPass implements RenderPass {
                 : new Vector3f(sun).negate().normalize();
         boolean sunOn = sun != null
                 && (sunRadiance.x + sunRadiance.y + sunRadiance.z) > 1e-6f;
+
+        // B8 降噪链（就绪时，与 RTGI 同构）：反射图只作 raw；temporal 写另一代历史，
+        // ATrous 两迭代回写本帧反射图（着色端继续只认 rtreflectFor）
+        boolean denoise = denoiser != null && denoiser.ready();
+        Matrix4f prevViewProj = null;
+        boolean historyValid = false;
+        if (denoise) {
+            prevViewProj = renderingSystem.rtPrevViewProjFor(viewName);
+            historyValid = prevViewProj != null
+                    && !renderingSystem.rtCameraMoved(viewName)
+                    && renderingSystem.rtPrevFrameFor(viewName) == ctx.frame().frameIndex() - 1;
+        }
 
         graph.addComputePass(viewName + ":" + PASS_NAME, pass -> {
             pass.setPipeline(pipeline);
@@ -183,6 +206,31 @@ public final class RTReflectPass implements RenderPass {
                 renderingSystem.markRtReflectApplied(renderingSystem.rtReflectMode());
             });
         });
+        if (!denoise) {
+            return;   // 降噪链未就绪（着色器缺失）：反射图即最终图，直出 raw
+        }
+        Texture histRead = denoiseHistFor(0);
+        Texture histWrite = renderingSystem.rtDenoiseHistOtherFor(histRead);
+        if (histWrite == null) {
+            return;   // ping-pong 另一代缺失（不应发生——创建即两代）：退直出
+        }
+        denoiser.addTemporalPass(viewName + "#refT", graph,
+                viewName + ":" + PASS_NAME + ":Temporal",
+                reflect, histRead, worldPos, prevViewProj, historyValid);
+        Texture scratch = renderingSystem.rtDenoiseScratchFor(viewName, DENOISE_USAGE);
+        denoiser.addAtrousPass(viewName + "#refA1", graph,
+                viewName + ":" + PASS_NAME + ":Atrous1",
+                histWrite, scratch, worldPos, normal, 1);
+        denoiser.addAtrousPass(viewName + "#refA2", graph,
+                viewName + ":" + PASS_NAME + ":Atrous2",
+                scratch, reflect, worldPos, normal, 2);
+    }
+
+    /** 本视口反射降噪历史（ping-pong 代；读代跨帧稳定，写走另一代反查） */
+    private Texture denoiseHistFor(int index) {
+        return renderingSystem.rtDenoiseHistFor(
+                lastViewNames.computeIfAbsent(DENOISE_USAGE + index, n -> currentViewName),
+                DENOISE_USAGE, index);
     }
 
     private boolean ensurePipeline() {

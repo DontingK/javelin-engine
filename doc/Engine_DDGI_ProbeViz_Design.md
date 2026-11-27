@@ -1,5 +1,7 @@
 # DDGI 探针可视化设计（Engine_DDGI_ProbeViz_Design）
 
+> **⛔ 本档已归档（2026-11-27）：随 P4-05 DDGI 整体退役（见 `Engine_DDGI_Design.md` 头部横幅）**——`DdgiProbeVizAppState` / `DdgiProbeViewPass` / `DdgiProbeVizMenuCommand` / 菜单组与 F5 / `ddgiView.frag` 资产 / i18n 键全部删除，DebugText 第 11 行腾空（阴影图/光照 gizmo/光追直显行号各前移一位）。§7.1 的三处直显排障（铺满视口 / alpha 精确标志 / 显示窗口）口径对任何后续 atlas 类直显视图仍成立，留档参考。
+
 > v0.3（2026-11-26）｜**实机验收通过（DBG-07 关账）**：用户「没红的了，验收过了」。三处随验修——①atlas 直显「铺满视口」（原 1:1 取像素只铺左上角一小块）；②「扫过没」判据改**辐照度 alpha 精确标志**（深度图 RG16F 无 alpha，「合法 0」与「从没写过」同形 → 贴地探针那几格永远固定红）；③深度显示窗口由 `1/MAX_RAY_DISTANCE` 改 `1/5m`（实测命中距离 0.6~2.8m 按 1/60 归一后只剩 0.01~0.05，内区一片纯黑）。明细见 §7.1。
 >
 > v0.2（2026-11-24）｜**已按 §2 推荐默认落码**（用户「嗯」= 全默认通过）：P1 要线框、P2 `E/π` 线性 + 深度 `m1/MAX_RAY_DISTANCE` 灰度、P3 菜单四项 + F5、P4 只读 accessor；§8 风险 1 按 (a) 落地（`DebugLineAppState` 统一提交）、风险 3 登记为 **DBG-07**。实机验收仍按用户口径后置（§7 挂账）。

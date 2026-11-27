@@ -16,8 +16,8 @@ import cn.donting.javelin.core.render.FrameDescription;
 import cn.donting.javelin.core.render.FrameLoop;
 import cn.donting.javelin.core.render.RenderView;
 import cn.donting.javelin.core.render.RenderingSystem;
-import cn.donting.javelin.core.render.ddgi.DdgiProbePass;
-import cn.donting.javelin.core.render.ddgi.DdgiVoxelizer;
+import cn.donting.javelin.core.render.material.LightingModel;
+import cn.donting.javelin.core.render.rt.RTDenoiser;
 import cn.donting.javelin.core.render.rt.RTGIPass;
 import cn.donting.javelin.core.render.rt.RTReflectPass;
 import cn.donting.javelin.core.render.rt.RTShadowPass;
@@ -103,15 +103,13 @@ public class JavelinEngine {
     protected RenderPipeline renderPipeline;
     /** 后处理节点装配（组合根，createRenderPipeline 建；管线只承载链与展开） */
     private PostProcessSetup postProcessSetup;
-    /** DDGI 体素化 Pass（四期 P4-05 批 B1；组合根持有，供重建命令与 shutdown 释放） */
-    private DdgiVoxelizer ddgiVoxelizer;
-    /** DDGI 探针追踪 + 更新 Pass（批 B2） */
-    private DdgiProbePass ddgiProbePass;
     /** 光追阴影可见性图 Pass（P4-06 B5；仅 ray query 设备进图） */
     private RTShadowPass rtShadowPass;
     private RTGIPass rtgiPass;
     /** 光追镜面反射 Pass（P4-06 B9；仅 ray query + 混合管线进图） */
     private RTReflectPass rtReflectPass;
+    /** 光追降噪共享执行器（P4-06 B8；GI 与反射 Pass 共用，shutdown 显式释放） */
+    private RTDenoiser rtDenoiser;
     /** FORWARD 档忽略 SSAO 的 warn 一次性标记（applyRenderSettings 高频调用，不刷日志） */
     private boolean ssaoForwardWarned;
     /** FORWARD 档忽略 TAA 的 warn 一次性标记（同上口径） */
@@ -465,14 +463,12 @@ public class JavelinEngine {
         if (renderingSystem != null) {
             renderingSystem.close();
         }
+        if (rtDenoiser != null) {
+            rtDenoiser.close();   // waitIdle 之后（frameLoop.close 已做）：降噪管线与段描述符集
+            rtDenoiser = null;
+        }
         if (pickSystem != null) {
             pickSystem.close();   // waitIdle 之后（frameLoop.close 已做）：摘 Pass + PSO + 读回环
-        }
-        if (ddgiVoxelizer != null) {
-            ddgiVoxelizer.close();   // 同上：waitIdle 之后释放体素图/描述符集/PSO
-        }
-        if (ddgiProbePass != null) {
-            ddgiProbePass.close();   // 同上：临时 tile、两段 PSO/布局/描述符集、UBO
         }
         // 子系统 GPU 资源统一销毁（shutdownAll 早于 waitIdle 不能碰 GPU，
         // closeGpu 钩子在此安全区统一遍历——RenderingSystem.close() 同层）
@@ -572,8 +568,10 @@ public class JavelinEngine {
             return null;
         }
         // 启动期按设置选实现类（2026-11-13 拍板：管线不再承载运行期切档——编辑器固定混合，
-        // 前向管线只留给打包运行时与 demo/测试）
+        // 前向管线只留给打包运行时与 demo/测试）。前向档已标 @Deprecated（2026-11-27，混合唯一），
+        // 旧项目的 renderPipeline=FORWARD 仍按原样构造，等移除该档时这条分支一起删
         PipelineProfile profile = setting.getGraphSettings().getRenderPipeline();
+        @SuppressWarnings("deprecation")
         RenderPipeline pipeline = profile == PipelineProfile.FORWARD
                 ? new ForwardRenderPipeline(device(), assetManager)
                 : new DefaultHybridRenderPipeline(device(), assetManager);
@@ -581,14 +579,6 @@ public class JavelinEngine {
         postProcessSetup = new PostProcessSetup(device(), getAssetManager());
         // 阴影参数（Engine_Shadow_Quality_Design §3.2）：渲染系统持 live 实例，每帧打包进 UBO
         renderingSystem.setShadowSettings(setting.getGraphSettings().getShadowSettings());
-        // DDGI 参数（Engine_DDGI_Design §3/§4，四期 P4-05 批 B1）：体素场分辨率/开关/探针网格
-        renderingSystem.setDdgiSettings(setting.getGraphSettings().getDdgiSettings());
-        // 体素化（DDGI 投射线底座）：最靠前的 compute Pass——B2 的追踪/更新都吃这张体素图
-        ddgiVoxelizer = new DdgiVoxelizer(device(), renderingSystem, assetManager);
-        pipeline.addPass(ddgiVoxelizer, "Shadow");
-        // 探针追踪 + 更新（B2）：体素图之后、场景 Pass 之前——探针数据独立于视口渲染
-        ddgiProbePass = new DdgiProbePass(device(), renderingSystem, assetManager, ddgiVoxelizer);
-        pipeline.addPass(ddgiProbePass, ddgiVoxelizer.name());
         // 光追阴影（B5）：GBuffer 之后、Lighting 之前——读世界位置/法线产半分辨率可见性图，
         // 材质 shader 只采样不参与求交。仅混合管线（有 G-Buffer）+ ray query 设备启用；
         // Forward 档没有 G-Buffer，若误开会让着色端采到未渲染的图（画面全黑阴影）。
@@ -598,13 +588,16 @@ public class JavelinEngine {
         if (profile != PipelineProfile.FORWARD && device().rayQueryEnabled()) {
             rtShadowPass = new RTShadowPass(device(), renderingSystem, assetManager);
             pipeline.addPass(rtShadowPass, GBufferPass.SHADER_PASS_NAME);
+            // 光追降噪（B8）：GI 与反射共用的时域累积 + ATrous 执行器（着色器
+            // core/rt/rtdenoise.compute；两 Pass 同一实例，close 统一释放）
+            rtDenoiser = new RTDenoiser(device(), renderingSystem, assetManager);
             // 光追漫反射 GI（B7）：同一锚点（GBuffer 之后、Lighting 之前），与 RTShadow 互不依赖。
             // 命中点反查屏幕 G-Buffer，所以同样要求混合管线
-            rtgiPass = new RTGIPass(device(), renderingSystem, assetManager);
+            rtgiPass = new RTGIPass(device(), renderingSystem, assetManager, rtDenoiser);
             pipeline.addPass(rtgiPass, GBufferPass.SHADER_PASS_NAME);
             // 光追镜面反射（B9）：同一锚点。唯一需要相机世界位置的 RT Pass（反射方向依赖眼睛位置），
             // 也唯一读 G-Buffer 材质通道（roughness 决定 lobe 宽度）
-            rtReflectPass = new RTReflectPass(device(), renderingSystem, assetManager);
+            rtReflectPass = new RTReflectPass(device(), renderingSystem, assetManager, rtDenoiser);
             pipeline.addPass(rtReflectPass, GBufferPass.SHADER_PASS_NAME);
         }
         return pipeline;
@@ -700,19 +693,6 @@ public class JavelinEngine {
     /** 后处理节点装配（组合根，持有节点实例 + 按 id 增删链；编辑器工具菜单开关经此） */
     public PostProcessSetup postProcessSetup() {
         return postProcessSetup;
-    }
-
-    /** DDGI 体素化 Pass（未启用 DDGI / 未建管线的引擎实例上为 null；B2 追踪段读它的体素场） */
-    public DdgiVoxelizer ddgiVoxelizer() {
-        return ddgiVoxelizer;
-    }
-
-    /**
-     * DDGI 探针追踪 + 更新 Pass（未建管线为 null）。只读消费口：调试视图取探针网格与
-     * 两张 atlas 用；编辑器侧不得经此改动探针数据面（Engine_DDGI_ProbeViz_Design §2 P4）。
-     */
-    public DdgiProbePass ddgiProbePass() {
-        return ddgiProbePass;
     }
 
     public AssetManager getAssetManager() {

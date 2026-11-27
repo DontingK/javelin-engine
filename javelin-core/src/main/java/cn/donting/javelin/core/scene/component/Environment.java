@@ -40,12 +40,11 @@ public class Environment extends Component {
     private CubemapImage skybox;
 
     /**
-     * 环境光模式（四期 P4-04 步骤一）：选「直接环境光」时下方内联展开
-     * {@link #ambientSetting}（颜色 + 强度）；选「探针 GI」时不展开（参数在项目设置
-     * 图形页的「探针 GI（DDGI）」组）。
+     * 环境光模式（四期 P4-04 步骤一）：选「直接环境光」时下方内联展开 {@link #ambientSetting}
+     * （颜色 + 强度）；选「光追 GI」时走 RTGIPass（参数无独立子组——射线密度等后置）。
      */
     @InsField(label = "ins.environment.ambientMode")
-    @InsFieldGroup(keys = {"OFF", "CONSTANT", "DDGI"}, value = {"", "ambientSetting", ""},
+    @InsFieldGroup(keys = {"OFF", "CONSTANT", "RTGI"}, value = {"", "ambientSetting", ""},
             label = "ins.environment.ambientSetting")
     private AmbientMode ambientMode = AmbientMode.OFF;
 
@@ -64,10 +63,6 @@ public class Environment extends Component {
      */
     @InsField(label = "ins.environment.rtShadow")
     private int rtShadowPercent = 0;
-
-    /** 光追漫反射 GI 混合档（B7）：0 = 环境项走常量/DDGI，100 = 光照结果全由 1-bounce GI 供给 */
-    @InsField(label = "ins.environment.rtgi")
-    private int rtgiPercent = 0;
 
     /** 光追镜面反射档（B9）：0 = 无环境镜面，100 = 全量（只对 PBR 材质生效） */
     @InsField(label = "ins.environment.rtReflection")
@@ -108,14 +103,6 @@ public class Environment extends Component {
         this.rtShadowPercent = clampPercent(percent);
     }
 
-    public int getRtgiPercent() {
-        return rtgiPercent;
-    }
-
-    public void setRtgiPercent(int percent) {
-        this.rtgiPercent = clampPercent(percent);
-    }
-
     public int getRtReflectionPercent() {
         return rtReflectionPercent;
     }
@@ -138,7 +125,6 @@ public class Environment extends Component {
         output.write("ambientMode", ambientMode);
         output.write("ambientSetting", ambientSetting);
         output.write("rtShadowPercent", rtShadowPercent);
-        output.write("rtgiPercent", rtgiPercent);
         output.write("rtReflectionPercent", rtReflectionPercent);
     }
 
@@ -154,7 +140,6 @@ public class Environment extends Component {
         }
         // 旧场景无光追键 = 全关（光追是显式开关，不做隐式默认开）
         rtShadowPercent = clampPercent(input.readInt("rtShadowPercent", 0));
-        rtgiPercent = clampPercent(input.readInt("rtgiPercent", 0));
         rtReflectionPercent = clampPercent(input.readInt("rtReflectionPercent", 0));
     }
 }

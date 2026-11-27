@@ -29,20 +29,20 @@ import org.joml.Vector3f;
  * <p><b>不走选中门控</b>：光照 gizmo 的价值是「一眼看清全场景灯位」，故每帧遍历
  * {@link GameScene#getLights()} 全量绘制，与选中抽屉（选中才画）互不影响。</p>
  *
- * <p><b>提交方式</b>：与 DDGI 探针视图同款——本状态不自行 {@code DebugDrawLine.clear()}，
+ * <p><b>提交方式</b>：本状态不自行 {@code DebugDrawLine.clear()}，
  * 由 {@link DebugLineAppState} 每帧 clear 后调 {@link #emitLightLines(JavelinEngine)} 代提交，
  * 避免清掉选中绿框。</p>
  *
  * <p><b>入口</b>：菜单「工具 | 光照 gizmo」两项单选 + F7 边沿切换；状态行占
- * {@link #HINT_ROW}（RenderStats 0~9 / G-Buffer 10 / DDGI 11 / 阴影图 12 之后）。</p>
+ * {@link #HINT_ROW}（RenderStats 0~9 / G-Buffer 10 / 阴影图 11 之后）。</p>
  */
 public class LightGizmoAppState extends AbsEditorAppState {
 
     public static final int MODE_OFF = 0;
     public static final int MODE_ON = 1;
 
-    /** 提示行：0~9 RenderStats / 10 G-Buffer / 11 DDGI / 12 阴影图 / 13 本状态 */
-    private static final int HINT_ROW = 13;
+    /** 提示行：0~9 RenderStats / 10 G-Buffer / 11 阴影图 / 12 本状态 */
+    private static final int HINT_ROW = 12;
 
     /** 方向光箭头长度（世界单位）与箭头头部长度 */
     private static final float ARROW_LENGTH = 3.0f;

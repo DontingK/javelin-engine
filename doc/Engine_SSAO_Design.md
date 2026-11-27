@@ -14,13 +14,13 @@
 > - `Engine_PostProcess_Design.md` 管链的承载与展开机制（`PostProcessNode`/`PostProcessChain`/`PostProcessSetup`/展开点）——本档只**复用**，不改机制（新增的 `order()` 排序声明是本档唯一增量契约，理由见 §3.5）；
 > - G-Buffer 格式与写入契约归 `Engine_RenderPipeline_Design.md` §4.2 / `Engine_Material_Design.md` §4.2（`Pass GBuffer`）；
 > - 参数设置面（`PostProcessSettings` / 项目设置窗口）归 `Engine_PostProcess_Design.md` §9.8 / `Editor_ProjectSettings_Design.md`，本档只登记新增字段；
-> - 天空盒环境光（P4-04）、探针 GI（P4-05）不是本档范围——SSAO 是它们之前的第一步，二者将来替换/叠加 AO 的方式归各自档。
+> - 天空盒环境光（P4-04）不是本档范围；~~探针 GI（P4-05）~~ 已于 2026-11-27 整体退役，SSAO 现按「接触 AO」口径常驻。
 
 ---
 
 ## 1. 范围与目标
 
-**目标**：让物体接触处、凹角、缝隙出现**接触阴影（AO）**，把「只靠直射光 + 常量 ambient」的平贴画面做出空间层次感；这也是 GI 路线的第一步（`Engine_Lighting_Design.md` §10：SSAO 为 GI 第一步，探针 GI 后续接管环境项真值）。
+**目标**：让物体接触处、凹角、缝隙出现**接触阴影（AO）**，把「只靠直射光 + 常量 ambient」的平贴画面做出空间层次感；这也是 GI 路线的第一步（实时 GI 现由光追 RTGI 承载；`Engine_Lighting_Design.md` §10：SSAO 为 GI 第一步，探针 GI 后续接管环境项真值）。
 
 **本期做**：
 
@@ -35,7 +35,7 @@
 - **深度采样路径**（RHI 缺口三条，§3.1）——不做，也不新增/修改 RHI；
 - HBAO / GTAO / 地平线搜索类算法（本篇是经典半球核 SSAO，升级另立项）；
 - AO 只作用不透明物体的严格版（需深度采样；v1 全屏乘的边界见 §4.2）；
-- AO 与探针 GI 的融合策略（归 P4-05）；
+- ~~AO 与探针 GI 的融合策略（归 P4-05）~~（随 DDGI 退役作废——SSAO 常驻接触 AO，无档位联动）；
 - AO 中间 RT 的内存别名（RHI-04 后置）。
 
 ---
@@ -357,7 +357,7 @@ SSAO 是链上节点，而链对两档**正交**——但 SSAO 的**输入**不�
 
 ### 9.4 未做（步骤一/二范围外）
 
-深度采样路径（§2.1，另议）；HBAO/GTAO（另立项）；AO 与探针 GI 的融合（P4-05）；半分辨率模糊的可分离 H/V 两 Pass（现为单 Pass 5×5，够用则不拆）；AO 中间 RT 内存别名（RHI-04）；多视口 AO RT 尺寸随视口而非交换链（现与 depth 同尺码，与既有族一致）。
+深度采样路径（§2.1，另议）；HBAO/GTAO（另立项）；~~AO 与探针 GI 的融合（P4-05）~~（已作废）；半分辨率模糊的可分离 H/V 两 Pass（现为单 Pass 5×5，够用则不拆）；AO 中间 RT 内存别名（RHI-04）；多视口 AO RT 尺寸随视口而非交换链（现与 depth 同尺码，与既有族一致）。
 
 ---
 

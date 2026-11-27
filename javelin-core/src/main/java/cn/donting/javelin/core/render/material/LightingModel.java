@@ -21,7 +21,7 @@ public enum LightingModel implements InsEnumLabel {
     /**
      * 物理基线（REND-03）：GGX 微表面 + Fresnel + 能量守恒（金属度工作流）。
      * 需要 G-Buffer material 通道（roughness/metallic）或材质属性 `_Roughness`/`_Metallic`；
-     * 与环境项仍是常量/DDGI/RTGI，IBL 归 REND-16。
+     * 与环境项仍是常量/RTGI，IBL 归 REND-16。
      */
     PBR("ins.enum.lightingmodel.pbr");
 

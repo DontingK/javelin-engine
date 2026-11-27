@@ -13,15 +13,12 @@ import cn.donting.javelin.core.render.material.Shader;
 import cn.donting.javelin.core.render.rt.RayTracingScene;
 import cn.donting.javelin.core.render.material.ShaderPass;
 import cn.donting.javelin.core.render.material.SurfaceType;
-import cn.donting.javelin.core.render.ddgi.DdgiAtlases;
-import cn.donting.javelin.core.render.ddgi.DdgiProbeGrid;
 import cn.donting.javelin.core.render.pipeline.pass.GBufferPass;
 import cn.donting.javelin.core.render.pipeline.pass.RenderPass;
 import cn.donting.javelin.core.render.mesh.MeshUpload;
 import cn.donting.javelin.core.render.texture.CubemapImage;
 import cn.donting.javelin.core.render.texture.Texture2D;
 import cn.donting.javelin.core.render.texture.TextureUpload;
-import cn.donting.javelin.core.settings.DdgiSettings;
 import cn.donting.javelin.core.settings.ShadowSettings;
 
 import cn.donting.javelin.rhi.Buffer;
@@ -152,7 +149,7 @@ public final class RenderingSystem implements AutoCloseable {
 
     /** 光追 GI 最大射线距离（世界单位；间接光按 1/d² 衰减，超出即视为通向天空） */
     public static final float RTGI_MAX_DISTANCE = 20.0f;
-    /** 光追 GI 默认档（百分比）：100 = 全替换环境项；下调即与常量/DDGI 环境项混合 */
+    /** 光追 GI 默认档（百分比）：100 = 全替换环境项；下调即与常量环境项混合 */
     public static final int RTGI_DEFAULT_PERCENT = 100;
 
     /** 光追反射最大射线距离（世界单位；远大于 GI——镜子里能看到整条走廊的尽头） */
@@ -176,12 +173,6 @@ public final class RenderingSystem implements AutoCloseable {
     private final Color ambientColor = new Color(0.0f, 0.0f, 0.0f, 1.0f);
     /** 环境项强度（着色端 ambient.rgb * ambient.a 的 a） */
     private float ambientIntensity = 0.0f;
-    /**
-     * 环境光模式（四期 P4-04 步骤一 → P4-05 B3 扩 DDGI）：{@code OFF}/{@code CONSTANT} 走
-     * {@code ambient.rgb * ambient.a}；{@code DDGI} 由探针辐照度接管（打包进 set1 binding9 的
-     * {@code ddgiParams.x}，探针数据面未就绪时恒 0 = 回落常量项）。
-     */
-    private AmbientMode ambientMode = AmbientMode.OFF;
 
     // ── 主光阴影（批次④ → 四期 CSM，Engine_Lighting_Design §4.5 / Engine_Shadow_Quality_Design §4）──
     /**
@@ -242,11 +233,6 @@ public final class RenderingSystem implements AutoCloseable {
      */
     private final Sampler shadowRawSampler;
     /**
-     * DDGI 消费面采样器（set1 binding8/10：辐照度 / 深度矩 atlas）。consumption 侧手写
-     * 双线性（tile 内区 clamp，不跨 tile 渗漏），故 NEAREST + CLAMP 足够。
-     */
-    private final Sampler ddgiSampler;
-    /**
      * 光追阴影图采样器（P4-06 B5，set1 binding12）：半分辨率可见性图 → 全分辨率放大用
      * LINEAR + CLAMP（nearest 放大在材质边缘出块状）；非比较采样器，故与 shadowSampler 分开。
      */
@@ -263,7 +249,7 @@ public final class RenderingSystem implements AutoCloseable {
     private final Sampler rtreflectSampler;
     /** 光追阴影模式（百分比）：0 = 关（走 CSM），100 = 全替换，1~99 = 与 CSM 混合。无 ray query 恒 0 */
     private volatile int rtShadowMode;
-    /** 光追 GI 混合系数（百分比）：0 = 关（走常量/DDGI 环境项），100 = 全替换，1~99 = 混合。无 ray query 恒 0 */
+    /** 光追 GI 混合系数（百分比）：0 = 关（走常量环境项），100 = 全替换，1~99 = 混合。无 ray query 恒 0 */
     private volatile int rtgiMode;
     /** 光追反射混合系数（百分比）：0 = 关（无环境镜面），100 = 全量，1~99 = 按份额。无 ray query 恒 0 */
     private volatile int rtReflectMode;
@@ -272,26 +258,18 @@ public final class RenderingSystem implements AutoCloseable {
      *
      * <p>与上面的档位分离：档位是用户意图，Fill 是「这张图本帧真的被 compute 写过」。TLAS 无实例
      * / 无主光 / 管线缺失时 Pass 直接不派发，图保持初始化值（读出来全 0），若仍按档位采样，
-     * 阴影因子与环境项会被 0 整个乘掉——实测表现为**全场景纯黑且与环境光模式无关**
-     * （rtgi 100% 会把环境项整体替换成空图，选 DIRECT/DDGI/OFF 都一样黑）。</p>
+        * 阴影因子与环境项会被 0 整个乘掉——实测表现为**全场景纯黑且与环境光模式无关**
+        * （rtgi 100% 会把环境项整体替换成空图，选什么环境光档都一样黑）。</p>
      */
     private volatile int rtShadowFill;
     private volatile int rtgiFill;
     private volatile int rtReflectFill;
-    /** DDGI 参数 UBO 尺寸（std140：网格 origin+spacing / counts+tilesPerRow / tile 参数 / 运行态） */
-    static final int DDGI_PARAM_BYTES = 96;
-    /** atlas 未就绪时 set1 binding8/10 的占位图（1×1；仅保证描述符完整，着色端按 mode 门控不采样） */
-    private Texture ddgiPlaceholder;
     /** G-Buffer 采样器（HYBRID 档 LightingPass 消费；逐像素一一对应，NEAREST + CLAMP） */
     private final Sampler gbufferSampler;
     /** 末帧主光阴影是否生效（主光存在且 castShadow）——ShadowPass 挂点判据（全局，与视口无关） */
     private boolean shadowSunActive;
     /** 阴影参数（品质档/强度/PCF 半径/参考深度偏移/bias 两项/CSM 级联三项，Engine_Shadow_Quality_Design §3.2/§4.8） */
     private ShadowSettings shadowSettings = new ShadowSettings();
-    /** DDGI 参数（体素场分辨率/开关/探针网格/刷新节奏，Engine_DDGI_Design §3/§4） */
-    private DdgiSettings ddgiSettings = new DdgiSettings();
-    /** 消费面接管状态上一次的打印键（只在变化时落日志，见 {@code writeDdgiParams}） */
-    private String ddgiStateLog;
     // 阴影收集域复用暂存（帧路径 exclusive，热路径规矩：预分配复用）
     /** 逐级联光空间 z 范围回填暂存（CSM，1/zRange 折算除数来源） */
     private final float[] shadowZRangeTmp = new float[4];
@@ -347,9 +325,6 @@ public final class RenderingSystem implements AutoCloseable {
     private final ByteBuffer lightListPack = ByteBuffer.allocateDirect(
             LightCollector.MAX_POINT_LIGHTS * LightCollector.LIGHT_ITEM_FLOATS * 4)
             .order(ByteOrder.LITTLE_ENDIAN);
-    /** DDGI 参数 UBO 打包暂存（96B，P4-05 B3 消费面） */
-    private final ByteBuffer ddgiPack = ByteBuffer.allocateDirect(DDGI_PARAM_BYTES)
-            .order(ByteOrder.LITTLE_ENDIAN);
     /** 末帧首视口灯数快照（F3 在册灯数） */
     private int lastPointLightCount;
     private int lastDirectionalCount;
@@ -396,6 +371,12 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> rtgiTextures = new HashMap<>();
     // 每视口光追镜面反射图（P4-06 B9；RGBA16F 半分辨率，mode=0 时只占位不被采样）
     private final Map<String, Texture> rtreflectTextures = new HashMap<>();
+    // 每视口光追降噪历史图（P4-06 B8；RGBA16F 半分辨率 ping-pong，key = cameraName#用途序：gi/reflect × 0/1）
+    private final Map<String, Texture> rtDenoiseHistTextures = new HashMap<>();
+    /** 降噪历史 ping-pong 反查缓存（纹理 identityHashCode → 另一代；resize 换代即失效重建） */
+    private final Map<String, Texture> rtDenoiseHistOtherIndex = new HashMap<>();
+    // 每视口光追降噪 ATrous 中转图（P4-06 B8；RGBA16F 半分辨率，key = cameraName#用途）
+    private final Map<String, Texture> rtDenoiseScratchTextures = new HashMap<>();
     // 每视口 HDR 场景颜色（后处理链非空时，Engine_PostProcess_Design §3.3；惰性创建）
     private final Map<String, Texture> lightingRtTextures = new HashMap<>();
     // 每视口后处理中间 RT（链内非首尾节点输出，§3.4；key = cameraName#节点序）
@@ -408,8 +389,6 @@ public final class RenderingSystem implements AutoCloseable {
     private final Map<String, Texture> taaRtTextures = new HashMap<>();
     // 每视口 TAA 历史状态（上帧抖动后 viewProj + 帧号；TaaPass 重投影与失效判据的来源）
     private final Map<String, TaaHistory> taaHistories = new HashMap<>();
-    // 每视口 DDGI 探针 atlas 对（Engine_DDGI_Design §3；按网格版面换代，key = cameraName）
-    private final Map<String, DdgiAtlases> ddgiAtlasSets = new HashMap<>();
     /** TAA 投影抖动开关：仅 TAA 在链上才抖（RenderingSystem 不认链，由 JavelinEngine 下发）；相机级再叠加 */
     private boolean taaJitterEnabled;
     /** 抖动幅度（像素；内部常量 0.5 = thinTAA 同款半像素，满幅会把画面拉糊；不暴露给相机） */
@@ -525,12 +504,6 @@ public final class RenderingSystem implements AutoCloseable {
                 Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
                 SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
                 SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1.0f));
-        // DDGI 采样器（P4-05 B3）：与 G-Buffer 同档（NEAREST + CLAMP；双线性在着色端手写，
-        // 因为 tile 内区外的边框不参与插值，硬件 LINEAR 会跨 tile 渗漏）
-        this.ddgiSampler = device.createSampler(new SamplerDesc(
-                Filter.NEAREST, Filter.NEAREST, SamplerMipmapMode.NEAREST,
-                SamplerAddressMode.CLAMP_TO_EDGE, SamplerAddressMode.CLAMP_TO_EDGE,
-                SamplerAddressMode.CLAMP_TO_EDGE, 1.0f, 1.0f));
     }
 
     // ═══ 注册表（SceneRenderBridge pull / 直注册模式共用同一套 API） ═══
@@ -564,7 +537,6 @@ public final class RenderingSystem implements AutoCloseable {
             retireBloomRts(camera.name());
             retireSsaoRts(camera.name());
             retireTaaRts(camera.name());
-            retireDdgiAtlases(camera.name());
             taaHistories.remove(camera.name());
         }
     }
@@ -897,7 +869,7 @@ public final class RenderingSystem implements AutoCloseable {
         return rtgiSampler;
     }
 
-    /** 光追 GI 混合系数（百分比）：0 = 关（纯常量/DDGI 环境项），100 = 全替换，中间与旧值混合 */
+    /** 光追 GI 混合系数（百分比）：0 = 关（纯常量环境项），100 = 全替换，中间与旧值混合 */
     public void setRtgiMode(int percent) {
         this.rtgiMode = (percent <= 0 || !device.rayQueryEnabled())
                 ? 0 : Math.min(100, percent);
@@ -935,6 +907,71 @@ public final class RenderingSystem implements AutoCloseable {
 
     public int rtReflectMode() {
         return rtReflectMode;
+    }
+
+    // ═══ 光追降噪（P4-06 B8，RTDenoiser 消费）═══
+
+    /**
+     * 每视口光追降噪历史图（半分辨率 RGBA16F，ping-pong 两代；rgb = 累积色，a = 累积年龄）。
+     * 与 {@link #rtgiFor} 同模式（惰性创建、随交换链 resize 换绑）；GI 与反射共用一族
+     * （各自独立子键，互不串代）。
+     *
+     * @param index ping-pong 代（0/1）
+     */
+    public Texture rtDenoiseHistFor(String cameraName, String usage, int index) {
+        return rtDenoiseHistTextures.computeIfAbsent(
+                cameraName + "#" + usage + index, n -> device.createTexture(
+                        TextureDesc.texture2D(Format.R16G16B16A16_SFLOAT,
+                                Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                                Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
+    }
+
+    /** 降噪历史另一代（ping-pong 反查：拿本代找另一代；查无返回 null） */
+    public Texture rtDenoiseHistOtherFor(Texture generation) {
+        String id = Integer.toString(System.identityHashCode(generation));
+        Texture direct = rtDenoiseHistOtherIndex.get(id);
+        if (direct != null) {
+            return direct;
+        }
+        for (Map.Entry<String, Texture> e : rtDenoiseHistTextures.entrySet()) {
+            if (e.getValue() == generation) {
+                String key = e.getKey();
+                int slot = key.charAt(key.length() - 1) - '0';
+                Texture other = rtDenoiseHistTextures.get(key.substring(0, key.length() - 1) + (1 - slot));
+                rtDenoiseHistOtherIndex.put(id, other);
+                return other;
+            }
+        }
+        return null;
+    }
+
+    /** 每视口光追降噪 ATrous 中转图（半分辨率 RGBA16F；步长 1 迭代的写出口） */
+    public Texture rtDenoiseScratchFor(String cameraName, String usage) {
+        return rtDenoiseScratchTextures.computeIfAbsent(cameraName + "#" + usage,
+                n -> device.createTexture(TextureDesc.texture2D(Format.R16G16B16A16_SFLOAT,
+                        Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                        Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
+    }
+
+    /**
+     * 上帧抖动后 viewProj（P4-06 B8：降噪 temporal 段重投影——本帧世界位置投回上帧屏幕找历史）。
+     * 与 {@link #taaPrevViewProj} 同源；相机未收集过返回 null。
+     */
+    public org.joml.Matrix4f rtPrevViewProjFor(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? null : new org.joml.Matrix4f(history.prevJitteredViewProj);
+    }
+
+    /** 本视口相机本帧是否在移动（P4-06 B8：移动帧历史判无效；口径与 TAA 同源） */
+    public boolean rtCameraMoved(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null || history.cameraMoved;
+    }
+
+    /** 本视口上一帧帧号（P4-06 B8：断帧即历史失效；未收集过返回 {@code Long.MIN_VALUE}） */
+    public long rtPrevFrameFor(String cameraName) {
+        TaaHistory history = taaHistories.get(cameraName);
+        return history == null ? Long.MIN_VALUE : history.prevFrame;
     }
 
     /**
@@ -1001,7 +1038,7 @@ public final class RenderingSystem implements AutoCloseable {
         this.rtgiFill = Math.max(0, Math.min(100, percent));
     }
 
-    /** 光追 GI Pass 本帧未派发：环境项回落常量 / DDGI */
+    /** 光追 GI Pass 本帧未派发：环境项回落常量 */
     public void markRtgiSkipped() {
         this.rtgiFill = 0;
     }
@@ -1125,58 +1162,6 @@ public final class RenderingSystem implements AutoCloseable {
                 it.remove();
             }
         }
-    }
-
-    // ═══ 每视口 DDGI 探针 atlas（Engine_DDGI_Design §3，P4-05 批 B1） ═══
-
-    /**
-     * 每视口 DDGI 两张 atlas（辐照度 {@code RGBA16F} / 深度矩 {@code RG16F}）。
-     *
-     * <p>版面（尺寸 / tile 数 / 探针数）全部由调用方给的 {@link DdgiProbeGrid} 决定：
-     * 与现存一对同版面则原样复用，否则换代——旧两张图进两帧退役队列，新一对按新尺寸
-     * 创建。与交换链尺寸无关（resize 不换绑；探针网格是相机居中滚动体，不受视口影响）。
-     * 惰性创建：无症状挂账时（DDGI 关闭）永不开图。</p>
-     */
-    public DdgiAtlases ddgiAtlasesFor(String cameraName, DdgiProbeGrid grid) {
-        if (cameraName == null || grid == null) {
-            throw new IllegalArgumentException("cameraName / grid must not be null");
-        }
-        DdgiAtlases current = ddgiAtlasSets.get(cameraName);
-        if (current != null && current.matches(grid)) {
-            return current;
-        }
-        if (current != null) {
-            log.info("DDGI atlas rebind[{}]: {} → {}", cameraName, current, grid);
-            retire(current.irradiance());
-            retire(current.depth());
-            ddgiAtlasSets.remove(cameraName);
-        }
-        DdgiAtlases created = DdgiAtlases.create(device, grid);
-        log.info("DDGI atlas created[{}]: {}（显存 {} KB）", cameraName, created,
-                (grid.irradianceAtlasBytes() + grid.depthAtlasBytes()) / 1024);
-        ddgiAtlasSets.put(cameraName, created);
-        return created;
-    }
-
-    /** 退役某视口的 DDGI atlas（removeCamera 用；retire 两帧后销毁） */
-    private void retireDdgiAtlases(String cameraName) {
-        DdgiAtlases atlases = ddgiAtlasSets.remove(cameraName);
-        if (atlases != null) {
-            retire(atlases.irradiance());
-            retire(atlases.depth());
-        }
-    }
-
-    /**
-     * 当前已绑定到该视口的 DDGI atlas（未建 = {@code null}）。
-     *
-     * <p>着色 Pass 的依赖声明用：辐照度/深度矩两张图既要被更新段 compute 以 STORAGE 写、
-     * 又要被 Forward/Lighting 以 SAMPLED 读，图里必须两侧都声明，否则布局在
-     * GENERAL / SHADER_READ_ONLY 之间无人负责转换与屏障（实测 VUID-09600 + 00344 刷屏、
-     * 画面闪）。这里只读现成绑定，不触发建图（建图归 {@link #ddgiAtlasesFor}）。</p>
-     */
-    public DdgiAtlases ddgiAtlasesOf(String cameraName) {
-        return cameraName == null ? null : ddgiAtlasSets.get(cameraName);
     }
 
     // ═══ TAA 历史色与状态面（TaaPass 消费） ═══
@@ -1625,8 +1610,8 @@ public final class RenderingSystem implements AutoCloseable {
 
     /**
      * 本视口 shadowMap atlas 的非抛出只读口（未建 = {@code null}）：供调用点无 ShadowPass
-     * 前置约束的消费方（如 DDGI trace 段——主光未激活/关阴影时视口没有阴影资源，
-     * 此时走占位图 + 级联数 0 的恒受光回落）。
+     * 前置约束的消费方（如调试视图——主光未激活/关阴影时视口没有阴影资源，此时走
+     * 「不进图 + 未就绪行」的回落）。
      */
     public Texture shadowMapOrNull(String cameraName) {
         ViewShadow vs = cameraName == null ? null : viewShadows.get(cameraName);
@@ -1664,114 +1649,6 @@ public final class RenderingSystem implements AutoCloseable {
             throw new IllegalArgumentException("shadowSettings must not be null");
         }
         this.shadowSettings = shadowSettings;
-    }
-
-    /**
-     * DDGI 追踪段用的光照快照（Engine_DDGI_Design §4.1）：主光方向 + 颜色×强度 + 环境项。
-     *
-     * <p>打包成 12 个 float 供宿主塞进 UBO：{@code [0..2]} 主光方向（指向光源的归一向量）、
-     * {@code [3..5]} 主光 rgb × 强度、{@code [6..8]} 环境 rgb、{@code [9]} 环境强度。
-     * 主光缺失（场景无方向光）时前三与 3~5 位全零，着色端只剩环境项。</p>
-     */
-    public void packDdgiLighting(float[] out12) {
-        if (out12 == null || out12.length < 12) {
-            throw new IllegalArgumentException("out12 至少 12 个 float");
-        }
-        RenderLight sun = resolveSun();
-        if (sun == null) {
-            out12[0] = 0f;
-            out12[1] = 0f;
-            out12[2] = 0f;
-            out12[3] = 0f;
-            out12[4] = 0f;
-            out12[5] = 0f;
-        } else {
-            Vector3f dir = sun.worldDir();
-            out12[0] = dir.x;
-            out12[1] = dir.y;
-            out12[2] = dir.z;
-            float[] color = sun.colorIntensity();
-            out12[3] = color[0] * color[3];
-            out12[4] = color[1] * color[3];
-            out12[5] = color[2] * color[3];
-        }
-        out12[6] = ambientColor.r;
-        out12[7] = ambientColor.g;
-        out12[8] = ambientColor.b;
-        out12[9] = ambientIntensity;
-        out12[10] = 0f;
-        out12[11] = 0f;
-    }
-
-    /**
-     * DDGI 追踪段用的 CSM 阴影参数快照（Engine_DDGI_Design §4.1，直射项修正 2026-11-22）：
-     * 主视口 ViewShadow 的矩阵/级联/atlas 段，直接打进 352B ByteBuffer（std140，与
-     * {@code ddgi_trace.compute} binding7 的 {@code ShadowParams} 块逐字段对齐）。
-     *
-     * <p>布局：{@code cascadeHead}（x=级联数，yzw=0）+ {@code sunViewProj[4]}（未用槽 identity）
-     * + {@code cascadeSplits[4]} + {@code shadowParams}（品质档/PCF 半径/强度/refDepthOffset）
-     * + {@code shadowParams2}（atlas 象限数/atlas 边长/0/0）+ {@code cascadeInvZ[4]}。
-     * 值与 {@code packLightingParams} 的 set1 CSM 段同源——探针直射项与主画面同一套影子。</p>
-     *
-     * <p>无主相机/无阴影资源时全零 + 级联数 0：着色端 {@code cascadeShadowFactor} 恒受光
-     * （天然回落，不炸描述符）。{@code out} 须至少 352 字节、position 归零由调用方负责
-     * （本方法只 put 不 flip）。</p>
-     */
-    public void packDdgiShadowParams(ByteBuffer out) {
-        if (out == null || out.capacity() < 352) {
-            throw new IllegalArgumentException("out 至少 352 字节（got: "
-                    + (out == null ? "null" : out.capacity()) + "）");
-        }
-        RenderCamera primary = cameras.isEmpty() ? null : cameras.get(0);
-        // 直查 viewShadows 表而非 shadowView(...)：后者在资源缺失时抛 IllegalStateException
-        //（帧收集未建 = 无主光/关阴影的合法态，此时应回落全零而非炸）
-        ViewShadow vs = primary == null ? null : viewShadows.get(primary.name());
-        if (vs == null) {
-            for (int i = 0; i < 88; i++) {
-                out.putFloat(0f);
-            }
-            return;
-        }
-        // cascadeHead：x = 级联数
-        out.putFloat(vs.cascadeCount).putFloat(0f).putFloat(0f).putFloat(0f);
-        // sunViewProj[4]（未用槽 identity——compute 侧只走到 cascadeCount）
-        for (int c = 0; c < 4; c++) {
-            for (float v : vs.matrices[c].get(matTmp)) {
-                out.putFloat(v);
-            }
-        }
-        for (int c = 0; c < 4; c++) {
-            out.putFloat(vs.splits[c]);
-        }
-        ShadowSettings shadow = shadowSettings;
-        out.putFloat(shadow.getQuality().code())
-                .putFloat(shadow.getPcfRadius())
-                .putFloat(shadow.getStrength())
-                .putFloat(shadow.getRefDepthOffset());
-        out.putFloat(vs.grid)
-                .putFloat(vs.atlasSize)
-                .putFloat(0f)
-                .putFloat(0f);
-        for (int c = 0; c < 4; c++) {
-            out.putFloat(vs.invZ[c]);
-        }
-    }
-
-    /**
-     * DDGI 参数（Engine_DDGI_Design §3/§4）：启动期由 {@code JavelinEngine} 灌入设置、
-     * 运行期由编辑器「项目设置」窗口改写。{@code DdgiVoxelizer} 按它取体素场分辨率与
-     * 开关，{@code DdgiAtlases} 按它取探针网格。
-     */
-    public DdgiSettings ddgiSettings() {
-        return ddgiSettings;
-    }
-
-    /** DDGI 参数设置（null 拒绝——保持恒有值，调用方不必判空） */
-    public void setDdgiSettings(DdgiSettings ddgiSettings) {
-        if (ddgiSettings == null) {
-            throw new IllegalArgumentException("ddgiSettings must not be null");
-        }
-        this.ddgiSettings = ddgiSettings;
     }
 
     /**
@@ -2178,14 +2055,6 @@ public final class RenderingSystem implements AutoCloseable {
                         ShaderStage.FRAGMENT),
                 new DescriptorSetLayoutDesc.Binding(7, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
                         ShaderStage.FRAGMENT),
-                // binding8/10 = DDGI 辐照度 / 深度矩 atlas（四期 P4-05 B3 消费面；P4-17 退役
-                // 腾出的槽正好接上）；binding9 = DDGI 参数 UBO（网格 + 运行态 mode/强度）
-                new DescriptorSetLayoutDesc.Binding(8, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT),
-                new DescriptorSetLayoutDesc.Binding(9, DescriptorType.UNIFORM_BUFFER, 1,
-                        ShaderStage.FRAGMENT),
-                new DescriptorSetLayoutDesc.Binding(10, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
-                        ShaderStage.FRAGMENT),
                 // binding11 = shadowMap 原始深度（REND-21-C1 PCSS 阻挡搜索：与 binding4 同一张
                 // atlas，不同采样器——无 compare 才能读到真实深度）
                 new DescriptorSetLayoutDesc.Binding(11, DescriptorType.COMBINED_IMAGE_SAMPLER, 1,
@@ -2235,9 +2104,6 @@ public final class RenderingSystem implements AutoCloseable {
         Buffer clusterIndices = device.createBuffer(new BufferDesc(
                 (long) ClusterBuilder.MAX_POOL_UINTS * 4,
                 Set.of(BufferUsage.STORAGE), MemoryPreference.hostVisibleCoherent()), null);
-        Buffer ddgiParams = device.createBuffer(new BufferDesc(
-                (long) DDGI_PARAM_BYTES, Set.of(BufferUsage.UNIFORM),
-                MemoryPreference.hostVisibleCoherent()), null);
         DescriptorSet set = device.createDescriptorSet(frameStorageSetLayout);
         // G-Buffer 三张（批次④-B）：材质 shader 不用、HYBRID 档 LightingPass 消费——
         // 同 set1 布局须给全 binding 有效描述符（Vulkan 绑定完整性），恒指向本视口附件
@@ -2245,10 +2111,8 @@ public final class RenderingSystem implements AutoCloseable {
         Texture gbufferNormal = gbufferNormalFor(cameraName);
         Texture gbufferWorldPos = gbufferWorldPosFor(cameraName);
         ViewLighting created = new ViewLighting(cameraName, lightList, clusterGrid, clusterIndices,
-                ddgiParams, gbufferAlbedo, gbufferNormal, gbufferWorldPos,
+                gbufferAlbedo, gbufferNormal, gbufferWorldPos,
                 set, viewW, viewH, gridX, gridY);
-        // binding8/10 先指占位 1×1（探针 atlas 就绪后由 syncDdgi 重指）；
-        // 参数 UBO 恒存在，mode=0 时着色端直接回落常量环境项
         updateLightingSet(created);
         viewLights.put(cameraName, created);
         log.info("视口灯光资源创建: camera[{}] viewport {}x{} grid {}x{}x{} ({}B/{}B)",
@@ -2258,12 +2122,10 @@ public final class RenderingSystem implements AutoCloseable {
     }
 
     /**
-     * set1 全量描述符写入（创建与 DDGI atlas 换绑共用；Vulkan 要求布局内每个 binding 都有
-     * 有效描述符——材质 shader 不声明 binding5..10 也照填）。
+     * set1 全量描述符写入（创建与换代共用；Vulkan 要求布局内每个 binding 都有
+     * 有效描述符——材质 shader 不声明 binding5..15 也照填）。
      */
     private void updateLightingSet(ViewLighting vl) {
-        Texture irr = vl.ddgiIrradiance != null ? vl.ddgiIrradiance : ddgiPlaceholderTexture();
-        Texture dep = vl.ddgiDepth != null ? vl.ddgiDepth : ddgiPlaceholderTexture();
         Texture shadowMap = shadowMapFor(vl.cameraName);
         vl.set.update(new DescriptorUpdate[]{
                 DescriptorUpdate.dynamicUniformBuffer(0, lightingBuffer, 0, LIGHTING_STRIDE),
@@ -2274,9 +2136,6 @@ public final class RenderingSystem implements AutoCloseable {
                 DescriptorUpdate.sampledTexture(5, vl.gbufferAlbedo, gbufferSampler),
                 DescriptorUpdate.sampledTexture(6, vl.gbufferNormal, gbufferSampler),
                 DescriptorUpdate.sampledTexture(7, vl.gbufferWorldPos, gbufferSampler),
-                DescriptorUpdate.sampledTexture(8, irr, ddgiSampler),
-                DescriptorUpdate.uniformBuffer(9, vl.ddgiParams, 0, DDGI_PARAM_BYTES),
-                DescriptorUpdate.sampledTexture(10, dep, ddgiSampler),
                 DescriptorUpdate.sampledTexture(11, shadowMap, shadowRawSampler),
                 DescriptorUpdate.sampledTexture(12, rtShadowFor(vl.cameraName), rtShadowSampler),
                 DescriptorUpdate.sampledTexture(13, rtgiFor(vl.cameraName), rtgiSampler),
@@ -2285,111 +2144,6 @@ public final class RenderingSystem implements AutoCloseable {
                 // binding15 = 光追反射图（P4-06 B9；reflectParams.x=0 时不采样）
                 DescriptorUpdate.sampledTexture(15, rtreflectFor(vl.cameraName),
                         rtreflectSampler)});
-    }
-
-    /** DDGI 占位图（1×1）：atlas 未就绪/DDGI 关闭时 binding8/10 的描述符占位（着色端不采样） */
-    private Texture ddgiPlaceholderTexture() {
-        if (ddgiPlaceholder == null) {
-            // 必须带 1 像素上传（Pitfalls #37 同型）：这张图从不进 RenderGraph 声明，传 null
-            // 建出来布局就永远停在 UNDEFINED；而 set1 binding8/10 的描述符恒按 SHADER_READ_ONLY
-            // 写入，着色器里 DDGI 分支静态判访问即撞 VUID-vkCmdDraw-None-09600（实测首帧报）
-            ByteBuffer zero = ByteBuffer.allocateDirect(8).order(ByteOrder.LITTLE_ENDIAN);
-            ddgiPlaceholder = device.createTexture(TextureDesc.texture2D(
-                    HDR_SCENE_COLOR_FORMAT, 1, 1,
-                    Set.of(TextureUsage.SAMPLED, TextureUsage.TRANSFER_DST)),
-                    UploadData.of(zero));
-        }
-        return ddgiPlaceholder;
-    }
-
-    /** 环境光模式（桥每帧推送；{@code DDGI} 档由探针辐照度接管环境项） */
-    public void setAmbientMode(AmbientMode mode) {
-        this.ambientMode = mode != null ? mode : AmbientMode.OFF;
-    }
-
-    /** 当前环境光模式（DdgiProbePass 判定是否推送 DDGI 数据面用） */
-    public AmbientMode ambientMode() {
-        return ambientMode;
-    }
-
-    /**
-     * DDGI 数据面绑定（P4-05 B3；{@code DdgiProbePass} 在 atlas 就绪后每帧调用）。
-     *
-     * <p>两张 atlas 句柄变 → 重建本视口 set1（旧 set 两帧退役，不原地 update，绕开 03047
-     * 在途约束）；参数 UBO 每帧重写——网格原点是相机居中滚动的，不刷就是上一帧的旧原点。</p>
-     */
-    public void syncDdgi(String cameraName, DdgiAtlases atlases, DdgiProbeGrid grid,
-                         DdgiSettings settings) {
-        checkOpen();
-        ViewLighting vl = viewLights.get(cameraName);
-        if (vl == null || atlases == null || grid == null || settings == null) {
-            return;
-        }
-        // 野引用防御（2026-11-26）：调用方缓存的 atlas 已被 removeCamera/换代剔出系统表时，
-        // 对象里的图可能已销毁——写进 set1 就是 02996 + 后续 barrier 打已释放 VkImage。
-        // 这里只放行系统表里那一份，其余等调用方下次 resolve。
-        if (ddgiAtlasesOf(cameraName) != atlases) {
-            return;
-        }
-        boolean rebound = vl.ddgiIrradiance != atlases.irradiance()
-                || vl.ddgiDepth != atlases.depth();
-        vl.ddgiIrradiance = atlases.irradiance();
-        vl.ddgiDepth = atlases.depth();
-        vl.ddgiGrid = grid;
-        if (rebound) {
-            rebuildLightingSet(vl);
-        }
-        writeDdgiParams(vl, grid, settings);
-    }
-
-    /** 本视口 set1 换代（DDGI atlas 换绑：新建 + 旧 set 两帧退役） */
-    private void rebuildLightingSet(ViewLighting vl) {
-        DescriptorSet fresh = device.createDescriptorSet(frameStorageSetLayout);
-        DescriptorSet old = vl.set;
-        vl.set = fresh;
-        updateLightingSet(vl);
-        retireResource(old::dispose);
-    }
-
-    /**
-     * DDGI 参数 UBO 打包（std140，与 ShaderInjector 的 {@code DdgiParamsBlock} 同源）：
-     * gridOriginSpacing（xyz 原点 / w 间距）、counts（xyz 三向数量 / w tilesPerRow）、
-     * tileParams（x 辐照度 tile 边长 / y 辐照度内区 / z 深度 tile 边长 / w 深度内区）、
-     * ddgiParams（x mode 0/1 / y 强度 / z 法线偏置（世界单位）/ w 预留）。
-     */
-    private void writeDdgiParams(ViewLighting vl, DdgiProbeGrid grid, DdgiSettings settings) {
-        boolean live = ambientMode == AmbientMode.DDGI && settings.isEnabled();
-        // 消费面接管状态只报变化（首跑排障用：数据面在跑但画面没变化，八成是这里 mode=0）
-        String state = live + "|" + ambientMode + "|" + settings.isEnabled() + "|" + grid;
-        if (!state.equals(ddgiStateLog)) {
-            ddgiStateLog = state;
-            if (live) {
-                log.info("DDGI 消费面接管：camera[{}] {}，强度 {}、法线偏置 {}（环境项由探针辐照度接管）",
-                        vl.cameraName, grid, settings.getIntensity(),
-                        settings.getNormalBiasScale() * grid.spacing());
-            } else if (settings.isEnabled()) {
-                log.warn("DDGI 数据面在跑但消费面没接管：camera[{}] 环境光模式 = {}（要选 DDGI / 「探针 GI（DDGI）」"
-                        + "才会由探针辐照度接管环境项，现在仍走常量项）", vl.cameraName, ambientMode);
-            } else {
-                log.info("DDGI 消费面关闭：camera[{}] 环境光模式 = {}、启用探针 GI = false",
-                        vl.cameraName, ambientMode);
-            }
-        }
-        ddgiPack.clear();
-        ddgiPack.putFloat(grid.originX()).putFloat(grid.originY()).putFloat(grid.originZ())
-                .putFloat(grid.spacing());
-        ddgiPack.putInt(grid.countX()).putInt(grid.countY()).putInt(grid.countZ())
-                .putInt(grid.tilesPerRow());
-        ddgiPack.putFloat(DdgiProbeGrid.IRRADIANCE_TILE)
-                .putFloat(DdgiProbeGrid.IRRADIANCE_INNER)
-                .putFloat(DdgiProbeGrid.DEPTH_TILE)
-                .putFloat(DdgiProbeGrid.DEPTH_INNER);
-        ddgiPack.putFloat(live ? 1.0f : 0.0f)
-                .putFloat(settings.getIntensity())
-                .putFloat(settings.getNormalBiasScale() * grid.spacing())
-                .putFloat(0.0f);
-        ddgiPack.flip();
-        vl.ddgiParams.update(0, ddgiPack);
     }
 
     /** set1 描述符集（本视口光照套件；collectFrame 先行建资源）。绑定带 1 个动态偏移（{@link RenderView#lightingOffset()}） */
@@ -2451,19 +2205,11 @@ public final class RenderingSystem implements AutoCloseable {
         final Buffer lightList;
         final Buffer clusterGrid;
         final Buffer clusterIndices;
-        /** DDGI 参数 UBO（binding9；网格 origin/spacing/counts + 运行态 mode/强度/normalBias） */
-        final Buffer ddgiParams;
         /** 本视口 G-Buffer 三张（set1 binding5/6/7 指向；纹理归 RenderingSystem 每视口
          *  表持有，此处仅留引用供调试/读数） */
         final Texture gbufferAlbedo;
         final Texture gbufferNormal;
         final Texture gbufferWorldPos;
-        /** 当前指进 set1 binding8/10 的 DDGI atlas（null = 仍是占位图）；atlas 归
-         *  {@link RenderingSystem} 的 ddgiAtlasSets 持有，此处只留引用做换绑判据 */
-        Texture ddgiIrradiance;
-        Texture ddgiDepth;
-        /** 当前 atlas 对应网格（参数 UBO 的来源） */
-        DdgiProbeGrid ddgiGrid;
         /** 本视口 set1（视口尺寸变化时整套换新、旧 set retire——不原地 update，
          *  绕开 03047 在途约束；dispose 只管当前这套，旧套在 retire 队列各自走完） */
         DescriptorSet set;
@@ -2473,14 +2219,12 @@ public final class RenderingSystem implements AutoCloseable {
         final int gridY;
 
         ViewLighting(String cameraName, Buffer lightList, Buffer clusterGrid, Buffer clusterIndices,
-                     Buffer ddgiParams,
                      Texture gbufferAlbedo, Texture gbufferNormal, Texture gbufferWorldPos,
                      DescriptorSet set, int viewW, int viewH, int gridX, int gridY) {
             this.cameraName = cameraName;
             this.lightList = lightList;
             this.clusterGrid = clusterGrid;
             this.clusterIndices = clusterIndices;
-            this.ddgiParams = ddgiParams;
             this.gbufferAlbedo = gbufferAlbedo;
             this.gbufferNormal = gbufferNormal;
             this.gbufferWorldPos = gbufferWorldPos;
@@ -2496,7 +2240,6 @@ public final class RenderingSystem implements AutoCloseable {
             lightList.dispose();
             clusterGrid.dispose();
             clusterIndices.dispose();
-            ddgiParams.dispose();
         }
     }
 
@@ -2624,6 +2367,9 @@ public final class RenderingSystem implements AutoCloseable {
             disposeAll(rtShadowTextures);
             disposeAll(rtgiTextures);
             disposeAll(rtreflectTextures);
+            disposeAll(rtDenoiseHistTextures);
+            rtDenoiseHistOtherIndex.clear();
+            disposeAll(rtDenoiseScratchTextures);
             disposeAll(lightingRtTextures);
             disposeAll(postRtTextures);
             disposeAll(bloomRtTextures);
@@ -2793,17 +2539,14 @@ public final class RenderingSystem implements AutoCloseable {
         disposeAll(rtShadowTextures);
         disposeAll(rtgiTextures);
         disposeAll(rtreflectTextures);
+        disposeAll(rtDenoiseHistTextures);
+        rtDenoiseHistOtherIndex.clear();
+        disposeAll(rtDenoiseScratchTextures);
         disposeAll(lightingRtTextures);
         disposeAll(postRtTextures);
         disposeAll(bloomRtTextures);
         disposeAll(ssaoRtTextures);
         disposeAll(taaRtTextures);
-        // DDGI atlas（每视口两张；表里只剩当前代——旧代都已在换代时进 retiredTextures）
-        ddgiAtlasSets.values().forEach(a -> {
-            a.irradiance().dispose();
-            a.depth().dispose();
-        });
-        ddgiAtlasSets.clear();
         retiredTextures.forEach(r -> r.texture.dispose());
         retiredTextures.clear();
         // 天空盒：仅资产路径产物归本系统释放（Demo 测试形态 Texture 由调用方持有）
@@ -2824,11 +2567,6 @@ public final class RenderingSystem implements AutoCloseable {
         shadowSampler.dispose();
         shadowRawSampler.dispose();
         gbufferSampler.dispose();
-        ddgiSampler.dispose();
-        if (ddgiPlaceholder != null) {
-            ddgiPlaceholder.dispose();
-            ddgiPlaceholder = null;
-        }
         samplers.values().forEach(Sampler::dispose);
         samplers.clear();
         uboBuffer.dispose();

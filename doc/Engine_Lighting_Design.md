@@ -218,8 +218,8 @@ outColor = ambient + Σ directional[0..dirCount) (Lambert)
 ## 10. 后置项与边界（2026-10-31 拍板：质量升级整体归四期——Roadmap §4 单点）
 
 - **阴影质量分级**：PCF 软采样（注入段采样次数 × 邻域偏移）、CSM 级联（多 lightViewProj/级联选择/接缝处理）、深度 bias 精调、shadowCasters per-object 开关、stabilize 抖动抑制——**归四期第 3 项**（Roadmap §4，施工序 ②）；**方案档 `Engine_Shadow_Quality_Design.md`（v0.2：步骤一 品质档 PCF + bias 调参面 + 设置窗口 2026-11-14 已落码待用户实测；一-C per-object 与步骤二 CSM 未做）**——其中 **§4.5.1「PSO 静态 bias 硬编码 2.0/1.5」已改为取阴影设置（`ShadowSettings`，改档整批退役重建 PSO）**、**「ShadowPass 全局帧号幂等挂载」将在步骤二被「逐视口挂载」取代**（CSM 依赖各相机视锥）；
-- 天空盒环境光照（天空盒作 ambient 源：SH9/mipmap 降采样，替换 §3.3 ambient 常量）——**归四期第 4 项**（过渡环境光，探针 GI 落地后并入第 5 项）；
-- **GI 方向**：目标态 = 探针实时 GI（DDGI 路线）、烘焙管线不建、SSAO 为 GI 第一步——**归四期第 5 项**（Roadmap §4，探针复用本档批次①底座、求交后端可替换软光栅 → rayQuery；3D 纹理/纹理数组为采样前置缺口）；
+- 天空盒环境光照（天空盒作 ambient 源：SH9/mipmap 降采样，替换 §3.3 ambient 常量）——**归四期第 4 项**（过渡环境光；~~探针 GI 落地后并入第 5 项~~已随 P4-05 退役作废，SH9 重启触发见 `Engine_Backlog.md` P4-04）；
+- **GI 方向**：原目标态 = 探针实时 GI（DDGI 路线）——**已于 2026-11-27 随 P4-05 退役作废**；实时 GI 由四期 ⑦ 光追承载（`AmbientMode.RTGI` 档 = 1-bounce RTGI 辐照度图），烘焙管线不建、SSAO 为 GI 第一步的口径不变；
 - **光追方向**：rayQuery 优先、RT pipeline 后置——**归四期第 6 项**（Roadmap §4，缺口 = AS 资源种类/图状态、BDA、GL_EXT_ray_query 编译链、蒙皮 BLAS 首范围=静态几何；复用本档批次①通用性红线）；
 - 脏标记跳过重建（相机/灯集合不变时不重跑构建）；**cluster 构建整链 GPU 化**（原「前缀和计算化」扩展：count/scan/write 三步 compute 化 + 每帧 grid 清零——CPU 版测试为迁移 oracle，v0.7 §6 修订记录）；cell 线性索引 Morton 化（局部性）；深度重建视空间位置——clustered 后置项不设期，随四期批次需要（Roadmap §4 尾注）；正交相机 Z 线性切分已随批次③落位（§5 ortho 分支）；
 - **cluster 索引系统复用**：decals / 反射探针后续并入同一 cluster（Godot 4 启发——索引池语义泛化为「per-cell 可见物列表」时不重复建基建）；

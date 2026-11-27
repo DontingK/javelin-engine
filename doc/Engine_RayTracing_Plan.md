@@ -1,6 +1,9 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v1.3（2026-11-26，B9 镜面反射落码：半分辨率 1 spp 反射射线 + 粗糙度 lobe 抖动 + 命中点屏幕反查，PBR 按 Fresnel 计入环境镜面）
+> 版本：v1.6（2026-11-27，**RTGI 质量补全族立项（REND-23，§3.14）**：用户拍板「后期都是需要的，这样才能算完整的 RTGI」——十子项按性价比排序：A 天光 SH9 / B 二次可见性（复用 RT 阴影图）/ C 簇灯进间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 第二 bounce / I 变差引导降噪 / J 动态 BLAS；前置 = P4-06 编译 + 实机验收）
+> v1.5（2026-11-27，**B8 时域累积 + ATrous 降噪落码**：GI 与反射共用一支 `rtdenoise.compute`（temporal 重投影累积 + 年龄自适应 α / atrous 5×5 十字保边两迭代），`RTDenoiser` 共享执行器 + 每视口 ping-pong 历史两代 + 中转一张，重投影矩阵与失效判据同 TAA 源——见 §3.13；Java 侧待编译、`rtdenoise.compute` 已过 glslc）
+> v1.4（2026-11-27，**DDGI 整体退役 → RTGI 即引擎唯一实时 GI**：`AmbientMode` 收 `OFF/CONSTANT/RTGI` 三档，RTGI 档由 `SceneRenderBridge` 派生 `rtgi=100/0`（原 `Environment.rtgiPercent` 字段删除）；B7 的「与 DDGI 是 mix 关系、100% 顶掉 DDGI」残留随之作废——现仅剩常量基线与 RTGI 的混合。B8 时域降噪优先级上升（GI 噪点现在没有别的层兜底）。见 `Engine_DDGI_Design.md` 头部退役横幅）
+> v1.3（2026-11-26，B9 镜面反射落码：半分辨率 1 spp 反射射线 + 粗糙度 lobe 抖动 + 命中点屏幕反查，PBR 按 Fresnel 计入环境镜面）
 > v1.0（2026-11-26，B6 质量修补落码：混合档百分比 + 阴影强度统一 + 法线偏移起点）
 > v0.9（2026-11-26，B5 主链消费落码：半分辨率 RT 阴影可见性图 + 材质 shader 采样替换）
 > v0.8（2026-11-26，B4 CSM 对照落码：`csmcompare.frag` + 第四态 + 四绑定 set0）
@@ -24,7 +27,7 @@
 | `VK_KHR_ray_query` 扩展 + `rayQuery` feature 位 | RHI **无任何枚举**：`VulkanDevice` 建设备时只开 swapchain，`Device` 接口没有扩展/特性查询口 |
 | `VK_KHR_acceleration_structure` / `VK_KHR_buffer_device_address` | 同上，且 `BufferUsage` 没有 `SHADER_DEVICE_ADDRESS` / AS 存储位 |
 | 光追着色器编译 | shaderc（glslang）已在用，`GL_EXT_ray_query` 可直接编；**不需要换工具链** |
-| 计算 Pass 基建 | 已有（DDGI 三支 compute），B3 可直接照搬 |
+| 计算 Pass 基建 | 已有（三支 compute 落码先例：体素化/SSAO/cluster；DDGI 三支已于 2026-11-27 随退役删除），B3 可直接照搬 |
 
 本机日常开发机显卡 = **AMD Radeon 780M（RDNA3 iGPU）**，驱动 32.0.11039.6002；但**实际光追验收显卡是 RTX**（2026-11-25 用户明确），780M 不作为光追判据——B0 探针仍保留，用于在任意机器上先看到「这台能不能开工」，而不是等 B2 建 AS 时才炸。
 
@@ -41,8 +44,9 @@
 | **B6** | 质量修补：`rtParams.x` 变混合百分比（0/100/中间）、RT 档统一乘 `shadowParams.z` 强度、compute 起点改「法线偏移 + 光方向偏移」（set0 加法线） | 可 A/B 的 RT 阴影 | ✅ 2026-11-26 落码（Java 编译过、compute + 注入后光照块均过 glslc） |
 | **B7** | 漫反射 GI：半分辨率 4 spp 余弦半球求交（Hammersley + 帧相位），命中点投影回屏幕取 G-Buffer 反照率/法线，输出 RGBA16F 辐照度图，环境项按 `rtgiParams.x` 混合 | 有方向的间接光 | ✅ 2026-11-26 落码（Java 编译过、`rtgi.compute` + 注入块均过 glslc；**须重导 `.shader` 与新资产**） |
 | **B7.5** | 前置 PBR（REND-03）：G-Buffer material 通道（r=roughness/g=metallic）+ GGX/Fresnel/Smith 光照，详见 §3.11 | 反射所需的粗糙度/金属度数据面 | ✅ 2026-11-26 落码（`compileJava` 过、三条 shader 路径 glslc 过；**须重导 `.shader`**） |
-| **B8** | 时域累积 + 空间降噪：复用 TaaPass 的 prevViewProj 与 history 图做 GI 重投影，ATrous 收尾（未落） | 噪点可控的 GI | 待做 |
+| **B8** | 时域累积 + 空间降噪：GI（B7）与反射（B9）共用降噪链——重投影采上帧历史（`prevJitteredViewProj` 同 TAA 源）+ 年龄自适应 α 累积，ATrous 5×5 十字保边核两迭代收尾，详见 §3.13 | 噪点可控的 GI 与反射 | ✅ 2026-11-27 落码（`rtdenoise.compute` 过 glslc；Java 侧待编译；**须导入新资产**） |
 | **B9** | 镜面反射：半分辨率逐像素 1 条反射射线（相机→表面→法线镜像），粗糙度决定 lobe 抖动角，命中点投影回屏幕取反照率着色，输出 RGBA16F 反射图；PBR 段按粗糙度修正的 Fresnel 份额计入环境镜面 | 完整 RT 的第三类消费 | ✅ 2026-11-26 落码（`compileJava` 过、`rtreflect.compute` 与三条注入路径均过 glslc；**须重导 + 导入新资产**） |
+| **REND-23** | **RTGI 质量补全族**（§3.14，2026-11-27 立项）：A 天光 SH9 / B 二次可见性 / C 簇灯间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 二 bounce / I 变差引导降噪 / J 动态 BLAS——B0~B9 链路闭环之后的质量闭环 | 完整的 RTGI | 未开工（前置 = 编译 + 实机验收 + B3 三阻塞修复） |
 
 **刻意的顺序**：B3 先做**可视化**而不是直接接阴影——光追一旦接进主光，跑出来的画面异常（偏移、漏光、自交）很难归因；先出「命中距离直显」图，能和 shadow map 的深度图逐像素对照，错误一眼可见。
 
@@ -210,15 +214,15 @@
 | `RenderingSystem` | `rtgiFor(cameraName)`（半分辨率 `R16G16B16A16_SFLOAT`：STORAGE｜SAMPLED，resize 换绑）；`rtgiSampler`（LINEAR + CLAMP）；`setRtgiMode/rtgiMode`（百分比，默认 0）；新增 `cameraViewProjFor`（本帧未抖动 viewProj，取自 TaaHistory）、`sunRadiance()`、`ambientRadiance()`；`LIGHTING_BLOCK_BYTES` 688→**704**（`rtgiParams` @688：x 混合 / y tMax / z,w 全 backbuffer 尺寸）；set1 加 **binding13** 并写入描述符 |
 | `JavelinEngine` | 与 RTShadowPass **同锚点**（`after="GBuffer"`）注册，互不依赖；`RTGI_DEFAULT_PERCENT = 100` |
 | `LightingPass / OpaqueForwardPass / TransparentForwardPass` | `addTextureRead(rtgiFor)`（仅 mode≠0）——建 RTGI→消费 Pass 依赖 |
-| `ShaderInjector.LIGHTING_BLOCKS` | UBO 加 `vec4 rtgiParams`；set1 加 `binding13 sampler2D rtgiMap`；`javelinLightingEx` 环境项改三段：`ambientBase`（常量）→ DDGI 接管 → `rtgiParams.x > 0` 时按 `gl_FragCoord / rtgiParams.zw` 采 GI 图并 `mix(ambientBase, gi, x)` |
+| `ShaderInjector.LIGHTING_BLOCKS` | UBO 加 `vec4 rtgiParams`；set1 加 `binding13 sampler2D rtgiMap`；`javelinLightingEx` 环境项两段：`ambientBase`（常量）→ `rtgiParams.x > 0` 时按 `gl_FragCoord / rtgiParams.zw` 采 GI 图并 `mix(ambientBase, gi, x)`（原「DDGI 接管」中间段已随 DDGI 退役删除2026-11-27 删除） |
 
 **为什么采样用 `gl_FragCoord` 而不是投影世界位置**：GI 图与 G-Buffer 逐像素对齐（同一个半分辨率网格），直接按屏幕坐标 1:1 采样即正确，且多视口天然成立；投影世界位置反而要在 shader 里多带一次 viewProj，还会被 TAA 抖动污染。
 
-**实跑开关**：F11 循环 `0 / 25 / 50 / 75 / 100 %`。100 看纯 RTGI 的形状与噪点，0 回 DDGI/常量基线，中间看混合。
+**实跑开关**：F11 循环 `0 / 25 / 50 / 75 / 100 %`。100 看纯 RTGI 的形状与噪点，0 回常量基线，中间看混合。
 
 **验证**：`:javelin-editor:compileJava` 通过；`rtgi.compute` 过 `glslc -fshader-stage=compute --target-env=vulkan1.3`；`LIGHTING_BLOCKS` 按真实注入顺序拼最小 frag 过 `glslc`（新 ambient 分支语法与类型编译期验过）。
 
-**已知残留**：①**无二次阴影**——命中点用 ndl 近似判断受光，暗角落会漏光，若要收需要第二条射线（成本翻倍，等 B8 后看占比）；②屏外命中的反照率退 0.5，间接光偏灰；③4 spp 单帧噪点明显，B8 时域累积前不建议拿它当验收画面；④半分辨率 + LINEAR 放大，几何边缘有 1~2 像素软化；⑤RTGI 与 DDGI 同开时是 `mix` 关系——100% RTGI 会把 DDGI 环境项整个顶掉，室内若想两者共存，用中间档。
+**已知残留**：①**无二次阴影**——命中点用 ndl 近似判断受光，暗角落会漏光，若要收需要第二条射线（成本翻倍，等 B8 后看占比）；②屏外命中的反照率退 0.5，间接光偏灰；③4 spp 单帧噪点明显，B8 时域累积前不建议拿它当验收画面；④半分辨率 + LINEAR 放大，几何边缘有 1~2 像素软化；⑤~~RTGI 与 DDGI 同开时是 `mix` 关系~~（**2026-11-27 DDGI 退役后作废**：`AmbientMode.RTGI` 档位即开关，`SceneRenderBridge` 派生 100/0，不存在两源并存）。
 
 ---
 
@@ -261,6 +265,57 @@ if (lighting.reflectParams.x > 0.001) {
 `fEnv` 的 `max(1-rough, f0)` 让粗糙面 Fresnel 向 1 收敛（能量摊进宽 lobe），再乘 `(1 - 0.5·rough²)` 压强度——单射线近似下这是唯一能避免「粗糙面出现镜面锐利反射」的压制项。反射是**环境镜面**（间接光部分），与主光 GGX 高光（`javelinPbrDirect`）并存，两者物理上各自成立。
 
 **已知残留**：①命中点只用 ndl 着色、不含二次可见性，暗角落反射偏亮（与 B7 同源取舍）；②屏外命中反照率退 0.5、法线退 `-dir`；③粗糙面单帧有斑点（等 B8 时域）；④半分辨率放大，镜面边缘 1~2px 软化（真要锐利可给全分辨率 + 只对 smooth 材质双分辨率派发，未做）；⑤**SSR 未做**——屏幕内命中目前也是"打 RT 再回屏取色"，本质等价于 RT 版 SSR，但比屏幕空间步进贵、比它稳（能拿到背面与屏外几何的遮挡关系）。
+
+---
+
+## 3.13 B8 落码点（2026-11-27）
+
+**时域累积 + 空间降噪，GI 与反射共用一条链。** DDGI 退役后 RTGI 是引擎唯一实时 GI，噪点没有别的层兜底——B8 优先级因此前置。两类消费的降噪数学同构（颜色图 + 世界位置/法线保边 + 重投影累积），只有输入图不同：共享一支着色器（push mode 分派）与一个执行器实例，省一套 SPIR-V 与管线。
+
+**链形态**（每视口、半分辨率 RGBA16F、五段各占一个 RenderGraph compute Pass——storage 写→采样读的布局转换与屏障由图执行器按声明自动插入）：
+
+```
+rtgi/rtreflect.compute ──raw──▶ temporal ──写另一代历史──▶ atrous(step1) ──▶ scratch ──▶ atrous(step2) ──▶ 本帧 GI/反射图（着色端消费点不变）
+```
+
+| 落点 | 改动 |
+|------|------|
+| `core/rt/rtdenoise.compute`（新资产 + `.meta`） | 两模式：**temporal**（重投影找历史 + 离散度判据 + 年龄自适应 α 累积，历史 alpha 通道存累积年龄）与 **atrous**（5×5 十字 12 tap、step 1/2 两迭代，保边权 = 世界位置距离指数衰减 × 法线夹角 pow 8，深度容差按邻域世界位置步进自适应）。push 80B（prevViewProj 64 + mode/valid/step/保留 16） |
+| `RTDenoiser`（core，新类，包私有） | 共享执行器：管线/段描述符集缓存（key = 视口+段，纹理身份换代退役重建）、push 打包与 dispatch、`addTemporalPass`/`addAtrousPass`、`ready()`（着色器缺失整链不进图、直出 raw）、`close()` |
+| `RTGIPass` / `RTReflectPass` | 构造器加 `RTDenoiser`（同一实例）；GI/反射图只作 raw，temporal 写另一代历史、ATrous 两迭代回写本帧图——**着色端消费点与 set1 绑定零改动**；每 Pass 记 `currentViewName` 供历史代取键 |
+| `RenderingSystem` | 新纹理族：`rtDenoiseHistFor(camera, usage, index)`（ping-pong 两代，usage = gi/reflect 子键隔离）、`rtDenoiseHistOtherFor`（拿本代反查另一代，identityHashCode 缓存）、`rtDenoiseScratchFor`（ATrous 中转）；访问器 `rtPrevViewProjFor`（拷贝 `TaaHistory.prevJitteredViewProj`）、`rtCameraMoved`、`rtPrevFrameFor`；resize（`ensureDepthSize`）与 close 两处 dispose |
+| `JavelinEngine` | `createRenderPipeline` 建共享 `RTDenoiser` 传入两 Pass（同 `rayQueryEnabled` 守卫内）；shutdown 显式 `close()`（waitIdle 之后） |
+
+**重投影方向与 TAA 相反**：TAA 是「上帧这个屏幕像素的表面在哪」（历史采样用 prevViewProj 反推 uv），B8 是「本帧这个表面在上帧屏幕的哪」（本帧 G-Buffer 世界位置用 prevViewProj 投回上帧 uv 取历史）——两个方向同一份矩阵，互不冲突。历史图半分辨率、重投影 uv 直取（textureSize 即历史图自身尺寸）。
+
+**失效判据**（直出当前帧、年龄归 1）：断帧（`rtPrevFrameFor != frameIndex - 1`）/ 相机移动（`rtCameraMoved`，与 TAA `isTaaCameraMoved` 同源）/ prevViewProj 缺失（首帧）/ 纹理换代（resize 后历史即新空图，天然失效）。着色器内另有**离散度判据**：重投影点采到的世界位置与本像素差 > 0.15（遮挡边界/新入屏表面）即弃历史。
+
+**年龄自适应 α**：`α = clamp(1/(age+1), 1/64, 1)`——新表面收敛快、静帧渐近收敛；下限 1/64 保留当前帧修正份额（光源/材质改动不滞后一整屏）。**不做**色度钳制（TAA 的 3×3 AABB 钳制）：GI 辐照度方差大，钳制会把收敛上限压低，离散度判据已挡住主要误混源。
+
+**RTShadow 不接降噪**：阴影是 1 射线问 0/1 的硬遮挡，无采样方差；其噪点来自半分辨率上采样像素化，属深度感知双边上采样范畴（等实拍分布再定 tap），不在 B8 范围。
+
+**已知残留**：①temporal 段读上帧历史存在跨帧窗口——`maxFramesInFlight=2` 帧闸门下，本帧录制时上帧提交已 await 完成才 acquire（renderFrame 串行结构），读其写出口安全；若将来帧并行化须按 TAA ping-pong 同款奇偶约束复查；②ATrous 对完全屏外的命中（反照率退 0.5 的灰）会糊成一团中性灰斑——反射图里「屏外走廊」的间接色偏灰是 B9 已登记残留，B8 不改；③历史年龄无上限（半分辨率 RGBA16F 的 a 通道 float，静帧会积到很大——α 已被下限钳住，年龄只是分母，无溢出风险）；④失效帧的 raw 直出（无 temporal 无 ATrous）——着色端档位不变，单帧噪点回落到 B7 水平。
+
+---
+
+## 3.14 RTGI 质量补全族（REND-23，2026-11-27 立项）
+
+**B0~B9 是链路闭环，本节是质量闭环。** 用户拍板（2026-11-27）：「把这些都列入计划，后期都是需要的，这样才能算完整的 RTGI」。十个子项按性价比排序，收敛登记于 `Engine_Backlog.md` REND-23；**前置 = P4-06 编译 + 实机验收 + B3 三阻塞修复**——先看 B8 后的真实噪声分布与漏光占比再动工，避免在错误的噪声分布上调参。
+
+| 批 | 内容 | 为什么是它 | 依赖 |
+|----|------|-----------|------|
+| **A 天光 SH9** | skybox 烘 SH9 系数，miss 射线按方向求值替代常量环境色；同一份系数喂常量档（`AmbientMode.CONSTANT` 升级为「天空盒环境光」） | 现在朝天与朝墙缝的表面拿同一环境色，RTGI 方向感缺一大块；一处接线两处受益 | 与 REND-16 漫反射半同源（SH9 烘焙件共享） |
+| **B 命中点二次可见性** | 命中点投屏后采现成 RT 阴影可见性图（set1 binding12），替代纯 ndl 近似 | 暗角落漏光是当前最扎眼失真；复用阴影图只多一次纹理采样，不做二次求交 | RT 阴影开启（`rtShadowMode>0`）；阴影关时退回 ndl |
+| **C 簇灯进间接光** | 命中点投屏反查该像素 cluster 灯表，按距离衰减近似点光/聚光的反弹贡献 | 点光照亮的墙不向环境反弹——夜晚点灯周围全黑，比漏光更显眼 | cluster 三件套现成；compute 侧要接 cluster 索引池读 |
+| **D 屏外命中真材质** | 按 `customIndex` 建 CPU 上传材质参数表（storage buffer：反照率色/法线/emissive），命中查表替代 0.5 灰兜底 | 相机背后的表面全部「灰色反弹」，间接光偏灰；贴图级细节做不到但色相不再失真 | `RayTracingScene.objectAt` 反查面已备 |
+| **E 自发光面** | 材质 emissive 属性 + 命中点着色加自发光项 | 灯罩/霓虹不向环境发光，是 GI 最直观的「假」 | 与 D 同批（同一张材质表） |
+| **F 深度感知双边上采样** | 半分辨率 GI/反射图按 G-Buffer 世界位置加权升全分辨率，替代 LINEAR | 1~2px 边缘软化是半分辨率的固定税 | 与 REND-22（SSAO 上采样）同 kernel 模式 |
+| **G 透明/镂空进 AS** | 镂空：BLAS 构建接 `_AlphaCutoff`（procedural triangle alpha? 或分段裁剪）；透明：命中按 Fresnel 权重衰减 | 玻璃/树叶在 GI 与反射里是实心的 | 镂空与 REND-21-A 阈值同源；透明项做前需先拍板口径 |
+| **H 第二 bounce** | 命中点采上一帧 GI 历史图当它的间接入射（历史图 ping-pong 现成），能量钳制防自反馈发散 | 单 bounce 深走廊偏暗；「历史即二弹」是零额外射线的廉价路线 | B8 历史链已备；发散钳制参数要实机调 |
+| **I 变差引导降噪** | ATrous 固定两迭代改逐像素方差驱动（迭代数/核宽自适应） | 同等开销把角落噪点压得更干净 | B8 落地后看实机收敛表现再定 |
+| **J 蒙皮/动态 BLAS** | 动态几何重建/复用 BLAS，物体运动才进 AS | 动态物体不产生也不正确遮挡 GI | **硬前置 = 引擎动画系统**，最远 |
+
+**分批口径**：A~E = 「demo 变可用」的关键五项，改动小收益大；F~G = 修正系统性近似；H~J = 结构性升级。各批独立立项、独立验收，不动 B8 的降噪链结构（H/I 在其上叠加）。具体批次号与施工拍板随各批设计档立。
 
 ---
 

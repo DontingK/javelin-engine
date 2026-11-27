@@ -131,7 +131,7 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | `ShadowMapViewPass`（新增，javelin-editor `editor.debug`） | 与 `GBufferViewPass` 同款覆盖制全屏三角；`targetView` 过滤 + `shadowMapOrNull(targetView)` 为空则本帧不进图；push `{int mode, int grid}`（8B）；set0 单采样器（`SamplerDesc.nearest()`，非比较）；atlas 换代即重建描述符集；`addTextureRead(atlas)` 与 Shadow 段建边（COLOR/深度写 → SHADER_READ_ONLY 屏障） |
 | `shadowview.frag`（新增，`builtin-asset-editor/debug/`） | mode 1 = 原始深度灰度（远 1.0 白、遮挡体暗块）；mode 2 = 按 2×2 象限给级联分色（`col=x*grid/w`、`row=y*grid/h`，与 `ShadowPass` 的 `col=c%grid / row=c/grid` 同序）+ 遮挡体按深度压暗；`grid>1` 时在 x/y 中点画 1px 暗灰分隔线；伴生 `.meta`；顶点复用 `gbufferview.vert` |
 | `ShadowMapDebugAppState`（新增） | 静态意图 + F6 边沿循环；就绪判据 = `shadowMapOrNull(targetView) != null`（刷新静态标记供菜单判灰）；`DebugText` 行 **12**（级联数 / 版面 / atlas 边长 / 主光投影开关）；未就绪写提示行且不进图 |
-| `ShadowMapViewMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 「工具 \| 阴影图视图」三项（关闭 / 原始深度 / 级联分色）；`attach(new ShadowMapDebugAppState())` 紧随探针视图；zh/en 补 `tools.shadowView*` 与 `shadowView.assetMissing/assetInvalid/loadFailed` |
+| `ShadowMapViewMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 「工具 \| 阴影图视图」三项（关闭 / 原始深度 / 级联分色）；`attach(new ShadowMapDebugAppState())`；zh/en 补 `tools.shadowView*` 与 `shadowView.assetMissing/assetInvalid/loadFailed` |
 
 **自验口径**（未编译，交用户）：原始深度下能看出级联包围盒在贴图里的实际覆盖（越高层级联越糊、纹素越大）；级联分色下四象限色块边界与场景级联切分位置对得上；开/关主光投影时状态行与画面同步变化；`error.log` 零新 VVL（重点仍是深度图的 `SHADER_READ_ONLY` 声明）。
 
@@ -154,7 +154,7 @@ HYBRID 档落地后，不透明着色链 = GBufferPass（写三张 MRT）→ Lig
 | 落点 | 改动 |
 |------|------|
 | `LightGizmoAppState`（新增，`editor.debug`） | **不走选中门控**：每帧遍历 `GameScene.getLights()` 全量画——方向光 = 行进方向箭头（+Z 同 `SceneRenderBridge.worldDir`）、点光 = range 三轴大圆（半径钳 20）、聚光 = 外角四母线 + 末端圆（长度钳 10）；灯自身颜色向白拉 40% 保证暗场景可见；选中灯白线叠画一份；`DebugText` 行 **13** 报灯数；F7 边沿切换，菜单「工具 \| 光照 gizmo」关闭/显示 |
-| `DebugLineAppState` | clear 之后在 `DdgiProbeVizAppState.emitGridLines` 之后追加 `LightGizmoAppState.emitLightLines(engine)`（本状态仍是唯一 clear 执行者） |
+| `DebugLineAppState` | clear 之后追加 `LightGizmoAppState.emitLightLines(engine)`（本状态是唯一 clear 执行者；DDGI 探针网格代提交点已于 2026-11-27 随退役删除） |
 | `LightGizmoMenuCommand` + `EditorMenuSetup` + `JavelinEditor` + 语言包 | 工具菜单新增子菜单两项；`attach(new LightGizmoAppState())` 紧随阴影图视图；zh/en 补 `tools.lightGizmo*` 四项 |
 
 **自验口径**：开 gizmo 后场景灯位/朝向一眼可见；转动方向光节点箭头跟着转、方向与投影方向一致；点光圆随 range 缩张；选中灯变白；F7 与菜单勾选同步；线数不触发 batch 溢出（默认 1 主光 + 数盏点光远低于 8192 线预算）。

@@ -107,21 +107,15 @@ public final class SceneRenderBridge {
 
         // 环境项推送（四期 P4-04 步骤一）：常量环境光——每帧推送（颜色/强度由检查器
         // 就地编辑、不换引用，身份门控反而漏推；4 个 float 写可忽略）。无环境组件 /
-        // 组件未激活 / 模式 OFF = 纯黑（与三期基线一致，正常域空状态）。
-        // 四期 P4-05 B3：DDGI 档只推模式码，常量环境项置黑（着色端由探针辐照度接管）
-        // 四期 P4-05 B3：DDGI 档同样把常量环境项推进去——它一身三用：①网格外像素回落
-        // 常量项（否则探针覆盖不到的地方纯黑，出现「网格内亮、网格外黑洞」的硬切）；
-        // ②追踪段未命中射线的天空色（探针外围有环境色，不接天空盒前的兜底）；③SSAO 等
-        // 与 ambient 相乘的后处理不至于归零。网格内由探针辐照度接管，不会重复累加。
+        // 组件未激活 / 模式非 CONSTANT = 纯黑（与三期基线一致，正常域空状态）。
         AmbientMode ambientMode = environment != null && environment.isActiveAndEnabled()
                 ? environment.getAmbientMode() : AmbientMode.OFF;
-        if (ambientMode != AmbientMode.OFF) {
+        if (ambientMode == AmbientMode.CONSTANT) {
             AmbientSetting ambient = environment.getAmbientSetting();
             rs.setAmbient(ambient.getColor(), ambient.getIntensity());
         } else {
             rs.setAmbient(null, 0.0f);
         }
-        rs.setAmbientMode(ambientMode);
 
         // 光追三档（P4-06）：归场景 Environment 所有，检查器里就地改、值变才下传。
         // 无环境组件 / 未激活 = 全关（与三期基线一致）。注意 setter 会作废上一帧的派发确认，
@@ -133,11 +127,16 @@ public final class SceneRenderBridge {
             rs.setRtShadowMode(rtShadow);
             LOGGER.info("光追阴影档推送: {}%（0 = 纯 CSM，100 = 全替换）", rtShadow);
         }
-        int rtgi = rtEnv == null ? 0 : rtEnv.getRtgiPercent();
+        // 光追 GI 已并入环境光档位（OFF / CONSTANT / RTGI，P4-06 B7）：档位直接派生
+        // 强度——RTGI 档 = 100（环境项全由 1-bounce 光追供给），其余档 = 0（RTGIPass
+        // 早退，走常量）。互斥依赖这一处，所以不能让检查器再单独改百分比，否则会出现
+        // 「CONSTANT 档 + 光追 60%」的非法组合。
+        int rtgi = (ambientMode == AmbientMode.RTGI) ? 100 : 0;
         if (rtgi != lastRtgi) {
             lastRtgi = rtgi;
             rs.setRtgiMode(rtgi);
-            LOGGER.info("光追 GI 档推送: {}%（0 = 常量/DDGI 环境项，100 = 全替换）", rtgi);
+            LOGGER.info("光追 GI 档推送: {}（{}）", rtgi,
+                    rtgi > 0 ? "环境光 = 光追" : "环境光 = 常量");
         }
         int rtReflect = rtEnv == null ? 0 : rtEnv.getRtReflectionPercent();
         if (rtReflect != lastRtReflect) {

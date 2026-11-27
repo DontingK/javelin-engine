@@ -9,9 +9,9 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * 图形设置（项目设置「图形」页根）：管线档位 / 背景清屏色 / 后处理 / 环境光遮蔽 / 阴影 / 探针 GI。
+ * 图形设置（项目设置「图形」页根）：管线档位 / 背景清屏色 / 后处理 / 环境光遮蔽 / 阴影。
  *
- * <p>分组即字段：管线档位与背景清屏色两个标量各自开组，后处理 / 环境光遮蔽 / 阴影 / DDGI 四个
+ * <p>分组即字段：管线档位与背景清屏色两个标量各自开组，后处理 / 环境光遮蔽 / 阴影 三个
  * 参数对象各成一组（面板按 {@link SettingGroup} 标题展开，声明序即面板序）。</p>
  */
 @Reflective
@@ -41,10 +41,6 @@ public class GraphSetting implements Serializable {
     /** 阴影（品质档 / 强度 / PCF / bias / CSM） */
     @SettingGroup(label = "projectSettings.section.shadow")
     private ShadowSettings shadowSettings = new ShadowSettings();
-
-    /** 探针实时 GI（DDGI，P4-05；仅 HYBRID 档且 Environment.ambientMode = DDGI 时消费） */
-    @SettingGroup(label = "projectSettings.section.ddgi")
-    private DdgiSettings ddgiSettings = new DdgiSettings();
 
     // 抗锯齿（TAA）与锐化不再在项目设置里：已迁到相机（Unity HDRP Camera Frame Settings 口径，
     // 2026-11-15 用户拍板「直接删除、搬到相机上」——不同相机可有不同抗锯齿与锐化）
@@ -104,17 +100,6 @@ public class GraphSetting implements Serializable {
         this.shadowSettings = shadowSettings;
     }
 
-    public DdgiSettings getDdgiSettings() {
-        return ddgiSettings;
-    }
-
-    public void setDdgiSettings(DdgiSettings ddgiSettings) {
-        if (ddgiSettings == null) {
-            throw new IllegalArgumentException("ddgiSettings must not be null");
-        }
-        this.ddgiSettings = ddgiSettings;
-    }
-
     @Override
     public void write(OutputCapsule output) {
         output.write("renderPipeline", renderPipeline);
@@ -122,7 +107,6 @@ public class GraphSetting implements Serializable {
         output.write("postProcessSettings", postProcessSettings);
         output.write("ssaoSettings", ssaoSettings);
         output.write("shadowSettings", shadowSettings);
-        output.write("ddgiSettings", ddgiSettings);
     }
 
     @Override
@@ -145,10 +129,6 @@ public class GraphSetting implements Serializable {
         SsaoSettings ssao = input.readSerializable("ssaoSettings", SsaoSettings.class);
         if (ssao != null) {
             ssaoSettings = ssao;
-        }
-        DdgiSettings ddgi = input.readSerializable("ddgiSettings", DdgiSettings.class);
-        if (ddgi != null) {
-            ddgiSettings = ddgi;
         }
     }
 }

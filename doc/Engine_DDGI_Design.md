@@ -1,5 +1,11 @@
 # DDGI（探针实时 GI）设计（Engine_DDGI_Design）
 
+> **⛔ 本档已归档（2026-11-27）：P4-05 DDGI 整体退役。**
+> 退役拍板 = 用户「DDGI 全部退役。该删的都删了」「不用考虑历史数据问题」（推翻 2026-11-27 晨间的「暂时停用、枚举保留」口径）——环境光的 GI 供给收敛到光追 RTGI 一条（`AmbientMode` 收 `OFF/CONSTANT/RTGI` 三档，`RTGI` 即原 P4-06 B7 的 1-bounce 光追辐照度图）。
+> **整链删除**：`render/ddgi` 包整删（`DdgiProbeGrid` / `DdgiAtlases` / `DdgiVoxelField` / `DdgiVoxelizer` / `DdgiProbePass` / `StaticSetSignature`）+ `MeshVoxelGeometry` + `DdgiSettings`（项目设置组与场景条件子组两处承载均删）+ `InsEnumSkip` 注解与检查器支持 + set1 binding8/9/10 + `DDGI_BLOCKS` 注入与 `javelinLighting`/`javelinLightingPbr` 环境项 DDGI 分支 + `AmbientMode.DDGI` 枚举值 + `Environment.ddgiSetting` 与 `rtgiPercent` 字段 + 编辑器探针视图三件套（`DdgiProbeVizAppState` / `DdgiProbeViewPass` / `DdgiProbeVizMenuCommand`、菜单组、F5）+ 内置资产 `voxel/`（`voxelize` / `ddgi_trace` / `ddgi_update`）与 `debug/ddgiView.frag` + 单测 `DdgiProbeGridTest` / `DdgiAtlasTest` + i18n 全部键。DebugText 行号收敛（阴影图 12→11、光照 gizmo 13→12、光追直显 14→13）。注入器改动 ⇒ 重导全部 `.shader` 与内置 `lighting.frag`（与既有待重导批次合并）。
+> **保留价值**：本档 §13 的排障实录（VVL 00344/09600/03047 一族、atlas 布局转换、描述符池归还、探针逃逸、盒外冻结）与 §3 的 atlas/探针网格纯数学，是后续任何探针类方案（含光追侧未来若做降噪/缓存）的直接输入；代码可从 git 历史取回（最后入库版本见 `Engine_Roadmap_Progress_P4.md` 对应批次行）。
+> 卫星档同步退役：`Engine_DDGI_ProbeViz_Design.md`（探针视图，随链删除）、`Engine_DDGI_NearField_Design.md`（原已冻结，随之作废）。
+
 > v0.8（2026-11-26）｜**可见性矩采样改双线性（落码待实机验收）**：圆柱在方向光背侧出现等间距竖向条带——根因 = `javelinProbeVisibility` 取最近 texel（辐照度侧才是双线性），曲面法线周向连续变化扫过 16 档深度 texel 成可见性阶跃，背光面恰在 0/1 临界带。修法 = 矩 `E(d)/E(d²)` 四角双线性后再算 Chebyshev。注入器改动 ⇒ 强制重导全部 `.shader` + 内置 `lighting.frag`。见 §13.10。
 >
 > v0.7（2026-11-26）｜**定位收口：DDGI = 有界场景 GI + 场外冻结网格（落码待实机验收）**：相机走到探针盒外时网格仍跳一格、整屏间接光换版——机制 = `fitOrigin` 步数被 clamp 到边界（跳一次即停）+ 跳格只走 hysteresis 洗错位（无位移重投影）+ 盒外采样全退化成边界常量（影响面放大到整屏）。**拍板**：DDGI 只交付有界场景 GI（关卡/室内），**相机在体素场外时冻结网格**（沿用上一帧 grid，不跳格/不重扫/不换代，进出各一条日志）；无界 GI（自由飞行、大世界）交给光追——体素场是「整世界静态一张」，网格跟出去也没体素可打，正解是 trace 走 AS 求交。见 §13.9。

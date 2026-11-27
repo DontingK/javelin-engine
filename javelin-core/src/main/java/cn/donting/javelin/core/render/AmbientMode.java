@@ -19,10 +19,11 @@ public enum AmbientMode implements InsEnumLabel {
      */
     CONSTANT("ins.enum.ambientmode.constant"),
     /**
-     * 探针实时 GI（DDGI，四期 P4-05 B3）：环境项改由体素追踪出的探针辐照度三线性插值，
-     * 未启用探针 GI（{@code DdgiSettings.enabled=false}）或探针数据面未就绪时回落纯黑。
+     * 光追实时 GI（RTGI，P4-06 B7 起并入环境光档位）：环境项由 1-bounce 光追辐照度图供给。
+     * 设备未启用 ray query 时回落 {@link #CONSTANT}；未命中射线仍按 skybox → 常量环境项
+     * 的既有口径兜底。
      */
-    DDGI("ins.enum.ambientmode.ddgi");
+    RTGI("ins.enum.ambientmode.rtgi");
 
     private final String label;
 

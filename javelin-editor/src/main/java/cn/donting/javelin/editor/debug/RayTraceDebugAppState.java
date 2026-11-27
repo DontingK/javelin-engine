@@ -20,13 +20,13 @@ import org.slf4j.LoggerFactory;
  * 光追求交可视化装配与驱动（P4-06 B3）。
  *
  * <p>入口 = F9 开关（菜单项后置）；开启后把 {@link RayTraceViewPass} 追加进渲染管线，
- * 数值行（第 14 行）报「实例数 / 距离图尺寸 / 求交是否就绪」。设备未启用 ray query 或
+ * 数值行（第 13 行）报「实例数 / 距离图尺寸 / 求交是否就绪」。设备未启用 ray query 或
  * 场景未建时写「未就绪」，本视图不进图。</p>
  *
  * <p>F10 = 光追阴影混合档循环（0 / 25 / 50 / 75 / 100 %）：0 走纯 CSM、100 全替换，
- * 中间值与 CSM 按比例混合（P4-06 B6）。F11 = 光追漫反射 GI 混合档（0 = 常量/DDGI 环境项，
+ * 中间值与 CSM 按比例混合（P4-06 B6）。F11 = 光追漫反射 GI 混合档（0 = 常量环境项，
  * 100 = 全替换），B7。F12 = 镜面反射强度档（0 = 无环境镜面，100 = 全量），B9——反射是 PBR
- * 特有的消费端，Lambert/Unlit 材质不受该档影响。</p>
+ * 特有的消费端，Lambert/Unit 材质不受该档影响。</p>
  */
 public class RayTraceDebugAppState extends AbsEditorAppState {
 
@@ -40,8 +40,8 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
     /** CSM 对照（P4-06 B4）：RT 遮挡 vs CSM 遮挡 → 红绿差异图 */
     public static final int MODE_COMPARE = 3;
 
-    /** 提示行：RenderStats 0~9、G-Buffer 10、DDGI 11、阴影图 12、光照 gizmo 13，本视图 14 */
-    private static final int HINT_ROW = 14;
+    /** 提示行：RenderStats 0~9、G-Buffer 10、阴影图 11、光照 gizmo 12，本视图 13 */
+    private static final int HINT_ROW = 13;
 
     private static volatile int desiredMode = MODE_OFF;
     /** 光追能力就绪（设备启用 ray query；供菜单 enabled() 在 EDT 判灰） */
@@ -98,7 +98,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
             rs.setRtShadowMode(next);
             log.info("光追阴影混合档: {}%（0 = 纯 CSM，100 = 全替换）", next);
         }
-        // F11：光追 GI 混合档循环（同上口径）。0 = 环境项走常量/DDGI，100 = 全替换
+        // F11：光追 GI 混合档循环（同上口径）。0 = 环境项走常量，100 = 全替换
         if (Input.wasPressed(KeyCode.F11) && rs != null) {
             int next = switch (rs.rtgiMode()) {
                 case 0 -> 25;
@@ -108,7 +108,7 @@ public class RayTraceDebugAppState extends AbsEditorAppState {
                 default -> 0;
             };
             rs.setRtgiMode(next);
-            log.info("光追 GI 混合档: {}%（0 = 常量/DDGI 环境项，100 = 全替换）", next);
+            log.info("光追 GI 混合档: {}%（0 = 常量环境项，100 = 全替换）", next);
         }
         // F12：光追反射强度循环（0 = 无环境镜面，100 = 全量；PBR 直接光高光不受影响）
         if (Input.wasPressed(KeyCode.F12) && rs != null) {
