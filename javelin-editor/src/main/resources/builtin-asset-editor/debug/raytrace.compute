@@ -56,8 +56,11 @@ void main() {
         dir = normalize(farPoint.xyz / farPoint.w - origin);
     }
 
+    // cull mask 两位全要（RayTracingScene.MASK_ALL）：调试直显按反射口径看得见全部实例
+    const uint CULL_ALL = 0x03;
+
     rayQueryEXT query;
-    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, CULL_ALL,
             origin, 0.0, dir, tMax);
     while (rayQueryProceedEXT(query)) {
     }

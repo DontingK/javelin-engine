@@ -90,10 +90,12 @@ public final class MeshUpload {
         vertexData.flip();
         mesh.vertexBuffer = device.createBuffer(
                 // STORAGE：体素化 compute 直接把顶点缓冲当 SSBO 读（P4-17，2026-11-19）
-                // SHADER_DEVICE_ADDRESS：BLAS 构建要取顶点设备地址（P4-06 B2，2026-11-25）
+                // SHADER_DEVICE_ADDRESS + AS_BUILD_INPUT：BLAS 构建输入要设备地址 + 只读构建用途位
+                // （缺后者 VVL VUID-03673 判地址无效，P4-06 B2，2026-11-27）
                 new BufferDesc(vertexData.remaining(),
                         Set.of(BufferUsage.VERTEX, BufferUsage.STORAGE,
-                                BufferUsage.SHADER_DEVICE_ADDRESS),
+                                BufferUsage.SHADER_DEVICE_ADDRESS,
+                                BufferUsage.ACCELERATION_STRUCTURE_BUILD_INPUT),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(vertexData));
 
@@ -117,15 +119,17 @@ public final class MeshUpload {
         }
         indexData.flip();
         mesh.indexBuffer = device.createBuffer(
-                // STORAGE：体素化 compute 直接把索引缓冲当 SSBO 读（P4-17，2026-11-19）
-                // SHADER_DEVICE_ADDRESS：BLAS 构建要取索引设备地址（P4-06 B2，2026-11-25）
+                // STORAGE：体素化 compute 直接把索引缓冲按 uint 字读（P4-17，2026-11-19）
+                // SHADER_DEVICE_ADDRESS + AS_BUILD_INPUT：BLAS 构建输入用途位（VVL VUID-03673）
                 new BufferDesc(paddedIndexBytes,
                         Set.of(BufferUsage.INDEX, BufferUsage.STORAGE,
-                                BufferUsage.SHADER_DEVICE_ADDRESS),
+                                BufferUsage.SHADER_DEVICE_ADDRESS,
+                                BufferUsage.ACCELERATION_STRUCTURE_BUILD_INPUT),
                         MemoryPreference.hostVisibleCoherent()),
                 UploadData.of(indexData));
 
         mesh.layout = buildLayout(canonical, stride);
+        mesh.uploadedVertexCount = vertexCount;
         mesh.uploaded = true;
         // CPU 副本即将释放，先把 bounds 算好钉死（此后 getBounds 无数据可算）
         mesh.getBounds();

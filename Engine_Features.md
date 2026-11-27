@@ -316,7 +316,7 @@
 
 > 已落地、用户实测未做——验收后翻状态并从本表移除。
 >
-> **当前挂账：光追 B0~B9 全链（B8 降噪已并）+ DDGI 退役批（2026-11-27 更新）**——`REND-21-A cutout`、`REND-21-C1 PCSS`、`REND-21-B 逐级联剔除`、`DBG-03 阴影图视图`、`REND-13 光照 gizmo` 已实机通过（2026-11-26），`REND-21-C2 接触阴影`降级为实验项；**P4-05 DDGI 已整体退役（2026-11-27，见下方退役条目）**，光追 B5~B9（阴影/GI/反射主链消费） + **B8 时域降噪**与退役删除批均待编译与实机验收。
+> **当前挂账：光追 B0~B9 全链（B8 降噪已并）+ DDGI 退役批（2026-11-28 两批更新）**——`REND-21-A cutout`、`REND-21-C1 PCSS`、`REND-21-B 逐级联剔除`、`DBG-03 阴影图视图`、`REND-13 光照 gizmo` 已实机通过（2026-11-26），`REND-21-C2 接触阴影`降级为实验项；**P4-05 DDGI 已整体退役（2026-11-27，见下方退役条目）**，光追 B5~B9（阴影/GI/反射主链消费） + **B8 时域降噪**与退役删除批已编译实跑；首轮实机暴露十一个真 bug 已全修（2026-11-28 两批：TLAS 实例 0 / AS usage 位 / 构建屏障 / 降噪链 ping-pong 静默退化 / 反查可见性比对 / GI 分辨率口径 / 实例掩码口径对齐 CSM / 描述符集分代缓存 / **GI 天光断供（`Environment.giSkySetting` 独立来源 + `giSkyRadiance`，RTReflectPass 同修）** / **sunVisible tMax 150**——见 `Engine_RayTracing_Plan.md` §3.15；⑩⑪ 已实机确认生效（RenderDoc push 导出核对 + giSky 0.3 亮度回落），**剩余「换视角 uGi 明暗重排」定性为屏幕反查视角相关设计缺陷非 bug**——根治归 REND-23-D + B8 降噪链修复两前置），待最终验收。
 >
 > - **2026-11-27 光追 B8 时域降噪落码（P4-06 收官批）**：GI（B7）与反射（B9）共用降噪链——`core/rt/rtdenoise.compute`（temporal = 重投影采上帧历史 + 离散度判据 + 年龄自适应 α；atrous = 5×5 十字保边两迭代）+ `RTDenoiser` 共享执行器 + 每视口 ping-pong 历史两代/中转一张（`RenderingSystem.rtDenoise*` 纹理族）；重投影矩阵（`prevJitteredViewProj`）与失效判据（断帧/相机移动）同 TAA 源；着色端消费点与 set1 绑定零改动。`rtdenoise.compute` 已过 glslc，Java 侧待编译；**须导入新资产**（`.shader` 重导并入既有批次，本批不动注入器）。档 `Engine_RayTracing_Plan.md` v1.5 §3.13。
 >

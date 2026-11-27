@@ -62,6 +62,10 @@ vec3 perturbAround(vec3 dir, vec3 n, float rough, vec2 u) {
 }
 
 // 命中点 → 屏幕 uv；w = 是否在屏内
+// 命中点 → 屏幕 uv；w = 1 表示「屏内且镜头可见」。只查屏界不够：背对镜头/被前景
+// 挡住的命中也会投影进屏，反查拿到的是该像素上**别的东西**的反照率/法线——反射面
+// 上乱反射/重影的根因（2026-11-28，与 rtgi.compute 同修）。用 G-Buffer 世界位置
+// 比对裁决：可见命中与该像素表面重合（距离≈0）；天空或更近表面判不可见走回退。
 vec4 projectToScreen(vec3 p) {
     vec4 clip = pc.viewProj * vec4(p, 1.0);
     if (clip.w <= 1e-5) {
@@ -69,6 +73,11 @@ vec4 projectToScreen(vec3 p) {
     }
     vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    ivec2 spx = ivec2(uv * vec2(textureSize(uWorldPos, 0)));
+    vec4 s = texelFetch(uWorldPos, spx, 0);   // 最近纹素：同一面本身重合，不做插值
+    if (s.w < 0.5 || distance(s.xyz, p) > 0.3) {
         return vec4(0.0);
     }
     return vec4(uv, 0.0, 1.0);
@@ -103,9 +112,12 @@ void main() {
                        radicalInverse(uint(px.x) * 32749u + uint(pc.params.y) * 13u));
     vec3 dir = perturbAround(R, n, rough, jitter);
 
+    // cull mask 两位全要（RayTracingScene.MASK_ALL）：反射看得见透明物（玻璃），
+    // 与阴影/GI 的「只打光传输遮挡者」口径区分
+    const uint CULL_ALL = 0x03;
     vec3 origin = wp.xyz + n * pc.params.w;
     rayQueryEXT q;
-    rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, pc.params.x);
+    rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, CULL_ALL, origin, 0.0, dir, pc.params.x);
     while (rayQueryProceedEXT(q)) {
     }
 

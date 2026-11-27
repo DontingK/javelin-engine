@@ -1,6 +1,7 @@
 # 引擎阶段路线（Engine Roadmap）
 
 > 版本：v0.45（2026-11-27）
+> v0.46 变更（2026-11-28）：**光追 B0~B9 首轮实机排障九连修**——TLAS 实例恒 0（Mesh BLAS 判据读已释放 CPU 副本）/ AS 构建输入 usage 位 / TLAS 重复构建 BUILD→BUILD 屏障 / rtdenoise 分辨率口径 / 降噪链 ping-pong 单代静默退化（Pitfalls #46）/ 段描述符集逐帧 churn（#47）/ 屏幕反查可见性比对 / GI 二次可见性 B 方案首步（REND-23-B）/ TLAS 实例掩码口径对齐 CSM + `--rtDenoiseBypass` 旁路开关。九 bug 全修待最终验收；`Engine_RayTracing_Plan.md` v1.7 §3.15。
 > v0.45 变更（2026-11-27）：**光追 B8 时域降噪落码**——GI/反射共用链：`rtdenoise.compute`（temporal 重投影累积 + 年龄自适应 α / atrous 5×5 十字保边两迭代）+ `RTDenoiser` 共享执行器 + 每视口 ping-pong 历史；重投影矩阵与失效判据同 TAA 源。B0~B9 十批次至此全落码，整体待编译与 RTX 实机验收（`rtdenoise.compute` 已过 glslc）。`Engine_RayTracing_Plan.md` v1.5。
 > v0.44（2026-11-27）
 > v0.44 变更（2026-11-27）：**P4-05 DDGI 整体退役（整链删除）**——用户拍板「DDGI 全部退役。该删的都删了」「不用考虑历史数据问题」，推翻同日晨间「暂时停用、枚举保留」口径。环境光 GI 供给收敛到光追 RTGI 一条：`AmbientMode` 收 `OFF/CONSTANT/RTGI` 三档（`RTGI` 档 = P4-06 B7 的 1-bounce 光追辐照度图，由桥按档位派生 100/0，`Environment.rtgiPercent` 删除）。删除面 = `render/ddgi` 包 + `MeshVoxelGeometry` + `DdgiSettings` + `InsEnumSkip` + set1 binding8/9/10 + `DDGI_BLOCKS` 注入 + 编辑器探针视图三件套与 F5 + `voxel/` 与 `ddgiView.frag` 资产 + 两个单测 + i18n 键；DebugText 行号收敛（阴影图/光照 gizmo/光追直显各前移一位）。§4 施工序 ⑥ 就此跳空，⑦ 光追为当前项；档 `Engine_DDGI_Design.md` 头部退役横幅（卫星两档同批归档）。注入器改动 ⇒ 全部 `.shader` 与 `lighting.frag` 重导（并入光追既有待重导批次）。

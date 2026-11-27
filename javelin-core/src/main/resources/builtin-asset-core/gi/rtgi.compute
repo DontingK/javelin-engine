@@ -6,8 +6,12 @@
 // 屏幕反查是零额外内存的做法：命中点投影回本帧屏幕，取该像素的 G-Buffer 反照率与法线；
 // 屏外或背面（正常现象，入射方向覆盖了看不见的面）回退常量，代价是间接光偏灰。
 //
-// 没有二次阴影：命中点是否被主光照亮只用它的法线 ndl 近似（不再发第二条射线），
-// 因此会有一点漏光——这是 1 spp/px 量级下可接受的取舍，等 B8 时域降噪能吃到更好的估计。
+// 没有二次阴影 → 改为「命中点朝阳面补一条主光可见性射线」（REND-23-B 首步，B 方案
+// 2026-11-27）：只对 ndl>0 的命中发主光方向的求交射线，遮挡则太阳项归零——治封闭
+// 空间漏光（盒内地面/内壁被盒体遮挡却仍吃全额太阳辐照度，实测盒内阴影不对、邻壁亮斑
+// 像反射）。天光项不补——按 GI 天光常量近似（独立来源 Environment.giSkySetting：
+// RTGI 档常量环境项被桥清零，2026-11-28 修复「共用断供只剩太阳弹射」），1 spp 量级的
+// 既有取舍不变。
 
 #version 460
 #extension GL_EXT_ray_query : require
@@ -24,14 +28,38 @@ layout(push_constant) uniform PushBlock {
     mat4 viewProj;    // 本帧未抖动 viewProj（命中点投影回屏幕用）
     vec4 params;      // x = spp / y = tMax / z = 帧序号（采样相位） / w = 起点偏移
     vec4 sunRad;      // rgb = 主光辐照度（颜色 × 强度），w = 主光开关
-    vec4 ambientRad;  // rgb = 环境辐照度（天空/常量环境）
-    vec4 lightDir;    // xyz = 指向光源的方向（已归一化），w 预留
+    vec4 ambientRad;  // rgb = GI 天光辐照度（RTGI 档独立来源——Environment.giSkySetting）
+    vec4 lightDir;    // xyz = 指向光源的方向（已归一化），w = sunVisible 求交 tMax（与 RT 阴影同口径）
 } pc;
 
 const float PI = 3.14159265359;
 
 // 屏幕反查失败时的缺省反照率（中性灰：不带材质色，但不至于把间接光压死）
 const float FALLBACK_ALBEDO = 0.5;
+
+// 命中点二次可见性偏移（与 rtshadow.compute 的 NORMAL_BIAS/DIRECTION_BIAS 同值：
+// 防薄面/掠射自交的同一口径）
+const float HIT_NORMAL_BIAS = 0.05;
+const float HIT_DIRECTION_BIAS = 0.01;
+
+// cull mask 位 0 = 光传输遮挡者（不透明且 castShadow，与 CSM 口径一致；
+// RayTracingScene.MASK_LIGHT_OCCLUDER。透明物/编辑器辅助网格不挡间接光）。
+// 文件域声明——sunVisible 定义在 main 之前就要引用（2026-11-28 曾误放 main 内致编译失败）
+const uint CULL_LIGHT_OCCLUDER = 0x01;
+
+// 命中点沿主光方向是否通天（B 方案：仅朝阳命中调用；遮挡 = 太阳项归零）。
+// tMax 用 lightDir.w（150，与 RT 阴影同口径）——不能借用 params.y 的 GI 采样距离（20m），
+// 否则远处遮挡者不挡 GI 太阳项，弹射与直接光阴影口径打架
+bool sunVisible(vec3 hit, vec3 n, vec3 L) {
+    vec3 o = hit + n * HIT_NORMAL_BIAS + L * HIT_DIRECTION_BIAS;
+    rayQueryEXT sq;
+    rayQueryInitializeEXT(sq, uTlas, gl_RayFlagsOpaqueEXT, CULL_LIGHT_OCCLUDER,
+            o, 0.0, L, pc.lightDir.w);
+    while (rayQueryProceedEXT(sq)) {
+    }
+    return rayQueryGetIntersectionTypeEXT(sq, true)
+            == gl_RayQueryCommittedIntersectionNoneEXT;
+}
 
 float radicalInverse(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
@@ -57,7 +85,10 @@ vec3 cosineHemisphere(vec2 u, vec3 n) {
             + n * sqrt(max(0.0, 1.0 - u.x)));
 }
 
-// 命中点 → 屏幕 uv；返回 w = 是否在屏内（w 为 0 时调用方走回退值）
+// 命中点 → 屏幕 uv；w = 1 表示「屏内且镜头可见」。只查屏界不够：背对镜头/被前景
+// 挡住的命中也会投影进屏，反查拿到的是该像素上**别的东西**的反照率/法线——盒内
+// 乱反射/重影的根因（2026-11-28）。用 G-Buffer 世界位置比对裁决：命中点可见时两者
+// 重合（距离≈0）；该像素是天空（w<0.5）或更近表面时判不可见，调用方走灰色回退。
 vec4 projectToScreen(vec3 p) {
     vec4 clip = pc.viewProj * vec4(p, 1.0);
     if (clip.w <= 1e-5) {
@@ -65,6 +96,11 @@ vec4 projectToScreen(vec3 p) {
     }
     vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    ivec2 spx = ivec2(uv * vec2(textureSize(uWorldPos, 0)));
+    vec4 s = texelFetch(uWorldPos, spx, 0);   // 最近纹素：同一面本身重合，不做插值
+    if (s.w < 0.5 || distance(s.xyz, p) > 0.3) {
         return vec4(0.0);
     }
     return vec4(uv, 0.0, 1.0);
@@ -99,7 +135,7 @@ void main() {
         vec3 dir = cosineHemisphere(u, n);
 
         rayQueryEXT q;
-        rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+        rayQueryInitializeEXT(q, uTlas, gl_RayFlagsOpaqueEXT, CULL_LIGHT_OCCLUDER,
                 origin, 0.0, dir, tmax);
         while (rayQueryProceedEXT(q)) {
         }
@@ -120,10 +156,13 @@ void main() {
                     nHit = normalize(nh);
                 }
             }
-            // 命中点辐照度 = 环境 + 主光（按命中面 ndl；不含二次可见性，见文件头）
+            // 命中点辐照度 = 环境 + 主光（朝阳命中补二次可见性射线，遮挡则太阳项归零）
             vec3 irr = pc.ambientRad.rgb;
             if (pc.sunRad.w > 0.5) {
-                irr += pc.sunRad.rgb * max(dot(nHit, L), 0.0);
+                float ndlHit = max(dot(nHit, L), 0.0);
+                if (ndlHit > 0.0 && sunVisible(hit, nHit, L)) {
+                    irr += pc.sunRad.rgb * ndlHit;
+                }
             }
             acc += albedo * irr;
         } else {

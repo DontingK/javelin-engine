@@ -1,6 +1,8 @@
 # 光追首范围（P4-06）推进计划
 
-> 版本：v1.6（2026-11-27，**RTGI 质量补全族立项（REND-23，§3.14）**：用户拍板「后期都是需要的，这样才能算完整的 RTGI」——十子项按性价比排序：A 天光 SH9 / B 二次可见性（复用 RT 阴影图）/ C 簇灯进间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 第二 bounce / I 变差引导降噪 / J 动态 BLAS；前置 = P4-06 编译 + 实机验收）
+> 版本：v1.8（2026-11-28，**第二轮实机：GI 天光断供修复 + B8 降噪链两前置定案（§3.15 补记）**：⑩RTGI 档「阴影不对」根因 = 桥清零常量环境项而 GI 天风输入恰读该字段——`Environment.giSkySetting` 独立来源（`giSkyRadiance()`，`ambientRadiance` 删除）+ RTReflectPass 天光回退同修；⑪`sunVisible` tMax 借 GI 采样距离 20m 与 RT 阴影 150m 打架——`lightDir.w` 传 150（RenderDoc push 导出核对生效）；**剩余「换视角 uGi 明暗整幅重排」定性为屏幕反查设计缺陷非 bug**——根治归 REND-23-D 材质代理表、时域平滑归 B8 修复（`historyValid` 关掉整套重投影 + 采样相位只重排不换样，两前置已定案待落码））
+> v1.7（2026-11-28，**B0~B9 首轮实机排障九连修**：①Mesh BLAS 三处判据读已释放的 CPU 副本 → TLAS 实例恒 0；②缓冲缺 `ACCELERATION_STRUCTURE_BUILD_INPUT`（VVL 03673）；③TLAS 重复构建缺 BUILD→BUILD 屏障；④rtdenoise 半分辨率 texelFetch 采全分辨率 G-Buffer；⑤REND-23-B 首步提前落（命中点朝阳补主光可见性射线，B 方案）；⑥屏幕反查补可见性比对；⑦降噪链 ping-pong 单代静默退化 + 读代交替（Pitfalls #46）；⑧段描述符集分代变体缓存（Pitfalls #47）；⑨TLAS 实例掩码口径对齐 CSM（透明/castShadow=false 不挡光，反射/调试 0x03）+ `--rtDenoiseBypass` 旁路开关——见 §3.15）
+> v1.6（2026-11-27，**RTGI 质量补全族立项（REND-23，§3.14）**：用户拍板「后期都是需要的，这样才能算完整的 RTGI」——十子项按性价比排序：A 天光 SH9 / B 二次可见性（复用 RT 阴影图）/ C 簇灯进间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 第二 bounce / I 变差引导降噪 / J 动态 BLAS；前置 = P4-06 编译 + 实机验收）
 > v1.5（2026-11-27，**B8 时域累积 + ATrous 降噪落码**：GI 与反射共用一支 `rtdenoise.compute`（temporal 重投影累积 + 年龄自适应 α / atrous 5×5 十字保边两迭代），`RTDenoiser` 共享执行器 + 每视口 ping-pong 历史两代 + 中转一张，重投影矩阵与失效判据同 TAA 源——见 §3.13；Java 侧待编译、`rtdenoise.compute` 已过 glslc）
 > v1.4（2026-11-27，**DDGI 整体退役 → RTGI 即引擎唯一实时 GI**：`AmbientMode` 收 `OFF/CONSTANT/RTGI` 三档，RTGI 档由 `SceneRenderBridge` 派生 `rtgi=100/0`（原 `Environment.rtgiPercent` 字段删除）；B7 的「与 DDGI 是 mix 关系、100% 顶掉 DDGI」残留随之作废——现仅剩常量基线与 RTGI 的混合。B8 时域降噪优先级上升（GI 噪点现在没有别的层兜底）。见 `Engine_DDGI_Design.md` 头部退役横幅）
 > v1.3（2026-11-26，B9 镜面反射落码：半分辨率 1 spp 反射射线 + 粗糙度 lobe 抖动 + 命中点屏幕反查，PBR 按 Fresnel 计入环境镜面）
@@ -46,7 +48,7 @@
 | **B7.5** | 前置 PBR（REND-03）：G-Buffer material 通道（r=roughness/g=metallic）+ GGX/Fresnel/Smith 光照，详见 §3.11 | 反射所需的粗糙度/金属度数据面 | ✅ 2026-11-26 落码（`compileJava` 过、三条 shader 路径 glslc 过；**须重导 `.shader`**） |
 | **B8** | 时域累积 + 空间降噪：GI（B7）与反射（B9）共用降噪链——重投影采上帧历史（`prevJitteredViewProj` 同 TAA 源）+ 年龄自适应 α 累积，ATrous 5×5 十字保边核两迭代收尾，详见 §3.13 | 噪点可控的 GI 与反射 | ✅ 2026-11-27 落码（`rtdenoise.compute` 过 glslc；Java 侧待编译；**须导入新资产**） |
 | **B9** | 镜面反射：半分辨率逐像素 1 条反射射线（相机→表面→法线镜像），粗糙度决定 lobe 抖动角，命中点投影回屏幕取反照率着色，输出 RGBA16F 反射图；PBR 段按粗糙度修正的 Fresnel 份额计入环境镜面 | 完整 RT 的第三类消费 | ✅ 2026-11-26 落码（`compileJava` 过、`rtreflect.compute` 与三条注入路径均过 glslc；**须重导 + 导入新资产**） |
-| **REND-23** | **RTGI 质量补全族**（§3.14，2026-11-27 立项）：A 天光 SH9 / B 二次可见性 / C 簇灯间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 二 bounce / I 变差引导降噪 / J 动态 BLAS——B0~B9 链路闭环之后的质量闭环 | 完整的 RTGI | 未开工（前置 = 编译 + 实机验收 + B3 三阻塞修复） |
+| **REND-23** | **RTGI 质量补全族**（§3.14，2026-11-27 立项）：A 天光 SH9 / B 二次可见性 / C 簇灯间接光 / D 屏外真材质 / E 自发光 / F 双边上采样 / G 透明镂空 / H 二 bounce / I 变差引导降噪 / J 动态 BLAS——B0~B9 链路闭环之后的质量闭环。**B 首步已于 2026-11-28 提前落**（B 方案：朝阳命中补主光可见性射线，见 §3.15-5） | 完整的 RTGI | 部分开工（B 首步；其余前置 = 编译 + 实机验收 + B3 三阻塞修复） |
 
 **刻意的顺序**：B3 先做**可视化**而不是直接接阴影——光追一旦接进主光，跑出来的画面异常（偏移、漏光、自交）很难归因；先出「命中距离直显」图，能和 shadow map 的深度图逐像素对照，错误一眼可见。
 
@@ -305,7 +307,7 @@ rtgi/rtreflect.compute ──raw──▶ temporal ──写另一代历史─�
 | 批 | 内容 | 为什么是它 | 依赖 |
 |----|------|-----------|------|
 | **A 天光 SH9** | skybox 烘 SH9 系数，miss 射线按方向求值替代常量环境色；同一份系数喂常量档（`AmbientMode.CONSTANT` 升级为「天空盒环境光」） | 现在朝天与朝墙缝的表面拿同一环境色，RTGI 方向感缺一大块；一处接线两处受益 | 与 REND-16 漫反射半同源（SH9 烘焙件共享） |
-| **B 命中点二次可见性** | 命中点投屏后采现成 RT 阴影可见性图（set1 binding12），替代纯 ndl 近似 | 暗角落漏光是当前最扎眼失真；复用阴影图只多一次纹理采样，不做二次求交 | RT 阴影开启（`rtShadowMode>0`）；阴影关时退回 ndl |
+| **B 命中点二次可见性** | 命中点投屏后采现成 RT 阴影可见性图（set1 binding12），替代纯 ndl 近似。**首步（2026-11-28）改为 B 方案直接补射线**：仅朝阳（ndl>0）命中发一条主光方向 rayQuery，遮挡太阳项归零——不采阴影图（图是按 `rtShadowMode` 门控产出的，GI 不应依赖阴影档位开），成本 ≈ 4spp×(1+朝阳比例) 而非翻倍 | 暗角落漏光是当前最扎眼失真；复用阴影图只多一次纹理采样，不做二次求交 | RT 阴影开启（`rtShadowMode>0`）；阴影关时退回 ndl |
 | **C 簇灯进间接光** | 命中点投屏反查该像素 cluster 灯表，按距离衰减近似点光/聚光的反弹贡献 | 点光照亮的墙不向环境反弹——夜晚点灯周围全黑，比漏光更显眼 | cluster 三件套现成；compute 侧要接 cluster 索引池读 |
 | **D 屏外命中真材质** | 按 `customIndex` 建 CPU 上传材质参数表（storage buffer：反照率色/法线/emissive），命中查表替代 0.5 灰兜底 | 相机背后的表面全部「灰色反弹」，间接光偏灰；贴图级细节做不到但色相不再失真 | `RayTracingScene.objectAt` 反查面已备 |
 | **E 自发光面** | 材质 emissive 属性 + 命中点着色加自发光项 | 灯罩/霓虹不向环境发光，是 GI 最直观的「假」 | 与 D 同批（同一张材质表） |
@@ -316,6 +318,32 @@ rtgi/rtreflect.compute ──raw──▶ temporal ──写另一代历史─�
 | **J 蒙皮/动态 BLAS** | 动态几何重建/复用 BLAS，物体运动才进 AS | 动态物体不产生也不正确遮挡 GI | **硬前置 = 引擎动画系统**，最远 |
 
 **分批口径**：A~E = 「demo 变可用」的关键五项，改动小收益大；F~G = 修正系统性近似；H~J = 结构性升级。各批独立立项、独立验收，不动 B8 的降噪链结构（H/I 在其上叠加）。具体批次号与施工拍板随各批设计档立。
+
+## 3.15 B0~B9 首轮实机排障落码点（2026-11-28）
+
+首轮实机（AMD 780M）暴露十一个真 bug，全部修复，逐条沉淀：
+
+| # | 症状 | 根因 | 修法 |
+|---|------|------|------|
+| 1 | TLAS 实例恒 0、三 RT Pass 从不派发 | Mesh BLAS 三处判据读**上传后已释放的 CPU 副本**（`hasTriangles`/`blas` 守卫判 `indices`、`vertexCount` 读 `positions`） | 判据改 GPU 侧 `indexBuffer`；新增 `uploadedVertexCount` 上传期钉死（MeshUpload 与 bounds 同手法） |
+| 2 | VVL VUID-03673 构建输入地址无效 | 顶点/索引缓冲缺 `ACCELERATION_STRUCTURE_BUILD_INPUT` usage | MeshUpload 两处补 usage 位 |
+| 3 | 射线全落空、阴影全亮 | TLAS 每帧被多 RT Pass 各重建一次、共享 scratch，构建间屏障缺 BUILD→BUILD | `buildToReadBarrier` 补 `ACCELERATION_STRUCTURE_BUILD` 阶段 + WRITE access |
+| 4 | 反射重影、GI 糊 | rtdenoise 半分辨率 `texelFetch` 采全分辨率 G-Buffer（只读左上 1/4） | G-Buffer 一律 `gUV(px)` 归一采样（LINEAR = 2×2 盒式降采样口径） |
+| 5 | 封闭空间 GI 漏光（盒内阴影不对、邻壁亮斑） | 命中点太阳项只看 ndl 无可见性 | **REND-23-B 首步提前落（B 方案）**：仅朝阳命中补一条主光可见性射线，遮挡太阳项归零 |
+| 6 | 盒内乱反射、物体色斑乱跳 | 屏幕反查只查屏界不查可见性——不可见命中拿到别处像素的材质 | `projectToScreen` 补命中点 vs 该像素 G-Buffer 世界位置比对（最近纹素、0.3 容差），不可见判灰色回退 |
+| 7 | 降噪链从未运行（改着色器零变化、开关无差异） | ping-pong 单代静默退化：反查另一半只查不建恒 null + 读代写死 slot 0（**Pitfalls #46**） | 反查惰性补建 + 读代按帧奇偶交替 |
+| 8 | Cleaner 日志每帧刷 DESCRIPTOR_SET | temporal 绑定历史逐帧交替身份 ×「身份变即重建」缓存（**Pitfalls #47**） | passKey+纹理身份变体缓存，每 passKey 留 2 变体 |
+| 9 | 辅助网格图案烙进 GI、RT 阴影与 CSM 口径分叉 | TLAS 收集不过滤透明/castShadow=false；透明物不写 G-Buffer 反查必失配 | **实例掩码口径**：`MASK_LIGHT_OCCLUDER(0x01)`=不透明且 castShadow（阴影/GI 射线 cullMask）、`MASK_REFLECT_VISIBLE(0x02)`=透明与不投影物（反射/调试 0x03），四支 shader 同步 |
+| 10 | RTGI 档环境项「阴影不对」——binary 太阳弹射斑、整体忽亮忽暗 | **GI 天光断供**：桥在 RTGI 档把常量环境项清零（`AmbientMode` 非 CONSTANT = 纯黑旧口径），而 RTGIPass/RTReflectPass 的天光输入恰读这份字段（`ambientRadiance`）——`ambientRad=0` 下命中点/通天射线只剩 `sunVisible` binary 太阳项（DDGI 期 BUG-14「ambient 不能设 0」同族） | **GI 天光独立来源（2026-11-28 拍板方案 B）**：`Environment.giSkySetting`（复用 AmbientSetting、默认中性灰 0.5×1.0、RTGI 档检查器内联展开）→ 桥推 `RenderingSystem.setGiSky` → `giSkyRadiance()`；`ambientRadiance()` 删除防误接回；常量项清零口径不动（消费端 rtgiParams.x=1 整项替换，不参与求和） |
+| 11 | GI 太阳弹射与直接光 RT 阴影远处「打架」（遮挡判口径不一致） | `sunVisible` 求交 tMax 借用 `params.y`=GI 采样距离 20m，而 RT 阴影 150m——20m 外遮挡者不挡 GI 太阳项 | `lightDir.w` 预留位启用，Java 传 `RT_SHADOW_MAX_DISTANCE=150`（push 仍 128B，RenderDoc push 导出实测核对） |
+
+**新增排障设施**：`--rtDenoiseBypass` 启动参数（降噪链整段旁路 raw 直出，逐项排查用）；RenderDoc 抓 Java 程序实操沉淀至 `Vulkan_Pitfalls.md` §六-9（jcmd 取命令行 + @argfile 正斜杠 + 重打包后再抓）。
+
+**随验补一笔（掩码批次的次生 bug）**：rtgi.compute 的 `CULL_LIGHT_OCCLUDER` 曾误声明在 `main()` 内而 `sunVisible()` 先行引用 → glslc 编译失败 → 资产 invalid → `ensurePipeline` 每帧重试装载 = AssetLibManager「GUID 缓存命中」DEBUG 刷屏 + RTGI 不出图。修 = 常量提文件域；**纪律：改 shader 必先过 glslc 再交付**（本轮起执行，四支已验）。
+
+**误判一笔**：盒子半埋地面时「影子留在原地不跟随」为坑壁受影的合法现象，非 bug——删物体影子随之消失即证。
+
+**第二轮实机确认（2026-11-28，giSky 修复后）**：`--rtDenoiseBypass` raw 直出下逐项核对——push 常量全对（RenderDoc 导出：ambientRad=0.5×3 / lightDir.w=150 / sunRad=1），「整体很亮」随 giSky 0.3 回落——#10/#11 修复实锤生效。**剩余症状定性为设计缺陷而非 bug**：换视角 uGi 明暗整幅重排（「一会这暗一会那暗」）——屏幕反查（B7 权宜做法）命中点材质取自「本帧屏幕可见像素」，屏外/被挡/背面命中一律退 0.5 灰，**同一表面随相机朝向在真材质与灰兜底间翻转 = GI 视角相关**。降噪链关停期间时域平均缺席放大了观感（binary 太阳项 + 4 spp 斑驳无收敛；另注：`hammersley((i+shift)%spp)` 相位错开只是同组样本重排，跨帧并不换样，静止帧累积同一有偏估计——B8 修复时须一并改 per-frame R2 偏移）。**根治归 REND-23-D 材质代理表**（`customIndex` 反查 + storage buffer 材质表，`RayTracingScene.objectAt` 面已备）；时域平滑归 B8 降噪链修复（`historyValid` 现把整套重投影机制在相机移动帧整个关掉——shader 重投影 + 离散度判据本就为运动帧准备，Java 侧条件应放开）。两项排期为 RTGI「可验收」形态的前置。
 
 ---
 

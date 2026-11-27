@@ -16,6 +16,11 @@
 // ATrous 保边权与 ssao_blur 同源但加法线权：世界位置距离 + 法线夹角双拒绝，避免把
 // 掠射面/墙面反射跨几何糊到一起。深度容差按邻域世界位置步进自适应（斜面上不误拒）。
 // temporal 段的 binding4（法线槽）由 Java 侧绑世界位置占位——本段不读它，描述符不空即可。
+//
+// 分辨率口径（2026-11-27 重影修复）：uIn/uOut/历史与 scratch 同为半分辨率，texelFetch 的
+// px 坐标只对它们合法；uWorldPos/uNormal 是**全分辨率** G-Buffer，必须按半分辨率 uv 归一采样
+// （rtgiSampler LINEAR，落在两纹素边上 = 2×2 盒式降采样口径）——此前 texelFetch 直接拿半
+// 分辨率 px 采全分辨率图，只读到左上四分之一区域，重投影/保边权重全错（反射重影根因）。
 
 #version 460
 
@@ -40,9 +45,12 @@ const int MODE_ATROUS = 1;
 // 光源/材质改动不至于滞后一整屏）
 const float MIN_FEEDBACK = 1.0 / 64.0;
 
+// G-Buffer（全分辨率）按半分辨率像素坐标归一采样：texelFetch 不能跨分辨率用
+vec2 gUV(ivec2 p) { return (vec2(p) + 0.5) / vec2(textureSize(uWorldPos, 0)); }
+
 void temporalAccumulate(ivec2 px, ivec2 size) {
     vec4 cur = texelFetch(uIn, px, 0);
-    vec4 wp = texelFetch(uWorldPos, px, 0);
+    vec4 wp = texture(uWorldPos, gUV(px));
     if (wp.w < 0.5) {
         // 背景：无表面即无间接光贡献，历史也无意义——直出当前值并归零年龄
         imageStore(uOut, px, vec4(cur.rgb, 0.0));
@@ -87,18 +95,19 @@ void temporalAccumulate(ivec2 px, ivec2 size) {
 
 void atrousFilter(ivec2 px, ivec2 size) {
     vec4 cur = texelFetch(uIn, px, 0);
-    vec4 wp = texelFetch(uWorldPos, px, 0);
+    vec4 wp = texture(uWorldPos, gUV(px));
     if (wp.w < 0.5) {
         imageStore(uOut, px, cur);   // 背景不滤
         return;
     }
-    vec3 n = texelFetch(uNormal, px, 0).xyz;
+    vec3 n = texture(uNormal, gUV(px)).xyz;
     float nlen = dot(n, n);
     n = nlen > 1e-6 ? normalize(n) : vec3(0.0, 0.0, 1.0);
 
     int step = max(int(pc.params.z), 1);
     // 深度容差自适应：中心邻一个步长内的世界位置跨度（斜面上自动放宽）
-    vec3 wpStep = texelFetch(uWorldPos, clamp(px + ivec2(step, 0), ivec2(0), size - 1), 0).xyz;
+    ivec2 stepPx = clamp(px + ivec2(step, 0), ivec2(0), size - 1);
+    vec3 wpStep = texture(uWorldPos, gUV(stepPx)).xyz;
     float posTol = max(0.05, distance(wpStep, wp.xyz) * 1.5);
 
     vec3 sum = cur.rgb;
@@ -113,13 +122,13 @@ void atrousFilter(ivec2 px, ivec2 size) {
         if (q.x < 0 || q.x >= size.x || q.y < 0 || q.y >= size.y) {
             continue;
         }
-        vec4 nwp = texelFetch(uWorldPos, q, 0);
+        vec4 nwp = texture(uWorldPos, gUV(q));
         if (nwp.w < 0.5) {
             continue;
         }
         // 保边双权：世界位置距离（指数衰减）+ 法线夹角（掠射相邻面拒绝）
         float wpw = exp(-distance(nwp.xyz, wp.xyz) / posTol);
-        vec3 nn = texelFetch(uNormal, q, 0).xyz;
+        vec3 nn = texture(uNormal, gUV(q)).xyz;
         float nw = dot(nn, nn) > 1e-6 ? pow(max(dot(normalize(nn), n), 0.0), 8.0) : 0.0;
         float ws = 1.0;   // 十字近邻等权（ATrous 常规做法，σ 由 step 隐式控制）
         float w = wpw * nw * ws;

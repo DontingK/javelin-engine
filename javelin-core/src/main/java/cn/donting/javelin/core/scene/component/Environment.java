@@ -27,6 +27,10 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
  * 与三期基线一致）/ {@code CONSTANT}（颜色 + 强度常量环境项）；同样由 SceneRenderBridge
  * 每帧推送（无环境组件或未激活 = OFF）。</p>
  *
+ * <p>v0.3（P4-06 B7 修复，2026-11-28）：RTGI 档加 GI 天光源 {@link #giSkySetting}——
+ * 与常量环境项分字段：RTGI 档常量项清零（消费端整项替换，不参与求和），共用字段会让
+ * GI 的天光输入断供、环境项只剩 binary 太阳弹射（实测「阴影不对」即此症状）。</p>
+ *
  * @author Javelin Engine Team
  * @since 1.0.0
  */
@@ -41,15 +45,19 @@ public class Environment extends Component {
 
     /**
      * 环境光模式（四期 P4-04 步骤一）：选「直接环境光」时下方内联展开 {@link #ambientSetting}
-     * （颜色 + 强度）；选「光追 GI」时走 RTGIPass（参数无独立子组——射线密度等后置）。
+     * （颜色 + 强度）；选「光追 GI」时内联展开 {@link #giSkySetting}（GI 计算的天光源，
+     * 见类注释 v0.3）。
      */
     @InsField(label = "ins.environment.ambientMode")
-    @InsFieldGroup(keys = {"OFF", "CONSTANT", "RTGI"}, value = {"", "ambientSetting", ""},
+    @InsFieldGroup(keys = {"OFF", "CONSTANT", "RTGI"}, value = {"", "ambientSetting", "giSkySetting"},
             label = "ins.environment.ambientSetting")
     private AmbientMode ambientMode = AmbientMode.OFF;
 
     /** 常量环境光参数组（不受 @InsField 闸门：只作为 ambientMode 的条件子组内联出现） */
     private AmbientSetting ambientSetting = new AmbientSetting();
+
+    /** GI 天光参数组（RTGI 档生效：GI 计算的天光源；默认非零——零值即断供复现） */
+    private AmbientSetting giSkySetting = new AmbientSetting();
 
     /**
      * 光追三档（P4-06 B5/B7/B9）。百分比语义：0 = 关、100 = 全替换、中间值与旧路按比例混合。
@@ -95,6 +103,15 @@ public class Environment extends Component {
         this.ambientSetting = ambientSetting != null ? ambientSetting : new AmbientSetting();
     }
 
+    /** GI 天光参数组（RTGI 档生效项；Inspector 内经 {@code @InsFieldGroup} 条件展开） */
+    public AmbientSetting getGiSkySetting() {
+        return giSkySetting;
+    }
+
+    public void setGiSkySetting(AmbientSetting giSkySetting) {
+        this.giSkySetting = giSkySetting != null ? giSkySetting : new AmbientSetting();
+    }
+
     public int getRtShadowPercent() {
         return rtShadowPercent;
     }
@@ -124,6 +141,7 @@ public class Environment extends Component {
         output.write("skybox", skybox);
         output.write("ambientMode", ambientMode);
         output.write("ambientSetting", ambientSetting);
+        output.write("giSkySetting", giSkySetting);
         output.write("rtShadowPercent", rtShadowPercent);
         output.write("rtReflectionPercent", rtReflectionPercent);
     }
@@ -137,6 +155,11 @@ public class Environment extends Component {
         AmbientSetting group = input.readSerializable("ambientSetting", AmbientSetting.class);
         if (group != null) {
             ambientSetting = group;
+        }
+        // 缺键保字段初值（旧场景无 GI 天光键 = 默认中性灰，非零起步）
+        AmbientSetting giSky = input.readSerializable("giSkySetting", AmbientSetting.class);
+        if (giSky != null) {
+            giSkySetting = giSky;
         }
         // 旧场景无光追键 = 全关（光追是显式开关，不做隐式默认开）
         rtShadowPercent = clampPercent(input.readInt("rtShadowPercent", 0));

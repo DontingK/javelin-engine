@@ -95,15 +95,20 @@ final class VkAsGeometry {
         return range;
     }
 
-    /** 构建完成后的可见性屏障：AS 写 → 着色器读（P4-06 B2b） */
+    /** 构建完成后的可见性屏障：AS 写 → 着色器读 / 下一 AS 构建（P4-06 B2b，2026-11-27 扩）
+     *
+     * <p>dst 阶段必须含 {@code ACCELERATION_STRUCTURE_BUILD}：TLAS 每帧被多个 RT Pass
+     * 各构建一次（同一命令缓冲、同一 scratch），两次构建之间若缺 BUILD→BUILD 同步，
+     * GPU 并发写同一 scratch = 规范违规，TLAS 内容未定义（实测射线全落空、阴影全亮）。</p> */
     static void buildToReadBarrier(org.lwjgl.vulkan.VkCommandBuffer cmd, MemoryStack stack) {
         VkMemoryBarrier.Buffer barrier = VkMemoryBarrier.calloc(1, stack);
         barrier.get(0).sType$Default();
         barrier.get(0).srcAccessMask(VK_ACCESS_MEMORY_WRITE_BIT);
-        barrier.get(0).dstAccessMask(VK_ACCESS_MEMORY_READ_BIT);
+        barrier.get(0).dstAccessMask(VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT);
         vkCmdPipelineBarrier(cmd,
                 VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR
+                        | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
                         | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                 0, barrier, null, null);
     }

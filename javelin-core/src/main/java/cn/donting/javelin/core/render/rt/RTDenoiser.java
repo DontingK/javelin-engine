@@ -6,6 +6,8 @@ import cn.donting.javelin.core.render.compute.ComputeShader;
 import cn.donting.javelin.rhi.ComputePipeline;
 import cn.donting.javelin.rhi.DescriptorSet;
 import cn.donting.javelin.rhi.DescriptorSetLayout;
+import cn.donting.javelin.rhi.types.DescriptorType;
+import cn.donting.javelin.rhi.desc.DescriptorSetLayoutDesc;
 import cn.donting.javelin.rhi.DescriptorUpdate;
 import cn.donting.javelin.rhi.Device;
 import cn.donting.javelin.rhi.RenderGraphBuilder;
@@ -33,7 +35,7 @@ import java.util.Map;
  * <p>历史失效判据（直出当前帧、年龄归 1）：断帧 / 纹理换代（resize）/ 相机移动 /
  * prevViewProj 缺失——来源 {@code TaaHistory}，口径与 TaaPass 一致。</p>
  */
-final class RTDenoiser {
+public final class RTDenoiser {
 
     private static final Logger log = LoggerFactory.getLogger(RTDenoiser.class);
 
@@ -43,6 +45,20 @@ final class RTDenoiser {
     private static final int WORKGROUP = 8;
     static final int MODE_TEMPORAL = 0;
     static final int MODE_ATROUS = 1;
+
+    /**
+     * 排障旁路开关（2026-11-28）：{@code true} = 降噪链整段不进图，raw 直出（GI/反射图
+     * 即最终图，temporal + atrous 全跳）。命令行 {@code --rtDenoiseBypass} 开启，逐项
+     * 排查「乱反射/重影来自降噪链还是求交本身」用。
+     */
+    public static final boolean BYPASS = cn.donting.javelin.core.LaunchArgs
+            .getBoolean("rtDenoiseBypass", false);
+
+    static {
+        if (BYPASS) {
+            log.warn("RT 降噪链旁路开启（--rtDenoiseBypass）：raw 直出，temporal/atrous 不进图");
+        }
+    }
 
     private final Device device;
     private final RenderingSystem renderingSystem;
@@ -55,13 +71,12 @@ final class RTDenoiser {
     private boolean assetsWarned;
     /** 段描述符集缓存：key = 段标识（passKey+mode），值按纹理身份换代重建 */
     private final Map<String, DescriptorSet> sets = new HashMap<>();
-    private final Map<String, Texture[]> setBound = new HashMap<>();
     private final Matrix4f identityMatrix = new Matrix4f();
     private final float[] matrixPack = new float[16];
     private final ByteBuffer push = ByteBuffer.allocateDirect(PUSH_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN);
 
-    RTDenoiser(Device device, RenderingSystem renderingSystem, AssetManager assetManager) {
+    public RTDenoiser(Device device, RenderingSystem renderingSystem, AssetManager assetManager) {
         this.device = device;
         this.renderingSystem = renderingSystem;
         this.assetManager = assetManager;
@@ -123,10 +138,9 @@ final class RTDenoiser {
     }
 
     /** 释放（须 device waitIdle 后；段描述符集与布局随本执行器生命周期） */
-    void close() {
+    public void close() {
         sets.values().forEach(DescriptorSet::dispose);
         sets.clear();
-        setBound.clear();
         if (setLayout != null) {
             setLayout.dispose();
             setLayout = null;
@@ -203,26 +217,34 @@ final class RTDenoiser {
     }
 
     /**
-     * 段描述符集：纹理身份（out/in/history/worldPos，atrous 段 history 位复用 in 占位）
-     * 不变即复用，换代即退役重建（retireResource 两帧后销毁，与 RT Pass 的 setFor 同口径）。
+     * 段描述符集：按「passKey + 纹理身份组」变体缓存。temporal 段的 history 随帧奇偶
+     * 交替（ping-pong），单集缓存会逐帧退役重建（描述符池 churn + Cleaner 日志洪水，
+     * 2026-11-28 修）——改为每个 passKey 保留最多 2 个变体轮流复用；出现第 3 个身份组
+     * （纹理换代/resize）时整组退役重建。
      */
     private DescriptorSet setFor(String passKey, Texture out, Texture in, Texture history,
                                  Texture worldPos) {
-        Texture[] bound = setBound.get(passKey);
-        if (bound != null && bound[0] == out && bound[1] == in && bound[2] == history
-                && bound[3] == worldPos) {
-            DescriptorSet cached = sets.get(passKey);
-            if (cached != null) {
-                return cached;
-            }
+        String variant = passKey + "#" + Integer.toHexString(System.identityHashCode(out))
+                + "#" + Integer.toHexString(System.identityHashCode(in))
+                + "#" + Integer.toHexString(System.identityHashCode(history))
+                + "#" + Integer.toHexString(System.identityHashCode(worldPos));
+        DescriptorSet cached = sets.get(variant);
+        if (cached != null) {
+            return cached;
         }
         if (setLayout == null) {
             setLayout = device.createDescriptorSetLayout(setDesc);
         }
-        DescriptorSet old = sets.get(passKey);
-        if (old != null) {
-            DescriptorSet retiring = old;
-            renderingSystem.retireResource(retiring::dispose);
+        // 同 passKey 变体超 2 个 = 纹理换代：旧变体整组退役（retireResource 两帧后销毁）
+        long samePassVariants = sets.keySet().stream()
+                .filter(k -> k.startsWith(passKey + "#")).count();
+        if (samePassVariants >= 2) {
+            List<String> stale = sets.keySet().stream()
+                    .filter(k -> k.startsWith(passKey + "#")).toList();
+            for (String k : stale) {
+                DescriptorSet retiring = sets.remove(k);
+                renderingSystem.retireResource(retiring::dispose);
+            }
         }
         DescriptorSet created = device.createDescriptorSet(setLayout);
         // 历史/法线槽不用的段以重复绑定占位（atrous 的 history 复用 in；法线槽由调用方
@@ -233,8 +255,7 @@ final class RTDenoiser {
                 DescriptorUpdate.sampledTexture(2, histBind, renderingSystem.rtgiSampler()),
                 DescriptorUpdate.sampledTexture(3, worldPos, renderingSystem.gbufferSampler()),
                 DescriptorUpdate.sampledTexture(4, worldPos, renderingSystem.gbufferSampler()));
-        sets.put(passKey, created);
-        setBound.put(passKey, new Texture[]{out, in, history, worldPos});
+        sets.put(variant, created);
         return created;
     }
 }

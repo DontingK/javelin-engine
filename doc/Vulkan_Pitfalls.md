@@ -750,6 +750,36 @@
 - **出处**：`Engine_Shadow_Quality_Design.md` v0.7 §9.6；Backlog BUG-11（2026-11-21 验收通过后移出）；
   落码 2026-11-20，2026-11-21 用户实机验收通过（重导 `.shader` + `lighting.frag`、阴影组恢复默认）。
 
+### 46. ping-pong 历史只建单代 + 反查只查不建：整条降噪链静默退化，改下游着色器毫无变化 ★资源管理级（2026-11-28）
+
+- **症状**：B8 时域降噪「开了没效果」——改 rtdenoise.compute 画面零变化；RenderDoc 抓帧
+  dispatch 数比预期少一半以上（应为 raw + temporal + atrous×2 = 4，实见 1）；开/关降噪
+  开关画面完全相同。
+- **根因**：两层叠加，全部静默——
+  ① ping-pong 两代历史只有 slot 0 被显式申请创建，「拿本代找另一代」的反查**只查不建**
+  → 另一代恒 null → 装配代码 `if (histWrite == null) return;` 退直出，**退化无任何日志**；
+  ② 读代写死 slot 0 → 即使补建，slot 0 永不被写、累积年龄恒 0，temporal 仍逐帧直出
+  （ping-pong 必须读代按帧奇偶交替，上一帧写的另一代即本帧历史）。
+- **修法**：反查时惰性补建另一半（`computeIfAbsent` 同规格纹理）+ 读代
+  `(frameIndex % 2)` 交替。
+- **教训**：①**成对资源**必须有配对创建的保证点（工厂里两代一起建，或反查即建），
+  「另一半由别人来建」的假设必然落空；②**静默退化路径必须有日志**——本次退化无日志，
+  靠 RenderDoc 数 dispatch 才定位；③「开关开了画面没变化」优先怀疑**链路根本没跑**
+  （数 dispatch / 看退化分支），而不是参数错；④ 描述符/纹理身份类缓存遇交替身份见坑 #47。
+- **出处**：`RenderingSystem.rtDenoiseHistOtherFor` / `RTGIPass` / `RTReflectPass`（2026-11-28 修）；
+  `Engine_RayTracing_Plan.md` §3.13 B8。
+
+### 47. 「身份变即退役重建」的描述符集缓存 × ping-pong 交替身份 = 逐帧 churn（日志洪水） ★资源管理级（2026-11-28）
+
+- **症状**：`CleanerRegistry`「释放 GPU 资源[手动]: DESCRIPTOR_SET」每帧刷 2~3 条不停。
+- **根因**：temporal 段描述符集绑定的历史纹理随帧奇偶交替（坑 #46 修复后 ping-pong 真正
+  跑起来暴露），而段缓存是「纹理身份变 → 退役旧集建新集」——交替身份 = 每帧换代。
+- **修法**：缓存键升级为 `passKey + 四张纹理身份` 变体，每个 passKey 最多保留 2 个变体
+  （正好对应 ping-pong 两代）轮流复用；出现第 3 个身份组（纹理换代/resize）才整组退役重建。
+- **教训**：交替/ping-pong 资源与「身份键缓存」组合时，**缓存键必须含代身份、容量预留
+  代数**；Cleaner 日志刷屏本身就是「每帧都在销毁重建某资源」的强信号，先查缓存键设计。
+- **出处**：`RTDenoiser.setFor`（2026-11-28 修）。
+
 ---
 
 ## 六、排障方法论（沉淀）
@@ -787,3 +817,13 @@
    真值面**，逐字段对着绑定源码核（本例一读 `npWaitSemaphores` 就落地）。
    与之配套：**同一门类的坑要一次性全仓审计**——本例顺手把引擎全部 Vulkan 结构体 ×
    设置器对核了一遍（结论见坑 #38），避免同族复发。
+9. **RenderDoc 抓 Java/LWJGL 程序：Launch Application + @argfile，且 argfile 引号内
+   反斜杠会被转义吃掉**（2026-11-28，光追排障全程依赖）：Java 程序用 RenderDoc 的
+   正确姿势 = 先 `jcmd <pid> VM.command_line` / `VM.system_properties`（user.dir）拿到
+   运行中进程的完整命令行与工作目录 → 写成 Java @argfile → RenderDoc Launch Application
+   填 `java.exe + @文件路径 + 工作目录`。**大坑**：argfile 引号内 `\` 是转义符，
+   `D:\Workspaces\...` 会被解析成 `D:Workspaces...`（ClassNotFoundException，且
+   `-XshowSettings:properties` 验证时折行显示会伪装成「只有第一段」）——**classpath
+   一律写正斜杠**；抓帧键默认 F12 会撞引擎调试键，先在 Settings→Hotkeys 改掉；
+   RenderDoc 走 `build/libs` 的 jar，改 Java 代码后必须重新打包再抓，否则永远在验旧构建
+   （「修复没生效」假象的来源）。

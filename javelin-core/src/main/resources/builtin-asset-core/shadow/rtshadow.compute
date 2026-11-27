@@ -40,8 +40,12 @@ void main() {
     vec3 n = normalize(texture(uNormal, uv).xyz);
     vec3 origin = wp.xyz + n * pc.params.y + dir * pc.params.z;
 
+    // cull mask 位 0 = 光传输遮挡者（不透明且 castShadow——与 CSM 施法者口径一致，
+    // RayTracingScene.MASK_LIGHT_OCCLUDER；透明/castShadow=false 不投影）
+    const uint CULL_LIGHT_OCCLUDER = 0x01;
+
     rayQueryEXT query;
-    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, 0xFF,
+    rayQueryInitializeEXT(query, uTlas, gl_RayFlagsOpaqueEXT, CULL_LIGHT_OCCLUDER,
             origin, 0.0, dir, pc.params.x);
     while (rayQueryProceedEXT(query)) {
     }

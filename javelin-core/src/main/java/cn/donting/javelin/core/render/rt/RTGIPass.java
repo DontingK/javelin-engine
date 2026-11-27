@@ -35,8 +35,9 @@ import java.util.List;
  * 只能把命中点投影回本帧屏幕、取该像素 G-Buffer 的反照率与法线；屏外/背面回退常量 0.5。
  * 这是零额外显存的做法，代价是间接光偏灰、完全屏外的入射方向丢失。</p>
  *
- * <p><b>不含二次阴影</b>：命中点是否被主光照亮只用它的法线 ndl 近似（不再发第二条射线），
- * 会有少量漏光——1 spp/px 量级下可接受，B8 接时域累积后估计会更稳。</p>
+ * <p><b>命中点主光可见性</b>：朝阳命中补一条主光方向求交射线（遮挡则太阳项归零，治封闭
+ * 空间漏光——REND-23-B 首步）；天光项不补，按 GI 天光源常量近似。GI 天光与常量环境项
+ * 分来源（RTGI 档常量项被桥清零、消费端整项替换——共用字段即断供）。</p>
  *
  * <p><b>时序</b>：必须在 GBuffer 之后（读世界位置/法线/反照率）、Lighting 之前（被采样）；
  * 管线装配点按 after="GBuffer" 插入，与 {@link RTShadowPass} 同锚点、互不依赖。</p>
@@ -136,7 +137,8 @@ public final class RTGIPass implements RenderPass {
 
         Vector3f sun = renderingSystem.sunDirectionOrNull();
         Vector3f sunRadiance = renderingSystem.sunRadiance();
-        Vector3f ambient = renderingSystem.ambientRadiance();
+        // GI 天光走独立来源（RTGI 档常量环境项被桥清零——共用即天光断供，P4-06 B7 修复）
+        Vector3f ambient = renderingSystem.giSkyRadiance();
         // 指向光源方向（worldDir 是行进方向）
         Vector3f toSun = sun == null ? new Vector3f(0.0f, 1.0f, 0.0f)
                 : new Vector3f(sun).negate().normalize();
@@ -145,7 +147,7 @@ public final class RTGIPass implements RenderPass {
 
         // B8 降噪链（就绪时）：GI 图只作 raw；temporal 写另一代历史，
         // ATrous 两迭代回写本帧 GI 图（着色端继续只认 rtgiFor）
-        boolean denoise = denoiser != null && denoiser.ready();
+        boolean denoise = denoiser != null && denoiser.ready() && !RTDenoiser.BYPASS;
         Matrix4f prevViewProj = null;
         boolean historyValid = false;
         if (denoise) {
@@ -185,7 +187,10 @@ public final class RTGIPass implements RenderPass {
                 push.putFloat(sunRadiance.x).putFloat(sunRadiance.y).putFloat(sunRadiance.z)
                         .putFloat(sunOn ? 1.0f : 0.0f);
                 push.putFloat(ambient.x).putFloat(ambient.y).putFloat(ambient.z).putFloat(0.0f);
-                push.putFloat(toSun.x).putFloat(toSun.y).putFloat(toSun.z).putFloat(0.0f);
+                // lightDir.w = sunVisible 求交 tMax：与 RT 阴影同口径（150）——借用 GI 采样的
+                // 20m 会让远处遮挡者不挡 GI 太阳项，弹射与直接光阴影口径打架
+                push.putFloat(toSun.x).putFloat(toSun.y).putFloat(toSun.z)
+                        .putFloat(RenderingSystem.RT_SHADOW_MAX_DISTANCE);
                 push.flip();
                 cmd.pushConstants(0, push);
                 cmd.dispatch((width + WORKGROUP - 1) / WORKGROUP,
@@ -197,7 +202,9 @@ public final class RTGIPass implements RenderPass {
             return;   // 降噪链未就绪（着色器缺失）：GI 图即最终图，直出 raw
         }
         // temporal：raw + 上帧历史 → 新历史（写另一代；失效判据在 push 的 params.y）
-        Texture histRead = denoiseHistFor(0);
+        // 读代随帧奇偶交替：上一帧 temporal 写的另一代即本帧历史。恒读 slot 0 会让它
+        // 永不被写（累积年龄恒 0），temporal 退化成逐帧直出——ping-pong 必须交替。
+        Texture histRead = denoiseHistFor((int) (ctx.frame().frameIndex() % 2));
         Texture histWrite = renderingSystem.rtDenoiseHistOtherFor(histRead);
         if (histWrite == null) {
             return;   // ping-pong 另一代缺失（不应发生——创建即两代）：退直出

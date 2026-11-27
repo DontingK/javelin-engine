@@ -53,3 +53,5 @@ logs/
 /test-project
 /test
 /.gradle-home
+renderdoc-run.cmd
+renderdoc.args

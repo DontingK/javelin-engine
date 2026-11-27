@@ -147,7 +147,9 @@ public final class RTReflectPass implements RenderPass {
 
         Vector3f sun = renderingSystem.sunDirectionOrNull();
         Vector3f sunRadiance = renderingSystem.sunRadiance();
-        Vector3f ambient = renderingSystem.ambientRadiance();
+        // 反射天光回退走 GI 天光独立来源（原 ambientRadiance 已删——RTGI 档常量项被桥清零，
+        // 共用即断供；与 RTGIPass 同口径，2026-11-28）
+        Vector3f ambient = renderingSystem.giSkyRadiance();
         Vector3f toSun = sun == null ? new Vector3f(0.0f, 1.0f, 0.0f)
                 : new Vector3f(sun).negate().normalize();
         boolean sunOn = sun != null
@@ -155,7 +157,7 @@ public final class RTReflectPass implements RenderPass {
 
         // B8 降噪链（就绪时，与 RTGI 同构）：反射图只作 raw；temporal 写另一代历史，
         // ATrous 两迭代回写本帧反射图（着色端继续只认 rtreflectFor）
-        boolean denoise = denoiser != null && denoiser.ready();
+        boolean denoise = denoiser != null && denoiser.ready() && !RTDenoiser.BYPASS;
         Matrix4f prevViewProj = null;
         boolean historyValid = false;
         if (denoise) {
@@ -209,7 +211,9 @@ public final class RTReflectPass implements RenderPass {
         if (!denoise) {
             return;   // 降噪链未就绪（着色器缺失）：反射图即最终图，直出 raw
         }
-        Texture histRead = denoiseHistFor(0);
+        // 读代随帧奇偶交替：上一帧 temporal 写的另一代即本帧历史。恒读 slot 0 会让它
+        // 永不被写（累积年龄恒 0），temporal 退化成逐帧直出——ping-pong 必须交替。
+        Texture histRead = denoiseHistFor((int) (ctx.frame().frameIndex() % 2));
         Texture histWrite = renderingSystem.rtDenoiseHistOtherFor(histRead);
         if (histWrite == null) {
             return;   // ping-pong 另一代缺失（不应发生——创建即两代）：退直出

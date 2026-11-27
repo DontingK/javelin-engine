@@ -117,6 +117,16 @@ public final class SceneRenderBridge {
             rs.setAmbient(null, 0.0f);
         }
 
+        // GI 天光推送（P4-06 B7 修复，2026-11-28）：RTGI 档的 GI 计算天光源——与上面常量项
+        // 分字段（RTGI 档常量项清零、消费端整项替换；若共用字段 GI 天光即断供，环境项只剩
+        // binary 太阳弹射）。每帧推送、不做身份门控，口径同上。
+        if (ambientMode == AmbientMode.RTGI) {
+            AmbientSetting giSky = environment.getGiSkySetting();
+            rs.setGiSky(giSky.getColor(), giSky.getIntensity());
+        } else {
+            rs.setGiSky(null, 0.0f);
+        }
+
         // 光追三档（P4-06）：归场景 Environment 所有，检查器里就地改、值变才下传。
         // 无环境组件 / 未激活 = 全关（与三期基线一致）。注意 setter 会作废上一帧的派发确认，
         // 所以这里必须门控，不能每帧无脑调。

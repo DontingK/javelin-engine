@@ -10,7 +10,8 @@ import cn.donting.javelin.core.serialize.OutputCapsule;
 import cn.donting.javelin.core.serialize.Serializable;
 
 /**
- * 常量环境光参数组（{@code AmbientMode.CONSTANT} 生效项）。
+ * 常量环境光参数组（{@code AmbientMode.CONSTANT} 生效项；RTGI 档复用为 GI 天光源
+ * {@code Environment.giSkySetting}——进 RTGIPass 的天光项，不进 LightingParamsBlock）。
  *
  * <p>Inspector 内经 {@code @InsFieldGroup} 在 {@code Environment.ambientMode} 选
  * {@code CONSTANT} 时内联展开：颜色 + 强度。颜色按线性值直接进

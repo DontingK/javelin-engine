@@ -53,6 +53,17 @@ public final class RayTracingScene {
     }
 
     /**
+     * 实例掩码口径（2026-11-28 拍板，与 CSM 施法者口径对齐）：
+     * 位 0 = 参与光传输遮挡（不透明且 castShadow——阴影/GI 射线只打这类）；
+     * 位 1 = 反射可见（透明物、castShadow=false 的不透明物——只进反射，不挡光）。
+     * 透明物不挡光的依据同 CSM（透明不投影，Unity 口径）；反射看得见透明物（玻璃）。
+     */
+    public static final int MASK_LIGHT_OCCLUDER = 0x01;
+    public static final int MASK_REFLECT_VISIBLE = 0x02;
+    /** 反射/调试射线 cull mask（两位全要） */
+    public static final int MASK_ALL = MASK_LIGHT_OCCLUDER | MASK_REFLECT_VISIBLE;
+
+    /**
      * 重建 TLAS。
      *
      * @param cmd       录制态命令缓冲
@@ -75,6 +86,8 @@ public final class RayTracingScene {
                 indexTable.add(object);
             }
             instance.transform(object.world());
+            instance.mask(!object.isTransparent() && object.isCastShadow()
+                    ? MASK_LIGHT_OCCLUDER : MASK_REFLECT_VISIBLE);
             instances.add(instance);
         }
         ensureCapacity(instances.size());

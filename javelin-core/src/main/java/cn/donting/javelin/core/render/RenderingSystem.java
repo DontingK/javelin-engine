@@ -174,6 +174,15 @@ public final class RenderingSystem implements AutoCloseable {
     /** 环境项强度（着色端 ambient.rgb * ambient.a 的 a） */
     private float ambientIntensity = 0.0f;
 
+    /**
+     * GI 天光（rgb + 强度）：RTGI 档下 GI 计算的天光源（P4-06 B7 修复，2026-11-28）——
+     * 与常量环境项分字段：RTGI 档常量项被桥清零（消费端整项替换），GI 的天光输入若共用
+     * 该字段即断供。来源 = {@code Environment.giSkySetting}，桥每帧推送。
+     */
+    private final Color giSkyColor = new Color(0.0f, 0.0f, 0.0f, 1.0f);
+    /** GI 天光强度（giSkyRadiance 的乘子） */
+    private float giSkyIntensity = 0.0f;
+
     // ── 主光阴影（批次④ → 四期 CSM，Engine_Lighting_Design §4.5 / Engine_Shadow_Quality_Design §4）──
     /**
      * 阴影图缺省单级联边长（主光组件 {@code shadowResolution} 缺省值；实际分辨率随组件参数
@@ -926,7 +935,11 @@ public final class RenderingSystem implements AutoCloseable {
                                 Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
     }
 
-    /** 降噪历史另一代（ping-pong 反查：拿本代找另一代；查无返回 null） */
+    /**
+     * 降噪历史另一代（ping-pong 反查：拿本代找另一代）。另一半无人显式申请过时**惰性补建**
+     * （2026-11-28 修：此前只查不建，slot 0 被申请、slot 1 永不存在 → 反查恒 null →
+     * 降噪链自首帧起静默退化 raw 直出，temporal/atrous 从未进图）。
+     */
     public Texture rtDenoiseHistOtherFor(Texture generation) {
         String id = Integer.toString(System.identityHashCode(generation));
         Texture direct = rtDenoiseHistOtherIndex.get(id);
@@ -937,7 +950,12 @@ public final class RenderingSystem implements AutoCloseable {
             if (e.getValue() == generation) {
                 String key = e.getKey();
                 int slot = key.charAt(key.length() - 1) - '0';
-                Texture other = rtDenoiseHistTextures.get(key.substring(0, key.length() - 1) + (1 - slot));
+                Texture other = rtDenoiseHistTextures.computeIfAbsent(
+                        key.substring(0, key.length() - 1) + (1 - slot),
+                        n -> device.createTexture(TextureDesc.texture2D(
+                                Format.R16G16B16A16_SFLOAT,
+                                Math.max(1, depthWidth / 2), Math.max(1, depthHeight / 2),
+                                Set.of(TextureUsage.STORAGE, TextureUsage.SAMPLED)), null));
                 rtDenoiseHistOtherIndex.put(id, other);
                 return other;
             }
@@ -1006,10 +1024,11 @@ public final class RenderingSystem implements AutoCloseable {
         return new org.joml.Vector3f(ci[0] * ci[3], ci[1] * ci[3], ci[2] * ci[3]);
     }
 
-    /** 环境辐照度（环境色 × 强度；P4-06 B7 命中点天光项） */
-    public org.joml.Vector3f ambientRadiance() {
-        return new org.joml.Vector3f(ambientColor.r * ambientIntensity,
-                ambientColor.g * ambientIntensity, ambientColor.b * ambientIntensity);
+    /** GI 天光辐照度（GI 天光色 × 强度；P4-06 B7 命中点/通天天光项。原 ambientRadiance
+     * 已删——桥在 RTGI 档清零常量项，读它会复现「天光断供只剩太阳弹射」 */
+    public org.joml.Vector3f giSkyRadiance() {
+        return new org.joml.Vector3f(giSkyColor.r * giSkyIntensity,
+                giSkyColor.g * giSkyIntensity, giSkyColor.b * giSkyIntensity);
     }
     /** 光追阴影混合系数（百分比）：0 = 关（纯 CSM），100 = 全替换，1~99 = 与 CSM 按比例混合 */
     public void setRtShadowMode(int percent) {
@@ -1689,6 +1708,24 @@ public final class RenderingSystem implements AutoCloseable {
         ambientColor.g = color.g;
         ambientColor.b = color.b;
         ambientIntensity = intensity;
+    }
+
+    /**
+     * 设置 GI 天光（P4-06 B7 修复）：RTGI 档下 GI 计算的天光源，桥每帧推送（口径同
+     * {@link #setAmbient}）。color 为 null 或强度 &lt;= 0 即清零（GI 天光按黑，GI 只剩太阳弹射）。
+     */
+    public void setGiSky(Color color, float intensity) {
+        if (color == null || intensity <= 0.0f) {
+            giSkyColor.r = 0.0f;
+            giSkyColor.g = 0.0f;
+            giSkyColor.b = 0.0f;
+            giSkyIntensity = 0.0f;
+            return;
+        }
+        giSkyColor.r = color.r;
+        giSkyColor.g = color.g;
+        giSkyColor.b = color.b;
+        giSkyIntensity = intensity;
     }
 
     /**

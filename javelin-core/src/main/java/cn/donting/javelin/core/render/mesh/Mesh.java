@@ -68,6 +68,8 @@ public class Mesh extends AbsAsset {
     // 以下运行态字段 package-private：MeshUpload/MeshDraw 同包消费（用户侧零 GPU 暴露）；
     // 非 final：序列化反序列化需回写（AGENTS.md 红线 9）
     int indexCount;
+    /** 上传期钉死的顶点数（BLAS/绘制消费；CPU 副本释放后 positions() 为 null，运行态不落盘） */
+    int uploadedVertexCount;
     Buffer vertexBuffer;
     Buffer indexBuffer;
     IndexType indexType;
@@ -329,7 +331,8 @@ public class Mesh extends AbsAsset {
     /** 顶点数（上传前也可由 POSITION 推得） */
     public int vertexCount() {
         float[] positions = positions();
-        return positions == null ? 0 : positions.length / 3;
+        // 上传后 CPU 副本默认释放（attributes 清空）：回退到上传期钉死的缓存值
+        return positions == null ? uploadedVertexCount : positions.length / 3;
     }
 
     /**
@@ -364,7 +367,7 @@ public class Mesh extends AbsAsset {
         if (blas != null) {
             return blas;
         }
-        if (indices == null || indexCount < 3) {
+        if (indexBuffer == null || indexCount < 3) {
             throw new IllegalStateException("网格无索引或索引数不足 3，不能建 BLAS");
         }
         if (indexCount % 3 != 0) {
@@ -395,9 +398,12 @@ public class Mesh extends AbsAsset {
         }
     }
 
-    /** 是否具备建 BLAS 的条件（已上传 + 有三角形索引；P4-06 B2b 场景装配用） */
+    /**
+     * 是否具备建 BLAS 的条件（P4-06 B2b 场景装配用）。看 GPU 侧索引缓冲——上传后默认
+     * 释放 CPU 副本（indices 置 null），不能拿它判；BLAS 构建走顶点/索引缓冲设备地址。
+     */
     public boolean hasTriangles() {
-        return uploaded && indices != null && indexCount >= 3 && indexCount % 3 == 0;
+        return uploaded && indexBuffer != null && indexCount >= 3 && indexCount % 3 == 0;
     }
 
     // ═══ 包内共享（MeshUpload/MeshDraw 消费；勿跨包使用） ═══
