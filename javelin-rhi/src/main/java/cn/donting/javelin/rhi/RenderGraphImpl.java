@@ -369,6 +369,8 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
             TextureLayout backbufferLayout = TextureLayout.UNDEFINED;
 
             for (CompiledGraph.Pass pass : compiled.passes()) {
+                // 调试标签（RenderDoc 事件树按 Pass 名分组；实例未启用 debug_utils 时空操作）
+                cmd.beginDebugLabel(pass.name());
                 // 屏障插入：目标布局 ≠ 当前布局才插（冗余消除，24.3）
                 for (CompiledGraph.Barrier b : pass.barriers()) {
                     long handle = b.texture().handle();
@@ -443,6 +445,7 @@ public final class RenderGraphImpl implements RenderGraphBuilder {
                     if (!pass.compute() && (colorAttachments != null || depthAttachment != null)) {
                         cmd.endRenderPass();
                     }
+                    cmd.endDebugLabel();
                 }
             }
 

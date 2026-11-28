@@ -40,6 +40,8 @@ final class VulkanCommandBuffer implements CommandBuffer {
 
     private final VulkanDevice device;
     private final VkCommandBuffer vkCommandBuffer;
+    /** VK_EXT_debug_utils 门控（实例未启用时调试标签为空操作） */
+    private final boolean debugUtils;
     private boolean recording;
     private boolean inRenderPass;
     private List<CompiledGraph.Attachment> currentColorAttachments;
@@ -48,6 +50,7 @@ final class VulkanCommandBuffer implements CommandBuffer {
     VulkanCommandBuffer(VulkanDevice device, VkCommandBuffer vkCommandBuffer) {
         this.device = device;
         this.vkCommandBuffer = vkCommandBuffer;
+        this.debugUtils = device.instance().debugUtilsEnabled();
     }
 
     VkCommandBuffer vkCommandBuffer() {
@@ -134,6 +137,27 @@ final class VulkanCommandBuffer implements CommandBuffer {
             throw new VulkanException(result, "Failed to end command buffer");
         }
         recording = false;
+    }
+
+    @Override
+    public void beginDebugLabel(String name) {
+        if (!debugUtils) {
+            return;
+        }
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkDebugUtilsLabelEXT label = VkDebugUtilsLabelEXT.calloc(stack);
+            label.sType$Default();
+            label.pLabelName(stack.UTF8(name));
+            EXTDebugUtils.vkCmdBeginDebugUtilsLabelEXT(vkCommandBuffer, label);
+        }
+    }
+
+    @Override
+    public void endDebugLabel() {
+        if (!debugUtils) {
+            return;
+        }
+        EXTDebugUtils.vkCmdEndDebugUtilsLabelEXT(vkCommandBuffer);
     }
 
     @Override

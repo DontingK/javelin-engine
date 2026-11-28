@@ -247,6 +247,11 @@ final class VulkanDevice implements Device {
         CleanerRegistry.register(this, this, descriptorPoolHandle, CleanerRegistry.ResourceType.DESCRIPTOR_POOL);
     }
 
+    /** 所属实例（包内：CommandBuffer 取 debug_utils 门控用） */
+    VulkanInstance instance() {
+        return instance;
+    }
+
     @Override
     public Texture createTexture(TextureDesc desc, UploadData data) {
         checkDisposed();

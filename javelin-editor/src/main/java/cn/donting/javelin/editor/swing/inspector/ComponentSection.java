@@ -89,26 +89,33 @@ public class ComponentSection extends JComponent {
         // 顶对齐（§9 拍板）：RECT 两行形态下 label 与多行控件顶部对齐；
         // 单行控件视觉差 1~2px 可接受（Web 版同口径未用 baseline）
         gbc.anchor = GridBagConstraints.NORTHWEST;
-        // 条件子组（@InsFieldGroup）：父字段名 → 该组状态（组头 + 组内行，成组显隐/折叠）
+        // 条件子组（@InsFieldGroup）：组键（父字段 + 容器路径）→ 该组状态（组头 + 组内行，
+        // 成组显隐/折叠）。一个父字段可挂多个容器（Environment.ambientMode → ambientSetting /
+        // giSkySetting），组键必须含容器路径，否则多组共用一个状态互相覆盖（2026-11-28 实机 bug）
         Map<String, GroupState> groups = new LinkedHashMap<>();
         int row = 0;
         for (InspectorFieldVo field : vo.fields) {
-            // 组头行（组首行携带；占整行宽，点击折叠）——插在该组第一行之前
-            if (field.parentField != null && field.groupLabel != null) {
-                GroupState state = groups.computeIfAbsent(field.parentField, k -> new GroupState());
-                state.collapsed = field.groupCollapsed;
-                JButton header = groupHeader(field.groupLabel, state, panel);
-                gbc.gridy = row++;
-                gbc.gridx = 0;
-                gbc.gridwidth = 2;
-                gbc.fill = GridBagConstraints.HORIZONTAL;
-                gbc.weightx = 1;
-                gbc.insets = new Insets(2, 0, 1, 0);
-                panel.add(header, gbc);
-                // 复位单列布局
-                gbc.gridwidth = 1;
-                gbc.weightx = 0;
-                state.header = header;
+            GroupState state = null;
+            if (field.parentField != null) {
+                state = groups.computeIfAbsent(groupKeyOf(field), k -> new GroupState());
+                state.parentField = field.parentField;
+                state.showKeys = field.showKeys;
+                // 组头行（每组只建一次，插在该组第一行之前；占整行宽，点击折叠）
+                if (field.groupLabel != null && state.header == null) {
+                    state.collapsed = field.groupCollapsed;
+                    JButton header = groupHeader(field.groupLabel, state, panel);
+                    gbc.gridy = row++;
+                    gbc.gridx = 0;
+                    gbc.gridwidth = 2;
+                    gbc.fill = GridBagConstraints.HORIZONTAL;
+                    gbc.weightx = 1;
+                    gbc.insets = new Insets(2, 0, 1, 0);
+                    panel.add(header, gbc);
+                    // 复位单列布局
+                    gbc.gridwidth = 1;
+                    gbc.weightx = 0;
+                    state.header = header;
+                }
             }
             FieldEditor editor = FieldRowFactory.create(field, value ->
                     commit.commit(owner, vo.component, field.fieldName, field.valueType, value));
@@ -130,10 +137,8 @@ public class ComponentSection extends JComponent {
             gbc.insets = new Insets(1, 0, 1, 0);
             JComponent editorComponent = editor.editorComponent();
             panel.add(editorComponent, gbc);
-            if (field.parentField != null) {
+            if (state != null) {
                 // 同组多行共享（label 与控件各一个 cell）——GridBag 忽略不可见组件，成组隐去即整行塌缩
-                GroupState state = groups.computeIfAbsent(field.parentField, k -> new GroupState());
-                state.showKeys = field.showKeys;
                 state.members.add(fieldLabel);
                 state.members.add(editorComponent);
             }
@@ -173,18 +178,18 @@ public class ComponentSection extends JComponent {
     /**
      * 条件子组显隐绑定：父枚举行（{@link JeSelect}）选中值变化 → 整组（含组头）显隐；
      * 组头点击 → 折叠切换（两条件与关系：父值命中且未收起才显示组内行）。
+     * 同一父字段的多个容器组各自独立绑定（各听同一个父编辑器，各按各的 showKeys 显隐）。
      */
     private void bindGroupVisibility(JPanel panel, ComponentInspectorVo vo,
                                      Map<String, GroupState> groups) {
-        for (Map.Entry<String, GroupState> entry : groups.entrySet()) {
-            GroupState state = entry.getValue();
+        for (GroupState state : groups.values()) {
             String parentValue = vo.fields.stream()
-                    .filter(f -> entry.getKey().equals(f.fieldName))
+                    .filter(f -> state.parentField.equals(f.fieldName))
                     .map(f -> f.value)
                     .findFirst().orElse(null);
             state.parentValue = parentValue;
             refreshGroup(state);
-            FieldEditor parentEditor = editors.get(entry.getKey());
+            FieldEditor parentEditor = editors.get(state.parentField);
             if (parentEditor instanceof JeSelect select) {
                 select.addActionListener(e -> {
                     Object selected = select.getSelectedItem();
@@ -195,6 +200,17 @@ public class ComponentSection extends JComponent {
                 });
             }
         }
+    }
+
+    /**
+     * 条件子组的组键：父字段名 + 容器路径（fieldName 去掉末段字段名）。同一父字段挂多个
+     * 容器（如 {@code ambientMode} → {@code ambientSetting}/{@code giSkySetting}）时各成一组，
+     * 显隐条件与成员互不串扰；嵌套组容器路径含全前缀，天然唯一。
+     */
+    private static String groupKeyOf(InspectorFieldVo field) {
+        int dot = field.fieldName.lastIndexOf('.');
+        String container = dot > 0 ? field.fieldName.substring(0, dot) : field.fieldName;
+        return field.parentField + "#" + container;
     }
 
     /** 组显隐：组头随父值命中；组内行还要求未收起 */
@@ -249,6 +265,7 @@ public class ComponentSection extends JComponent {
     /** 条件子组运行态（组头 / 组内行 / 显示条件 / 折叠态） */
     private static final class GroupState {
         private final List<JComponent> members = new ArrayList<>();
+        private String parentField;
         private List<String> showKeys;
         private String parentValue;
         private JButton header;

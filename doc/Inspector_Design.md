@@ -273,6 +273,13 @@
 > 父值命中 **且** 未收起才显示组内行，组头自身只随父值命中（OFF 时组头也隐）。组头信息挂在**组首行**上
 > （`InspectorReflector.collectComponent` 按 `parentField` 首次出现下发、其余行清空，防重复渲染）；
 > 折叠态为面板内运行态，重建后回落注解默认值。首例 = `Camera` 的「TAA 设置」组。
+> v0.29（2026-11-28，实机验收）：**条件子组多容器串扰修复**——一个父字段经 keys/value 挂
+> **多个**容器时（首例 = `Environment.ambientMode` → CONSTANT 展 `ambientSetting` / RTGI 展
+> `giSkySetting`），原实现组状态只按父字段名分桶：showKeys 被后处理容器覆盖、成员混入两组、
+> 组头逐行重建（仅最后一个受显隐管理），表现为「选 RTGI 显示的是常量组/编辑落死字段」。
+> 修 = 组键改「父字段 + 容器路径」（`ComponentSection.groupKeyOf`，fieldName 去末段），
+> 组头每组只建一次；`InspectorReflector` 组头去重键与 `InspectorRowHeightTest` 镜像同口径
+> （否则第二容器永无组头）。单容器用法（Camera TAA）行为不变。
 
 ## 1. 总则
 

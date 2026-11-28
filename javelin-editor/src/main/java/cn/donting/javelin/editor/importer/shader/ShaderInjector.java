@@ -306,7 +306,9 @@ public final class ShaderInjector {
                 vec3 ambientBase = lighting.ambient.rgb * lighting.ambient.a;
                 // 光追 GI（P4-06 B7）：rtgiParams.x = 混合系数。图是半分辨率、与 G-Buffer 逐像素对齐，
                 // 所以直接按 gl_FragCoord 归一到全 backbuffer 采（不投影世界位置，多视口也成立）；
-                // 关档（0）整段不进，常量环境项原样保留
+                // 关档（0）整段不进，常量环境项原样保留。
+                // 注意：GI 不乘 rtShadowMap——阴影区的反弹光本就存在，乘直接光可见性会把
+                // 阴影乘成纯黑（2026-11-28 实测回归）；阴影对比应靠 GI 图自身的遮挡正确性
                 if (lighting.rtgiParams.x > 0.001) {
                     vec2 giUV = gl_FragCoord.xy / max(lighting.rtgiParams.zw, vec2(1.0));
                     vec3 gi = texture(rtgiMap, giUV).rgb;
@@ -501,7 +503,8 @@ public final class ShaderInjector {
                 vec3 diffuse = albedo * (1.0 - metal);
                 vec3 V = normalize(-viewPos);
                 // 环境项：常量基线 → 光追 GI 混合（这里只取漫反射份额，环境镜面由 RT 反射图
-                // 供给（P4-06 B9，见下方 fEnv 段），完整 IBL 归 REND-16）
+                // 供给（P4-06 B9，见下方 fEnv 段），完整 IBL 归 REND-16）。
+                // GI 不乘 rtShadowMap（阴影区反弹光本就存在，乘了阴影成纯黑，2026-11-28 实测回归）
                 vec3 ambientBase = lighting.ambient.rgb * lighting.ambient.a;
                 if (lighting.rtgiParams.x > 0.001) {
                     vec2 giUV = gl_FragCoord.xy / max(lighting.rtgiParams.zw, vec2(1.0));

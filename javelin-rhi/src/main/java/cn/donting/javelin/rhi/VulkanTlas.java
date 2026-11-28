@@ -134,10 +134,13 @@ final class VulkanTlas implements Tlas {
         for (int i = 0; i < count; i++) {
             TlasInstance instance = instances.get(i);
             Matrix4fc m = instance.transform();
-            // 3×4 行主序（VkTransformMatrixKHR），w 行由 Vulkan 侧补 (0,0,0,1)
-            staging.putFloat(m.m00()).putFloat(m.m01()).putFloat(m.m02()).putFloat(m.m03());
-            staging.putFloat(m.m10()).putFloat(m.m11()).putFloat(m.m12()).putFloat(m.m13());
-            staging.putFloat(m.m20()).putFloat(m.m21()).putFloat(m.m22()).putFloat(m.m23());
+            // 3×4 行主序（VkTransformMatrixKHR）：JOML 字段名是 m<列><行>（平移在
+            // m30/m31/m32），按行取 = m00,m10,m20,m30 / m01,... / m02,...。
+            // 曾按 m00..m03 顺序写——那是第 0 列（转置）且平移整段丢失，全部实例几何
+            // 塌到原点附近，射线只有原点附近物体能命中（2026-11-28 RT 阴影全漏实锤）
+            staging.putFloat(m.m00()).putFloat(m.m10()).putFloat(m.m20()).putFloat(m.m30());
+            staging.putFloat(m.m01()).putFloat(m.m11()).putFloat(m.m21()).putFloat(m.m31());
+            staging.putFloat(m.m02()).putFloat(m.m12()).putFloat(m.m22()).putFloat(m.m32());
             // 实例自定义索引 24 位 + 掩码 8 位
             staging.putInt((instance.customIndex() & 0xFFFFFF) | ((instance.mask() & 0xFF) << 24));
             // SBT 记录偏移 24 位（恒 0）+ 实例标志 8 位（bit2 = FORCE_OPAQUE）

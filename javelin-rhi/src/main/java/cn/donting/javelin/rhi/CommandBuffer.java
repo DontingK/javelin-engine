@@ -21,6 +21,15 @@ public interface CommandBuffer extends GPUResource {
     void end();
 
     /**
+     * 开始调试标签（RenderDoc 等抓帧工具的事件树按标签分组；RenderGraph 执行器逐 Pass
+     * 调用，名 = Pass 名）。实例未启用 VK_EXT_debug_utils 时为空操作。
+     */
+    void beginDebugLabel(String name);
+
+    /** 结束调试标签（与 {@link #beginDebugLabel} 配对） */
+    void endDebugLabel();
+
+    /**
      * 原生 {@code VkCommandBuffer} 句柄（扩展命令逃生口：光追 AS 构建等本接口尚未覆盖的
      * 族，P4-06 B2）。通用绘制/屏障仍走本接口方法，不要绕开依赖图。
      */

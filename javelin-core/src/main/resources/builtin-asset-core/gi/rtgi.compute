@@ -70,6 +70,13 @@ float radicalInverse(uint bits) {
     return float(bits) * 2.3283064365386963e-10;
 }
 
+// 精度安全的二维 hash（无 sin——大坐标下 sin 系 hash 精度会崩）
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
 vec2 hammersley(int i, int n) {
     return vec2(float(i) / float(max(n, 1)), radicalInverse(uint(i)));
 }
@@ -124,14 +131,19 @@ void main() {
     vec3 origin = wp.xyz + n * pc.params.w;
     int spp = max(int(pc.params.x), 1);
     float tmax = pc.params.y;
-    // 每帧旋转 Hammersley 的索引起点：跨帧累积（B8）时样本分布不重复
-    int frameShift = int(pc.params.z) * 7;
+    // 逐像素 × 逐帧抖动（Cranley–Patterson 旋转）：同一组 Hammersley 分层样本按像素/帧
+    // 整体平移，半球覆盖随时域累积真正展开。原「frameShift 旋转索引起点」是空操作——
+    // (i+s)%spp 只重排同一组方向、集合不变：跨帧零新样本且全屏像素同方向，命中/打空
+    // 边界在墙面上结成结构化弧带、降噪也抹不掉（2026-11-28 实锤）。帧号取模防精度损失
+    float frame = mod(pc.params.z, 1024.0);
+    vec2 jitter = vec2(hash12(vec2(px) + frame * 17.0),
+                       hash12(vec2(px) + frame * 29.0 + 137.0));
     // 指向光源的单位方向（命中点 ndl 用同一份）
     vec3 L = normalize(pc.lightDir.xyz);
 
     vec3 acc = vec3(0.0);
     for (int i = 0; i < spp; i++) {
-        vec2 u = hammersley((i + frameShift) % spp, spp);
+        vec2 u = fract(hammersley(i, spp) + jitter);
         vec3 dir = cosineHemisphere(u, n);
 
         rayQueryEXT q;

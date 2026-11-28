@@ -260,10 +260,16 @@ public class InspectorRowHeightTest extends EditorLangTestBase {
                 continue;
             }
             InspectorFieldVo fieldVo = InspectorMeta.fieldVo(component, prop);
-            if (fieldVo.parentField != null && !groupSeen.contains(fieldVo.parentField)) {
-                groupSeen.add(fieldVo.parentField);
-            } else if (fieldVo.parentField != null) {
-                fieldVo.groupLabel = null;
+            if (fieldVo.parentField != null) {
+                // 与 InspectorReflector 同口径：组头去重键 = 父字段 + 容器路径
+                int dot = fieldVo.fieldName.lastIndexOf('.');
+                String groupKey = fieldVo.parentField + "#"
+                        + (dot > 0 ? fieldVo.fieldName.substring(0, dot) : fieldVo.fieldName);
+                if (!groupSeen.contains(groupKey)) {
+                    groupSeen.add(groupKey);
+                } else {
+                    fieldVo.groupLabel = null;
+                }
             }
             vo.fields.add(fieldVo);
         }

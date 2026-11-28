@@ -35,6 +35,8 @@ final class VulkanInstance implements Instance {
 
     private final VkInstance vkInstance;
     private final boolean debug;
+    /** VK_EXT_debug_utils 已启用（CommandBuffer 调试标签的门控；debug 档必开，否则本机可用即开） */
+    private final boolean debugUtils;
     private volatile boolean disposed;
 
     /** 校验层消息回调（LWJGL Callback 靠 native 地址存活，必须强引用到 dispose） */
@@ -64,7 +66,10 @@ final class VulkanInstance implements Instance {
             extensions.add(VK_KHR_SURFACE_EXTENSION_NAME);
             extensions.add(platform.surfaceExtension);
 
-            if (debug) {
+            // debug_utils：debug 档必开（校验层 messenger 依赖）；非 debug 档本机可用即开——
+            // RenderDoc 抓帧靠 CommandBuffer 的 Pass 名标签定位事件（RenderGraphImpl 逐 Pass 打）
+            debugUtils = debug || isExtensionAvailable(stack, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            if (debugUtils) {
                 extensions.add(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             }
 
@@ -176,6 +181,11 @@ final class VulkanInstance implements Instance {
         return debug;
     }
 
+    /** VK_EXT_debug_utils 已启用（CommandBuffer 调试标签的门控） */
+    boolean debugUtilsEnabled() {
+        return debugUtils;
+    }
+
     @Override
     public void dispose() {
         if (disposed) return;
@@ -216,6 +226,30 @@ final class VulkanInstance implements Instance {
         }
         for (int i = 0; i < count; i++) {
             if (layerName.equals(layers.get(i).layerNameString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 枚举实例扩展，检查指定扩展是否存在于本机 */
+    private static boolean isExtensionAvailable(MemoryStack stack, String extensionName) {
+        IntBuffer countBuf = stack.mallocInt(1);
+        int result = vkEnumerateInstanceExtensionProperties((CharSequence) null, countBuf, null);
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+        int count = countBuf.get(0);
+        if (count == 0) {
+            return false;
+        }
+        VkExtensionProperties.Buffer properties = VkExtensionProperties.malloc(count, stack);
+        result = vkEnumerateInstanceExtensionProperties((CharSequence) null, countBuf, properties);
+        if (result != VK_SUCCESS) {
+            return false;
+        }
+        for (int i = 0; i < count; i++) {
+            if (extensionName.equals(properties.get(i).extensionNameString())) {
                 return true;
             }
         }

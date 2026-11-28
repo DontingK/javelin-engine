@@ -185,7 +185,9 @@ public final class InspectorReflector {
         vo.enabled = component.isEnabled();
         vo.required = required;
         vo.fields = new ArrayList<>();
-        // 条件子组的组头只挂在组内首行（其余行 groupLabel 清空，避免重复渲染组头）
+        // 条件子组的组头只挂在组内首行（其余行 groupLabel 清空，避免重复渲染组头）。
+        // 去重键 = 父字段 + 容器路径（与 ComponentSection 组键同口径）：同一父字段挂多个
+        // 容器（Environment.ambientMode → ambientSetting/giSkySetting）时各容器各有组头
         List<String> groupSeen = new ArrayList<>();
         for (InspectorMeta.PropMeta prop : InspectorMeta.propsOf(component.getClass())) {
             if ("enabled".equals(prop.fieldName)) {
@@ -197,10 +199,15 @@ public final class InspectorReflector {
                 continue;
             }
             InspectorFieldVo fieldVo = InspectorMeta.fieldVo(component, prop);
-            if (fieldVo.parentField != null && !groupSeen.contains(fieldVo.parentField)) {
-                groupSeen.add(fieldVo.parentField);
-            } else if (fieldVo.parentField != null) {
-                fieldVo.groupLabel = null;
+            if (fieldVo.parentField != null) {
+                int dot = fieldVo.fieldName.lastIndexOf('.');
+                String groupKey = fieldVo.parentField + "#"
+                        + (dot > 0 ? fieldVo.fieldName.substring(0, dot) : fieldVo.fieldName);
+                if (!groupSeen.contains(groupKey)) {
+                    groupSeen.add(groupKey);
+                } else {
+                    fieldVo.groupLabel = null;
+                }
             }
             vo.fields.add(fieldVo);
         }
